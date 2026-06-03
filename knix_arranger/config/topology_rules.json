@@ -1,0 +1,27 @@
+{
+  "rules": [
+    {"id": "T-01", "source": "KNX Standard", "description": "Max. 256 Busteilnehmer pro Linie (TP-256)", "max_value": 256},
+    {"id": "T-02", "source": "KNX Standard", "description": "Max. 64 Busteilnehmer pro Liniensegment (TP-64, Altanlagen)", "max_value": 64},
+    {"id": "T-03", "source": "KNX Swiss 8.3.2", "description": "Empfehlung: 85 Teilnehmer planen, max. 100 realisieren", "recommended": 85, "max_realized": 100},
+    {"id": "T-04", "source": "KNX Standard", "description": "Max. 15 Linien pro Bereich (Hauptlinie)", "max_value": 15},
+    {"id": "T-05", "source": "KNX Standard", "description": "Max. 15 Bereiche (Bereichslinie/Backbone)", "max_value": 15},
+    {"id": "T-06", "source": "KNX Standard", "description": "Jede Linie/Hauptlinie/Bereichslinie benoetigt eigene Spannungsversorgung", "type": "requirement"},
+    {"id": "T-07", "source": "KNX Standard", "description": "Max. Leitungslaenge 1.000 m pro Liniensegment", "max_value": 1000, "unit": "m"},
+    {"id": "T-08", "source": "KNX Standard", "description": "Erlaubte Strukturen: Stern, Linie, Baum (keine Ringe)", "type": "constraint"},
+    {"id": "T-09", "source": "KNX Standard", "description": "Physikalische Adresse: A.L.0 = Koppler, A.L.1-255 = Teilnehmer", "type": "addressing"},
+    {"id": "T-10", "source": "KNX Swiss 7.1", "description": "Topologie soll Gebaeudestruktur widerspiegeln (Bereich=Fluegel, Linie=Stockwerk)", "type": "recommendation"},
+    {"id": "T-11", "source": "KNX Standard", "description": "Keine Linienverstaerker auf der Bereichslinie erlaubt", "type": "constraint"}
+  ],
+  "physical_address_ranges": {
+    "actors": {"start": 1, "end": 100, "description": "Aktoren"},
+    "sensors": {"start": 101, "end": 199, "description": "Sensoren"},
+    "reserve": {"start": 200, "end": 249, "description": "Reserve"},
+    "interfaces": {"start": 250, "end": 255, "description": "Schnittstellen"}
+  },
+  "physical_address_ranges_small": {
+    "actors": {"start": 1, "end": 20, "description": "Aktoren (klein)"},
+    "sensors": {"start": 21, "end": 40, "description": "Sensoren (klein)"},
+    "reserve": {"start": 41, "end": 62, "description": "Reserve (klein)"},
+    "interfaces": {"start": 250, "end": 255, "description": "Schnittstellen"}
+  }
+}

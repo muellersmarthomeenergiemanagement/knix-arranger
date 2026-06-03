@@ -1,0 +1,227 @@
+{
+  "templates": [
+    {
+      "id": "efh",
+      "name": "Einfamilienhaus (EFH)",
+      "description": "Typisches EFH mit UG, EG, OG, DG",
+      "floors": [
+        {
+          "name": "Untergeschoss", "short_code": "UG", "main_group": 1,
+          "apartments": [{"name": "UG", "rooms": [
+            {"number": "U01", "name": "Keller"},
+            {"number": "U02", "name": "Technikraum"},
+            {"number": "U03", "name": "Waschkueche"},
+            {"number": "U04", "name": "Hobbyraum"}
+          ]}]
+        },
+        {
+          "name": "Erdgeschoss", "short_code": "EG", "main_group": 2,
+          "apartments": [{"name": "EG", "rooms": [
+            {"number": "E01", "name": "Eingang/Garderobe"},
+            {"number": "E02", "name": "Wohnzimmer"},
+            {"number": "E03", "name": "Kueche"},
+            {"number": "E04", "name": "Esszimmer"},
+            {"number": "E05", "name": "WC"}
+          ]}]
+        },
+        {
+          "name": "Obergeschoss", "short_code": "OG", "main_group": 3,
+          "apartments": [{"name": "OG", "rooms": [
+            {"number": "O01", "name": "Schlafzimmer"},
+            {"number": "O02", "name": "Kinderzimmer 1"},
+            {"number": "O03", "name": "Kinderzimmer 2"},
+            {"number": "O04", "name": "Badezimmer"},
+            {"number": "O05", "name": "Buero"}
+          ]}]
+        },
+        {
+          "name": "Dachgeschoss", "short_code": "DG", "main_group": 4,
+          "apartments": [{"name": "DG", "rooms": [
+            {"number": "D01", "name": "Estrich"},
+            {"number": "D02", "name": "Gaestezimmer"}
+          ]}]
+        }
+      ]
+    },
+    {
+      "id": "mfh",
+      "name": "Mehrfamilienhaus (MFH)",
+      "description": "MFH mit 3 Stockwerken und je 2 Wohnungen",
+      "floors": [
+        {
+          "name": "Untergeschoss", "short_code": "UG", "main_group": 1,
+          "apartments": [{"name": "Allgemein", "rooms": [
+            {"number": "U01", "name": "Veloraum"},
+            {"number": "U02", "name": "Technikraum"},
+            {"number": "U03", "name": "Waschkueche"}
+          ]}]
+        },
+        {
+          "name": "Erdgeschoss", "short_code": "EG", "main_group": 2,
+          "apartments": [
+            {"name": "Wohnung 1", "rooms": [
+              {"number": "E01", "name": "Wohnzimmer"},
+              {"number": "E02", "name": "Schlafzimmer"},
+              {"number": "E03", "name": "Kueche/Bad"}
+            ]},
+            {"name": "Wohnung 2", "rooms": [
+              {"number": "E04", "name": "Wohnzimmer"},
+              {"number": "E05", "name": "Schlafzimmer"},
+              {"number": "E06", "name": "Kueche/Bad"}
+            ]}
+          ]
+        },
+        {
+          "name": "1. Obergeschoss", "short_code": "1.OG", "main_group": 3,
+          "apartments": [
+            {"name": "Wohnung 3", "rooms": [
+              {"number": "O01", "name": "Wohnzimmer"},
+              {"number": "O02", "name": "Schlafzimmer"},
+              {"number": "O03", "name": "Kueche/Bad"}
+            ]},
+            {"name": "Wohnung 4", "rooms": [
+              {"number": "O04", "name": "Wohnzimmer"},
+              {"number": "O05", "name": "Schlafzimmer"},
+              {"number": "O06", "name": "Kueche/Bad"}
+            ]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "zweckbau",
+      "name": "Zweckbau / Gewerbe",
+      "description": "Buerogebaeude mit 2 Stockwerken",
+      "floors": [
+        {
+          "name": "Erdgeschoss", "short_code": "EG", "main_group": 1,
+          "apartments": [
+            {"name": "Zone Nord", "rooms": [
+              {"number": "E01", "name": "Empfang"},
+              {"number": "E02", "name": "Buero 1"},
+              {"number": "E03", "name": "Buero 2"}
+            ]},
+            {"name": "Zone Sued", "rooms": [
+              {"number": "E04", "name": "Sitzungszimmer"},
+              {"number": "E05", "name": "Buero 3"},
+              {"number": "E06", "name": "Kueche"}
+            ]}
+          ]
+        },
+        {
+          "name": "1. Obergeschoss", "short_code": "1.OG", "main_group": 2,
+          "apartments": [
+            {"name": "Zone Nord", "rooms": [
+              {"number": "O01", "name": "Grossraumbuero"},
+              {"number": "O02", "name": "Buero 4"}
+            ]},
+            {"name": "Zone Sued", "rooms": [
+              {"number": "O03", "name": "Grossraumbuero"},
+              {"number": "O04", "name": "Serverraum"}
+            ]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "efh_klein",
+      "name": "EFH Klein (2 Stockwerke)",
+      "description": "Kleines Einfamilienhaus mit EG und OG",
+      "floors": [
+        {
+          "name": "Erdgeschoss", "short_code": "EG", "main_group": 2,
+          "apartments": [{"name": "EG", "rooms": [
+            {"number": "E01", "name": "Eingang"},
+            {"number": "E02", "name": "Wohnzimmer"},
+            {"number": "E03", "name": "Kueche"},
+            {"number": "E04", "name": "WC"}
+          ]}]
+        },
+        {
+          "name": "Obergeschoss", "short_code": "OG", "main_group": 3,
+          "apartments": [{"name": "OG", "rooms": [
+            {"number": "O01", "name": "Schlafzimmer"},
+            {"number": "O02", "name": "Kinderzimmer"},
+            {"number": "O03", "name": "Badezimmer"}
+          ]}]
+        }
+      ]
+    },
+    {
+      "id": "chalet",
+      "name": "Chalet / Ferienhaus",
+      "description": "Ferienhaus mit Keller, Erdgeschoss und Obergeschoss",
+      "floors": [
+        {
+          "name": "Untergeschoss", "short_code": "UG", "main_group": 1,
+          "apartments": [{"name": "UG", "rooms": [
+            {"number": "U01", "name": "Technikraum"},
+            {"number": "U02", "name": "Hobbyraum"},
+            {"number": "U03", "name": "Sauna"}
+          ]}]
+        },
+        {
+          "name": "Erdgeschoss", "short_code": "EG", "main_group": 2,
+          "apartments": [{"name": "EG", "rooms": [
+            {"number": "E01", "name": "Eingang"},
+            {"number": "E02", "name": "Wohnzimmer"},
+            {"number": "E03", "name": "Kueche/Essen"},
+            {"number": "E04", "name": "WC"},
+            {"number": "E05", "name": "Schlafzimmer 1"}
+          ]}]
+        },
+        {
+          "name": "Obergeschoss", "short_code": "OG", "main_group": 3,
+          "apartments": [{"name": "OG", "rooms": [
+            {"number": "O01", "name": "Schlafzimmer 2"},
+            {"number": "O02", "name": "Schlafzimmer 3"},
+            {"number": "O03", "name": "Badezimmer"},
+            {"number": "O04", "name": "Galerie/Lounge"}
+          ]}]
+        }
+      ]
+    },
+    {
+      "id": "hotel_klein",
+      "name": "Hotel Klein",
+      "description": "Kleines Hotel mit Rezeption, 2 Stockwerken Zimmer",
+      "floors": [
+        {
+          "name": "Erdgeschoss", "short_code": "EG", "main_group": 1,
+          "apartments": [{"name": "Rezeption", "rooms": [
+            {"number": "E01", "name": "Rezeption"},
+            {"number": "E02", "name": "Lobby"},
+            {"number": "E03", "name": "Fruehstuecksraum"},
+            {"number": "E04", "name": "Technik"}
+          ]}]
+        },
+        {
+          "name": "1. Obergeschoss", "short_code": "1.OG", "main_group": 2,
+          "apartments": [
+            {"name": "Zimmer 101-103", "rooms": [
+              {"number": "101", "name": "Zimmer 101"},
+              {"number": "102", "name": "Zimmer 102"},
+              {"number": "103", "name": "Zimmer 103 (Suite)"}
+            ]},
+            {"name": "Korridor 1.OG", "rooms": [
+              {"number": "K11", "name": "Korridor"}
+            ]}
+          ]
+        },
+        {
+          "name": "2. Obergeschoss", "short_code": "2.OG", "main_group": 3,
+          "apartments": [
+            {"name": "Zimmer 201-203", "rooms": [
+              {"number": "201", "name": "Zimmer 201"},
+              {"number": "202", "name": "Zimmer 202"},
+              {"number": "203", "name": "Zimmer 203 (Suite)"}
+            ]},
+            {"name": "Korridor 2.OG", "rooms": [
+              {"number": "K21", "name": "Korridor"}
+            ]}
+          ]
+        }
+      ]
+    }
+  ]
+}

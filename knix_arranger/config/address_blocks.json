@@ -1,0 +1,115 @@
+{
+  "blocks": {
+    "light_5_a": {
+      "description": "Licht 5er-Block Variante A (inkl. RM)",
+      "gewerk_codes": ["L", "LD", "LDA", "S", "SD", "DMX"],
+      "block_size": 5,
+      "middle_group": 0,
+      "entries": [
+        {"offset": 0, "function": "E/A", "dpt": "DPST-1-1", "is_feedback": false},
+        {"offset": 1, "function": "DIM", "dpt": "DPST-3-7", "is_feedback": false},
+        {"offset": 2, "function": "WERT", "dpt": "DPST-5-1", "is_feedback": false},
+        {"offset": 3, "function": "RM", "dpt": "DPST-1-1", "is_feedback": true},
+        {"offset": 4, "function": "RM WERT", "dpt": "DPST-5-1", "is_feedback": true}
+      ]
+    },
+    "light_5_b": {
+      "description": "Licht 5er-Block Variante B (ohne RM)",
+      "gewerk_codes": ["L", "LD", "LDA", "S", "SD", "DMX"],
+      "block_size": 5,
+      "middle_group": 0,
+      "entries": [
+        {"offset": 0, "function": "E/A", "dpt": "DPST-1-1", "is_feedback": false},
+        {"offset": 1, "function": "DIM", "dpt": "DPST-3-7", "is_feedback": false},
+        {"offset": 2, "function": "WERT", "dpt": "DPST-5-1", "is_feedback": false},
+        {"offset": 3, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 4, "function": "", "dpt": "", "is_reserve": true}
+      ]
+    },
+    "light_feedback_b": {
+      "description": "Licht-Rueckmeldung Variante B (MG 6)",
+      "gewerk_codes": ["L", "LD", "LDA", "S", "SD", "DMX"],
+      "block_size": 5,
+      "middle_group": 6,
+      "entries": [
+        {"offset": 0, "function": "RM", "dpt": "DPST-1-1", "is_feedback": true},
+        {"offset": 1, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 2, "function": "RM WERT", "dpt": "DPST-5-1", "is_feedback": true},
+        {"offset": 3, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 4, "function": "", "dpt": "", "is_reserve": true}
+      ]
+    },
+    "jalousie_10_a": {
+      "description": "Jalousie 10er-Block Variante A (inkl. Status)",
+      "gewerk_codes": ["J", "R", "M", "T", "F", "DF", "FG"],
+      "block_size": 10,
+      "middle_group": 1,
+      "entries": [
+        {"offset": 0, "function": "AUF/AB", "dpt": "DPST-1-8", "is_feedback": false},
+        {"offset": 1, "function": "STOPP", "dpt": "DPST-1-7", "is_feedback": false},
+        {"offset": 2, "function": "POSITION HOEHE", "dpt": "DPST-5-1", "is_feedback": false},
+        {"offset": 3, "function": "POSITION LAMELLEN", "dpt": "DPST-5-1", "is_feedback": false},
+        {"offset": 4, "function": "BESCHATTUNG", "dpt": "DPST-1-8", "is_feedback": false},
+        {"offset": 5, "function": "SPERREN", "dpt": "DPST-1-1", "is_feedback": false},
+        {"offset": 6, "function": "STATUS POSITION HOEHE", "dpt": "DPST-5-1", "is_feedback": true},
+        {"offset": 7, "function": "STATUS POSITION LAMELLEN", "dpt": "DPST-5-1", "is_feedback": true},
+        {"offset": 8, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 9, "function": "", "dpt": "", "is_reserve": true}
+      ]
+    },
+    "jalousie_10_b": {
+      "description": "Jalousie 10er-Block Variante B (ohne Status)",
+      "gewerk_codes": ["J", "R", "M", "T", "F", "DF", "FG"],
+      "block_size": 10,
+      "middle_group": 1,
+      "entries": [
+        {"offset": 0, "function": "AUF/AB", "dpt": "DPST-1-8", "is_feedback": false},
+        {"offset": 1, "function": "STOPP", "dpt": "DPST-1-7", "is_feedback": false},
+        {"offset": 2, "function": "POSITION HOEHE", "dpt": "DPST-5-1", "is_feedback": false},
+        {"offset": 3, "function": "POSITION LAMELLEN", "dpt": "DPST-5-1", "is_feedback": false},
+        {"offset": 4, "function": "BESCHATTUNG", "dpt": "DPST-1-8", "is_feedback": false},
+        {"offset": 5, "function": "SPERREN", "dpt": "DPST-1-1", "is_feedback": false},
+        {"offset": 6, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 7, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 8, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 9, "function": "", "dpt": "", "is_reserve": true}
+      ]
+    },
+    "jalousie_feedback_b": {
+      "description": "Jalousie-Rueckmeldung Variante B (MG 7)",
+      "gewerk_codes": ["J", "R", "M", "T", "F", "DF", "FG"],
+      "block_size": 10,
+      "middle_group": 7,
+      "entries": [
+        {"offset": 0, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 1, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 2, "function": "STATUS POSITION HOEHE", "dpt": "DPST-5-1", "is_feedback": true},
+        {"offset": 3, "function": "STATUS POSITION LAMELLEN", "dpt": "DPST-5-1", "is_feedback": true},
+        {"offset": 4, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 5, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 6, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 7, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 8, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 9, "function": "", "dpt": "", "is_reserve": true}
+      ]
+    },
+    "heating_10": {
+      "description": "Heizung 10er-Block",
+      "gewerk_codes": ["H", "TF", "WP"],
+      "block_size": 10,
+      "middle_group": 2,
+      "entries": [
+        {"offset": 0, "function": "STELLGROESSE", "dpt": "DPST-5-1", "is_feedback": false},
+        {"offset": 1, "function": "IST", "dpt": "DPST-9-1", "is_feedback": false},
+        {"offset": 2, "function": "BASIS-SOLL", "dpt": "DPST-9-1", "is_feedback": false},
+        {"offset": 3, "function": "RM AKTUELLER SOLLWERT", "dpt": "DPST-9-1", "is_feedback": true},
+        {"offset": 4, "function": "UMSCHALTEN BETRIEBSART", "dpt": "DPST-20-102", "is_feedback": false},
+        {"offset": 5, "function": "STATUS BETRIEBSART", "dpt": "DPST-20-102", "is_feedback": true},
+        {"offset": 6, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 7, "function": "", "dpt": "", "is_reserve": true},
+        {"offset": 8, "function": "STOERUNG", "dpt": "DPST-1-1", "is_feedback": false},
+        {"offset": 9, "function": "SPERREN", "dpt": "DPST-1-1", "is_feedback": false}
+      ]
+    }
+  }
+}

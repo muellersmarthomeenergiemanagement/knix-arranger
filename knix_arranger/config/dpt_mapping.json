@@ -1,0 +1,35 @@
+{
+  "function_to_dpt": {
+    "E/A": "DPST-1-1",
+    "DIM": "DPST-3-7",
+    "WERT": "DPST-5-1",
+    "RM": "DPST-1-1",
+    "RM WERT": "DPST-5-1",
+    "AUF/AB": "DPST-1-8",
+    "STOPP": "DPST-1-7",
+    "POSITION HOEHE": "DPST-5-1",
+    "POSITION LAMELLEN": "DPST-5-1",
+    "BESCHATTUNG": "DPST-1-8",
+    "SPERREN": "DPST-1-1",
+    "STATUS POSITION HOEHE": "DPST-5-1",
+    "STATUS POSITION LAMELLEN": "DPST-5-1",
+    "STELLGROESSE": "DPST-5-1",
+    "IST": "DPST-9-1",
+    "BASIS-SOLL": "DPST-9-1",
+    "RM AKTUELLER SOLLWERT": "DPST-9-1",
+    "UMSCHALTEN BETRIEBSART": "DPST-20-102",
+    "STATUS BETRIEBSART": "DPST-20-102",
+    "STOERUNG": "DPST-1-1",
+    "SZENE": "DPST-17-1"
+  },
+  "dpt_descriptions": {
+    "DPST-1-1": "1-Bit Schalten (Ein/Aus)",
+    "DPST-1-7": "1-Bit Stopp/Schritt",
+    "DPST-1-8": "1-Bit Auf/Ab",
+    "DPST-3-7": "4-Bit Dimmen",
+    "DPST-5-1": "8-Bit Prozentwert (0-100%)",
+    "DPST-9-1": "16-Bit Temperatur (Grad Celsius)",
+    "DPST-17-1": "8-Bit Szenennummer",
+    "DPST-20-102": "8-Bit HVAC-Betriebsart"
+  }
+}

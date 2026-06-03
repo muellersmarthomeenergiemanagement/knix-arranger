@@ -1,0 +1,21 @@
+{
+  "terms": {
+    "Gruppenadresse": "Adresse logique dans le systeme KNX (format: Principal/Intermediaire/Sous)",
+    "Hauptgruppe": "Niveau hierarchique superieur de la structure AG (0-31)",
+    "Mittelgruppe": "Niveau hierarchique intermediaire (0-7)",
+    "Untergruppe": "Niveau inferieur avec l'adresse effective de l'appareil (0-255)",
+    "Datenpunkttyp": "Type de donnees standardise pour les objets de communication KNX (DPT/DPST)",
+    "Physikalische Adresse": "Identification unique de l'appareil (format: Zone.Ligne.Participant)",
+    "Linie": "Plus petite unite d'installation topologique, max. 256 participants au bus",
+    "Bereich": "Regroupement de 15 lignes max. via une ligne principale",
+    "Linienkoppler": "Connecte la ligne subordonnee a la ligne principale (adresse: Z.L.0)",
+    "Bereichskoppler": "Connecte la ligne principale a la ligne de zone/backbone (adresse: Z.0.0)",
+    "Backbone": "Connexion de 15 zones max. (TP ou IP)",
+    "Gewerk": "Domaine fonctionnel du batiment (p.ex. eclairage, stores, chauffage)",
+    "Aktor": "Appareil KNX executant des commandes de commutation (p.ex. actionneur de commutation, variateur)",
+    "Sensor": "Appareil KNX captant les operations (p.ex. bouton-poussoir, detecteur de presence)",
+    "Rueckmeldung": "Retour d'etat d'un actionneur sur le bus",
+    "Szene": "Combinaison predefinie de commandes de commutation pour plusieurs corps de metier",
+    "Zentraladresse": "Adresse de groupe inter-etages dans le groupe principal 0"
+  }
+}

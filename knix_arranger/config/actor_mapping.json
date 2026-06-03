@@ -1,0 +1,44 @@
+{
+  "gewerk_to_actor": {
+    "L": {"actor_type": "Schaltaktor", "description": "Ein/Aus-Schalten von Licht"},
+    "LD": {"actor_type": "Dimmaktor", "description": "Dimmbares Licht"},
+    "LDA": {"actor_type": "DALI-Gateway", "description": "DALI-gesteuertes Licht"},
+    "J": {"actor_type": "Jalousieaktor", "description": "Auf/Ab, Positionierung, Lamellen"},
+    "R": {"actor_type": "Jalousieaktor", "description": "Rollladen Auf/Ab, Positionierung"},
+    "M": {"actor_type": "Jalousieaktor", "description": "Markise Auf/Ab"},
+    "T": {"actor_type": "Jalousieaktor", "description": "Tagesvorhang Auf/Ab"},
+    "H": {"actor_type": "Heizungsaktor", "description": "Stellantrieb, Ventilsteuerung"},
+    "S": {"actor_type": "Schaltaktor", "description": "Schaltbare Steckdose"},
+    "SD": {"actor_type": "Dimmaktor", "description": "Dimmbare Steckdose"},
+    "V": {"actor_type": "Schaltaktor", "description": "Ventilator Ein/Aus/Stufen"},
+    "G": {"actor_type": "Schaltaktor", "description": "Garagentor"},
+    "DF": {"actor_type": "Schaltaktor", "description": "Dachfenster"},
+    "BW": {"actor_type": "Schaltaktor", "description": "Bewaesserung"},
+    "BL": {"actor_type": "Schaltaktor", "description": "Beamer-Lift"},
+    "P": {"actor_type": "Schaltaktor", "description": "Pumpe"},
+    "LW": {"actor_type": "Schaltaktor", "description": "Leinwand"},
+    "TVL": {"actor_type": "Schaltaktor", "description": "TV-Lift"},
+    "F": {"actor_type": "Jalousieaktor", "description": "Fenster"},
+    "FG": {"actor_type": "Jalousieaktor", "description": "Fliegengitter"},
+    "MM": {"actor_type": "KNX-Schnittstelle", "description": "Multimedia-Gateway (IP-KNX-Gateway)"},
+    "WP": {"actor_type": "Modbus-KNX-Gateway", "description": "Waermepumpe-Gateway (Modbus-KNX)"}
+  },
+  "actor_channels": {
+    "Schaltaktor": [4, 8, 12, 16],
+    "Dimmaktor": [1, 2, 4],
+    "Jalousieaktor": [2, 4, 8],
+    "Heizungsaktor": [4, 6, 8, 12],
+    "DALI-Gateway": [16, 32, 64],
+    "KNX-Schnittstelle": [1, 2, 4],
+    "Modbus-KNX-Gateway": [1]
+  },
+  "time_estimates": {
+    "Schaltaktor": {"mounting_h": 0.25, "programming_h_per_channel": 0.5, "commissioning_h_per_channel": 0.15},
+    "Dimmaktor": {"mounting_h": 0.25, "programming_h_per_channel": 0.75, "commissioning_h_per_channel": 0.25},
+    "Jalousieaktor": {"mounting_h": 0.25, "programming_h_per_channel": 0.75, "commissioning_h_per_channel": 0.25},
+    "Heizungsaktor": {"mounting_h": 0.25, "programming_h_per_channel": 0.5, "commissioning_h_per_channel": 0.2},
+    "DALI-Gateway": {"mounting_h": 0.5, "programming_h_per_channel": 0.5, "commissioning_h_per_channel": 0.25},
+    "KNX-Schnittstelle": {"mounting_h": 0.5, "programming_h_per_channel": 1.0, "commissioning_h_per_channel": 0.5},
+    "Modbus-KNX-Gateway": {"mounting_h": 0.5, "programming_h_per_channel": 1.5, "commissioning_h_per_channel": 0.5}
+  }
+}

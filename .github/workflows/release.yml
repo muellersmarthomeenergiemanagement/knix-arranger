@@ -1,0 +1,61 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Extract version from tag
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          echo "VERSION=$version" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Set version in source files
+        run: |
+          $content = Get-Content "knix_arranger/__init__.py" -Raw
+          $content = $content -replace '__version__\s*=\s*"[^"]+"', "__version__ = `"$env:VERSION`""
+          Set-Content "knix_arranger/__init__.py" $content -Encoding utf8
+
+          $iss = Get-Content "setup.iss" -Raw
+          $iss = $iss -replace '(#define AppVersion\s+")([^"]+)(")', "`${1}$env:VERSION`${3}"
+          Set-Content "setup.iss" $iss -Encoding utf8
+        shell: pwsh
+
+      - name: Build with PyInstaller
+        run: python build.py
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Compile installer
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss'
+        shell: pwsh
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          gh release create "v$env:VERSION" `
+            "installer/KNiX_Arranger_Setup_v$env:VERSION.exe" `
+            --repo muellersmarthomeenergiemanagement/knix-arranger-releases `
+            --title "KNiX Arranger $env:VERSION" `
+            --notes "KNiX Arranger Version $env:VERSION" `
+            --latest
+        shell: pwsh

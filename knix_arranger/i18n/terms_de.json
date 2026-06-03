@@ -1,0 +1,21 @@
+{
+  "terms": {
+    "Gruppenadresse": "Logische Adresse im KNX-System (Format: Haupt/Mittel/Sub)",
+    "Hauptgruppe": "Oberste Hierarchieebene der GA-Struktur (0-31)",
+    "Mittelgruppe": "Mittlere Hierarchieebene (0-7)",
+    "Untergruppe": "Unterste Ebene mit der eigentlichen Geraeteadresse (0-255)",
+    "Datenpunkttyp": "Standardisierter Datentyp fuer KNX-Kommunikationsobjekte (DPT/DPST)",
+    "Physikalische Adresse": "Eindeutige Geraete-Identifikation (Format: Bereich.Linie.Teilnehmer)",
+    "Linie": "Kleinste topologische Installationseinheit, max. 256 Busteilnehmer",
+    "Bereich": "Zusammenfassung von bis zu 15 Linien ueber eine Hauptlinie",
+    "Linienkoppler": "Verbindet untergeordnete Linie mit Hauptlinie (Adresse: B.L.0)",
+    "Bereichskoppler": "Verbindet Hauptlinie mit Bereichslinie/Backbone (Adresse: B.0.0)",
+    "Backbone": "Verbindung von bis zu 15 Bereichen (TP oder IP)",
+    "Gewerk": "Funktionsbereich im Gebaeude (z.B. Beleuchtung, Jalousie, Heizung)",
+    "Aktor": "KNX-Geraet, das Schaltbefehle ausfuehrt (z.B. Schaltaktor, Dimmaktor)",
+    "Sensor": "KNX-Geraet, das Bedienungen erfasst (z.B. Taster, Praesenzmelder)",
+    "Rueckmeldung": "Statusrueckmeldung eines Aktors an den Bus",
+    "Szene": "Vordefinierte Kombination von Schaltbefehlen fuer mehrere Gewerke",
+    "Zentraladresse": "Stockwerkuebergreifende Gruppenadresse in Hauptgruppe 0"
+  }
+}

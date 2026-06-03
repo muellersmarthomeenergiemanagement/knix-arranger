@@ -1,0 +1,112 @@
+ENDBENUTZER-LIZENZVERTRAG (EULA)
+KNiX Arranger – KNX-Projektplanungssoftware
+(c) Michael Mueller SmartHome&EnergieManagement
+Alle Rechte vorbehalten.
+
+Stand: April 2026
+
+BITTE LESEN SIE DIESEN VERTRAG SORGFÄLTIG, BEVOR SIE DIE SOFTWARE NUTZEN.
+Mit der Nutzung der Software erklären Sie sich mit den nachstehenden Bedingungen einverstanden.
+
+===============================================================================
+1. LIZENZGEWÄHRUNG
+===============================================================================
+
+Michael Mueller SmartHome&EnergieManagement (nachfolgend „Lizenzgeber") gewährt
+Ihnen (nachfolgend „Lizenznehmer") eine nicht ausschliessliche, nicht übertragbare
+Lizenz zur Nutzung der Software KNiX Arranger (nachfolgend „Software") ausschliesslich
+für Ihre eigenen beruflichen Zwecke im Bereich der KNX-Projektplanung.
+
+Die Lizenz erlaubt die Installation und Nutzung der Software auf der Anzahl von
+Computern, die dem erworbenen Lizenzmodell entspricht (Einzelplatzlizenz: 1 Gerät).
+
+===============================================================================
+2. URHEBERRECHT UND EIGENTUMSRECHTE
+===============================================================================
+
+Die Software, einschliesslich aller zugehörigen Dokumentationen, Datenstrukturen,
+Algorithmen und des Quellcodes, ist urheberrechtlich geschützt und Eigentum des
+Lizenzgebers. Die Lizenz überträgt kein Eigentum an der Software.
+
+===============================================================================
+3. EINSCHRÄNKUNGEN
+===============================================================================
+
+Es ist dem Lizenznehmer untersagt:
+
+a) Die Software zu kopieren, zu vervielfältigen oder zu verbreiten, soweit dies
+   nicht ausdrücklich gestattet ist.
+b) Die Software zu vermieten, zu verleasen, zu verleihen oder Dritten zu
+   überlassen.
+c) Den Quellcode der Software zu dekompilieren, zu disassemblieren oder durch
+   Reverse Engineering zu ermitteln.
+d) Die Software zu verändern, anzupassen oder darauf aufbauende Werke zu erstellen.
+e) Lizenzschutz- oder Kopierschutzmassnahmen zu umgehen oder zu entfernen.
+f) Copyright-Hinweise oder Eigentumsvermerke zu entfernen oder zu verändern.
+
+===============================================================================
+4. UPDATES UND UPGRADES
+===============================================================================
+
+Der Lizenzgeber ist nicht verpflichtet, Updates, Korrekturen oder neue Versionen
+der Software bereitzustellen. Sofern Updates bereitgestellt werden, gelten für
+diese die Bedingungen dieses Vertrages, sofern nicht anderweitig vereinbart.
+
+===============================================================================
+5. HAFTUNGSAUSSCHLUSS
+===============================================================================
+
+DIE SOFTWARE WIRD „WIE BESEHEN" OHNE JEGLICHE AUSDRÜCKLICHE ODER KONKLUDENTE
+GEWÄHRLEISTUNG BEREITGESTELLT. DER LIZENZGEBER SCHLIESST ALLE GEWÄHRLEISTUNGEN
+AUS, EINSCHLIESSLICH, ABER NICHT BESCHRÄNKT AUF GEWÄHRLEISTUNGEN DER
+MARKTGÄNGIGKEIT, EIGNUNG FÜR EINEN BESTIMMTEN ZWECK UND NICHTVERLETZUNG VON
+RECHTEN DRITTER.
+
+Der Lizenznehmer trägt das vollständige Risiko hinsichtlich der Qualität und
+Leistung der Software. Der Lizenzgeber übernimmt keine Gewähr dafür, dass
+die Software den Anforderungen des Lizenznehmers entspricht oder fehlerfrei
+funktioniert.
+
+===============================================================================
+6. HAFTUNGSBESCHRÄNKUNG
+===============================================================================
+
+IN KEINEM FALL HAFTET DER LIZENZGEBER FÜR INDIREKTE, ZUFÄLLIGE, BESONDERE,
+EXEMPLARISCHE ODER FOLGESCHÄDEN (EINSCHLIESSLICH, ABER NICHT BESCHRÄNKT AUF
+DATENVERLUST, ENTGANGENEN GEWINN ODER BETRIEBSUNTERBRECHUNGEN), DIE DURCH DIE
+NUTZUNG ODER DIE UNMÖGLICHKEIT DER NUTZUNG DER SOFTWARE ENTSTEHEN.
+
+Die maximale Haftung des Lizenzgebers ist auf den vom Lizenznehmer entrichteten
+Lizenzpreis begrenzt.
+
+===============================================================================
+7. LAUFZEIT UND KÜNDIGUNG
+===============================================================================
+
+Dieser Vertrag ist gültig bis er gemäss seinen Bestimmungen beendet wird.
+Der Lizenzgeber kann diesen Vertrag mit sofortiger Wirkung kündigen, wenn der
+Lizenznehmer gegen eine Bestimmung dieses Vertrages verstösst.
+
+Bei Beendigung des Vertrages ist der Lizenznehmer verpflichtet, alle Kopien
+der Software von seinen Geräten zu löschen.
+
+===============================================================================
+8. ANWENDBARES RECHT
+===============================================================================
+
+Dieser Vertrag unterliegt dem Recht der Schweiz. Ausschliesslicher Gerichtsstand
+ist der Wohnsitz des Lizenzgebers.
+
+===============================================================================
+9. SALVATORISCHE KLAUSEL
+===============================================================================
+
+Sollten einzelne Bestimmungen dieses Vertrages unwirksam oder undurchführbar sein
+oder werden, berührt dies die Wirksamkeit der übrigen Bestimmungen nicht.
+
+===============================================================================
+
+Durch Klicken auf „Akzeptieren" erklären Sie sich mit allen Bedingungen dieses
+Endbenutzer-Lizenzvertrages einverstanden.
+
+KNiX Arranger – (c) Michael Mueller SmartHome&EnergieManagement. Alle Rechte vorbehalten.

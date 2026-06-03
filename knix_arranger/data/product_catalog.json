@@ -1,0 +1,474 @@
+{
+  "products": [
+    {
+      "category": "actor",
+      "actor_type": "Schaltaktor",
+      "manufacturer": "ABB",
+      "order_number": "SA/S8.16.5.1",
+      "product_name": "Schaltaktor 8-fach 16A REG",
+      "channels": 8,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Schaltaktor",
+      "manufacturer": "ABB",
+      "order_number": "SA/S4.16.5.1",
+      "product_name": "Schaltaktor 4-fach 16A REG",
+      "channels": 4,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Schaltaktor",
+      "manufacturer": "ABB",
+      "order_number": "SA/S12.16.5.1",
+      "product_name": "Schaltaktor 12-fach 16A REG",
+      "channels": 12,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Schaltaktor",
+      "manufacturer": "MDT",
+      "order_number": "AKS-0816.03",
+      "product_name": "Schaltaktor 8-fach 16A 230VAC",
+      "channels": 8,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Schaltaktor",
+      "manufacturer": "MDT",
+      "order_number": "AKS-1216.03",
+      "product_name": "Schaltaktor 12-fach 16A 230VAC",
+      "channels": 12,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Schaltaktor",
+      "manufacturer": "Theben",
+      "order_number": "4940275",
+      "product_name": "RMG 8 S KNX Schaltaktor 8-fach",
+      "channels": 8,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Dimmaktor",
+      "manufacturer": "ABB",
+      "order_number": "UD/S4.315.2.1",
+      "product_name": "Universal-Dimmaktor 4-fach 315W REG",
+      "channels": 4,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Dimmaktor",
+      "manufacturer": "ABB",
+      "order_number": "UD/S2.315.2.1",
+      "product_name": "Universal-Dimmaktor 2-fach 315W REG",
+      "channels": 2,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Dimmaktor",
+      "manufacturer": "MDT",
+      "order_number": "AKD-0401.02",
+      "product_name": "Dimmaktor 4-fach REG",
+      "channels": 4,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Dimmaktor",
+      "manufacturer": "Theben",
+      "order_number": "4940280",
+      "product_name": "DMG 4 T KNX Dimmaktor 4-fach",
+      "channels": 4,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Jalousieaktor",
+      "manufacturer": "ABB",
+      "order_number": "JRA/S4.230.5.1",
+      "product_name": "Jalousieaktor 4-fach 230V REG",
+      "channels": 4,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Jalousieaktor",
+      "manufacturer": "ABB",
+      "order_number": "JRA/S8.230.5.1",
+      "product_name": "Jalousieaktor 8-fach 230V REG",
+      "channels": 8,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Jalousieaktor",
+      "manufacturer": "MDT",
+      "order_number": "JAL-0810.02",
+      "product_name": "Jalousieaktor 8-fach 230VAC",
+      "channels": 8,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Jalousieaktor",
+      "manufacturer": "Theben",
+      "order_number": "4940250",
+      "product_name": "JMG 4 T KNX Jalousieaktor 4-fach",
+      "channels": 4,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Heizungsaktor",
+      "manufacturer": "ABB",
+      "order_number": "VAA/S6.230.2.1",
+      "product_name": "Heizungsaktor 6-fach 230V REG",
+      "channels": 6,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Heizungsaktor",
+      "manufacturer": "MDT",
+      "order_number": "AKH-0600.02",
+      "product_name": "Heizungsaktor 6-fach 230VAC",
+      "channels": 6,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "actor",
+      "actor_type": "Heizungsaktor",
+      "manufacturer": "Theben",
+      "order_number": "4940260",
+      "product_name": "HMT 6 S KNX Heizungsaktor 6-fach",
+      "channels": 6,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Taster 1-fach",
+      "manufacturer": "ABB",
+      "order_number": "SBR/U2.0.1-84",
+      "product_name": "Busch-Taster 1-fach",
+      "channels": 2,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Taster 2-fach",
+      "manufacturer": "ABB",
+      "order_number": "SBR/U4.0.1-84",
+      "product_name": "Busch-Taster 2-fach",
+      "channels": 4,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Taster 4-fach",
+      "manufacturer": "ABB",
+      "order_number": "SBR/U8.0.1-84",
+      "product_name": "Busch-Taster 4-fach",
+      "channels": 8,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Taster 2-fach",
+      "manufacturer": "MDT",
+      "order_number": "BE-GT2TW.02",
+      "product_name": "Glastaster II Smart 2-fach",
+      "channels": 4,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Taster 4-fach",
+      "manufacturer": "MDT",
+      "order_number": "BE-GT2TW.04",
+      "product_name": "Glastaster II Smart 4-fach",
+      "channels": 8,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Taster 2-fach",
+      "manufacturer": "Gira",
+      "order_number": "5132-00",
+      "product_name": "Tastsensor 3 Komfort 2-fach",
+      "channels": 4,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Taster 4-fach",
+      "manufacturer": "Jung",
+      "order_number": "CD 15840 TSA WW",
+      "product_name": "KNX Tastsensor 4-fach",
+      "channels": 8,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Praesenzmelder",
+      "manufacturer": "ABB",
+      "order_number": "6131/11-84",
+      "product_name": "Busch-Praesenzmelder KNX",
+      "channels": 2,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Praesenzmelder",
+      "manufacturer": "Theben",
+      "order_number": "2039100",
+      "product_name": "theMova P360 KNX UP WH",
+      "channels": 2,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Raumthermostat",
+      "manufacturer": "ABB",
+      "order_number": "6226/10-84",
+      "product_name": "Busch-Raumtemperaturregler KNX",
+      "channels": 1,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Raumthermostat",
+      "manufacturer": "MDT",
+      "order_number": "SCN-RT1UP.G2",
+      "product_name": "Raumtemperaturregler Smart UP",
+      "channels": 1,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Wetterstation",
+      "manufacturer": "Theben",
+      "order_number": "1409200",
+      "product_name": "Meteodata 140 GPS KNX",
+      "channels": 6,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Temperaturfuehler",
+      "manufacturer": "ABB",
+      "order_number": "6225/10-84",
+      "product_name": "Busch-Temperaturfuehler KNX",
+      "channels": 1,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "sensor",
+      "sensor_type": "Fensterkontakt",
+      "manufacturer": "MDT",
+      "order_number": "SCN-BWM55.G2",
+      "product_name": "Bewegungsmelder/Fensterkontakt KNX",
+      "channels": 2,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "Linienkoppler",
+      "manufacturer": "MDT",
+      "order_number": "SCN-LK00.03",
+      "product_name": "Linienkoppler REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "Linienkoppler",
+      "manufacturer": "ABB",
+      "order_number": "LK/S 4.2",
+      "product_name": "Linienkoppler REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "Linienkoppler",
+      "manufacturer": "Gira",
+      "order_number": "5296 00",
+      "product_name": "KNX Linienkoppler REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "Bereichskoppler",
+      "manufacturer": "MDT",
+      "order_number": "SCN-BK00.03",
+      "product_name": "Bereichskoppler REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "Bereichskoppler",
+      "manufacturer": "ABB",
+      "order_number": "BK/S 4.2",
+      "product_name": "Bereichskoppler REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "IP-Router",
+      "manufacturer": "MDT",
+      "order_number": "SCN-IP100.03",
+      "product_name": "KNX IP Router REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "IP-Router",
+      "manufacturer": "ABB",
+      "order_number": "IPS/S 3.1.1",
+      "product_name": "KNX IP-Schnittstelle REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "IP-Router",
+      "manufacturer": "Gira",
+      "order_number": "2167 00",
+      "product_name": "KNX IP-Router REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "Netzteil",
+      "manufacturer": "MDT",
+      "order_number": "STC-0640.02",
+      "product_name": "Netzteil 640mA REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "Netzteil",
+      "manufacturer": "MDT",
+      "order_number": "STC-0320.02",
+      "product_name": "Netzteil 320mA REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "Netzteil",
+      "manufacturer": "ABB",
+      "order_number": "SV/S 30.640.5",
+      "product_name": "Spannungsversorgung 640mA REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "Netzteil",
+      "manufacturer": "ABB",
+      "order_number": "SV/S 30.320.5",
+      "product_name": "Spannungsversorgung 320mA REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "Netzteil",
+      "manufacturer": "Theben",
+      "order_number": "4930420",
+      "product_name": "TR 640 KNX Netzteil 640mA REG",
+      "channels": 0,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "DALI-Gateway",
+      "manufacturer": "MDT",
+      "order_number": "SCN-DALI64.02",
+      "product_name": "DALI Gateway Plus 64 Teilnehmer REG",
+      "channels": 64,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "DALI-Gateway",
+      "manufacturer": "ABB",
+      "order_number": "DG/S 1.64.1.1",
+      "product_name": "DALI-Gateway REG 64 Teilnehmer",
+      "channels": 64,
+      "url": "",
+      "price_hint": ""
+    },
+    {
+      "category": "infrastructure",
+      "device_type": "DALI-Gateway",
+      "manufacturer": "Theben",
+      "order_number": "4940720",
+      "product_name": "DG 64 S KNX DALI-Gateway 64-fach",
+      "channels": 64,
+      "url": "",
+      "price_hint": ""
+    }
+  ]
+}

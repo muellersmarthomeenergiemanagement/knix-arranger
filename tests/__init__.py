@@ -1,0 +1,1 @@
+"""Tests fuer KNiX Arranger."""

@@ -1,0 +1,21 @@
+{
+  "terms": {
+    "Gruppenadresse": "Logical address in the KNX system (format: Main/Middle/Sub)",
+    "Hauptgruppe": "Top hierarchy level of the GA structure (0-31)",
+    "Mittelgruppe": "Middle hierarchy level (0-7)",
+    "Untergruppe": "Lowest level with the actual device address (0-255)",
+    "Datenpunkttyp": "Standardized data type for KNX communication objects (DPT/DPST)",
+    "Physikalische Adresse": "Unique device identification (format: Area.Line.Device)",
+    "Linie": "Smallest topological installation unit, max. 256 bus participants",
+    "Bereich": "Grouping of up to 15 lines via a main line",
+    "Linienkoppler": "Connects subordinate line with main line (address: A.L.0)",
+    "Bereichskoppler": "Connects main line with area line/backbone (address: A.0.0)",
+    "Backbone": "Connection of up to 15 areas (TP or IP)",
+    "Gewerk": "Functional area in the building (e.g. lighting, blinds, heating)",
+    "Aktor": "KNX device that executes switching commands (e.g. switch actuator, dimming actuator)",
+    "Sensor": "KNX device that captures operations (e.g. push button, presence detector)",
+    "Rueckmeldung": "Status feedback from an actuator to the bus",
+    "Szene": "Predefined combination of switching commands for multiple trades",
+    "Zentraladresse": "Cross-floor group address in main group 0"
+  }
+}

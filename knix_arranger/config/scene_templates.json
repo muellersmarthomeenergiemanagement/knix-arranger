@@ -1,0 +1,68 @@
+{
+  "scene_templates": [
+    {
+      "name": "Kino",
+      "description": "Verdunkelung fuer Filmgenuss",
+      "actions": [
+        {"gewerk_category": "licht", "action": "AUS oder 10%"},
+        {"gewerk_category": "jalousie", "action": "Geschlossen, Lamellen zu"}
+      ]
+    },
+    {
+      "name": "Dinner",
+      "description": "Stimmungsbeleuchtung",
+      "actions": [
+        {"gewerk_category": "licht", "action": "Esstisch 60%, Rest AUS"},
+        {"gewerk_category": "jalousie", "action": "Halb offen"}
+      ]
+    },
+    {
+      "name": "Lesen",
+      "description": "Lesebeleuchtung",
+      "actions": [
+        {"gewerk_category": "licht", "action": "Stehleuchte 80%, Rest 30%"},
+        {"gewerk_category": "jalousie", "action": "Offen"}
+      ]
+    },
+    {
+      "name": "Abwesenheit",
+      "description": "Haus verlassen",
+      "actions": [
+        {"gewerk_category": "licht", "action": "Alle AUS"},
+        {"gewerk_category": "jalousie", "action": "Geschlossen"}
+      ]
+    },
+    {
+      "name": "Panik",
+      "description": "Notbeleuchtung",
+      "actions": [
+        {"gewerk_category": "licht", "action": "Alle 100%"},
+        {"gewerk_category": "jalousie", "action": "Alle offen"}
+      ]
+    },
+    {
+      "name": "Guten Morgen",
+      "description": "Sanftes Aufwachen",
+      "actions": [
+        {"gewerk_category": "licht", "action": "Decke 50%, Bad 100%"},
+        {"gewerk_category": "jalousie", "action": "Offen"}
+      ]
+    },
+    {
+      "name": "Gute Nacht",
+      "description": "Schlafenszeit",
+      "actions": [
+        {"gewerk_category": "licht", "action": "Alle AUS"},
+        {"gewerk_category": "jalousie", "action": "Geschlossen"}
+      ]
+    },
+    {
+      "name": "Beschattung",
+      "description": "Sonnenschutz",
+      "actions": [
+        {"gewerk_category": "licht", "action": "Unveraendert"},
+        {"gewerk_category": "jalousie", "action": "Automatik nach Sonnenstand"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "templates": [
+    {
+      "id": "beschattung_standard",
+      "name": "Beschattung Standard",
+      "description": "Automatische Beschattung nach Sonnenauf-/-untergang (Mo–So)",
+      "day_profiles": [
+        {
+          "weekday_mask": 127,
+          "switch_points": [
+            {
+              "time_type": "ASTRO",
+              "astro_event": "SUNRISE",
+              "astro_offset_min": 30,
+              "action_value": "1",
+              "priority": "Normal"
+            },
+            {
+              "time_type": "ASTRO",
+              "astro_event": "SUNSET",
+              "astro_offset_min": -15,
+              "action_value": "0",
+              "priority": "Normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "licht_werktag",
+      "name": "Licht Werktag/Wochenende",
+      "description": "Beleuchtungssteuerung mit separaten Wochentag- und Wochendenprofilen",
+      "day_profiles": [
+        {
+          "weekday_mask": 31,
+          "switch_points": [
+            {
+              "time_type": "FIXED",
+              "fixed_time": "06:30",
+              "action_value": "1",
+              "priority": "Normal"
+            },
+            {
+              "time_type": "FIXED",
+              "fixed_time": "22:30",
+              "action_value": "0",
+              "priority": "Normal"
+            }
+          ]
+        },
+        {
+          "weekday_mask": 96,
+          "switch_points": [
+            {
+              "time_type": "FIXED",
+              "fixed_time": "08:00",
+              "action_value": "1",
+              "priority": "Normal"
+            },
+            {
+              "time_type": "FIXED",
+              "fixed_time": "23:00",
+              "action_value": "0",
+              "priority": "Normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "heizung_absenk",
+      "name": "Heizung Absenkung",
+      "description": "Nächtliche Heizungsabsenkung (Mo–Fr und Wochenende)",
+      "day_profiles": [
+        {
+          "weekday_mask": 31,
+          "switch_points": [
+            {
+              "time_type": "FIXED",
+              "fixed_time": "06:00",
+              "action_value": "1",
+              "priority": "Normal"
+            },
+            {
+              "time_type": "FIXED",
+              "fixed_time": "08:00",
+              "action_value": "0",
+              "priority": "Normal"
+            },
+            {
+              "time_type": "FIXED",
+              "fixed_time": "17:00",
+              "action_value": "1",
+              "priority": "Normal"
+            },
+            {
+              "time_type": "FIXED",
+              "fixed_time": "22:00",
+              "action_value": "0",
+              "priority": "Normal"
+            }
+          ]
+        },
+        {
+          "weekday_mask": 96,
+          "switch_points": [
+            {
+              "time_type": "FIXED",
+              "fixed_time": "07:00",
+              "action_value": "1",
+              "priority": "Normal"
+            },
+            {
+              "time_type": "FIXED",
+              "fixed_time": "23:00",
+              "action_value": "0",
+              "priority": "Normal"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lueftung_buero",
+      "name": "Lüftung Büro",
+      "description": "Bürolüftung Mo–Fr mit Mittagspause-Absenkung",
+      "day_profiles": [
+        {
+          "weekday_mask": 31,
+          "switch_points": [
+            {
+              "time_type": "FIXED",
+              "fixed_time": "07:00",
+              "action_value": "1",
+              "priority": "Normal"
+            },
+            {
+              "time_type": "FIXED",
+              "fixed_time": "12:00",
+              "action_value": "0",
+              "priority": "Normal"
+            },
+            {
+              "time_type": "FIXED",
+              "fixed_time": "13:00",
+              "action_value": "1",
+              "priority": "Normal"
+            },
+            {
+              "time_type": "FIXED",
+              "fixed_time": "18:00",
+              "action_value": "0",
+              "priority": "Normal"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

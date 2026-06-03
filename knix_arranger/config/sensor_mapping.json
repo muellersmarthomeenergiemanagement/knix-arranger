@@ -1,0 +1,31 @@
+{
+  "gewerk_to_sensor": {
+    "L":   {"sensor_type": "Taster", "description": "Schalten, Szenen"},
+    "LD":  {"sensor_type": "Taster", "description": "Schalten, Dimmen, Szenen"},
+    "LDA": {"sensor_type": "Taster", "description": "Schalten, Dimmen, Szenen"},
+    "J":   {"sensor_type": "Taster", "description": "Jalousie Auf/Ab, Stopp, Lamellen"},
+    "R":   {"sensor_type": "Taster", "description": "Rollladen Auf/Ab, Stopp"},
+    "M":   {"sensor_type": "Taster", "description": "Markise Auf/Ab"},
+    "T":   {"sensor_type": "Taster", "description": "Vorhang Auf/Ab"},
+    "H":   {"sensor_type": "Raumthermostat", "description": "Sollwert, Betriebsart"},
+    "A":   {"sensor_type": "Bewegungsmelder", "description": "Alarmierung"},
+    "FK":  {"sensor_type": "Fensterkontakt", "description": "Zustandsueberwachung"},
+    "TK":  {"sensor_type": "Tuerkontakt", "description": "Zustandsueberwachung"},
+    "RK":  {"sensor_type": "Riegelkontakt", "description": "Zustandsueberwachung"},
+    "W":   {"sensor_type": "Wetterstation", "description": "Wind, Regen, Helligkeit, Temperatur"},
+    "E":   {"sensor_type": "Energiezaehler", "description": "Verbrauchsmessung"},
+    "TF":  {"sensor_type": "Temperaturfuehler", "description": "Temperaturmessung"}
+  },
+  "time_estimates": {
+    "Taster":           {"mounting_h": 0.5,  "programming_h": 0.5,  "commissioning_h": 0.15},
+    "Praesenzmelder":   {"mounting_h": 0.75, "programming_h": 0.5,  "commissioning_h": 0.25},
+    "Raumthermostat":   {"mounting_h": 0.5,  "programming_h": 0.5,  "commissioning_h": 0.25},
+    "Bewegungsmelder":  {"mounting_h": 0.75, "programming_h": 0.5,  "commissioning_h": 0.25},
+    "Wetterstation":    {"mounting_h": 1.5,  "programming_h": 1.0,  "commissioning_h": 0.5},
+    "Energiezaehler":   {"mounting_h": 0.75, "programming_h": 0.5,  "commissioning_h": 0.25},
+    "Temperaturfuehler":{"mounting_h": 0.5,  "programming_h": 0.25, "commissioning_h": 0.15},
+    "Fensterkontakt":   {"mounting_h": 0.5,  "programming_h": 0.25, "commissioning_h": 0.1},
+    "Tuerkontakt":      {"mounting_h": 0.5,  "programming_h": 0.25, "commissioning_h": 0.1},
+    "Riegelkontakt":    {"mounting_h": 0.5,  "programming_h": 0.25, "commissioning_h": 0.1}
+  }
+}

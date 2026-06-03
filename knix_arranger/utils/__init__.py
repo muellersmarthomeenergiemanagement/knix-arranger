@@ -1,0 +1,1 @@
+"""Hilfsfunktionen für KNiX Arranger."""

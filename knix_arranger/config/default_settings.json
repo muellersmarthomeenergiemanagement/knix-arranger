@@ -1,0 +1,17 @@
+{
+  "language": "de",
+  "topology_mode": "TP-256",
+  "backbone_type": "TP",
+  "mg_variant": "A",
+  "default_sensors_per_room": 4,
+  "default_actors_per_room": 2,
+  "recommended_devices_per_line": 85,
+  "max_realized_devices_per_line": 100,
+  "vat_percent": 8.1,
+  "currency": "CHF",
+  "date_format": "dd.MM.yyyy",
+  "log_level": "INFO",
+  "auto_update_check": true,
+  "auto_save_interval_minutes": 5,
+  "recent_projects_max": 10
+}

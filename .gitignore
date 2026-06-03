@@ -1,0 +1,48 @@
+# Build-Ausgaben
+dist/
+build/
+__pycache__/
+*.pyc
+*.pyo
+.nuitka/
+
+# Installer-Ausgaben
+installer/
+
+# Lizenz-Schlüssel und Zugangsdaten (NIEMALS einchecken!)
+tools/license_private_key.pem
+tools/mail_config.json
+tools/stripe_config.json
+
+# Python
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# PyInstaller
+*.spec
+version_info.txt
+
+# Testprojekte und lokale Dateien
+*.knxarr
+*.knxproj
+*.knxlic
+*.xlsx
+*.pdf
+*.docx
+nul
+nuitka-crash-report.xml
+
+# Revisionspakete
+Revisionspaket*/
+"Produkte KNX/"

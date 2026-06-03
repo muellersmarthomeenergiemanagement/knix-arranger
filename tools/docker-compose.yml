@@ -1,0 +1,10 @@
+services:
+  knix-license-server:
+    build: .
+    container_name: knix-license-server
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    volumes:
+      # Lizenzdateien persistent speichern
+      - ./licenses_issued:/app/licenses_issued

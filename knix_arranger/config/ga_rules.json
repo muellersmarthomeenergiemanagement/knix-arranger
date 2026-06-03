@@ -1,0 +1,35 @@
+{
+  "rules": [
+    {"id": "GA-01", "source": "KNX Swiss 13.1", "description": "Hauptgruppe 0 = Zentraladressen, weitere HG = Stockwerke aufsteigend"},
+    {"id": "GA-02", "source": "KNX Swiss 13.2", "description": "Mittelgruppe 0=Licht, 1=Jalousie, 2=Heizung/HLK, 3=Alarm, 4=Allgemein"},
+    {"id": "GA-03", "source": "KNX Swiss 13.2", "description": "Variante B: MG 6=Rueckmeldung Licht, MG 7=Rueckmeldung Jalousie"},
+    {"id": "GA-04", "source": "KNX Swiss 13.4", "description": "Licht: 5er-Bloecke (E/A, DIM, WERT, RM, RM WERT)"},
+    {"id": "GA-05", "source": "KNX Swiss 13.5", "description": "Jalousie: 10er-Bloecke"},
+    {"id": "GA-06", "source": "KNX Swiss 13.6", "description": "Heizung: 10er-Bloecke"},
+    {"id": "GA-07", "source": "KNX Swiss 13.2", "description": "Bei Variante B: UG-Adressen der RM in MG 6/7 muessen identisch zu Schaltadressen in MG 0/1 sein"},
+    {"id": "GA-08", "source": "KNX Standard", "description": "Adresse 0/0/0 ist Systemadresse und darf nicht vergeben werden"},
+    {"id": "GA-09", "source": "KNX Swiss 10", "description": "Bezeichnung: Gewerk_Raum_Nummer Funktion (Klartext)"}
+  ],
+  "naming_rules": [
+    {"id": "BZ-01", "description": "Label: Gewerke-Kuerzel + _ + Raumnummer + _ + fortlaufende Nummer"},
+    {"id": "BZ-02", "description": "Gewerke-Kuerzel gemaess Gewerke-Katalog (Kap. 10.1)"},
+    {"id": "BZ-03", "description": "Raumnummer: eindeutig pro Stockwerk"},
+    {"id": "BZ-04", "description": "Fortlaufende Nummer: beginnt pro Raum und Gewerk bei 01"},
+    {"id": "BZ-05", "description": "Optionale Ergaenzung: Raumname/Schaltgruppe in Klammern"},
+    {"id": "BZ-06", "description": "Dasselbe Label in: Installationsplan, Elektroschema, ETS"}
+  ],
+  "main_group_mapping": {
+    "0": "Zentraladressen",
+    "1": "Untergeschoss",
+    "2": "Erdgeschoss",
+    "3": "1. Obergeschoss",
+    "4": "2. Obergeschoss / Dachgeschoss"
+  },
+  "central_middle_groups": {
+    "0": "Licht",
+    "1": "Jalousie",
+    "2": "Heizung",
+    "4": "Szenen",
+    "5": "Wetterstation"
+  }
+}
