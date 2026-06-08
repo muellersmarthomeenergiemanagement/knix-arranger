@@ -19,7 +19,7 @@ logger = logging.getLogger("knix_arranger.update")
 # GitHub Releases API – hier GitHub-Benutzername und Repository-Name einsetzen:
 #   https://github.com/<USER>/<REPO>/releases
 # Beispiel: "https://api.github.com/repos/mmueller-smarthome/knix-arranger/releases/latest"
-DEFAULT_UPDATE_URL = "https://api.github.com/repos/muellersmarthomeenergiemanagement/knix-arranger-releases/releases/latest"
+DEFAULT_UPDATE_URL = "https://api.github.com/repos/muellersmarthomeenergiemanagement/knix-arranger/releases/latest"
 
 
 @dataclass

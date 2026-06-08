@@ -30,7 +30,7 @@ Thumbs.db
 Desktop.ini
 
 # PyInstaller
-*.spec
+# *.spec  -- knix_arranger.spec wird versioniert (reproduzierbarer Build)
 version_info.txt
 
 # Testprojekte und lokale Dateien
