@@ -54,6 +54,26 @@ class ProjectService:
         logger.info(f"Projekt geladen: {filepath}")
         return project
 
+    def sanitize_project_folder_name(self, name: str) -> str:
+        """Entfernt Zeichen, die in Windows-Ordnernamen ungültig sind."""
+        invalid = '<>:"/\\|?*'
+        cleaned = "".join(c for c in name if c not in invalid).strip().rstrip(".")
+        return cleaned or "Projekt"
+
+    def prepare_workspace_project_folder(self, workspace_root: str, project_name: str) -> str:
+        """Erstellt {workspace}/{Name}/ mit Unterordnern Revisionen/ und Berichte/.
+
+        Gibt den künftigen .knxarr-Pfad zurück. Löst FileExistsError aus,
+        wenn im Workspace bereits ein gleichnamiger Projektordner existiert.
+        """
+        folder_name = self.sanitize_project_folder_name(project_name)
+        project_dir = os.path.join(workspace_root, folder_name)
+        if os.path.exists(project_dir):
+            raise FileExistsError(project_dir)
+        os.makedirs(os.path.join(project_dir, "Revisionen"))
+        os.makedirs(os.path.join(project_dir, "Berichte"))
+        return os.path.join(project_dir, f"{folder_name}.knxarr")
+
     def create_backup(self, filepath: str) -> str:
         """Erstellt ein Backup vor Reorganisation (NFA-042)."""
         if not os.path.exists(filepath):

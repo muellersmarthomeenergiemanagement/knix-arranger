@@ -92,6 +92,11 @@ class KnxProject:
     _file_path: str = field(default="", repr=False, compare=False)
 
     @property
+    def folder_path(self) -> str | None:
+        """Ordner der gespeicherten Projektdatei (für Berichte/Revisionen, FA-1601)."""
+        return os.path.dirname(self._file_path) if self._file_path else None
+
+    @property
     def gewerk_catalog(self) -> GewerkCatalog:
         if self._gewerk_catalog is None:
             self._gewerk_catalog = GewerkCatalog()

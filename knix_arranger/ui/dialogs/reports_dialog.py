@@ -3,6 +3,7 @@ Berichte-Dialog (FA-050)
 Ermöglicht die Erzeugung verschiedener Projektberichte.
 """
 from __future__ import annotations
+import os
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QGridLayout, QFileDialog, QMessageBox, QTextEdit,
@@ -155,6 +156,25 @@ class ReportsDialog(QDialog):
             self._project.project_info.project_address = cp.object_address
             self._client_summary.setText(self._client_summary_text())
 
+    def _export_dir(self, subfolder: str) -> str | None:
+        """Liefert {Projektordner}/{subfolder} (legt ihn bei Bedarf an).
+
+        None, wenn das Projekt noch nicht gespeichert wurde – dann gibt es
+        noch keinen Projektordner, an dem sich Berichte/Revisionen orientieren
+        können (FA-1601: einheitliche Unterordner-Struktur je Projekt).
+        """
+        folder = self._project.folder_path
+        if not folder:
+            return None
+        target = os.path.join(folder, subfolder)
+        os.makedirs(target, exist_ok=True)
+        return target
+
+    def _default_export_path(self, filename: str) -> str:
+        """Vorschlagspfad für Einzelberichte: {Projektordner}/Berichte/{filename}."""
+        berichte_dir = self._export_dir("Berichte")
+        return os.path.join(berichte_dir, filename) if berichte_dir else filename
+
     def _run(self, label: str, fn, log_msg: str):
         """Wrapper: führt fn() im Hintergrund aus, loggt bei Erfolg."""
         def on_success(_result):
@@ -167,7 +187,7 @@ class ReportsDialog(QDialog):
     def _gen_validation(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Validierungsbericht speichern",
-            f"{self._project.name}_Validierung.pdf",
+            self._default_export_path(f"{self._project.name}_Validierung.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
         )
         if not path:
@@ -188,7 +208,7 @@ class ReportsDialog(QDialog):
     def _gen_ga_report(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "GA-Übersicht speichern",
-            f"{self._project.name}_GA_Übersicht.pdf",
+            self._default_export_path(f"{self._project.name}_GA_Übersicht.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
         )
         if not path:
@@ -204,7 +224,7 @@ class ReportsDialog(QDialog):
     def _gen_summary(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Projektzusammenfassung speichern",
-            f"{self._project.name}_Zusammenfassung.pdf",
+            self._default_export_path(f"{self._project.name}_Zusammenfassung.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
         )
         if not path:
@@ -220,7 +240,7 @@ class ReportsDialog(QDialog):
     def _gen_topology(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Topologie-Bericht speichern",
-            f"{self._project.name}_Topologie.pdf",
+            self._default_export_path(f"{self._project.name}_Topologie.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
         )
         if not path:
@@ -236,7 +256,7 @@ class ReportsDialog(QDialog):
     def _gen_checklists_pdf(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Checklisten speichern",
-            f"{self._project.name}_Checklisten.pdf",
+            self._default_export_path(f"{self._project.name}_Checklisten.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
         )
         if not path:
@@ -252,7 +272,7 @@ class ReportsDialog(QDialog):
     def _gen_checklists_excel(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Checklisten speichern",
-            f"{self._project.name}_Checklisten.xlsx",
+            self._default_export_path(f"{self._project.name}_Checklisten.xlsx"),
             "Excel-Dateien (*.xlsx)",
         )
         if not path:
@@ -268,7 +288,7 @@ class ReportsDialog(QDialog):
     def _gen_acceptance(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Abnahmeprotokoll speichern",
-            f"{self._project.name}_Abnahme.pdf",
+            self._default_export_path(f"{self._project.name}_Abnahme.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
         )
         if not path:
@@ -284,7 +304,7 @@ class ReportsDialog(QDialog):
     def _gen_manual(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Bedienungsanleitung speichern",
-            f"{self._project.name}_Bedienungsanleitung.pdf",
+            self._default_export_path(f"{self._project.name}_Bedienungsanleitung.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
         )
         if not path:
@@ -300,7 +320,7 @@ class ReportsDialog(QDialog):
     def _gen_bauherr_form(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Bauherr-Formular speichern",
-            f"{self._project.name}_Funktionsdefinition.xlsx",
+            self._default_export_path(f"{self._project.name}_Funktionsdefinition.xlsx"),
             "Excel-Dateien (*.xlsx)",
         )
         if not path:
@@ -314,10 +334,13 @@ class ReportsDialog(QDialog):
         self._run("Bauherr-Formular wird erstellt…", do, f"Bauherr-Formular erstellt: {path}")
 
     def _gen_revision(self):
-        dir_path = QFileDialog.getExistingDirectory(
-            self, "Revisionspaket-Ordner wählen",
-        )
+        dir_path = self._export_dir("Revisionen")
         if not dir_path:
+            QMessageBox.information(
+                self, "Projekt nicht gespeichert",
+                "Bitte speichern Sie das Projekt zuerst, damit das Revisionspaket "
+                "im zugehörigen Projektordner abgelegt werden kann.",
+            )
             return
         project = self._project
 
@@ -325,12 +348,16 @@ class ReportsDialog(QDialog):
             from ...services.documentation_service import DocumentationService
             DocumentationService(project, company_profile=self._company_profile).generate_revision_package(dir_path)
 
-        self._run("Revisionspaket wird erstellt…", do, f"Revisionspaket erstellt in: {dir_path}")
+        def on_success(_result):
+            self._log_msg(f"Revisionspaket erstellt in: {dir_path}")
+            os.startfile(dir_path)
+
+        run_export(self, "Revisionspaket wird erstellt…", do, on_success, self._worker_ref)
 
     def _gen_bedienelemente(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Bedienelemente-Bericht speichern",
-            f"{self._project.name}_Bedienelemente.pdf",
+            self._default_export_path(f"{self._project.name}_Bedienelemente.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
         )
         if not path:

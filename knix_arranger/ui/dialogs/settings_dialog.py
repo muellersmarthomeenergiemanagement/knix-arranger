@@ -17,13 +17,15 @@ from ...models.company_profile import CompanyProfile
 class SettingsDialog(QDialog):
     """Einstellungen und Firmenprofil (FA-851–857)."""
 
-    def __init__(self, profile: CompanyProfile | None = None, parent=None):
+    def __init__(self, profile: CompanyProfile | None = None, parent=None,
+                 workspace_root_path: str = ""):
         super().__init__(parent)
         self.setWindowTitle("Einstellungen")
         self.setMinimumSize(640, 560)
 
         self._profile = CompanyProfile() if profile is None else profile
         self._logo_path: str = self._profile.logo_path
+        self._workspace_root_path: str = workspace_root_path
 
         layout = QVBoxLayout(self)
         tabs = QTabWidget()
@@ -69,6 +71,17 @@ class SettingsDialog(QDialog):
 
         proj_group.setLayout(proj_form)
         layout.addWidget(proj_group)
+
+        workspace_group = QGroupBox("Arbeitsverzeichnis")
+        workspace_layout = QHBoxLayout()
+        self._workspace_edit = QLineEdit(self._workspace_root_path)
+        self._workspace_edit.setReadOnly(True)
+        workspace_layout.addWidget(self._workspace_edit, 1)
+        btn_workspace = QPushButton("Ändern…")
+        btn_workspace.clicked.connect(self._choose_workspace)
+        workspace_layout.addWidget(btn_workspace)
+        workspace_group.setLayout(workspace_layout)
+        layout.addWidget(workspace_group)
 
         update_group = QGroupBox("Updates")
         update_form = QFormLayout()
@@ -231,6 +244,20 @@ class SettingsDialog(QDialog):
         p.hourly_rate_commissioning = self._rate_commissioning.value()
         p.material_markup_percent = self._markup.value()
         return p
+
+    # ─── Arbeitsverzeichnis ───────────────────────────────────────────────────
+
+    def _choose_workspace(self):
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Arbeitsverzeichnis wählen", self._workspace_root_path
+        )
+        if chosen:
+            self._workspace_root_path = chosen
+            self._workspace_edit.setText(chosen)
+
+    @property
+    def workspace_root_path(self) -> str:
+        return self._workspace_root_path
 
     # ─── Logo ─────────────────────────────────────────────────────────────────
 

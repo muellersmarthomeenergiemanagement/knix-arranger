@@ -47,6 +47,7 @@ from .dialogs.settings_dialog import SettingsDialog
 from .dialogs.reports_dialog import ReportsDialog
 from .dialogs.license_dialog import LicenseDialog
 from .dialogs.welcome_dialog import WelcomeDialog, ACTION_NEW, ACTION_OPEN
+from .dialogs.workspace_setup_dialog import WorkspaceSetupDialog
 from .dialogs.project_properties_dialog import ProjectPropertiesDialog
 from .dialogs.update_dialog import UpdateDialog
 from .dialogs.onboarding_tour_dialog import OnboardingTourDialog
@@ -626,33 +627,60 @@ class MainWindow(QMainWindow):
     # -- Projekt-Aktionen --
 
     def _new_project(self):
+        from ..services.project_service import ProjectService
+
         dialog = NewProjectDialog(self)
-        if dialog.exec():
-            project = KnxProject(
-                name=dialog.project_name,
-                project_number=dialog.project_number,
+        if not dialog.exec():
+            return
+
+        # Neue Projekte werden verbindlich im Workspace abgelegt (FA-1601):
+        # {Workspace}/{Projektname}/{Projektname}.knxarr + Revisionen/ + Berichte/
+        workspace = self._ensure_workspace()
+        project_service = ProjectService()
+        try:
+            file_path = project_service.prepare_workspace_project_folder(
+                workspace, dialog.project_name
             )
-            project.config.mg_variant = dialog.variant
+        except FileExistsError as e:
+            QMessageBox.warning(
+                self, "Projekt existiert bereits",
+                f"Im Arbeitsverzeichnis existiert bereits ein Ordner für diesen Namen:\n"
+                f"{e.args[0]}\n\nBitte wählen Sie einen anderen Projektnamen.",
+            )
+            return
 
-            # Vorlage laden
-            if dialog.template_key != "empty":
-                areal = self._building_service.load_template(dialog.template_key)
-                if areal:
-                    project.areal = areal
-                    self._building_service.assign_main_groups(project.areal)
+        project = KnxProject(
+            name=dialog.project_name,
+            project_number=dialog.project_number,
+        )
+        project.config.mg_variant = dialog.variant
 
-            self._project = project
-            self._undo_manager.clear()
-            self._set_dirty(False)
-            self._update_views()
-            self._status_bar.set_status(f"Neues Projekt '{project.name}' erstellt.")
-            self._sidebar.select("overview")
-            self._navigate("overview")
+        # Vorlage laden
+        if dialog.template_key != "empty":
+            areal = self._building_service.load_template(dialog.template_key)
+            if areal:
+                project.areal = areal
+                self._building_service.assign_main_groups(project.areal)
+
+        project.save(file_path)
+        project_service.add_to_recent(file_path)
+
+        self._project = project
+        self._undo_manager.clear()
+        self._set_dirty(False)
+        self._update_views()
+        self._status_bar.set_status(
+            f"Neues Projekt '{project.name}' erstellt unter: {file_path}"
+        )
+        self._sidebar.select("overview")
+        self._navigate("overview")
 
     def open_file(self, path: str):
         """Öffnet eine .knxarr-Datei direkt (z.B. per Doppelklick im Explorer)."""
         try:
             self._project = KnxProject.load(path)
+            from ..services.project_service import ProjectService
+            ProjectService().add_to_recent(path)
             self._undo_manager.clear()
             self._set_dirty(False)
             # GA-Metadaten (Gewerk, Raum) aus Bezeichnung anreichern
@@ -1197,10 +1225,15 @@ class MainWindow(QMainWindow):
 
     def _show_settings(self):
         profile = self._app.project_service.load_company_profile()
-        dialog = SettingsDialog(profile=profile, parent=self)
+        workspace = self._load_app_setting("workspace_root_path", "")
+        dialog = SettingsDialog(profile=profile, parent=self, workspace_root_path=workspace)
         if dialog.exec():
             updated = dialog.get_profile()
             self._app.project_service.save_company_profile(updated)
+            new_workspace = dialog.workspace_root_path
+            if new_workspace != workspace:
+                os.makedirs(new_workspace, exist_ok=True)
+                self._save_app_setting("workspace_root_path", new_workspace)
 
     def _show_help(self):
         """Zeigt das Hilfesystem kontextsensitiv (FA-1101, FA-1102)."""
@@ -1347,16 +1380,37 @@ class MainWindow(QMainWindow):
         s[key] = value
         self._save_app_settings(s)
 
+    def _ensure_workspace(self) -> str:
+        """Liefert den konfigurierten Workspace-Pfad; fragt bei Erststart danach.
+
+        Neue Projekte werden verbindlich in diesem Ordner angelegt (FA-1601).
+        """
+        path = self._load_app_setting("workspace_root_path", "")
+        if path and os.path.isdir(path):
+            return path
+        while True:
+            dialog = WorkspaceSetupDialog(self)
+            if dialog.exec():
+                path = dialog.workspace_path
+                self._save_app_setting("workspace_root_path", path)
+                return path
+
     def _show_welcome(self):
         """Zeigt den Willkommensbildschirm beim Start (kein Projekt geladen)."""
         if self._project:
             return
-        dialog = WelcomeDialog(self)
+        self._ensure_workspace()
+        from ..services.project_service import ProjectService
+        recent = ProjectService().get_recent_projects()
+        dialog = WelcomeDialog(self, recent_projects=recent)
         if dialog.exec():
             if dialog.action == ACTION_NEW:
                 self._new_project()
             elif dialog.action == ACTION_OPEN:
-                self._open_project()
+                if dialog.selected_path:
+                    self.open_file(dialog.selected_path)
+                else:
+                    self._open_project()
 
         # Onboarding-Tour beim Erststart (FA-1106)
         if not self._load_app_setting("onboarding_shown", False):

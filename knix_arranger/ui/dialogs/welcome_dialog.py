@@ -3,6 +3,7 @@ Willkommensbildschirm (NFA-010)
 Zeigt Firmennamen, Softwarerechte und Einstiegsoptionen beim Start.
 """
 from __future__ import annotations
+import os
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QSizePolicy,
@@ -19,12 +20,14 @@ ACTION_OPEN = "open"
 class WelcomeDialog(QDialog):
     """Willkommensbildschirm mit Neu/Öffnen-Auswahl."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, recent_projects: list[str] | None = None):
         super().__init__(parent)
         self.setWindowTitle(f"Willkommen bei {APP_NAME}")
-        self.setFixedSize(580, 520)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self._action: str | None = None
+        self._selected_path: str | None = None
+        self._recent_projects = [p for p in (recent_projects or []) if os.path.exists(p)][:5]
+        self.setFixedSize(580, 520 + (40 * len(self._recent_projects) if self._recent_projects else 0))
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -105,6 +108,32 @@ class WelcomeDialog(QDialog):
 
         content_layout.addWidget(rights_frame)
 
+        # Zuletzt verwendete Projekte
+        if self._recent_projects:
+            recent_lbl = QLabel("Zuletzt verwendet")
+            recent_lbl.setStyleSheet("color: #333; font-weight: bold; font-size: 12px;")
+            content_layout.addWidget(recent_lbl)
+
+            recent_frame = QFrame()
+            recent_frame.setStyleSheet(
+                "background-color: white; border: 1px solid #E0E0E0; border-radius: 6px;"
+            )
+            recent_layout = QVBoxLayout(recent_frame)
+            recent_layout.setContentsMargins(4, 4, 4, 4)
+            recent_layout.setSpacing(2)
+            for path in self._recent_projects:
+                name = os.path.splitext(os.path.basename(path))[0]
+                btn = QPushButton(f"{name}    –    {path}")
+                btn.setStyleSheet(
+                    "QPushButton { text-align: left; border: none; "
+                    "padding: 6px 10px; color: #333; font-size: 11px; "
+                    "background: transparent; border-radius: 4px; }"
+                    "QPushButton:hover { background-color: #F0F8F0; }"
+                )
+                btn.clicked.connect(lambda checked=False, p=path: self._choose_recent(p))
+                recent_layout.addWidget(btn)
+            content_layout.addWidget(recent_frame)
+
         # Aktions-Buttons
         actions_lbl = QLabel("Was möchten Sie tun?")
         actions_lbl.setStyleSheet("color: #333; font-weight: bold; font-size: 12px;")
@@ -180,7 +209,17 @@ class WelcomeDialog(QDialog):
         self._action = ACTION_OPEN
         self.accept()
 
+    def _choose_recent(self, path: str):
+        self._action = ACTION_OPEN
+        self._selected_path = path
+        self.accept()
+
     @property
     def action(self) -> str | None:
         """ACTION_NEW oder ACTION_OPEN, je nach Benutzerwahl."""
         return self._action
+
+    @property
+    def selected_path(self) -> str | None:
+        """Pfad eines direkt aus der Recent-Liste gewählten Projekts (oder None)."""
+        return self._selected_path
