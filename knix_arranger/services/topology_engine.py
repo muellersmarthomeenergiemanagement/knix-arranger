@@ -2,14 +2,14 @@
 Topologie-Berechnung und Linienzuteilung (FA-200, FA-208-210)
 Automatische Berechnung der optimalen KNX-Topologie.
 
-Linien werden nach Wohnungen/Zonen organisiert (nicht nach Stockwerken),
-da Linienkoppler Gruppenadressen filtern. Geräte innerhalb derselben
-Zone sollen sich eine Linie teilen.
+Jede Zone (Apartment/Wohnung) entspricht genau einer Linie, die nach dem
+Zonennamen beschriftet wird.  Linienkoppler filtern Gruppenadressen, deshalb
+sollen Geräte derselben Zone auf einer gemeinsamen Linie liegen.
 
-- EFH (eine Wohnung): alle Räume in einer Linie
-- MFH (mehrere Wohnungen): eine Linie pro Wohnung
-- Zweckbau (Zonen): gleiche Zonennamen stockwerkuebergreifend zusammengefasst
-- Bei >85 Geräten pro Zone: automatische Aufteilung auf mehrere Linien
+- Gleiche Zonennamen auf verschiedenen Stockwerken → eine Linie (Maisonette)
+- EFH (eine Zone): genau eine Linie, benannt nach der Zone
+- MFH/Zweckbau (mehrere Zonen): eine Linie pro Zone
+- Bei >85 Geräten pro Zone: automatische Aufteilung in nummerierte Teillinien
 """
 from __future__ import annotations
 import logging
@@ -45,12 +45,9 @@ class TopologyEngine:
         """
         Berechnet die optimale KNX-Topologie (FA-201, FA-209).
 
-        Algorithmus:
-        1. Pruefen ob Einzel- oder Mehrzonen-Gebäude
-        2. EFH (kein Stockwerk hat >1 Wohnung): Alle Räume in eine Zone
-        3. MFH/Zweckbau (Stockwerke mit mehreren Wohnungen/Zonen):
-           Räume nach Zonennamen gruppieren -> je 1 Linie
-        4. Bei >85 Geräten pro Zone: Linie aufteilen
+        Jeder Gebäude-Flügel wird zu einem Bereich; jede Zone (Apartment)
+        im Flügel wird zu einer Linie, benannt nach dem Zonennamen.
+        Bei >85 Geräten pro Zone: automatische Aufteilung in Teillinien.
         """
         topology = Topology(topology_mode=self.topology_mode)
 
@@ -62,7 +59,14 @@ class TopologyEngine:
         return topology
 
     def _create_area_for_wing(self, wing, topology: Topology) -> Area:
-        """Erstellt einen Bereich für einen Gebäude-Flügel."""
+        """Erstellt einen Bereich für einen Gebäude-Flügel.
+
+        Jede Zone (Apartment/Wohnung) erhält genau eine Linie, benannt nach dem
+        Zonennamen.  Gleiche Zonennamen auf verschiedenen Stockwerken werden
+        zusammengefasst (Maisonette).  Bei >85 Geräten pro Zone wird automatisch
+        in nummerierte Teillinien aufgeteilt.
+        EFH (eine Zone): eine Linie, benannt nach der einzigen Zone.
+        """
         area_number = len(topology.areas) + 1
         area = Area(
             area_number=area_number,
@@ -70,64 +74,29 @@ class TopologyEngine:
             coupler_address=f"{area_number}.0.0",
         )
 
-        # Pruefen ob Multi-Zone: Hat irgendein Stockwerk mehrere Wohnungen?
-        # Gleiche Zonennamen auf verschiedenen Stockwerken werden von
-        # _collect_zones() automatisch zusammengefasst (Maisonette-Unterstützung).
-        is_multi_zone = any(
-            len(floor.apartments) > 1 for floor in wing.floors
-        )
+        # Räume nach Zonennamen gruppieren – stockwerkuebergreifend (Maisonette).
+        zones = self._collect_zones(wing)
+        line_number = 1
+        for zone_name, zone_rooms in zones.items():
+            total_devices = sum(r.total_devices() for r in zone_rooms)
+            if total_devices == 0:
+                continue
 
-        if is_multi_zone:
-            # MFH/Zweckbau: Räume nach Zonennamen gruppieren
-            # Gleiche Zonennamen auf verschiedenen Etagen werden zusammengefasst
-            zones = self._collect_zones(wing)
-            line_number = 1
-            for zone_name, zone_rooms in zones.items():
-                total_devices = sum(r.total_devices() for r in zone_rooms)
-                if total_devices == 0:
-                    continue
-
-                if total_devices <= RECOMMENDED_DEVICES:
+            if total_devices <= RECOMMENDED_DEVICES:
+                line = self._create_line(area_number, line_number, zone_name, zone_rooms)
+                area.lines.append(line)
+                line_number += 1
+            else:
+                # Zone hat zu viele Geräte -> auf nummerierte Teillinien aufteilen
+                splits = self._split_rooms_into_lines(zone_rooms)
+                for i, room_group in enumerate(splits):
+                    suffix = f" (Teil {i+1})" if len(splits) > 1 else ""
                     line = self._create_line(
-                        area_number, line_number, zone_name, zone_rooms
+                        area_number, line_number,
+                        f"{zone_name}{suffix}", room_group
                     )
                     area.lines.append(line)
                     line_number += 1
-                else:
-                    # Zone hat zu viele Geräte -> auf mehrere Linien aufteilen
-                    splits = self._split_rooms_into_lines(zone_rooms)
-                    for i, room_group in enumerate(splits):
-                        suffix = f" (Teil {i+1})" if len(splits) > 1 else ""
-                        line = self._create_line(
-                            area_number, line_number,
-                            f"{zone_name}{suffix}", room_group
-                        )
-                        area.lines.append(line)
-                        line_number += 1
-        else:
-            # EFH / Einzelzone: Alle Räume in eine einzige Linie zusammenfassen
-            all_rooms = []
-            for floor in wing.floors:
-                all_rooms.extend(floor.all_rooms)
-
-            total_devices = sum(r.total_devices() for r in all_rooms)
-            if total_devices > 0:
-                line_number = 1
-                if total_devices <= RECOMMENDED_DEVICES:
-                    line = self._create_line(
-                        area_number, line_number, wing.name, all_rooms
-                    )
-                    area.lines.append(line)
-                else:
-                    # Einzelzone mit vielen Geräten -> aufteilen
-                    splits = self._split_rooms_into_lines(all_rooms)
-                    for i, room_group in enumerate(splits):
-                        suffix = f" (Teil {i+1})" if len(splits) > 1 else ""
-                        line = self._create_line(
-                            area_number, line_number + i,
-                            f"{wing.name}{suffix}", room_group
-                        )
-                        area.lines.append(line)
 
         return area
 

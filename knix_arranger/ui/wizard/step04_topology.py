@@ -19,7 +19,7 @@ from ..column_utils import fit_columns
 # Farben konsistent mit topology_view.py (FA-1007)
 _COLOR_COUPLER      = QColor("#1565C0")   # Dunkelblau: Koppler
 _COLOR_POWER        = QColor("#2E7D32")   # Dunkelgrün: Speisegerät
-_COLOR_ROOM         = QColor("#2E7D32")   # Dunkelgrün: Räume
+_COLOR_ROOM         = QColor("#00838F")   # Dunkelcyan: Räume
 _COLOR_ASSIGNED     = QColor("#1B5E20")   # Sehr dunkelgrün: Produkt zugewiesen
 _COLOR_PLACEHOLDER  = QColor("#9E9E9E")   # Grau: Platzhalter
 _COLOR_MANUAL       = QColor("#E65100")   # Orange: manuell hinzugefügtes Gerät
@@ -327,7 +327,7 @@ class Step04Topology(QWidget):
         line_form.addRow("Geräteanzahl:", self._line_devices)
         self._line_power_supply = QLabel("")
         self._line_power_supply.setStyleSheet("color: #808080;")
-        line_form.addRow("Speisegeraet:", self._line_power_supply)
+        line_form.addRow("Speisegerät:", self._line_power_supply)
         self._btn_apply_line = QPushButton("Übernehmen")
         self._btn_apply_line.clicked.connect(self._apply_line_changes)
         line_form.addRow("", self._btn_apply_line)
@@ -817,7 +817,7 @@ class Step04Topology(QWidget):
             _cat_display = {
                 "actor": "Aktor", "sensor": "Sensor",
                 "other": "Sonstiges", "coupler": "Koppler",
-                "power_supply": "Netzteil",
+                "power_supply": "Speisegerät",
             }
             self._device_cat_lbl.setText(
                 _cat_display.get(device.device_type, device.device_type)
@@ -939,7 +939,7 @@ class Step04Topology(QWidget):
             QMessageBox.information(
                 self, "Hinweis",
                 "Bitte wählen Sie einen Bereich oder eine Linie aus,\n"
-                "um eine neue Linie hinzuzufuegen."
+                "um eine neue Linie hinzuzufügen."
             )
             return
 
