@@ -2,6 +2,7 @@
 Wizard Schritt 10: Export und Zusammenfassung
 """
 from __future__ import annotations
+import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton,
     QGroupBox, QGridLayout, QFileDialog, QMessageBox, QTextEdit,
@@ -141,10 +142,17 @@ class Step10Export(QWidget):
 
     # ── Export-Aktionen ───────────────────────────────────────────────
 
+    def _default_dir(self, subdir: str = "Berichte") -> str:
+        folder = self._project.folder_path
+        if folder:
+            candidate = os.path.join(folder, subdir)
+            return candidate if os.path.isdir(candidate) else folder
+        return ""
+
     def _export_csv(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "CSV exportieren",
-            f"{self._project.name or 'export'}.csv",
+            os.path.join(self._default_dir(), f"{self._project.name or 'export'}.csv"),
             "CSV-Dateien (*.csv)",
         )
         if not path:
@@ -166,7 +174,7 @@ class Step10Export(QWidget):
     def _export_belegungsplan(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "ETS-Belegungsplan exportieren",
-            f"{self._project.name or 'Belegungsplan'}_ETS.xlsx",
+            os.path.join(self._default_dir(), f"{self._project.name or 'Belegungsplan'}_ETS.xlsx"),
             "Excel-Dateien (*.xlsx)",
         )
         if not path:
@@ -192,7 +200,7 @@ class Step10Export(QWidget):
     def _export_knxproj(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "KNXPROJ exportieren",
-            f"{self._project.name or 'projekt'}.knxproj",
+            os.path.join(self._default_dir(), f"{self._project.name or 'projekt'}.knxproj"),
             "ETS6-Projekt (*.knxproj)",
         )
         if not path:
@@ -217,7 +225,7 @@ class Step10Export(QWidget):
     def _save_project(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Projekt speichern",
-            f"{self._project.name or 'projekt'}.knxarr",
+            os.path.join(self._default_dir(""), f"{self._project.name or 'projekt'}.knxarr"),
             "KNiX Arranger (*.knxarr)",
         )
         if not path:

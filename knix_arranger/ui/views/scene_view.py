@@ -373,7 +373,11 @@ class SceneView(QWidget):
         value = self._action_value.text().strip()
         delay = self._action_delay.value()
 
-        if not ga or not value:
+        if not ga:
+            QMessageBox.information(
+                self, "Hinweis",
+                "Bitte geben Sie eine Gruppenadresse oder ein Gewerk an."
+            )
             return
 
         scene.actions.append(SceneAction(
