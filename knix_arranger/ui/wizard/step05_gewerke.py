@@ -19,6 +19,7 @@ from ...services.gewerk_service import GewerkService
 from ...services.address_generator import AddressGenerator
 from ..dialogs.gewerk_template_dialog import GewerkTemplateDialog
 from ..dialogs.extra_ga_dialog import ExtraGaDialog
+from ..dialogs.product_select_dialog import ProductSelectDialog
 from ..column_utils import fit_columns
 
 # Spalten-Indizes
@@ -457,6 +458,26 @@ class Step05Gewerke(QWidget):
                 )
                 action_layout.addWidget(btn_extra)
 
+                btn_product = QPushButton("✓ Produkt" if ga.linked_product else "Produkt…")
+                if ga.linked_product:
+                    lp = ga.linked_product
+                    btn_product.setToolTip(
+                        f"Verknüpft: {lp.get('manufacturer', '')} "
+                        f"{lp.get('order_number', '')} – {lp.get('product_name', '')}\n"
+                        "Klicken um Produkt zu ändern."
+                    )
+                else:
+                    btn_product.setToolTip(
+                        "Produkt aus Katalog/KNXPROD zuweisen – generiert die GAs "
+                        "dieser Zuweisung aus den ComObjects des Produkts und fügt "
+                        "es der Materialliste hinzu."
+                    )
+                btn_product.setFixedWidth(70)
+                btn_product.clicked.connect(
+                    lambda checked, r=room, g=ga: self._select_product(r, g)
+                )
+                action_layout.addWidget(btn_product)
+
                 btn_del = QPushButton("X")
                 btn_del.setFixedWidth(26)
                 btn_del.setObjectName("danger")
@@ -493,10 +514,23 @@ class Step05Gewerke(QWidget):
         if item.column() == _COL_COUNT:
             if 1 <= val <= 20:
                 ga.count = val
+                self._sync_material_quantity(ga)
             else:
                 self._refreshing = True
                 item.setText(str(ga.count))
                 self._refreshing = False
+
+    def _sync_material_quantity(self, ga: GewerkAssignment):
+        """Hält die Menge des verknüpften Materialliste-Eintrags synchron mit ga.count."""
+        if not ga.linked_product:
+            return
+        entry_id = ga.linked_product.get("material_entry_id")
+        if not entry_id:
+            return
+        for entry in self._project.material_list.entries:
+            if entry.id == entry_id:
+                entry.quantity = ga.count
+                break
 
     # ── Filter ──
 
@@ -752,8 +786,57 @@ class Step05Gewerke(QWidget):
             self._refresh_table()
 
     def _remove_gewerk(self, room, ga):
+        if ga.linked_product:
+            entry_id = ga.linked_product.get("material_entry_id")
+            if entry_id:
+                self._project.material_list.remove(entry_id)
         if ga in room.gewerk_assignments:
             room.gewerk_assignments.remove(ga)
+        self._refresh_table()
+
+    def _select_product(self, room, ga: GewerkAssignment):
+        """Öffnet die Produktauswahl und verknüpft das gewählte Produkt mit der Zuweisung.
+
+        Der GA-Block dieser Zuweisung wird danach aus den ComObjects des
+        Produkts generiert (siehe AddressGenerator._build_product_schema)
+        und das Produkt wird der Materialliste hinzugefügt.
+        """
+        dlg = ProductSelectDialog(parent=self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        prod = dlg.selected_product
+        if not prod:
+            return
+
+        if not prod.com_objects:
+            QMessageBox.information(
+                self, "Keine ComObject-Daten",
+                "Dieses Produkt enthält keine ComObject-Daten (kein KNXPROD-Import).\n"
+                "Das GA-Schema dieser Zuweisung bleibt unverändert – das Produkt "
+                "wird nur der Materialliste hinzugefügt.",
+            )
+
+        entry = dlg.get_material_entry()
+        if entry is None:
+            return
+        entry.quantity = ga.count
+
+        # Alten Materialliste-Eintrag entfernen, falls bereits ein Produkt verknüpft war
+        if ga.linked_product:
+            old_entry_id = ga.linked_product.get("material_entry_id")
+            if old_entry_id:
+                self._project.material_list.remove(old_entry_id)
+
+        self._project.material_list.add_or_update(entry)
+
+        ga.linked_product = {
+            "manufacturer": prod.manufacturer,
+            "order_number": prod.order_number,
+            "product_name": prod.product_name,
+            "com_objects": prod.com_objects,
+            "material_entry_id": entry.id,
+        }
         self._refresh_table()
 
     # ── Vorlage anwenden ──

@@ -409,6 +409,73 @@ def create_sp_block_schema() -> AddressBlockSchema:
     )
 
 
+def create_w_block_schema() -> AddressBlockSchema:
+    """Wetterstation Sensor 10er-Block (W).
+
+    Typische KNX-Wetterstation: 3 Helligkeitskanaele (Ost/Sued/West) +
+    Daemmerungswert, Wind, Aussentemperatur, Regen-/Frost-/Windalarm.
+    """
+    return AddressBlockSchema(
+        gewerk_code="W",
+        block_size=10,
+        middle_group=4,
+        entries=[
+            BlockEntry(0, "HELLIGKEIT OST",       "HELLIGKEIT OST",       "DPST-9-4", is_feedback=True),
+            BlockEntry(1, "HELLIGKEIT SUED",      "HELLIGKEIT SUED",      "DPST-9-4", is_feedback=True),
+            BlockEntry(2, "HELLIGKEIT WEST",      "HELLIGKEIT WEST",      "DPST-9-4", is_feedback=True),
+            BlockEntry(3, "DAEMMERUNG",           "DAEMMERUNG",           "DPST-9-4", is_feedback=True),
+            BlockEntry(4, "WIND GESCHWINDIGKEIT", "WIND GESCHWINDIGKEIT", "DPST-9-5", is_feedback=True),
+            BlockEntry(5, "TEMPERATUR AUSSEN",    "TEMPERATUR AUSSEN",    "DPST-9-1", is_feedback=True),
+            BlockEntry(6, "REGEN",                "REGEN",                "DPST-1-5", is_feedback=True),
+            BlockEntry(7, "FROST ALARM",          "FROST ALARM",          "DPST-1-5", is_feedback=True),
+            BlockEntry(8, "WIND ALARM",           "WIND ALARM",           "DPST-1-5", is_feedback=True),
+            BlockEntry(9, "STOERUNG",             "STOERUNG",             "DPST-1-1"),
+        ],
+    )
+
+
+def create_wp_block_schema() -> AddressBlockSchema:
+    """Waermepumpe Gateway 10er-Block (WP).
+
+    Typisches Modbus/KNX-Gateway einer Waermepumpe: Betriebsart,
+    Vorlauf-/Ruecklauf-/Aussentemperatur, Warmwasser, Leistung, Stoerung,
+    EVU-Sperre.
+    """
+    return AddressBlockSchema(
+        gewerk_code="WP",
+        block_size=10,
+        middle_group=2,
+        entries=[
+            BlockEntry(0, "BETRIEBSART",            "BETRIEBSART",            "DPT-20-105"),
+            BlockEntry(1, "VORLAUFTEMPERATUR SOLL", "VORLAUFTEMPERATUR SOLL", "DPST-9-1"),
+            BlockEntry(2, "VORLAUFTEMPERATUR IST",  "VORLAUFTEMPERATUR IST",  "DPST-9-1", is_feedback=True),
+            BlockEntry(3, "RUECKLAUFTEMPERATUR",    "RUECKLAUFTEMPERATUR",    "DPST-9-1", is_feedback=True),
+            BlockEntry(4, "AUSSENTEMPERATUR",       "AUSSENTEMPERATUR",       "DPST-9-1", is_feedback=True),
+            BlockEntry(5, "WARMWASSER SOLL",        "WARMWASSER SOLL",        "DPST-9-1"),
+            BlockEntry(6, "WARMWASSER IST",         "WARMWASSER IST",         "DPST-9-1", is_feedback=True),
+            BlockEntry(7, "LEISTUNG",               "LEISTUNG",               "DPST-9-24", is_feedback=True),
+            BlockEntry(8, "STOERUNG",               "STOERUNG",               "DPST-1-1"),
+            BlockEntry(9, "SPERREN",                "SPERREN",                "DPST-1-1"),
+        ],
+    )
+
+
+def create_mm_block_schema() -> AddressBlockSchema:
+    """Multimedia/Musikanlage Gateway 5er-Block (MM), pro Zone."""
+    return AddressBlockSchema(
+        gewerk_code="MM",
+        block_size=5,
+        middle_group=4,
+        entries=[
+            BlockEntry(0, "EIN/AUS",     "EIN/AUS",     "DPST-1-1"),
+            BlockEntry(1, "LAUTSTAERKE", "LAUTSTAERKE", "DPST-5-1"),
+            BlockEntry(2, "QUELLE",      "QUELLE",      "DPST-5-1"),
+            BlockEntry(3, "PLAY/PAUSE",  "PLAY/PAUSE",  "DPST-1-1"),
+            BlockEntry(4, "STATUS",      "STATUS",      "DPST-1-1", is_feedback=True),
+        ],
+    )
+
+
 def create_generic_5_block_schema(gewerk_code: str, middle_group: int = 4) -> AddressBlockSchema:
     """Generischer 5er-Block für sonstige Gewerke (FA-436)."""
     return AddressBlockSchema(

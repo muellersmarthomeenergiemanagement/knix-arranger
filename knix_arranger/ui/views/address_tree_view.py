@@ -80,7 +80,7 @@ class AddressTreeView(QWidget):
         self._tree = QTreeWidget()
         self._tree.itemExpanded.connect(lambda _: fit_columns(self._tree))
         self._tree.setHeaderLabels([
-            "Adresse", "Bezeichnung", "DPT", "Gewerk", "Raum",
+            "Adresse", "Bezeichnung", "Beschreibung", "DPT", "Gewerk", "Raum",
         ])
         self._tree.itemClicked.connect(self._on_item_clicked)
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
@@ -104,7 +104,7 @@ class AddressTreeView(QWidget):
 
         for hg in sorted(self._structure.main_groups, key=lambda m: m.number):
             hg_text = f"HG {hg.number} - {hg.name}"
-            hg_item = QTreeWidgetItem(self._tree, [hg_text, "", "", "", ""])
+            hg_item = QTreeWidgetItem(self._tree, [hg_text, "", "", "", "", ""])
             hg_item.setExpanded(True)
             hg_item.setData(0, Qt.UserRole, None)
 
@@ -112,7 +112,7 @@ class AddressTreeView(QWidget):
                 ga_count = len(mg.group_addresses)
                 mg_text = f"MG {mg.number} - {mg.name}"
                 mg_item = QTreeWidgetItem(
-                    hg_item, [mg_text, f"{ga_count} Adressen", "", "", ""]
+                    hg_item, [mg_text, f"{ga_count} Adressen", "", "", "", ""]
                 )
                 mg_item.setExpanded(True)
                 mg_item.setData(0, Qt.UserRole, None)
@@ -126,6 +126,7 @@ class AddressTreeView(QWidget):
                     ga_item = QTreeWidgetItem(mg_item, [
                         ga.address,
                         designation,
+                        ga.description,
                         ga.datapoint_type,
                         ga.gewerk_code,
                         ga.room_number,
@@ -136,11 +137,11 @@ class AddressTreeView(QWidget):
                     # Farbmarkierung nach Gewerk-Kategorie
                     color = self._get_gewerk_color(ga.gewerk_code)
                     if color:
-                        for col in range(5):
+                        for col in range(6):
                             ga_item.setBackground(col, QBrush(QColor(color)))
 
                     if ga.is_placeholder:
-                        for col in range(5):
+                        for col in range(6):
                             ga_item.setForeground(col, QBrush(QColor("#808080")))
 
         fit_columns(self._tree)
@@ -239,9 +240,9 @@ class AddressTreeView(QWidget):
             if item.childCount() == 0:
                 # Blatt-Element (GA): Text- und Kategorie-Prüfung kombinieren
                 text_ok = (not search) or any(
-                    search in item.text(col).lower() for col in range(5)
+                    search in item.text(col).lower() for col in range(6)
                 )
-                cat_ok = (allowed_codes is None) or (item.text(3) in allowed_codes)
+                cat_ok = (allowed_codes is None) or (item.text(4) in allowed_codes)
                 item.setHidden(not (text_ok and cat_ok))
             else:
                 # HG / MG: sichtbar wenn mindestens ein Kind sichtbar ist

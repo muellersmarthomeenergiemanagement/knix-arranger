@@ -68,6 +68,8 @@ class ReportsDialog(QDialog):
              self._gen_topology),
             ("Bedienelemente", "Taster/Sensoren mit GA-Zuordnung als PDF",
              self._gen_bedienelemente),
+            ("Räume nach Gewerken", "Gewerke und GAs je Raum als PDF",
+             self._gen_room_gewerk),
         ]
 
         for i, (title_text, desc, callback) in enumerate(buttons):
@@ -369,3 +371,19 @@ class ReportsDialog(QDialog):
             ReportService(project, company_profile=company).generate_bedienelemente_report(path)
 
         self._run("Bedienelemente-Bericht wird erstellt…", do, f"Bedienelemente-Bericht erstellt: {path}")
+
+    def _gen_room_gewerk(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Räume-nach-Gewerken-Bericht speichern",
+            self._default_export_path(f"{self._project.name}_Raeume_Gewerke.pdf"),
+            "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
+        )
+        if not path:
+            return
+        project, company = self._project, self._company_profile
+
+        def do():
+            from ...services.report_service import ReportService
+            ReportService(project, company_profile=company).generate_room_gewerk_report(path)
+
+        self._run("Räume-nach-Gewerken-Bericht wird erstellt…", do, f"Räume-nach-Gewerken-Bericht erstellt: {path}")

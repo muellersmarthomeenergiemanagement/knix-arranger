@@ -627,7 +627,7 @@ class DocumentationService:
 
         # 1. Projektzusammenfassung
         from .report_service import ReportService
-        report_svc = ReportService(self.project)
+        report_svc = ReportService(self.project, company_profile=self._company_profile)
         path = os.path.join(output_dir, f"{prefix}_Zusammenfassung.pdf")
         report_svc.generate_project_summary(path)
         generated_files.append(("Projektzusammenfassung", path))
@@ -646,6 +646,11 @@ class DocumentationService:
         path = os.path.join(output_dir, f"{prefix}_Bedienelemente.pdf")
         report_svc.generate_bedienelemente_report(path)
         generated_files.append(("Bedienelemente", path))
+
+        # 4b. Räume nach Gewerken
+        path = os.path.join(output_dir, f"{prefix}_Raeume_Gewerke.pdf")
+        report_svc.generate_room_gewerk_report(path)
+        generated_files.append(("Räume nach Gewerken", path))
 
         # 5. Validierungsbericht
         path = os.path.join(output_dir, f"{prefix}_Validierung.pdf")

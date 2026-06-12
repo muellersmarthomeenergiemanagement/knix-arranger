@@ -26,11 +26,41 @@ from ..models.address_block import (
     create_dmx_block_schema,
     create_lueftung_block_schema, create_kl_block_schema,
     create_ev_block_schema, create_pv_block_schema, create_sp_block_schema,
+    create_w_block_schema, create_wp_block_schema, create_mm_block_schema,
     create_generic_5_block_schema, create_generic_10_block_schema,
 )
 from .naming_engine import NamingEngine
+import re
 
 logger = logging.getLogger("knix_arranger.address_generator")
+
+_DPT_DOT_RE = re.compile(r"^(DPST?)-(\d+)\.(\d+)$")
+
+
+def _normalize_dpt(dpt: str) -> str:
+    """Normalisiert KNXPROD-DPT-Notation ("DPST-5.001") auf internes Format ("DPST-5-1")."""
+    m = _DPT_DOT_RE.match(dpt.strip())
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{int(m.group(3))}"
+    return dpt
+
+
+def _com_object_needs_ga(co: dict) -> bool:
+    """Repliziert ComObjectInfo.needs_ga auf einem serialisierten ComObject-Dict."""
+    return co.get("communication_flag", True) and (
+        co.get("write_flag", False)
+        or co.get("transmit_flag", False)
+        or co.get("read_flag", False)
+        or co.get("update_flag", False)
+    )
+
+
+def _com_object_function_name(co: dict) -> str:
+    """Leitet eine GA-Funktionsbezeichnung aus einem ComObject-Dict ab."""
+    name = (co.get("function_text") or co.get("name") or "").strip()
+    if len(name) > 40:
+        name = name[:40].strip()
+    return name
 
 
 class AddressGenerator:
@@ -184,7 +214,7 @@ class AddressGenerator:
                 for room, assignment, gewerk, room_number_ga, room_desc in mg_data[mg_num]:
                     for element_nr in range(1, assignment.count + 1):
                         fb_schema = self._get_block_schema(
-                            gewerk, is_feedback=True,
+                            gewerk, assignment=assignment, is_feedback=True,
                         )
                         if fb_schema:
                             sub_counter_fb = self._generate_block(
@@ -303,6 +333,41 @@ class AddressGenerator:
             return f"SZENE {scene.scene_number:02d} {scene.name}"
         return f"SZENE {scene.name}"
 
+    def _build_product_schema(self, gewerk: Gewerk,
+                              linked_product: dict) -> AddressBlockSchema | None:
+        """Baut ein Adressblock-Schema aus den ComObjects eines verknüpften Produkts.
+
+        Gibt None zurück, wenn das Produkt keine GA-relevanten ComObjects hat
+        (z.B. weil es nicht via KNXPROD importiert wurde) – dann greift der
+        generische/gewerk-spezifische Schema-Fallback.
+        """
+        com_objects = linked_product.get("com_objects") or []
+        entries: list[BlockEntry] = []
+        for co in com_objects:
+            if not _com_object_needs_ga(co):
+                continue
+            function = _com_object_function_name(co)
+            is_fb = not co.get("write_flag", False) and (
+                co.get("transmit_flag", False) or co.get("read_flag", False)
+            )
+            entries.append(BlockEntry(
+                offset=len(entries),
+                function=function,
+                designation=function,
+                dpt=_normalize_dpt(co.get("datapoint_type", "")),
+                is_feedback=is_fb,
+            ))
+
+        if not entries:
+            return None
+
+        return AddressBlockSchema(
+            gewerk_code=gewerk.code,
+            block_size=len(entries),
+            entries=entries,
+            middle_group=gewerk.middle_group,
+        )
+
     def _get_block_schema(self, gewerk: Gewerk,
                           assignment: GewerkAssignment | None = None,
                           is_feedback: bool = False) -> AddressBlockSchema | None:
@@ -310,16 +375,38 @@ class AddressGenerator:
 
         Wenn assignment.extra_entries gesetzt sind, werden diese an den
         Standard-Block angehängt (nur für den Vorwärts-Block, nicht Rückmeldung).
+
+        Ist assignment.linked_product mit GA-relevanten ComObjects gesetzt,
+        wird das Schema vollständig aus diesen ComObjects gebaut (ersetzt
+        Standard-/gewerk-spezifisches Schema).
         """
-        category = gewerk.category
+        product_schema = None
+        if assignment and assignment.linked_product:
+            product_schema = self._build_product_schema(gewerk, assignment.linked_product)
 
         if is_feedback:
+            if product_schema:
+                # Produkt-Block enthält Status-/Meldeobjekte bereits inline
+                return None
+
+            category = gewerk.category
             # Nur für Variante B
             if category == "licht":
                 return create_light_feedback_block_b()
             elif category == "jalousie":
                 return create_jalousie_feedback_block_b()
             return None
+
+        if product_schema:
+            if assignment and assignment.extra_entries:
+                for e in assignment.extra_entries:
+                    entry = BlockEntry.from_dict(e)
+                    entry.offset = product_schema.block_size
+                    product_schema.entries.append(entry)
+                    product_schema.block_size += 1
+            return product_schema
+
+        category = gewerk.category
 
         # Spezifische Schemata nach Gewerk-Code (Vorrang vor Kategorie)
         _CODE_SCHEMA = {
@@ -333,6 +420,9 @@ class AddressGenerator:
             "EV":  create_ev_block_schema,
             "PV":  create_pv_block_schema,
             "SP":  create_sp_block_schema,
+            "W":   create_w_block_schema,
+            "WP":  create_wp_block_schema,
+            "MM":  create_mm_block_schema,
         }
         if gewerk.code in _CODE_SCHEMA:
             schema = _CODE_SCHEMA[gewerk.code]()
@@ -361,7 +451,6 @@ class AddressGenerator:
         if assignment and assignment.extra_entries:
             schema = copy.deepcopy(schema)
             for e in assignment.extra_entries:
-                from ..models.address_block import BlockEntry
                 entry = BlockEntry.from_dict(e)
                 entry.offset = schema.block_size
                 schema.entries.append(entry)

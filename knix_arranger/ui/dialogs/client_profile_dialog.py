@@ -6,12 +6,13 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QGroupBox, QFormLayout, QTextEdit, QFileDialog,
-    QSizePolicy,
+    QSizePolicy, QMessageBox,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QTransform
 
 from ...models.client_profile import ClientProfile
+from ...utils.clipboard_image import save_clipboard_image
 
 
 class ClientProfileDialog(QDialog):
@@ -77,6 +78,10 @@ class ClientProfileDialog(QDialog):
         btn_photo = QPushButton("Foto auswählen…")
         btn_photo.clicked.connect(self._choose_photo)
         photo_btn_col.addWidget(btn_photo)
+
+        btn_photo_paste = QPushButton("Aus Zwischenablage einfügen")
+        btn_photo_paste.clicked.connect(self._paste_photo)
+        photo_btn_col.addWidget(btn_photo_paste)
 
         btn_rotate = QPushButton("↻ 90° drehen")
         btn_rotate.clicked.connect(self._rotate_photo)
@@ -155,6 +160,18 @@ class ClientProfileDialog(QDialog):
             self._photo_path = path
             self._photo_rotation = 0
             self._update_photo_preview()
+
+    def _paste_photo(self):
+        path = save_clipboard_image("projektfoto")
+        if not path:
+            QMessageBox.information(
+                self, "Zwischenablage",
+                "Die Zwischenablage enthält kein Bild.",
+            )
+            return
+        self._photo_path = path
+        self._photo_rotation = 0
+        self._update_photo_preview()
 
     def _rotate_photo(self):
         if not self._photo_path:

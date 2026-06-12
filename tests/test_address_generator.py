@@ -13,6 +13,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from knix_arranger.services.address_generator import AddressGenerator
 from knix_arranger.models.group_address import GroupAddressStructure
+from knix_arranger.models.building import (
+    Areal, Building, Wing, Floor, Apartment, Room, GewerkAssignment,
+)
 
 
 class TestAddressGeneratorVarianteA:
@@ -542,3 +545,247 @@ class TestGaEditing:
         assert ga_again.id == original_id
         assert ga_again.designation == "Geaendert"
         assert ga_again.description == "Test-Edit"
+
+
+# Beispiel-ComObjects einer Wetterstation (KNXPROD-Import-Format)
+_WEATHER_COM_OBJECTS = [
+    {
+        "number": 1, "name": "Helligkeit Ost", "function_text": "Helligkeit Ost",
+        "datapoint_type": "DPST-9-4",
+        "communication_flag": True, "read_flag": False,
+        "write_flag": False, "transmit_flag": True, "update_flag": False,
+    },
+    {
+        "number": 2, "name": "Wind Geschwindigkeit", "function_text": "Wind Geschwindigkeit",
+        "datapoint_type": "DPST-9-5",
+        "communication_flag": True, "read_flag": False,
+        "write_flag": False, "transmit_flag": True, "update_flag": False,
+    },
+    {
+        "number": 3, "name": "Regen", "function_text": "Regen",
+        "datapoint_type": "DPST-1-2",
+        "communication_flag": True, "read_flag": False,
+        "write_flag": False, "transmit_flag": True, "update_flag": False,
+    },
+    {
+        "number": 4, "name": "Sperren Wind", "function_text": "Sperren Wind",
+        "datapoint_type": "DPST-1-1",
+        "communication_flag": True, "read_flag": False,
+        "write_flag": True, "transmit_flag": False, "update_flag": False,
+    },
+    {
+        # Kein needs_ga (kein Flag gesetzt) - darf nicht ins Schema uebernommen werden
+        "number": 5, "name": "Reserve", "function_text": "Reserve",
+        "datapoint_type": "DPST-1-1",
+        "communication_flag": True, "read_flag": False,
+        "write_flag": False, "transmit_flag": False, "update_flag": False,
+    },
+]
+
+
+@pytest.fixture
+def eg_room_with_weather_station():
+    """EG Raum E01 mit Gewerk 'W' (Wetterstation), verknuepft mit Produkt."""
+    areal = Areal(name="Test")
+    building = Building(name="Test")
+    wing = Wing(name="Haupt")
+
+    eg = Floor(name="Erdgeschoss", short_code="EG", main_group_number=2)
+    eg_apt = Apartment(name="EG")
+
+    room = Room(number="E01", name="Schlafzimmer")
+    room.gewerk_assignments = [
+        GewerkAssignment(
+            gewerk_code="W", count=1,
+            linked_product={
+                "manufacturer": "Test-Hersteller",
+                "order_number": "WS-100",
+                "product_name": "Wetterstation Pro",
+                "com_objects": _WEATHER_COM_OBJECTS,
+                "material_entry_id": "test-entry-id",
+            },
+        ),
+    ]
+    eg_apt.rooms.append(room)
+    eg.apartments.append(eg_apt)
+
+    wing.floors.append(eg)
+    building.wings.append(wing)
+    areal.buildings.append(building)
+    return areal
+
+
+class TestAddressGeneratorProductSchema:
+    """Tests fuer produktbasierte GA-Generierung (verknuepftes Produkt)."""
+
+    def test_product_schema_replaces_generic_block(
+        self, eg_room_with_weather_station, gewerk_catalog,
+    ):
+        """GAs der 'W'-Zuweisung entsprechen den ComObjects des Produkts,
+        nicht dem generischen 10er-Schema (E/A, WERT 1, WERT 2, ...)."""
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(eg_room_with_weather_station)
+
+        gewerk = gewerk_catalog.get("W")
+        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
+        mg = next(m for m in hg2.middle_groups if m.number == gewerk.middle_group)
+
+        designations = [ga.designation for ga in mg.group_addresses]
+        function_names = [ga.function_name for ga in mg.group_addresses]
+        dpts = [ga.datapoint_type for ga in mg.group_addresses]
+
+        # Generisches Schema darf nicht mehr vorkommen
+        assert not any("WERT 1" in d for d in designations)
+        assert not any("WERT 2" in d for d in designations)
+
+        # Produkt-ComObjects (mit needs_ga) muessen vorkommen, in dieser Reihenfolge
+        assert "Helligkeit Ost" in function_names
+        assert "Wind Geschwindigkeit" in function_names
+        assert "Regen" in function_names
+        assert "Sperren Wind" in function_names
+
+        # Reserve-ComObject (kein Flag) darf nicht uebernommen werden
+        assert "Reserve" not in function_names
+
+        # DPTs aus dem Produkt
+        idx = function_names.index("Helligkeit Ost")
+        assert dpts[idx] == "DPST-9-4"
+
+        # Genau 4 GAs (5 ComObjects, 1 davon ohne needs_ga)
+        assert len([f for f in function_names if f]) == 4
+
+    def test_extra_entries_appended_to_product_schema(
+        self, eg_room_with_weather_station, gewerk_catalog,
+    ):
+        """Zusaetzliche manuelle GAs (extra_entries) werden an den
+        Produkt-Block angehaengt."""
+        room = eg_room_with_weather_station.all_floors[0].apartments[0].rooms[0]
+        assignment = room.gewerk_assignments[0]
+        assignment.extra_entries = [{
+            "offset": 0, "function": "ZUSATZ", "designation": "ZUSATZ",
+            "dpt": "DPST-1-1", "is_feedback": False, "is_reserve": False,
+        }]
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(eg_room_with_weather_station)
+
+        gewerk = gewerk_catalog.get("W")
+        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
+        mg = next(m for m in hg2.middle_groups if m.number == gewerk.middle_group)
+
+        function_names = [ga.function_name for ga in mg.group_addresses]
+        assert "ZUSATZ" in function_names
+        # 4 Produkt-GAs + 1 Extra-GA
+        assert len([f for f in function_names if f]) == 5
+
+    def test_linked_product_without_com_objects_falls_back_to_w_schema(
+        self, eg_room_with_weather_station, gewerk_catalog,
+    ):
+        """Ohne ComObjects (z.B. Produkt nicht via KNXPROD importiert) greift
+        das gewerk-spezifische Wetterstation-Schema (kein generischer Block)."""
+        room = eg_room_with_weather_station.all_floors[0].apartments[0].rooms[0]
+        room.gewerk_assignments[0].linked_product["com_objects"] = []
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(eg_room_with_weather_station)
+
+        gewerk = gewerk_catalog.get("W")
+        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
+        mg = next(m for m in hg2.middle_groups if m.number == gewerk.middle_group)
+
+        function_names = [ga.function_name for ga in mg.group_addresses]
+        assert "HELLIGKEIT OST" in function_names
+        assert "WERT 1" not in function_names
+
+    def test_linked_product_to_dict_round_trip(self):
+        """GewerkAssignment.linked_product wird korrekt (de-)serialisiert."""
+        ga = GewerkAssignment(
+            gewerk_code="W", count=1,
+            linked_product={
+                "manufacturer": "Test-Hersteller",
+                "order_number": "WS-100",
+                "product_name": "Wetterstation Pro",
+                "com_objects": _WEATHER_COM_OBJECTS,
+                "material_entry_id": "test-entry-id",
+            },
+        )
+        data = ga.to_dict()
+        assert data["linked_product"]["order_number"] == "WS-100"
+
+        restored = GewerkAssignment.from_dict(data)
+        assert restored.linked_product == ga.linked_product
+
+    def test_linked_product_defaults_to_none(self):
+        """Bestehende Projekte ohne linked_product laden mit None."""
+        restored = GewerkAssignment.from_dict({"gewerk_code": "L", "count": 1})
+        assert restored.linked_product is None
+
+
+class TestGewerkServiceProductGaCount:
+    """Tests fuer GA-Zaehlung mit verknuepftem Produkt (gewerk_service)."""
+
+    def test_calculate_ga_count_uses_product_com_objects(
+        self, eg_room_with_weather_station, gewerk_catalog,
+    ):
+        from knix_arranger.services.gewerk_service import GewerkService
+
+        room = eg_room_with_weather_station.all_floors[0].apartments[0].rooms[0]
+        gewerk = gewerk_catalog.get("W")
+
+        service = GewerkService(gewerk_catalog)
+        count = service.calculate_ga_count(room)
+
+        # 4 GA-relevante ComObjects statt gewerk.ga_count (10)
+        assert count == 4
+        assert count != gewerk.ga_count
+
+    def test_room_summary_reflects_product_ga_count(
+        self, eg_room_with_weather_station, gewerk_catalog,
+    ):
+        from knix_arranger.services.gewerk_service import GewerkService
+
+        room = eg_room_with_weather_station.all_floors[0].apartments[0].rooms[0]
+        service = GewerkService(gewerk_catalog)
+        summary = service.get_room_summary(room)
+
+        assert summary[0]["code"] == "W"
+        assert summary[0]["ga_per_element"] == 4
+        assert summary[0]["total_ga"] == 4
+
+
+class TestAddressGeneratorGatewaySchemas:
+    """Default-Schemata fuer Gateway-/Sensor-Gewerke ohne Produktverknuepfung
+    (W=Wetterstation, WP=Waermepumpe, MM=Multimedia/Musikanlage)."""
+
+    @pytest.mark.parametrize("code,expected_function,expected_mg", [
+        ("W", "HELLIGKEIT OST", 4),
+        ("WP", "BETRIEBSART", 2),
+        ("MM", "EIN/AUS", 4),
+    ])
+    def test_default_schema_used_without_linked_product(
+        self, gewerk_catalog, code, expected_function, expected_mg,
+    ):
+        areal = Areal(name="Test")
+        building = Building(name="Test")
+        wing = Wing(name="Haupt")
+        eg = Floor(name="Erdgeschoss", short_code="EG", main_group_number=2)
+        eg_apt = Apartment(name="EG")
+        room = Room(number="E01", name="Technik")
+        room.gewerk_assignments = [GewerkAssignment(gewerk_code=code, count=1)]
+        eg_apt.rooms.append(room)
+        eg.apartments.append(eg_apt)
+        wing.floors.append(eg)
+        building.wings.append(wing)
+        areal.buildings.append(building)
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(areal)
+
+        gewerk = gewerk_catalog.get(code)
+        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
+        mg = next(m for m in hg2.middle_groups if m.number == expected_mg)
+
+        function_names = [ga.function_name for ga in mg.group_addresses]
+        assert expected_function in function_names
+        assert "WERT 1" not in function_names
+        assert len(mg.group_addresses) == gewerk.block_size

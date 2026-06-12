@@ -25,33 +25,37 @@ def gewerk_catalog():
 
 @pytest.fixture
 def simple_efh():
-    """Einfaches EFH mit 4 Stockwerken und je einem Raum."""
+    """Einfaches EFH mit 4 Stockwerken und je einem Raum.
+
+    Alle Stockwerke gehoeren zur selben Zone (gleicher Apartment-Name
+    "Hauptgebaeude"), da ein EFH eine Einzelzone ist, die mehrere
+    Stockwerke umfasst (Zonen-Stockwerk-Modell)."""
     areal = Areal(name="Test EFH")
     building = Building(name="EFH")
     wing = Wing(name="Hauptgebaeude")
 
     # UG
     ug = Floor(name="Untergeschoss", short_code="UG", main_group_number=1)
-    ug_apt = Apartment(name="UG")
+    ug_apt = Apartment(name="Hauptgebaeude")
     ug_apt.rooms.append(Room(number="U01", name="Keller"))
     ug.apartments.append(ug_apt)
 
     # EG
     eg = Floor(name="Erdgeschoss", short_code="EG", main_group_number=2)
-    eg_apt = Apartment(name="EG")
+    eg_apt = Apartment(name="Hauptgebaeude")
     eg_apt.rooms.append(Room(number="E01", name="Schlafzimmer"))
     eg_apt.rooms.append(Room(number="E02", name="Wohnzimmer"))
     eg.apartments.append(eg_apt)
 
     # OG
     og = Floor(name="Obergeschoss", short_code="OG", main_group_number=3)
-    og_apt = Apartment(name="OG")
+    og_apt = Apartment(name="Hauptgebaeude")
     og_apt.rooms.append(Room(number="O01", name="Kinderzimmer"))
     og.apartments.append(og_apt)
 
     # DG
     dg = Floor(name="Dachgeschoss", short_code="DG", main_group_number=4)
-    dg_apt = Apartment(name="DG")
+    dg_apt = Apartment(name="Hauptgebaeude")
     dg_apt.rooms.append(Room(number="D01", name="Estrich"))
     dg.apartments.append(dg_apt)
 

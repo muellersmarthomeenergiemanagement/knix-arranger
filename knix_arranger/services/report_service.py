@@ -5,15 +5,43 @@ Erzeugt Validierungsberichte, GA-Listen und Projektuebersichten als PDF/Text.
 from __future__ import annotations
 import logging
 import re
+from collections import defaultdict
 from datetime import datetime
 
 from ..models.project import KnxProject
 from ..models.group_address import GroupAddressStructure, MIDDLE_GROUP_NAMES_A, MIDDLE_GROUP_NAMES_B
 from ..services.validation_engine import ValidationEngine, ValidationIssue
 from ..services.belegungsplan_service import _split_button_channel
+from ..services.naming_engine import NamingEngine
 from ..utils.pdf_generator import PdfGenerator
 
 logger = logging.getLogger("knix_arranger.report_service")
+
+# Feste Anzeige-Reihenfolge der Gewerk-Kategorien (entspricht den
+# Filter-Buttons der GA-Ansicht: Licht, Jalousie, Heizung, Lüftung/Klima,
+# Energie, Alarm, Allgemein). Unbekannte/leere Kategorien (Sonstige) zuletzt.
+GEWERK_CATEGORY_ORDER = [
+    "licht", "licht_color", "jalousie", "heizung",
+    "lueftung", "energie", "alarm", "allgemein",
+]
+GEWERK_CATEGORY_LABELS = {
+    "licht": "Licht",
+    "licht_color": "Licht (Farbe)",
+    "jalousie": "Jalousie",
+    "heizung": "Heizung",
+    "lueftung": "Lüftung / Klima",
+    "energie": "Energie",
+    "alarm": "Alarm",
+    "allgemein": "Allgemein",
+    "": "Sonstige",
+}
+
+
+def _gewerk_category_sort_key(category: str) -> int:
+    try:
+        return GEWERK_CATEGORY_ORDER.index(category)
+    except ValueError:
+        return len(GEWERK_CATEGORY_ORDER)
 
 
 class ReportService:
@@ -174,6 +202,181 @@ class ReportService:
 
         pdf.save(filepath)
         logger.info(f"GA-Bericht erstellt: {filepath}")
+
+    def generate_room_gewerk_report(self, filepath: str):
+        """Erzeugt den Bericht 'Räume nach Gewerken' als PDF.
+
+        Zeigt pro Raum, welche Gewerke/Funktionsbereiche vorhanden sind und
+        über welche Gruppenadressen sie angesteuert werden. Die Raum-GA-
+        Zuordnung wird sowohl über `GroupAddress.room_id` (Wizard-Projekte)
+        als auch über verknüpfte Geräte (`Device.room_id` + `connected_gas`)
+        ermittelt, damit der Bericht auch für importierte .knxproj-Projekte
+        ohne Gewerke-Zuweisung funktioniert. GAs ohne `gewerk_code` werden
+        anhand ihrer Mittelgruppe kategorisiert.
+        """
+        structure = self.project.group_addresses
+        mg_names = (MIDDLE_GROUP_NAMES_B if structure.variant == "B"
+                    else MIDDLE_GROUP_NAMES_A)
+
+        # Adresse -> GroupAddress / Mittelgruppen-Bezeichnung (Fallback-Kategorie)
+        ga_by_address = {}
+        mg_label_by_address = {}
+        for hg in structure.main_groups:
+            for mg in hg.middle_groups:
+                mg_label = mg_names.get(mg.number) or mg.name or f"MG {mg.number}"
+                for ga in mg.group_addresses:
+                    ga_by_address[ga.address] = ga
+                    mg_label_by_address[ga.address] = mg_label
+
+        # Raum-ID -> verknüpfte Geräte (für Import-Projekte ohne ga.room_id)
+        devices_by_room = defaultdict(list)
+        for area in self.project.topology.areas:
+            for line in area.lines:
+                for dev in line.devices:
+                    if dev.room_id:
+                        devices_by_room[dev.room_id].append(dev)
+
+        # Stockwerk-/Zonenname je Raum (für Anzeige und Sortierung)
+        floor_by_room = {}
+        zone_by_room = {}
+        for building in self.project.areal.buildings:
+            for wing in building.wings:
+                for floor in wing.floors:
+                    for apt in floor.apartments:
+                        for room in apt.rooms:
+                            floor_by_room[room.id] = floor.name
+                            zone_by_room[room.id] = apt.name
+
+        def _room_key(room):
+            floor = floor_by_room.get(room.id, "")
+            zone = zone_by_room.get(room.id, "")
+            num = 9999
+            if room.number:
+                m = re.search(r'\d+', room.number)
+                if m:
+                    num = int(m.group())
+            return (floor, zone, num, room.name)
+
+        pdf = self._make_pdf("Räume nach Gewerken")
+        pdf.add_heading("Räume nach Gewerken", level=1)
+        pdf.add_paragraph(
+            f"Projekt: {self.project.name} | "
+            f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        )
+        pdf.add_separator()
+
+        has_any = False
+        for room in sorted(self.project.all_rooms, key=_room_key):
+            # GAs für diesen Raum sammeln (über room_id und/oder verknüpfte Geräte)
+            room_gas = {}
+            for ga in structure.all_addresses():
+                if ga.room_id == room.id and not ga.is_placeholder:
+                    room_gas[ga.address] = ga
+            for dev in devices_by_room.get(room.id, []):
+                for co in dev.communication_objects:
+                    for addr in co.connected_gas:
+                        ga = ga_by_address.get(addr)
+                        if ga and not ga.is_placeholder:
+                            room_gas.setdefault(addr, ga)
+
+            if not room_gas:
+                continue
+            has_any = True
+
+            # Nach Gewerk + Element gruppieren (mehrere Elemente desselben
+            # Gewerks, z.B. Jalousie 1/2, bleiben so unterscheidbar);
+            # ohne gewerk_code anhand der Mittelgruppe
+            groups = defaultdict(list)
+            for ga in room_gas.values():
+                if ga.gewerk_code:
+                    label = self._gewerk_label(ga.gewerk_code)
+                else:
+                    label = mg_label_by_address.get(ga.address, "Sonstige")
+                groups[(label, ga.element_number)].append(ga)
+
+            # Labels mit mehreren Elementen ermitteln, um die Elementnummer
+            # nur dort anzuzeigen, wo sie tatsächlich unterscheidet
+            elements_per_label = defaultdict(set)
+            for (label, elem_nr) in groups.keys():
+                elements_per_label[label].add(elem_nr)
+
+            floor_name = floor_by_room.get(room.id, "")
+            zone_name = zone_by_room.get(room.id, "")
+            room_label = f"{room.number} {room.name}".strip()
+            location = " / ".join(p for p in [floor_name, zone_name, room_label] if p)
+
+            num_gewerke = len({label for label, _ in groups.keys()})
+            pdf.add_conditional_break(min_height=120)
+            pdf.add_heading(
+                f"{location or room_label} "
+                f"({num_gewerke} Gewerke, {len(room_gas)} GAs)",
+                level=2,
+            )
+
+            def _category_for(gas):
+                code = gas[0].gewerk_code
+                if code:
+                    gewerk = self.project.gewerk_catalog.get(code)
+                    if gewerk:
+                        return gewerk.category
+                return ""
+
+            headers = ["Gewerk / Funktionsbereich", "Adresse", "Funktion", "Bezeichnung", "Beschreibung", "DPT"]
+            col_widths = [115, 40, 85, 95, 100, 60]
+            sorted_groups = sorted(
+                groups.items(),
+                key=lambda kv: (_gewerk_category_sort_key(_category_for(kv[1])), kv[0][0], kv[0][1]),
+            )
+
+            prev_category = None
+            rows = []
+            for (label, elem_nr), gas in sorted_groups:
+                category = _category_for(gas)
+                if category != prev_category:
+                    if rows:
+                        pdf.add_table(headers, rows, col_widths=col_widths)
+                        rows = []
+                    pdf.add_heading(
+                        GEWERK_CATEGORY_LABELS.get(category, category or "Sonstige"),
+                        level=3,
+                    )
+                    prev_category = category
+
+                display_label = label
+                if elem_nr and len(elements_per_label[label]) > 1:
+                    display_label = f"{label} {elem_nr}"
+
+                gas_sorted = sorted(
+                    gas, key=lambda g: (g.main_group, g.middle_group, g.sub_group)
+                )
+                for i, g in enumerate(gas_sorted):
+                    parsed = NamingEngine.parse_designation(g.designation)
+                    if parsed["gewerk_code"]:
+                        funktion = parsed["function_name"] or "-"
+                        bezeichnung = parsed["description"] or "-"
+                    else:
+                        funktion = "-"
+                        bezeichnung = g.designation[:50] if g.designation else "-"
+                    rows.append([
+                        f"{display_label} ({len(gas_sorted)} GAs)" if i == 0 else "",
+                        g.address,
+                        funktion,
+                        bezeichnung,
+                        g.description[:50] if g.description else "-",
+                        g.datapoint_type or "-",
+                    ])
+
+            if rows:
+                pdf.add_table(headers, rows, col_widths=col_widths)
+            pdf.add_separator()
+
+        if not has_any:
+            pdf.add_paragraph(
+                "Keine Räume mit zugeordneten Gruppenadressen gefunden."
+            )
+
+        pdf.save(filepath)
+        logger.info(f"Räume-nach-Gewerken-Bericht erstellt: {filepath}")
 
     def generate_project_summary(self, filepath: str):
         """Erzeugt eine Projektzusammenfassung als PDF/Text."""

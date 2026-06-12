@@ -7,11 +7,13 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QGroupBox, QFormLayout, QComboBox, QTabWidget,
     QWidget, QDoubleSpinBox, QCheckBox, QFileDialog, QSizePolicy,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 
 from ...models.company_profile import CompanyProfile
+from ...utils.clipboard_image import save_clipboard_image
 
 
 class SettingsDialog(QDialog):
@@ -117,6 +119,9 @@ class SettingsDialog(QDialog):
         btn_logo = QPushButton("Logo auswählen…")
         btn_logo.clicked.connect(self._choose_logo)
         logo_btn_col.addWidget(btn_logo)
+        btn_logo_paste = QPushButton("Aus Zwischenablage einfügen")
+        btn_logo_paste.clicked.connect(self._paste_logo)
+        logo_btn_col.addWidget(btn_logo_paste)
         btn_logo_clear = QPushButton("Logo entfernen")
         btn_logo_clear.setObjectName("secondary")
         btn_logo_clear.clicked.connect(self._clear_logo)
@@ -269,6 +274,17 @@ class SettingsDialog(QDialog):
         if path:
             self._logo_path = path
             self._update_logo_preview(path)
+
+    def _paste_logo(self):
+        path = save_clipboard_image("logo")
+        if not path:
+            QMessageBox.information(
+                self, "Zwischenablage",
+                "Die Zwischenablage enthält kein Bild.",
+            )
+            return
+        self._logo_path = path
+        self._update_logo_preview(path)
 
     def _clear_logo(self):
         self._logo_path = ""

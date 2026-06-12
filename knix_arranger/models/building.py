@@ -278,6 +278,12 @@ class GewerkAssignment:
     sensor_type_override: str | None = None
     # Zusätzliche GA-Einträge über den Standard-Block hinaus (serialisierte BlockEntry-Dicts)
     extra_entries: list[dict] = field(default_factory=list)
+    # Verknüpftes Produkt (FA-Produktbasierte GA-Generierung): wenn gesetzt,
+    # wird der GA-Block aus den ComObjects dieses Produkts generiert statt
+    # aus dem generischen/gewerk-spezifischen Schema.
+    # {"manufacturer": str, "order_number": str, "product_name": str,
+    #  "com_objects": list[dict], "material_entry_id": str}
+    linked_product: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -288,6 +294,7 @@ class GewerkAssignment:
             "taster_indices": self.taster_indices,
             "sensor_type_override": self.sensor_type_override,
             "extra_entries": self.extra_entries,
+            "linked_product": self.linked_product,
         }
 
     @classmethod
@@ -308,6 +315,7 @@ class GewerkAssignment:
             sensor_type_override=data.get("sensor_type_override"),
         )
         obj.extra_entries = data.get("extra_entries", [])
+        obj.linked_product = data.get("linked_product")
         return obj
 
 

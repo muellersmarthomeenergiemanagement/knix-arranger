@@ -18,6 +18,27 @@ _GA_DESIGNATOR_RE = re.compile(
 )
 
 
+def _com_object_needs_ga(co: dict) -> bool:
+    """Repliziert ComObjectInfo.needs_ga auf einem serialisierten ComObject-Dict."""
+    return co.get("communication_flag", True) and (
+        co.get("write_flag", False)
+        or co.get("transmit_flag", False)
+        or co.get("read_flag", False)
+        or co.get("update_flag", False)
+    )
+
+
+def linked_product_ga_count(assignment: GewerkAssignment) -> int | None:
+    """Anzahl GAs pro Element aus verknüpftem Produkt (None = kein Produkt verknüpft)."""
+    lp = assignment.linked_product
+    if not lp or not lp.get("com_objects"):
+        return None
+    count = sum(1 for co in lp["com_objects"] if _com_object_needs_ga(co))
+    if count == 0:
+        return None
+    return count + len(assignment.extra_entries)
+
+
 # System-Gewerke-Vorlagen (FA-306) -- schreibgeschuetzt
 GEWERK_TEMPLATES = {
     "wohnzimmer": {
@@ -206,7 +227,10 @@ class GewerkService:
         for assignment in room.gewerk_assignments:
             gewerk = self.catalog.get(assignment.gewerk_code)
             if gewerk:
-                total += gewerk.ga_count * assignment.count
+                ga_per_element = linked_product_ga_count(assignment)
+                if ga_per_element is None:
+                    ga_per_element = gewerk.ga_count
+                total += ga_per_element * assignment.count
         return total
 
     def get_room_summary(self, room: Room) -> list[dict]:
@@ -215,12 +239,15 @@ class GewerkService:
         for assignment in room.gewerk_assignments:
             gewerk = self.catalog.get(assignment.gewerk_code)
             if gewerk:
+                ga_per_element = linked_product_ga_count(assignment)
+                if ga_per_element is None:
+                    ga_per_element = gewerk.ga_count
                 summary.append({
                     "code": assignment.gewerk_code,
                     "name": gewerk.name,
                     "count": assignment.count,
-                    "ga_per_element": gewerk.ga_count,
-                    "total_ga": gewerk.ga_count * assignment.count,
+                    "ga_per_element": ga_per_element,
+                    "total_ga": ga_per_element * assignment.count,
                 })
         return summary
 

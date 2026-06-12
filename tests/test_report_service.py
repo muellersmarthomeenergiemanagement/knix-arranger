@@ -94,6 +94,59 @@ class TestReportService:
                 if os.path.exists(p):
                     os.unlink(p)
 
+    def test_room_gewerk_report(self, sample_project):
+        svc = ReportService(sample_project)
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            filepath = f.name
+
+        try:
+            svc.generate_room_gewerk_report(filepath)
+            txt_path = filepath.rsplit(".", 1)[0] + ".txt"
+            assert os.path.exists(filepath) or os.path.exists(txt_path)
+        finally:
+            for p in [filepath, txt_path]:
+                if os.path.exists(p):
+                    os.unlink(p)
+
+    def test_room_gewerk_report_without_gewerk_codes(self, sample_project):
+        """Importierte Projekte haben keine ga.room_id/gewerk_code; die
+        Raumzuordnung muss dann ueber verknuepfte Geraete funktionieren."""
+        from knix_arranger.models.topology import (
+            Area, Line, Device, CommunicationObject,
+        )
+
+        room1 = sample_project.all_rooms[0]
+        for ga in sample_project.group_addresses.all_addresses():
+            ga.room_id = ""
+            ga.gewerk_code = ""
+
+        first_ga = sample_project.group_addresses.all_addresses()[0]
+        device = Device(
+            physical_address="1.1.1",
+            device_type="actor",
+            room_id=room1.id,
+            communication_objects=[
+                CommunicationObject(connected_gas=[first_ga.address]),
+            ],
+        )
+        area = Area(area_number=1)
+        line = Line(line_number=1, devices=[device])
+        area.lines.append(line)
+        sample_project.topology.areas.append(area)
+
+        svc = ReportService(sample_project)
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            filepath = f.name
+
+        try:
+            svc.generate_room_gewerk_report(filepath)
+            txt_path = filepath.rsplit(".", 1)[0] + ".txt"
+            assert os.path.exists(filepath) or os.path.exists(txt_path)
+        finally:
+            for p in [filepath, txt_path]:
+                if os.path.exists(p):
+                    os.unlink(p)
+
     def test_project_summary(self, sample_project):
         svc = ReportService(sample_project)
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
