@@ -661,11 +661,16 @@ class BauherrFormService:
                 if val != auto:
                     sf.label = val
                     imported_count += 1
+                    be.is_auto = False
             else:
                 while len(be.funktionen) < sf_idx:
                     be.funktionen.append(SF())
                 be.funktionen.append(SF(label=val, ga_designation=val))
                 imported_count += 1
+                # Wunsch markiert das Bedienelement als manuell konfiguriert, damit
+                # auto_assign_functions die Funktionsliste bei der nachfolgenden
+                # Neuberechnung nicht verwirft (FA-1410: is_auto=False wird erhalten).
+                be.is_auto = False
 
         for sheet_name in wb.sheetnames:
             if sheet_name == "Funktionsdefinition"[:31]:

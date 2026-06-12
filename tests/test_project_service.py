@@ -10,7 +10,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from knix_arranger.models.building import (
-    Areal, Building, Wing, Floor, Apartment, Room, GewerkAssignment,
+    Areal, Building, Wing, Floor, Apartment, Room, GewerkAssignment, Bedienelement,
 )
 from knix_arranger.models.project import KnxProject
 from knix_arranger.models.gewerk import GewerkCatalog, Gewerk
@@ -18,6 +18,7 @@ from knix_arranger.models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
 from knix_arranger.models.topology import Topology, Area, Line
+from knix_arranger.services.project_service import ProjectService
 
 
 class TestBuildingSerialization:
@@ -42,6 +43,22 @@ class TestBuildingSerialization:
         assert len(restored.gewerk_assignments) == 2
         assert restored.gewerk_assignments[0].gewerk_code == "LD"
         assert restored.gewerk_assignments[1].count == 2
+
+    def test_room_bauherr_notes_roundtrip(self):
+        """Bauherren-Anmerkungen (FA-1501) bleiben beim Speichern/Laden erhalten."""
+        room = Room(number="E01", name="Schlafzimmer")
+        room.bauherr_notes = "Bitte Lichtschalter neben der Tür."
+        room.bedienelemente = [
+            Bedienelement(element_type="Tastereinheit",
+                           bauherr_annotation="Taster lieber rechts vom Bett")
+        ]
+
+        data = room.to_dict()
+        restored = Room.from_dict(data)
+
+        assert restored.bauherr_notes == "Bitte Lichtschalter neben der Tür."
+        assert restored.bedienelemente[0].bauherr_annotation == \
+            "Taster lieber rechts vom Bett"
 
     def test_areal_roundtrip(self, simple_efh):
         """Areal to_dict/from_dict Roundtrip."""
@@ -234,3 +251,77 @@ class TestKnxProjectSaveLoad:
         """Laden nicht existierender Datei."""
         with pytest.raises(Exception):
             KnxProject.load("nicht_vorhanden.knxarr")
+
+
+class TestSanitizeProjectFolderName:
+    """Tests fuer ProjectService.sanitize_project_folder_name (FA-1601)."""
+
+    def test_removes_invalid_chars(self):
+        svc = ProjectService()
+        assert svc.sanitize_project_folder_name('Neubau: EFH "Mueller"?') == "Neubau EFH Mueller"
+
+    def test_strips_trailing_dots_and_spaces(self):
+        svc = ProjectService()
+        assert svc.sanitize_project_folder_name("Projekt A. ") == "Projekt A"
+
+    def test_empty_name_falls_back_to_projekt(self):
+        svc = ProjectService()
+        assert svc.sanitize_project_folder_name("") == "Projekt"
+        assert svc.sanitize_project_folder_name('<>:"/\\|?*') == "Projekt"
+
+    def test_reserved_windows_name_falls_back_to_projekt(self):
+        svc = ProjectService()
+        assert svc.sanitize_project_folder_name("CON") == "Projekt"
+        assert svc.sanitize_project_folder_name("com1") == "Projekt"
+        assert svc.sanitize_project_folder_name("LPT9") == "Projekt"
+
+    def test_reserved_name_as_substring_is_allowed(self):
+        """Nur exakte reservierte Namen sind betroffen, nicht Teilstrings."""
+        svc = ProjectService()
+        assert svc.sanitize_project_folder_name("Com1 Anlage") == "Com1 Anlage"
+
+
+class TestPrepareWorkspaceProjectFolder:
+    """Tests fuer ProjectService.prepare_workspace_project_folder (FA-1601)."""
+
+    def test_creates_project_structure(self, tmp_path):
+        svc = ProjectService()
+        knxarr_path = svc.prepare_workspace_project_folder(str(tmp_path), "Neubau EFH")
+
+        project_dir = tmp_path / "Neubau EFH"
+        assert knxarr_path == str(project_dir / "Neubau EFH.knxarr")
+        assert (project_dir / "Revisionen").is_dir()
+        assert (project_dir / "Berichte").is_dir()
+        assert not os.path.exists(knxarr_path)  # .knxarr wird erst beim Speichern angelegt
+
+    def test_raises_if_knxarr_already_exists(self, tmp_path):
+        svc = ProjectService()
+        project_dir = tmp_path / "Bestehend"
+        project_dir.mkdir()
+        (project_dir / "Bestehend.knxarr").write_text("dummy")
+
+        with pytest.raises(FileExistsError):
+            svc.prepare_workspace_project_folder(str(tmp_path), "Bestehend")
+
+    def test_reuses_orphaned_folder_without_knxarr(self, tmp_path):
+        """Verwaister Ordner aus abgebrochenem Versuch (kein .knxarr) wird wiederverwendet."""
+        svc = ProjectService()
+        project_dir = tmp_path / "Abgebrochen"
+        project_dir.mkdir()  # Ordner existiert bereits, aber keine .knxarr-Datei
+
+        knxarr_path = svc.prepare_workspace_project_folder(str(tmp_path), "Abgebrochen")
+
+        assert knxarr_path == str(project_dir / "Abgebrochen.knxarr")
+        assert (project_dir / "Revisionen").is_dir()
+        assert (project_dir / "Berichte").is_dir()
+
+
+class TestProjectFolderPath:
+    """Tests fuer ProjectService.project_folder_path (FA-1601)."""
+
+    def test_returns_path_without_creating(self, tmp_path):
+        svc = ProjectService()
+        knxarr_path = svc.project_folder_path(str(tmp_path), "Mein Projekt")
+
+        assert knxarr_path == str(tmp_path / "Mein Projekt" / "Mein Projekt.knxarr")
+        assert not os.path.exists(os.path.dirname(knxarr_path))

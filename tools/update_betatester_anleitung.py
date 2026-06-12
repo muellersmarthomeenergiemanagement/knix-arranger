@@ -209,7 +209,7 @@ def build_document() -> Document:
 
     p = doc.add_paragraph(style="Normal")
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run("Betatester-Anleitung  ·  Version 1.1.0")
+    run = p.add_run("Betatester-Anleitung  ·  Version 1.1.2")
     run.font.size = Pt(14)
     run.font.color.rgb = C_GREY
 
@@ -391,11 +391,26 @@ def build_document() -> Document:
     # ── 5  Neues Projekt anlegen ──────────────────────────────────────────────
     add_heading1(doc, "5  Neues Projekt anlegen")
     add_body(doc,
-        "Beim Start erscheint der Willkommens-Dialog. Wählen Sie «Neues Projekt» oder "
-        "klicken Sie im Menü auf Datei → Neues Projekt (Ctrl+N).")
+        "Beim allerersten Programmstart fragt KNiX Arranger einmalig nach einem "
+        "Arbeitsverzeichnis (Workspace) – dem Ordner, in dem künftig alle Projekte "
+        "abgelegt werden. Diesen Pfad können Sie jederzeit über "
+        "Bearbeiten → Einstellungen → Tab «Arbeitsverzeichnis» ändern.")
     add_body(doc,
-        "Geben Sie Projektname, Auftraggeber und Projektstandort ein und bestätigen Sie "
-        "mit «Erstellen». Das Projekt wird als .knxarr-Datei gespeichert.")
+        "Für ein neues Projekt wählen Sie im Willkommens-Dialog «Neues Projekt» oder "
+        "klicken im Menü auf Datei → Neues Projekt (Ctrl+N). Im Dialog geben Sie an:")
+    add_bullet(doc, "Projektname (z. B. «Neubau EFH Mueller»)")
+    add_bullet(doc, "Projektnummer (z. B. «2024-001»)")
+    add_bullet(doc, "Gebäudetyp / Vorlage: Leeres Projekt, Einfamilienhaus (EFH), "
+                    "Mehrfamilienhaus (MFH) oder Zweckbau")
+    add_bullet(doc, "Mittelgruppen-Variante: A (Rückmeldungen in gleicher MG, Standard) "
+                    "oder B (Rückmeldungen in separater MG 6/7)")
+    add_body(doc,
+        "Der Dialog zeigt direkt den künftigen Projektordner an. Mit «Projekt erstellen» "
+        "wird folgende Ordnerstruktur im Arbeitsverzeichnis angelegt:")
+    add_bullet(doc, "{Projektname}\\{Projektname}.knxarr  –  die Projektdatei")
+    add_bullet(doc, "{Projektname}\\Revisionen\\  –  für exportierte Revisionspakete")
+    add_bullet(doc, "{Projektname}\\Berichte\\  –  für weitere Berichte "
+                    "(Offerten, Abnahmeprotokolle usw.)")
     add_tip(doc,
         "Nach dem Erstellen erscheint automatisch der Onboarding-Wizard, der Sie durch "
         "die ersten Schritte führt. Sie können ihn jederzeit über Hilfe → Erste Schritte "
@@ -695,6 +710,24 @@ def build_document() -> Document:
              "Empfohlen immer vor dem CSV/KNXPROJ-Export."),
             ("Export",
              "Direktzugriff auf alle Exportfunktionen (auch ohne Wizard)."),
+            ("Gewerk-Katalog",
+             "Übersicht aller verfügbaren Gewerk-Codes mit Beschreibung. "
+             "Zum Nachschlagen während der Gewerke-Zuweisung (Schritt 5)."),
+            ("Bauherren-Beratung",
+             "Interaktive Tastenbelegung gemeinsam mit dem Bauherrn: Für jede Taste "
+             "kann ein Wunsch ausgewählt und je Raum eine Anmerkung erfasst werden. "
+             "Ideal für die Besprechung am Bildschirm vor dem Bauherr-Formular (Schritt 12)."),
+            ("Datenblätter",
+             "Produktdatenblätter zu den zugewiesenen Geräten, inkl. Online-Suche "
+             "und Speichern von Links."),
+            ("Kundenofferten",
+             "Automatische Angebotskalkulation basierend auf Materialliste und den "
+             "Stundensätzen aus dem Firmenprofil."),
+            ("KNX Secure",
+             "Konfiguration der KNX-Secure-Schlüssel für gesicherte Linien und Geräte."),
+            ("Inbetriebnahme",
+             "Checkliste und Protokoll für die Projektübergabe "
+             "(siehe auch Abnahmeprotokoll, Schritt 13)."),
         ]
     )
     doc.add_paragraph()

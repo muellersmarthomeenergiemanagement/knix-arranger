@@ -119,6 +119,12 @@ class _SlotWidget(QWidget):
             be.funktionen.append(SensorFunktion(label=val, ga_designation=val))
 
         if val:
+            # Wunsch markiert das Bedienelement als manuell konfiguriert, damit
+            # auto_assign_functions die Funktionsliste bei der nachfolgenden
+            # Neuberechnung nicht verwirft (FA-1410: is_auto=False wird erhalten).
+            be.is_auto = False
+
+        if val:
             self._combo.setStyleSheet(
                 f"background-color: {_C_ASSIGNED}; color: {_FONT_FN}; "
                 f"font-size: 10px; font-weight: bold; "
@@ -140,6 +146,7 @@ class _TasterWidget(QFrame):
     """
 
     changed = Signal()
+    notes_changed = Signal()
 
     def __init__(self, be: Bedienelement, service: BauherrFormService,
                  parent=None):
@@ -218,8 +225,7 @@ class _TasterWidget(QFrame):
             "font-size: 9px; padding: 1px 4px; border-radius: 2px;"
         )
         self._ann_edit.setFixedHeight(22)
-        if hasattr(be, "bauherr_annotation"):
-            self._ann_edit.setText(be.bauherr_annotation or "")
+        self._ann_edit.setText(be.bauherr_annotation or "")
         self._ann_edit.textChanged.connect(self._on_annotation)
         ann_layout.addWidget(self._ann_edit)
 
@@ -227,8 +233,8 @@ class _TasterWidget(QFrame):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     def _on_annotation(self, text: str):
-        self._be.__dict__["bauherr_annotation"] = text
-        self.changed.emit()
+        self._be.bauherr_annotation = text
+        self.notes_changed.emit()
 
 
 class BauherrFormView(QWidget):
@@ -238,6 +244,7 @@ class BauherrFormView(QWidget):
     """
 
     project_changed = Signal()
+    notes_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -366,9 +373,8 @@ class BauherrFormView(QWidget):
         self._current_room = room
         self._room_title.setText(f"  Raum {room.number}  –  {room.name}")
 
-        notes = getattr(room, "bauherr_notes", "") or ""
         self._room_notes.blockSignals(True)
-        self._room_notes.setPlainText(notes)
+        self._room_notes.setPlainText(room.bauherr_notes or "")
         self._room_notes.blockSignals(False)
 
         # Alte Widgets entfernen
@@ -381,6 +387,7 @@ class BauherrFormView(QWidget):
         for be in room.bedienelemente:
             taster = _TasterWidget(be, self._service)
             taster.changed.connect(self.project_changed)
+            taster.notes_changed.connect(self.notes_changed)
             self._content_layout.insertWidget(
                 self._content_layout.count() - 1, taster
             )
@@ -388,6 +395,5 @@ class BauherrFormView(QWidget):
     def _on_room_notes_changed(self):
         if self._current_room is None:
             return
-        self._current_room.__dict__["bauherr_notes"] = \
-            self._room_notes.toPlainText()
-        self.project_changed.emit()
+        self._current_room.bauherr_notes = self._room_notes.toPlainText()
+        self.notes_changed.emit()

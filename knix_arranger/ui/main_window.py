@@ -364,8 +364,12 @@ class MainWindow(QMainWindow):
         self._bus.functions_changed.connect(self._on_functions_changed)
         self._bus.addresses_changed.connect(self._on_addresses_changed)
 
-        # Bauherren-Beratung: Änderungen als Projektänderung markieren
+        # Bauherren-Beratung: Funktionszuweisungen lösen volle Neuberechnung aus
         self._bauherr_form_view.project_changed.connect(self._bus.emit_functions_changed)
+        # Freitext-Anmerkungen/Notizen: nur Dirty-Flag/Autosave, keine Neuberechnung
+        self._bauherr_form_view.notes_changed.connect(
+            lambda: self._bus.any_change.emit("bauherr_notes")
+        )
 
         # Undo + Auto-Save
         self._bus.change_started.connect(self._on_begin_change)
@@ -629,14 +633,15 @@ class MainWindow(QMainWindow):
     def _new_project(self):
         from ..services.project_service import ProjectService
 
-        dialog = NewProjectDialog(self)
-        if not dialog.exec():
-            return
-
         # Neue Projekte werden verbindlich im Workspace abgelegt (FA-1601):
         # {Workspace}/{Projektname}/{Projektname}.knxarr + Revisionen/ + Berichte/
         workspace = self._ensure_workspace()
         project_service = ProjectService()
+
+        dialog = NewProjectDialog(self, workspace_root=workspace, project_service=project_service)
+        if not dialog.exec():
+            return
+
         try:
             file_path = project_service.prepare_workspace_project_folder(
                 workspace, dialog.project_name
@@ -644,7 +649,7 @@ class MainWindow(QMainWindow):
         except FileExistsError as e:
             QMessageBox.warning(
                 self, "Projekt existiert bereits",
-                f"Im Arbeitsverzeichnis existiert bereits ein Ordner für diesen Namen:\n"
+                f"Im Arbeitsverzeichnis existiert bereits ein Projekt mit diesem Namen:\n"
                 f"{e.args[0]}\n\nBitte wählen Sie einen anderen Projektnamen.",
             )
             return
@@ -662,7 +667,16 @@ class MainWindow(QMainWindow):
                 project.areal = areal
                 self._building_service.assign_main_groups(project.areal)
 
-        project.save(file_path)
+        try:
+            project.save(file_path)
+        except Exception as e:
+            logger.exception("Projekt konnte nicht gespeichert werden: %s", e)
+            QMessageBox.critical(
+                self, "Projekt konnte nicht erstellt werden",
+                f"Die Projektdatei konnte nicht gespeichert werden:\n{file_path}\n\nUrsache: {e}",
+            )
+            return
+
         project_service.add_to_recent(file_path)
 
         self._project = project

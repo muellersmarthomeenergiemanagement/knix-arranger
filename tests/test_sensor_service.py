@@ -403,6 +403,35 @@ class TestAutoAssignFunctions:
             f"Falscher Raumname in GA-Bezeichnung von Küche: {ea2.function_ga}"
         )
 
+    def test_manual_wish_funktion_persists_across_recalc(self, gewerk_catalog):
+        """Bauherren-Wunsch (direkte GA-SensorFunktion, FA-1501) auf einem
+        leeren Taster-Slot bleibt bei erneuter Neuberechnung erhalten, wenn
+        das Bedienelement dadurch als is_auto=False markiert wird.
+
+        Ohne is_auto=False würde auto_assign_functions die Funktionsliste
+        des Bedienelements rein aus den Gewerk-Zuweisungen neu aufbauen und
+        den Wunsch dabei verwerfen.
+        """
+        from knix_arranger.models.building import SensorFunktion
+
+        room, structure = self._make_room_with_gas(
+            [GewerkAssignment(gewerk_code="LD", count=1)], gewerk_catalog,
+        )
+        service = SensorService()
+        service.auto_assign_functions([room], structure)
+
+        be = room.bedienelemente[0]
+        be.funktionen.append(SensorFunktion(label="Licht Ein/Aus", ga_designation="Licht Ein/Aus"))
+        be.is_auto = False
+
+        service.auto_assign_functions([room], structure)
+
+        be2 = room.bedienelemente[0]
+        assert be2.is_auto is False
+        assert any(sf.ga_designation == "Licht Ein/Aus" for sf in be2.funktionen), (
+            f"Wunsch ging bei Neuberechnung verloren: {be2.funktionen}"
+        )
+
 
 class TestSensorTypeOverride:
     """Tests fuer FA-1407: manueller Sensortyp-Override."""

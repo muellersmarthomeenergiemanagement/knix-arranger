@@ -17,6 +17,13 @@ APPDATA_DIR = os.path.join(
     "KNiX Arranger"
 )
 
+# Reservierte Geräte-Namen, die unter Windows als Ordnername ungültig sind
+_RESERVED_WINDOWS_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+}
+
 
 class ProjectService:
     """Service für Projekt-Verwaltung."""
@@ -58,21 +65,30 @@ class ProjectService:
         """Entfernt Zeichen, die in Windows-Ordnernamen ungültig sind."""
         invalid = '<>:"/\\|?*'
         cleaned = "".join(c for c in name if c not in invalid).strip().rstrip(".")
-        return cleaned or "Projekt"
+        if not cleaned or cleaned.upper() in _RESERVED_WINDOWS_NAMES:
+            return "Projekt"
+        return cleaned
+
+    def project_folder_path(self, workspace_root: str, project_name: str) -> str:
+        """Liefert den künftigen .knxarr-Pfad für einen Projektnamen, ohne ihn anzulegen."""
+        folder_name = self.sanitize_project_folder_name(project_name)
+        return os.path.join(workspace_root, folder_name, f"{folder_name}.knxarr")
 
     def prepare_workspace_project_folder(self, workspace_root: str, project_name: str) -> str:
         """Erstellt {workspace}/{Name}/ mit Unterordnern Revisionen/ und Berichte/.
 
         Gibt den künftigen .knxarr-Pfad zurück. Löst FileExistsError aus,
-        wenn im Workspace bereits ein gleichnamiger Projektordner existiert.
+        wenn im Workspace bereits ein Projekt mit diesem Namen existiert
+        (erkennbar an einer vorhandenen .knxarr-Datei). Ein verwaister,
+        leerer Ordner aus einem zuvor abgebrochenen Versuch wird wiederverwendet.
         """
-        folder_name = self.sanitize_project_folder_name(project_name)
-        project_dir = os.path.join(workspace_root, folder_name)
-        if os.path.exists(project_dir):
+        knxarr_path = self.project_folder_path(workspace_root, project_name)
+        project_dir = os.path.dirname(knxarr_path)
+        if os.path.exists(knxarr_path):
             raise FileExistsError(project_dir)
-        os.makedirs(os.path.join(project_dir, "Revisionen"))
-        os.makedirs(os.path.join(project_dir, "Berichte"))
-        return os.path.join(project_dir, f"{folder_name}.knxarr")
+        os.makedirs(os.path.join(project_dir, "Revisionen"), exist_ok=True)
+        os.makedirs(os.path.join(project_dir, "Berichte"), exist_ok=True)
+        return knxarr_path
 
     def create_backup(self, filepath: str) -> str:
         """Erstellt ein Backup vor Reorganisation (NFA-042)."""

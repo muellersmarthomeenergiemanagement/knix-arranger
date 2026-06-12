@@ -169,6 +169,8 @@ class Room:
     te_types: dict[str, str] = field(default_factory=dict)
     # Explizit gespeicherte Anzahl Tastereinheiten (0 = nicht gesetzt, aus taster_indices ableiten)
     te_count: int = 0
+    # Freitext-Anmerkungen des Bauherrn zu diesem Raum (FA-1501 Bauherrenberatung)
+    bauherr_notes: str = ""
 
     def get_te_type(self, te_idx: int) -> str:
         """Gibt den Typ der Tastereinheit zurück ('Taster' oder 'Präsenzmelder')."""
@@ -238,6 +240,8 @@ class Room:
             d["te_types"] = self.te_types
         if self.te_count:
             d["te_count"] = self.te_count
+        if self.bauherr_notes:
+            d["bauherr_notes"] = self.bauherr_notes
         return d
 
     @classmethod
@@ -261,6 +265,7 @@ class Room:
         ]
         room.te_types = {str(k): v for k, v in data.get("te_types", {}).items()}
         room.te_count = data.get("te_count", 0)
+        room.bauherr_notes = data.get("bauherr_notes", "")
         return room
 
 
@@ -392,9 +397,11 @@ class Bedienelement:
     # Nummer der Tastereinheit im Raum (1 = erste, 2 = zweite, …).
     # Entspricht dem taster_index der GewerkAssignment-Gruppierung.
     taster_index: int = 1
+    # Freitext-Anmerkung des Bauherrn zu diesem Bedienelement (FA-1501 Bauherrenberatung)
+    bauherr_annotation: str = ""
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "id": self.id,
             "element_type": self.element_type,
             "channels": self.channels,
@@ -409,6 +416,9 @@ class Bedienelement:
             "suppressed": self.suppressed,
             "taster_index": self.taster_index,
         }
+        if self.bauherr_annotation:
+            d["bauherr_annotation"] = self.bauherr_annotation
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> Bedienelement:
@@ -431,6 +441,7 @@ class Bedienelement:
             is_auto=data.get("is_auto", True),
             suppressed=data.get("suppressed", False),
             taster_index=data.get("taster_index", 1),
+            bauherr_annotation=data.get("bauherr_annotation", ""),
         )
         be.function_assignments = [
             FunctionAssignment.from_dict(f) for f in data.get("function_assignments", [])

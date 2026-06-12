@@ -2,6 +2,7 @@
 Neues Projekt / Vorlage wählen (FA-010)
 """
 from __future__ import annotations
+import os
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QGroupBox, QFormLayout, QPushButton, QRadioButton,
@@ -13,10 +14,13 @@ from PySide6.QtCore import Qt
 class NewProjectDialog(QDialog):
     """Dialog zum Erstellen eines neuen Projekts."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, workspace_root: str = "", project_service=None):
         super().__init__(parent)
         self.setWindowTitle("Neues Projekt erstellen")
         self.setMinimumSize(500, 420)
+
+        self._workspace_root = workspace_root
+        self._project_service = project_service
 
         layout = QVBoxLayout(self)
 
@@ -26,6 +30,7 @@ class NewProjectDialog(QDialog):
 
         self._name = QLineEdit()
         self._name.setPlaceholderText("z.B. Neubau EFH Mueller")
+        self._name.textChanged.connect(self._update_preview)
         form.addRow("Projektname:", self._name)
 
         self._number = QLineEdit()
@@ -34,6 +39,10 @@ class NewProjectDialog(QDialog):
 
         info_group.setLayout(form)
         layout.addWidget(info_group)
+
+        self._preview_label = QLabel()
+        self._preview_label.setWordWrap(True)
+        layout.addWidget(self._preview_label)
 
         # Vorlage
         template_group = QGroupBox("Gebäudetyp")
@@ -89,6 +98,33 @@ class NewProjectDialog(QDialog):
         self._btn_create.clicked.connect(self.accept)
         btn_layout.addWidget(self._btn_create)
         layout.addLayout(btn_layout)
+
+        self._update_preview()
+
+    def _update_preview(self):
+        """Zeigt den künftigen Projektordner an und validiert den Namen."""
+        name = self.project_name
+        if not name:
+            self._preview_label.setText("Bitte einen Projektnamen eingeben.")
+            self._preview_label.setStyleSheet("color: #B71C1C;")
+            self._btn_create.setEnabled(False)
+            return
+
+        if self._workspace_root and self._project_service:
+            knxarr_path = self._project_service.project_folder_path(self._workspace_root, name)
+            project_dir = os.path.dirname(knxarr_path)
+            if os.path.exists(knxarr_path):
+                self._preview_label.setText(
+                    f"Im Arbeitsverzeichnis existiert bereits ein Projekt '{os.path.basename(project_dir)}'. "
+                    f"Bitte einen anderen Namen wählen."
+                )
+                self._preview_label.setStyleSheet("color: #B71C1C;")
+                self._btn_create.setEnabled(False)
+                return
+            self._preview_label.setText(f"Projektordner: {project_dir}")
+            self._preview_label.setStyleSheet("color: #757575;")
+
+        self._btn_create.setEnabled(True)
 
     @property
     def project_name(self) -> str:
