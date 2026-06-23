@@ -135,3 +135,50 @@ class ProjectService:
         recent_file = os.path.join(APPDATA_DIR, "recent_projects.json")
         with open(recent_file, "w", encoding="utf-8") as f:
             json.dump({"projects": recent}, f, indent=2)
+
+    # ------------------------------------------------------------------
+    # ETS6-Projektpasswoerter fuer KNXPROJ-Import (FA-525c)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _knxproj_pw_fernet(project_id: str):
+        """Schluessel aus der Projekt-ID abgeleitet (Obfuskierung, kein Geheimnis-Schutz)."""
+        import base64
+        import hashlib
+        from cryptography.fernet import Fernet
+
+        raw = hashlib.pbkdf2_hmac(
+            "sha256", project_id.encode("utf-8"), b"knxarr-knxproj-pw-v1", 100_000
+        )
+        return Fernet(base64.urlsafe_b64encode(raw))
+
+    def save_knxproj_password(self, project_id: str, password: str):
+        """Speichert ein ETS6-Projektpasswort lokal (verschluesselt mit der Projekt-ID)."""
+        import json
+        passwords = self._load_knxproj_passwords()
+        passwords[project_id] = self._knxproj_pw_fernet(project_id).encrypt(
+            password.encode("utf-8")
+        ).decode("ascii")
+        path = os.path.join(APPDATA_DIR, "knxproj_passwords.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(passwords, f, indent=2)
+
+    def get_knxproj_password(self, project_id: str) -> str | None:
+        """Liest ein zuvor gespeichertes ETS6-Projektpasswort, falls vorhanden."""
+        from cryptography.fernet import InvalidToken
+
+        enc = self._load_knxproj_passwords().get(project_id)
+        if not enc:
+            return None
+        try:
+            return self._knxproj_pw_fernet(project_id).decrypt(enc.encode("ascii")).decode("utf-8")
+        except InvalidToken:
+            return None
+
+    def _load_knxproj_passwords(self) -> dict:
+        import json
+        path = os.path.join(APPDATA_DIR, "knxproj_passwords.json")
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return {}

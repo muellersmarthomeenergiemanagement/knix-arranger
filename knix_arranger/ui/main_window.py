@@ -51,6 +51,7 @@ from .dialogs.workspace_setup_dialog import WorkspaceSetupDialog
 from .dialogs.project_properties_dialog import ProjectPropertiesDialog
 from .dialogs.update_dialog import UpdateDialog
 from .dialogs.onboarding_tour_dialog import OnboardingTourDialog
+from .dialogs.knxproj_password_dialog import KnxprojPasswordDialog
 
 from ..models.project import KnxProject
 from ..services.building_service import BuildingService
@@ -61,7 +62,10 @@ from ..services.sensor_service import SensorService
 from ..services.csv_import_service import CsvImportService
 from ..services.csv_export_service import CsvExportService
 from ..services.xlsx_import_service import XlsxImportService
-from ..services.knxproj_import_service import KnxprojImportService, KnxprojImportError
+from ..services.knxproj_import_service import (
+    KnxprojImportService, KnxprojImportError,
+    KnxprojPasswordRequired, KnxprojPasswordWrong,
+)
 from ..services.undo_manager import UndoManager, ObjectStateCommand
 from ..services.project_bus import ProjectBus
 from ..services.recalc_service import RecalcService
@@ -748,7 +752,7 @@ class MainWindow(QMainWindow):
             self._status_bar.set_status(f"Projekt gespeichert: {path}")
 
     def _import_file(self):
-        """Importiert CSV (GA-Export) oder XLSX (Topologie-Report)."""
+        """Importiert ETS6-Dateien: KNXPROJ, XLSX (Topologie/GA-Report) oder CSV."""
         dialog = ImportDialog(self)
         if not dialog.exec():
             return
@@ -850,6 +854,14 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.warning(f"Raum-Linien-Verknüpfung fehlgeschlagen: {e}")
 
+        # Bedienelemente aus Topologie ableiten (FA-1404) – setzt participant_number
+        try:
+            KnxprojImportService._create_bedienelemente_from_topology(
+                self._project.topology, self._project.areal
+            )
+        except Exception as e:
+            logger.warning(f"Bedienelemente-Ableitung aus Topologie fehlgeschlagen: {e}")
+
         # KO-Verbindungen aus GA-Report anreichern (falls bereits importiert)
         if self._ga_report_path:
             try:
@@ -888,11 +900,15 @@ class MainWindow(QMainWindow):
         ga_count = len(self._project.group_addresses.all_addresses())
         ga_source = self._project.group_addresses.source
         ga_hint = " (GA-Report)" if ga_source == "ga_report" else ""
+        ga_tipp = (
+            " | Tipp: Gruppenadress-Report (XLSX) importieren fuer vollstaendige GA-Daten."
+            if not self._ga_report_path else ""
+        )
         self._status_bar.set_status(
             f"Topologie importiert: {len(topology.areas)} Bereiche, "
             f"{sum(len(a.lines) for a in topology.areas)} Linien, "
-            f"{total_devices} Geräte, {kos} KOs, {ga_count} GAs{ga_hint} | "
-            f"Gebäude: {total_floors} Stockwerke, {total_rooms} Räume."
+            f"{total_devices} Geraete, {kos} KOs, {ga_count} GAs{ga_hint} | "
+            f"Gebaeude: {total_floors} Stockwerke, {total_rooms} Raeume.{ga_tipp}"
         )
         self._sidebar.select("topology_report")
         self._navigate("topology_report")
@@ -927,6 +943,14 @@ class MainWindow(QMainWindow):
                 )
             except Exception as e:
                 logger.warning(f"KO-Anreicherung fehlgeschlagen: {e}")
+
+            # Bedienelemente aus neu verlinkten Devices ableiten (FA-1404)
+            try:
+                KnxprojImportService._create_bedienelemente_from_topology(
+                    self._project.topology, self._project.areal
+                )
+            except Exception as e:
+                logger.warning(f"Bedienelemente-Ableitung nach GA-Import fehlgeschlagen: {e}")
 
         # Gewerk-Zuweisungen aus GA-Bezeichnungen ableiten (FA-519b)
         assigned = self._derive_gewerke_from_gas()
@@ -1092,9 +1116,45 @@ class MainWindow(QMainWindow):
         )
 
     def _import_knxproj(self, filepath: str):
-        """Importiert ein natives ETS6-Projekt (.knxproj) (FA-521 bis FA-526)."""
+        """Importiert ein natives ETS6-Projekt (.knxproj) (FA-521 bis FA-526, FA-525c)."""
+        from ..services.project_service import ProjectService
+
         importer = KnxprojImportService()
-        project = importer.import_knxproj(filepath)
+        project_service = ProjectService()
+        password = None
+        project_id = None
+        dialog = None
+
+        while True:
+            try:
+                project = importer.import_knxproj(filepath, password=password)
+                break
+            except KnxprojPasswordRequired as exc:
+                project_id = exc.project_id
+                stored = project_service.get_knxproj_password(project_id)
+                if stored and password != stored:
+                    password = stored
+                    continue
+                dialog = KnxprojPasswordDialog(project_id, os.path.basename(filepath), self)
+                if not dialog.exec():
+                    self._status_bar.set_status(
+                        "KNXPROJ-Import abgebrochen: Passwort erforderlich."
+                    )
+                    return
+                password = dialog.password
+            except KnxprojPasswordWrong:
+                if dialog is None:
+                    dialog = KnxprojPasswordDialog(project_id, os.path.basename(filepath), self)
+                dialog.show_wrong_password()
+                if not dialog.exec():
+                    self._status_bar.set_status(
+                        "KNXPROJ-Import abgebrochen: falsches Passwort."
+                    )
+                    return
+                password = dialog.password
+
+        if dialog is not None and project_id and dialog.save_password:
+            project_service.save_knxproj_password(project_id, password)
 
         # Projektdaten ins laufende Projekt uebernehmen
         self._project.name = project.name or self._project.name

@@ -974,14 +974,24 @@ class XlsxImportService:
                         loc = device_locations.get(device.physical_address)
                         if loc and loc["type"] == "room":
                             nr = loc["room_nr"]
-                            name = loc["room_name"].lower().strip()
-                            room_id = room_id_by_nr_name.get((nr, name))
-                            # Fallback: nur nach room_nr suchen (Namens-Abweichungen)
+                            raw_name = loc["room_name"].lower().strip()
+                            # Normalisierung: '/' entfernen, mehrfache Leerzeichen kürzen
+                            norm_name = re.sub(r"\s*/\s*", " ", raw_name)
+                            norm_name = re.sub(r"\s+", " ", norm_name).strip()
+                            room_id = room_id_by_nr_name.get(
+                                (nr, raw_name)
+                            ) or room_id_by_nr_name.get((nr, norm_name))
+                            # Teilwort-Fallback: alle Wörter des Einbauorts
+                            # müssen im Areal-Raumnamen vorkommen (gleiche Nr.)
                             if not room_id:
-                                for (rnr, _), rid in room_id_by_nr_name.items():
-                                    if rnr == nr:
-                                        room_id = rid
-                                        break
+                                words = [w for w in norm_name.split() if len(w) > 2]
+                                if words:
+                                    for (rnr, rname_lc), rid in room_id_by_nr_name.items():
+                                        if rnr == nr and all(
+                                            w in rname_lc for w in words
+                                        ):
+                                            room_id = rid
+                                            break
                             if room_id:
                                 via_location += 1
 

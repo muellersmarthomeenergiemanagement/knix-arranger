@@ -123,7 +123,8 @@ class WelcomeDialog(QDialog):
             recent_layout.setSpacing(2)
             for path in self._recent_projects:
                 name = os.path.splitext(os.path.basename(path))[0]
-                btn = QPushButton(f"{name}    –    {path}")
+                btn = QPushButton(name)
+                btn.setToolTip(path)
                 btn.setStyleSheet(
                     "QPushButton { text-align: left; border: none; "
                     "padding: 6px 10px; color: #333; font-size: 11px; "
@@ -142,7 +143,7 @@ class WelcomeDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(16)
 
-        self._btn_new = QPushButton("  Neues Projekt erstellen")
+        self._btn_new = QPushButton("Neues Projekt erstellen")
         self._btn_new.setFixedHeight(52)
         self._btn_new.setStyleSheet(
             f"QPushButton {{ "
@@ -155,7 +156,7 @@ class WelcomeDialog(QDialog):
         self._btn_new.clicked.connect(self._choose_new)
         btn_row.addWidget(self._btn_new)
 
-        self._btn_open = QPushButton("  Bestehendes Projekt öffnen")
+        self._btn_open = QPushButton("Bestehendes Projekt öffnen")
         self._btn_open.setFixedHeight(52)
         self._btn_open.setStyleSheet(
             f"QPushButton {{ "
@@ -177,7 +178,7 @@ class WelcomeDialog(QDialog):
         footer_row = QHBoxLayout()
         footer_row.setSpacing(0)
 
-        claude_lbl = QLabel("Erstellt mit  ClaudeCode  –  Anthropic")
+        claude_lbl = QLabel("Erstellt mit ClaudeCode – Anthropic")
         claude_lbl.setStyleSheet(
             "color: #AAAAAA; font-size: 10px; font-style: italic;"
         )
@@ -185,7 +186,7 @@ class WelcomeDialog(QDialog):
 
         footer_row.addStretch()
 
-        btn_cancel = QPushButton("Abbrechen")
+        btn_cancel = QPushButton("Ohne Projekt fortfahren")
         btn_cancel.setStyleSheet(
             "color: #888; border: none; font-size: 11px; "
             "background: transparent; padding: 4px 8px;"

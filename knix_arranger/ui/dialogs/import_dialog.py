@@ -39,7 +39,7 @@ class ImportDialog(QDialog):
         info = QLabel(
             "Unterstuetzte Formate:\n"
             "- ETS6 Projekt-Datei (.knxproj) — vollstaendiger Import (empfohlen)\n"
-            "- ETS6 Gruppenadress-Export (CSV, Semikolon-getrennt)\n"
+            "- ETS6 Gruppenadress-Report (XLSX)\n"
             "- ETS6 Topologie-Report mit Objekte (XLSX)\n"
             "- UTF-8 oder ANSI Kodierung"
         )

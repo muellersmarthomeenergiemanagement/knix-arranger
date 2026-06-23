@@ -31,6 +31,17 @@ class KnxprojImportError(Exception):
     """Wird bei ungueltigen oder nicht unterstuetzten KNXPROJ-Dateien ausgeloest."""
 
 
+class KnxprojPasswordRequired(Exception):
+    """Das KNXPROJ-Projekt ist verschluesselt und benoetigt ein Passwort."""
+    def __init__(self, project_id: str):
+        self.project_id = project_id
+        super().__init__(f"Passwort benoetigt fuer Projekt: {project_id}")
+
+
+class KnxprojPasswordWrong(Exception):
+    """Das angegebene Passwort ist falsch."""
+
+
 class KnxprojImportService:
     """
     Importiert ETS6-Projektdateien (.knxproj) gemaess FA-521 bis FA-526.
@@ -42,15 +53,21 @@ class KnxprojImportService:
     - Topologie (Bereiche, Linien, Geraete, KOs)
     """
 
-    def import_knxproj(self, filepath: str) -> KnxProject:
+    def import_knxproj(self, filepath: str, password: str | None = None) -> KnxProject:
         """
         Hauptmethode: Liest eine .knxproj-Datei und gibt ein KnxProject zurueck.
 
         FA-521: ZIP-Archiv mit XML-Struktur.
         FA-524: Passwortschutz erkennen.
         FA-525: Fehler bei beschaedigter Datei.
+
+        password: Optionales ETS6-Projektpasswort fuer verschluesselte Projekte
+                  (neueres ETS6-Format mit P-XXXX.zip).
+        Raises:
+            KnxprojPasswordRequired  – Passwort noetig, aber nicht uebergeben.
+            KnxprojPasswordWrong     – Uebergebenes Passwort ist falsch.
+            KnxprojImportError       – Sonstiger Import-Fehler.
         """
-        # FA-525: Datei pruefen
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"KNXPROJ-Datei nicht gefunden: {filepath}")
 
@@ -62,43 +79,15 @@ class KnxprojImportService:
             ) from exc
 
         with zf:
-            # FA-524: Passwortschutz erkennen
+            # Klassisches Format: verschluesselte Eintraege direkt im aeusseren ZIP
             self._check_password_protection(zf)
 
-            # Projektordner (P-XXXX) finden
-            project_folder = self._find_project_folder(zf)
-
-            # Metadaten aus project.xml
-            project = self._parse_project_info(zf, project_folder)
-
-            # Hardware-Lookup aufbauen (Hersteller + Produktnamen)
-            hw_lookup = self._build_hardware_lookup(zf)
-
-            # 0.xml (Hauptdaten) laden und parsen
-            main_xml = self._read_xml(zf, f"{project_folder}/0.xml")
-            installation = main_xml.find(
-                f"k:Project/k:Installations/k:Installation", _NSM
-            )
-            if installation is None:
-                raise KnxprojImportError("Keine Installation in 0.xml gefunden.")
-
-            # FA-522: Alle Daten extrahieren
-            project.group_addresses = self._parse_group_addresses(installation)
-            project.areal, room_device_refs = self._parse_building(installation)
-            # GA XML-ID → KNX-Adresse Lookup für CO-Verknüpfungen (Problem 1)
-            ga_xml_lookup = self._build_ga_xml_id_lookup(installation)
-            # App-Programm CO-Lookup für CO-Metadaten (Probleme 2-4)
-            app_co_lookup = self._build_app_co_lookup(zf)
-            project.topology, device_id_to_line = self._parse_topology(
-                installation, hw_lookup, ga_xml_lookup, app_co_lookup
-            )
-            # Topologie als importiert markieren – schützt vor Wizard-Überschreibung
-            # solange keine Gewerke zugewiesen sind (FA-ImportGuard).
-            project.topology.is_imported = True
-            # Räume mit Topologie-Linien verknüpfen (via DeviceInstanceRef)
-            self._link_rooms_to_lines(room_device_refs, device_id_to_line)
-            # FA-1404: Sensor-Devices als Bedienelemente in Räumen anlegen
-            self._create_bedienelemente_from_topology(project.topology, project.areal)
+            # Neueres ETS6-Format: P-XXXX.zip (verschachteltes ZIP, ggf. AES)
+            nested_name = self._find_nested_zip_name(zf)
+            if nested_name:
+                project = self._import_nested(zf, nested_name, password)
+            else:
+                project = self._import_classic(zf)
 
         n_ga = len(project.group_addresses.all_addresses())
         n_dev = sum(
@@ -110,6 +99,135 @@ class KnxprojImportService:
             f"KNXPROJ-Import: '{project.name}' — "
             f"{n_ga} Gruppenadressen, {n_dev} Geraete importiert."
         )
+        return project
+
+    def _import_classic(self, zf: zipfile.ZipFile) -> KnxProject:
+        """Importiert das klassische KNXPROJ-Format (P-XXXX/-Ordner im ZIP)."""
+        project_folder = self._find_project_folder(zf)
+        project = self._parse_project_info(zf, project_folder)
+        hw_lookup = self._build_hardware_lookup(zf)
+
+        main_xml = self._read_xml(zf, f"{project_folder}/0.xml")
+        installation = main_xml.find("k:Project/k:Installations/k:Installation", _NSM)
+        if installation is None:
+            raise KnxprojImportError("Keine Installation in 0.xml gefunden.")
+
+        project.group_addresses = self._parse_group_addresses(installation)
+        project.areal, room_device_refs = self._parse_building(installation)
+        ga_xml_lookup = self._build_ga_xml_id_lookup(installation)
+        app_co_lookup = self._build_app_co_lookup(zf)
+        project.topology, device_id_to_line = self._parse_topology(
+            installation, hw_lookup, ga_xml_lookup, app_co_lookup
+        )
+        project.topology.is_imported = True
+        self._link_rooms_to_lines(room_device_refs, device_id_to_line)
+        self._create_bedienelemente_from_topology(project.topology, project.areal)
+        return project
+
+    def _find_nested_zip_name(self, zf: zipfile.ZipFile) -> str | None:
+        """Gibt den Namen der P-XXXX.zip im aeusseren ZIP zurueck, oder None."""
+        for name in zf.namelist():
+            if name.startswith("P-") and name.endswith(".zip") and "/" not in name:
+                return name
+        return None
+
+    def _import_nested(
+        self, outer_zf: zipfile.ZipFile, nested_name: str, password: str | None
+    ) -> KnxProject:
+        """
+        Neueres ETS6-Format: Projektdaten in P-XXXX.zip innerhalb des aeusseren ZIP.
+        Wenn der innere ZIP AES-verschluesselt ist, wird der Schluessel vom
+        ETS6-Cloud-Lizenz-Zertifikat abgeleitet – das kann KNiX Arranger nicht
+        ohne Zugriff auf die ETS6-internen Schluessel entschluesseln.
+        """
+        import io
+
+        project_id = nested_name[:-4]  # 'P-XXXX.zip' → 'P-XXXX'
+        inner_data = outer_zf.read(nested_name)
+
+        # Pruefen ob das innere ZIP verschluesselt ist (flag_bits & 0x1 = WinZip AES)
+        import zipfile as _zf
+        try:
+            with _zf.ZipFile(io.BytesIO(inner_data)) as probe:
+                is_encrypted = any(
+                    info.flag_bits & 0x1
+                    for info in probe.infolist()
+                    if not info.filename.endswith("/")
+                )
+        except _zf.BadZipFile:
+            is_encrypted = False
+
+        pwd_bytes: bytes | None = None
+        if is_encrypted:
+            # ETS6-Cloud-Lizenz-Zertifikat pruefen
+            cert_name = f"{project_id}.certificate"
+            has_cloud_cert = cert_name in outer_zf.namelist() and (
+                b"CloudLicense" in outer_zf.read(cert_name)
+            )
+            if has_cloud_cert:
+                raise KnxprojImportError(
+                    "Dieses Projekt ist mit der ETS6-Cloud-Lizenz verschluesselt.\n\n"
+                    "Der Verschluesselungsschluessel ist an Ihre ETS6-Installation "
+                    "gebunden und kann von KNiX Arranger nicht entschluesselt werden.\n\n"
+                    "Bitte exportieren Sie in ETS6:\n"
+                    "  - Gruppenadress-Report als XLSX\n"
+                    "  - Topologie-Report als XLSX\n"
+                    "und importieren Sie diese Dateien."
+                )
+            if not password:
+                raise KnxprojPasswordRequired(project_id)
+            try:
+                import pyzipper
+            except ImportError as exc:
+                raise KnxprojImportError(
+                    "Fuer passwortgeschuetzte ETS6-Projekte wird das Paket "
+                    "'pyzipper' benoetigt (siehe requirements.txt)."
+                ) from exc
+            inner_cls = pyzipper.AESZipFile
+            pwd_bytes = password.encode("utf-8")
+        else:
+            # Nicht verschluesselt: normaler Import aus dem inneren ZIP
+            try:
+                import pyzipper
+                inner_cls = pyzipper.AESZipFile
+            except ImportError:
+                inner_cls = _zf.ZipFile
+
+        try:
+            with inner_cls(io.BytesIO(inner_data)) as inner:
+                if pwd_bytes is not None:
+                    inner.setpassword(pwd_bytes)
+                project = self._parse_project_info_from_zip(inner)
+                hw_lookup = self._build_hardware_lookup(outer_zf)
+
+                try:
+                    raw_main = inner.read("0.xml")
+                except (KeyError, RuntimeError) as exc:
+                    if pwd_bytes is not None:
+                        raise KnxprojPasswordWrong() from exc
+                    raise KnxprojImportError(f"0.xml konnte nicht gelesen werden: {exc}") from exc
+
+                try:
+                    root = ET.fromstring(raw_main.decode("utf-8-sig"))
+                except ET.ParseError as exc:
+                    raise KnxprojImportError(f"XML-Fehler in 0.xml: {exc}") from exc
+
+                installation = self._find_installation(root)
+                project.group_addresses = self._parse_group_addresses(installation)
+                project.areal, room_device_refs = self._parse_building(installation)
+                ga_xml_lookup = self._build_ga_xml_id_lookup(installation)
+                app_co_lookup = self._build_app_co_lookup(outer_zf)
+                project.topology, device_id_to_line = self._parse_topology(
+                    installation, hw_lookup, ga_xml_lookup, app_co_lookup
+                )
+                project.topology.is_imported = True
+                self._link_rooms_to_lines(room_device_refs, device_id_to_line)
+                self._create_bedienelemente_from_topology(project.topology, project.areal)
+        except RuntimeError as exc:
+            if pwd_bytes is not None:
+                raise KnxprojPasswordWrong() from exc
+            raise
+
         return project
 
     # ------------------------------------------------------------------
@@ -124,9 +242,38 @@ class KnxprojImportService:
             if info.flag_bits & 0x1:  # Bit 0 = encrypted
                 raise KnxprojImportError(
                     "Das Projekt ist passwortgeschuetzt und kann nicht importiert werden. "
-                    "Bitte exportieren Sie die Gruppenadressen als CSV und die Topologie "
-                    "als XLSX-Report aus ETS6 und importieren Sie diese Dateien einzeln."
+                    "Bitte exportieren Sie aus ETS6 die Gruppenadressen als XLSX-Report "
+                    "und die Topologie als XLSX-Report und importieren Sie diese Dateien einzeln."
                 )
+
+    def _parse_project_info_from_zip(self, inner_zf) -> KnxProject:
+        """Liest Projektmetadaten aus project.xml im inneren ZIP (kein Unterordner)."""
+        try:
+            raw = inner_zf.read("project.xml")
+            root = ET.fromstring(raw.decode("utf-8-sig"))
+        except Exception:
+            return KnxProject()
+        info = root.find("k:Project/k:ProjectInformation", _NSM)
+        if info is None:
+            info = root.find(".//ProjectInformation")
+        project = KnxProject()
+        if info is not None:
+            project.name = info.get("Name", "")
+            modified = info.get("LastModified", "")
+            if modified:
+                project.modified = modified[:10]
+        return project
+
+    def _find_installation(self, root: ET.Element) -> ET.Element:
+        """Sucht Installation-Element, probiert bekannte Namespaces."""
+        el = root.find("k:Project/k:Installations/k:Installation", _NSM)
+        if el is not None:
+            return el
+        # Fallback: namespace-freie Suche (neuere ETS-Versionen)
+        el = root.find(".//Installation")
+        if el is not None:
+            return el
+        raise KnxprojImportError("Keine Installation in 0.xml gefunden.")
 
     def _find_project_folder(self, zf: zipfile.ZipFile) -> str:
         """Findet den Projektordner (P-XXXX/) im ZIP-Archiv."""
@@ -645,7 +792,8 @@ class KnxprojImportService:
             return "Präsenzmelder"
         if any(kw in nl for kw in ("bewegungsmelder", "motion detector", "motion sensor")):
             return "Bewegungsmelder"
-        if any(kw in nl for kw in ("thermostat", "raumthermostat", "room controller", "room thermostat")):
+        if any(kw in nl for kw in ("thermostat", "raumthermostat", "room controller", "room thermostat",
+                                   "rtr", "raumtemperatur", "temperature controller", "clima sensor")):
             return "Raumthermostat"
         if any(kw in nl for kw in ("temperaturfühler", "temperature sensor", "temp sensor", "temperatursensor")):
             return "Temperaturfuehler"
@@ -678,12 +826,14 @@ class KnxprojImportService:
             return min(int(m.group(1)), 16)
         return 1
 
-    def _create_bedienelemente_from_topology(self, topology, areal) -> None:
+    @staticmethod
+    def _create_bedienelemente_from_topology(topology, areal) -> None:
         """FA-1404: Erzeugt Bedienelement-Einträge in Räumen für importierte Sensor-Devices.
 
         Iteriert über alle Devices mit device_type='sensor' und einem gesetzten
         room_id und legt je ein Bedienelement im zugehörigen Raum an – sofern
         dort noch kein Bedienelement mit derselben physikalischen Adresse existiert.
+        Wird sowohl nach KNXproj- als auch nach XLSX-Import aufgerufen.
         """
         room_by_id: dict[str, Room] = {r.id: r for r in areal.all_rooms}
         count = 0
@@ -701,8 +851,8 @@ class KnxprojImportService:
                         continue
                     product_label = device.product or device.product_name
                     be = Bedienelement(
-                        element_type=self._infer_element_type(product_label),
-                        channels=self._infer_channel_count(product_label),
+                        element_type=KnxprojImportService._infer_element_type(product_label),
+                        channels=KnxprojImportService._infer_channel_count(product_label),
                         participant_number=device.physical_address,
                         manufacturer=device.manufacturer,
                         order_number=device.order_number,

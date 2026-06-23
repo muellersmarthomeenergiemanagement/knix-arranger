@@ -99,10 +99,10 @@ class Sidebar(QWidget):
         self._add_section("PROJEKT")
         self._add_button("new_project",  "Neues Projekt",  "N")
         self._add_button("open_project", "Projekt öffnen", "O")
-        self._add_button("import_csv",   "CSV Import",     "I")
+        self._add_button("import_csv",   "ETS6 Import",    "I")
 
         self._add_section("WIZARD")
-        self._add_button("wizard", "11-Schritt-Wizard", "W")
+        self._add_button("wizard", "13-Schritt-Wizard", "W")
 
         self._add_section("ANSICHTEN")
         self._add_button("overview",          "Übersicht",             "U")

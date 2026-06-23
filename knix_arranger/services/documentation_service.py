@@ -206,6 +206,13 @@ class DocumentationService:
     def _checklist_rooms(self):
         """Aktualisiert Funktionszuordnungen und gibt alle Räume zurück."""
         from .sensor_service import SensorService
+        from .knxproj_import_service import KnxprojImportService
+        try:
+            KnxprojImportService._create_bedienelemente_from_topology(
+                self.project.topology, self.project.areal
+            )
+        except Exception:
+            pass
         all_rooms = self.project.all_rooms
         SensorService().auto_assign_functions(all_rooms, self.project.group_addresses)
         return all_rooms

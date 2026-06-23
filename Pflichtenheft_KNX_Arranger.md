@@ -1,7 +1,7 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.11
-**Datum:** 05.04.2026
+**Version:** 3.12
+**Datum:** 19.06.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
 **Status:** Entwurf
@@ -26,6 +26,7 @@
 | 3.9 | 06.03.2026 | M. Mueller / Claude AI | Zeitsteuerungsplanung detailliert (FA-3301 bis FA-3308): Datenmodell TimeProgram/DayProfile/SwitchPoint, Zeitprogramm-Editor-Ansicht mit Wochenraster, Astro-Timer-Konfiguration (Standortkoordinaten, SPA-Algorithmus), Feiertagskalender CH/DE/AT als JSON, Wochenprogramm-Vorlagen (Beschattung, Licht, Heizung, Lueftung), GA-Verknuepfungs-Validierung, Zeitsteuerungsplan-Dokumentationsexport, Zentralgruppen-GA-Anlage fuer Astro-Gruppen |
 | 3.10 | 07.03.2026 | M. Mueller / Claude AI | Gateway-Gewerke und Systemsensoren ergaenzt (FA-1307, FA-1308, FA-1408, FA-1409): Gewerk.interface_type unterscheidet "actor", "gateway" (WP, MM, LDA) und "system_sensor" (W); Device.device_type um "gateway" erweitert; Gewerk-Katalog-Tabelle um Schnittstellentyp-Spalte ergaenzt; Aktor-Ermittlung und Sensor-Ermittlung fuer Gateway-Gewerke und projektweite Systemsensoren spezifiziert |
 | 3.11 | 05.04.2026 | M. Mueller / Claude AI | Sensorfunktion-Konzept eingefuehrt (FA-1410): Bedienelement.control_functions ersetzt durch Bedienelement.funktionen (Liste von SensorFunktion); eine SensorFunktion buendelt alle Primaer- und Rueckmelde-GAs einer Gewerk-Instanz; direkte GA-Zuweisung als degenerierte Einzelfunktion; Dialog zeigt eine Zeile pro logischer Steuereinheit; Abwaertskompatibilitaet durch automatische Migration alter control_functions-Daten |
+| 3.12 | 19.06.2026 | M. Mueller / Claude AI | Nachfuehrung auf Code-Stand v1.1.2: Wizard-Schrittstruktur auf 13 Schritte korrigiert (FA-1002: Tastereinheiten-Matrix, Szenen-Definition vor GA-Generierung); Workspace-Konzept fuer Projekt- und Berichtsablage neu dokumentiert (FA-3401 bis FA-3408); Bauherren-Beratungsansicht mit persistenten Anmerkungen ergaenzt (FA-1508 bis FA-1511); KNXPROJ-Passwortimport erweitert (FA-524, FA-525 ueberarbeitet: neueres ETS6-Containerformat, AES-Erkennung, ETS6-Cloud-Lizenz als nicht entschluesselbarer Sonderfall, Passwort-Dialog); ETS6 Gruppenadress-Report (XLSX) als eigenstaendiges Importformat ergaenzt (FA-519b); FA-854 um Zwischenablage-Import fuer Firmenlogo/Projektfoto ergaenzt |
 
 ---
 
@@ -158,13 +159,13 @@ Alle Anforderungen in diesem Pflichtenheft sind nach der MoSCoW-Methode priorisi
 | Benutzerhandbuch | FA-1105 | **(S)** | Dokumentation |
 | Onboarding-Tour | FA-1106 | **(C)** | Komfortfunktion fuer Neueinsteiger |
 | Produktdatenblaetter | FA-1201 bis FA-1205 | **(S)** | Professionelle Projektdokumentation |
-| Aktor-Ermittlung (Basis) | FA-1301, FA-1302, FA-1305, FA-1306 | **(M)** | Kernfunktionalitaet Wizard Schritt 6 |
+| Aktor-Ermittlung (Basis) | FA-1301, FA-1302, FA-1305, FA-1306 | **(M)** | Kernfunktionalitaet Wizard Schritt 8 |
 | Gateway-Gewerke (Aktor-Ermittlung) | FA-1307, FA-1308 | **(M)** | Gateway statt Aktor fuer WP, MM, LDA |
 | Aktor-Vorschlag Internet | FA-1303, FA-1304 | **(S)** | Internet-Anbindung, bevorzugte Hersteller |
-| Sensor-Ermittlung (Basis) | FA-1401, FA-1404, FA-1405, FA-1406, FA-1407 | **(M)** | Kernfunktionalitaet Wizard Schritt 8 |
+| Sensor-Ermittlung (Basis) | FA-1401, FA-1404, FA-1405, FA-1406, FA-1407 | **(M)** | Kernfunktionalitaet Wizard Schritt 6 |
 | Systemsensoren (Sensor-Ermittlung) | FA-1408, FA-1409 | **(M)** | Projektweite Geraete (Wetterstation etc.) |
 | Sensor-Vorschlag Internet | FA-1402, FA-1403 | **(S)** | Internet-Anbindung, bevorzugte Hersteller |
-| Bauherr-Formular | FA-1501 bis FA-1507 | **(M)** | Kernfunktionalitaet Wizard Schritt 9 |
+| Bauherr-Formular | FA-1501 bis FA-1511 | **(M)** | Kernfunktionalitaet Wizard Schritt 12 |
 | Lieferantenverwaltung | FA-1601 bis FA-1603 | **(S)** | Grundlage fuer Offertanfragen |
 | Offertanfrage-Erstellung | FA-1611 bis FA-1615 | **(S)** | Professionelle Beschaffung |
 | Offertverwaltung/Preisvergl. | FA-1621 bis FA-1625 | **(C)** | Komfortfunktion fuer Beschaffungsprozess |
@@ -370,9 +371,9 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 \* Jalousien und Rolllaeden koennen je nach Umfang der Steuerung (mit/ohne Rueckmeldung, Beschattung, Sperren) 5er- oder 10er-Bloecke verwenden.
 
 **Schnittstellentypen:**
-- **Aktor**: Standard-KNX-Aktor (Schalt-, Dimm-, Jalousie-, Heizungsaktor etc.); wird in Wizard Schritt 7 als Aktor geplant.
-- **Gateway**: Fremdsystem-Schnittstelle (DALI, Multimedia, Waermepumpe etc.); kommuniziert ueber ein Schnittstellengeraet (KNX-Gateway) mit dem KNX-Bus. Wird in Wizard Schritt 7 als Gateway-Geraet (device_type="gateway") geplant, nicht als klassischer Aktor.
-- **Systemsensor**: Gewerkeuebergreifendes Messgeraet (z.B. Wetterstation); wird nicht raumweise, sondern einmalig pro Projekt geplant. Erscheint in Wizard Schritt 9 im Abschnitt "Systemgeraete".
+- **Aktor**: Standard-KNX-Aktor (Schalt-, Dimm-, Jalousie-, Heizungsaktor etc.); wird in Wizard Schritt 8 als Aktor geplant.
+- **Gateway**: Fremdsystem-Schnittstelle (DALI, Multimedia, Waermepumpe etc.); kommuniziert ueber ein Schnittstellengeraet (KNX-Gateway) mit dem KNX-Bus. Wird in Wizard Schritt 8 als Gateway-Geraet (device_type="gateway") geplant, nicht als klassischer Aktor.
+- **Systemsensor**: Gewerkeuebergreifendes Messgeraet (z.B. Wetterstation); wird nicht raumweise, sondern einmalig pro Projekt geplant. Erscheint in Wizard Schritt 6 im Abschnitt "Systemgeraete".
 
 | ID | Anforderung |
 |----|-------------|
@@ -516,7 +517,7 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 
 | ID | Anforderung |
 |----|-------------|
-| FA-500 | Das System muss drei ETS6-Exportformate einlesen koennen: a) Gruppenadress-Export (CSV), b) Topologie-Report mit Zusatzwahl "Objekte" (XLSX) und c) Natives ETS-Projektformat (.knxproj). |
+| FA-500 | Das System muss folgende ETS6-Exportformate einlesen koennen: a) Gruppenadress-Export (CSV), b) Gruppenadress-Report (XLSX, FA-519b), c) Topologie-Report mit Zusatzwahl "Objekte" (XLSX) und d) Natives ETS-Projektformat (.knxproj). Fuer Gruppenadressen ist der XLSX-Report (b) das empfohlene Format, da er reichhaltigere Metadaten liefert als der CSV-Export (a); dieser bleibt aus Kompatibilitaetsgruenden weiterhin unterstuetzt. |
 
 #### 3.5.2 CSV-Import (Gruppenadressen)
 
@@ -557,7 +558,8 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 | FA-517 | Das System muss Koppler (Adresse B.L.0) als Linienkoppler erkennen und in der Topologieansicht darstellen. |
 | FA-518 | Das System muss die Geraeteanzahl pro Linie automatisch zaehlen und mit den Topologie-Empfehlungen abgleichen (Warnung bei > 85, Fehler bei > 100). |
 | FA-519 | Das System muss aus den verbundenen Gruppenadressen der Kommunikationsobjekte (Spalte "Verbunden mit") die Verknuepfung zwischen physikalischer Topologie und logischer Gruppenadress-Struktur herstellen. |
-| FA-520 | Das System muss den Topologie-Report und den Gruppenadress-Export (CSV) desselben Projekts zusammenfuehren und eine vollstaendige Projektansicht erstellen koennen. |
+| FA-519b | Das System muss zusaetzlich den ETS6-Gruppenadress-Report (XLSX-Format, eigenstaendiger Report -- nicht der CSV-Export) einlesen koennen. Daraus werden Hauptgruppen, Mittelgruppen, Gruppenadressen (inkl. Bezeichnung und Datenpunkttyp) sowie Projektmetadaten (Projektname, Start-/Import-/Druckdatum) extrahiert. Wird der GA-Report nach einem bereits importierten Topologie-Report eingelesen, muss das System damit die Kommunikationsobjekt-Verbindungen der Topologie anreichern und Gewerk-Zuweisungen aus den GA-Bezeichnungen ableiten, ohne den Topologie-Import zu wiederholen. |
+| FA-520 | Das System muss den Topologie-Report und den Gruppenadress-Export (CSV oder XLSX-Report) desselben Projekts zusammenfuehren und eine vollstaendige Projektansicht erstellen koennen. |
 
 #### 3.5.4 KNXPROJ-Import (Natives ETS-Projektformat)
 
@@ -566,8 +568,16 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 | FA-521 | Das System kann ETS6-Projektdateien im `.knxproj`-Format (ZIP-Archiv mit XML-Struktur gemaess KNX-Standard, Formatversionen ETS 5 und ETS 6) einlesen koennen. **(C)** |
 | FA-522 | Das System muss folgende Daten aus dem `.knxproj` extrahieren koennen: Projektmetadaten (Name, Beschreibung), Gebaeudestruktur, vollstaendige Gruppenadress-Hierarchie (inkl. DPT, Flags), Topologie (Bereiche, Linien, Geraete mit physikalischer Adresse, Hersteller, Produkt, Applikation) sowie Kommunikationsobjekte mit ihren GA-Zuordnungen. **(C)** |
 | FA-523 | Das System muss die Gebaeudestruktur aus dem `.knxproj` vollstaendig extrahieren: Gebaeude, Gebaeudeteile, Stockwerke und Raeume (inkl. Bezeichnungen und Hierarchie). Die extrahierte Gebaeudestruktur dient als Grundlage fuer die Gruppenadress-Generierung und Reorganisation. **(C)** |
-| FA-524 | Der KNXPROJ-Import vereint die Daten von CSV- und XLSX-Import in einem einzigen Schritt -- eine separate Zusammenfuehrung (FA-520) ist nicht erforderlich. **(C)** |
-| FA-525 | Das System muss passwortgeschuetzte `.knxproj`-Dateien (ETS-Projektschutz) erkennen und dem Benutzer eine verstaendliche Fehlermeldung mit Hinweis auf die ETS6-Exportalternative (CSV/XLSX) ausgeben. **(C)** |
+| FA-524 | Der KNXPROJ-Import vereint die Daten von CSV- und XLSX-Import in einem einzigen Schritt -- eine separate Zusammenfuehrung (FA-520) ist nicht erforderlich. Das System muss neben dem klassischen Format (Projektordner `P-XXXX/` direkt im aeusseren ZIP) auch das neuere ETS6-Containerformat unterstuetzen, bei dem die Projektdaten in einem verschachtelten Archiv `P-XXXX.zip` innerhalb des aeusseren ZIP liegen. **(C)** |
+| FA-525 | Das System muss erkennen, ob ein `.knxproj` passwortgeschuetzt ist, und danach unterscheiden: |
+
+**FA-525 Detailanforderungen (Passwortschutz):**
+
+| Nr. | Anforderung |
+|-----|-------------|
+| FA-525a | Klassisches Format: Ist ein Eintrag im aeusseren ZIP verschluesselt (WinZip-AES-Flag), muss das System eine verstaendliche Fehlermeldung mit Hinweis auf die ETS6-Exportalternative (Gruppenadress-Report bzw. Topologie-Report als XLSX) ausgeben. **(C)** |
+| FA-525b | Neueres Containerformat: Ist das innere `P-XXXX.zip` AES-verschluesselt, muss das System anhand des Zertifikats `P-XXXX.certificate` pruefen, ob es sich um eine ETS6-Cloud-Lizenz-Verschluesselung handelt. In diesem Fall ist der Schluessel an die ETS6-Installation gebunden und kann nicht entschluesselt werden -- das System muss dies dem Benutzer erklaeren und auf den XLSX-Report-Export als Alternative verweisen. **(C)** |
+| FA-525c | Liegt keine Cloud-Lizenz-Verschluesselung vor, muss das System den Benutzer ueber einen Passwort-Dialog zur Eingabe des ETS6-Projektpassworts auffordern und den Import mit dem eingegebenen Passwort fortsetzen. Bei falschem Passwort muss eine verstaendliche Fehlermeldung erscheinen und eine erneute Eingabe moeglich sein. **(C)** |
 | FA-526 | Das System muss eine Fehlermeldung ausgeben, wenn die `.knxproj`-Datei beschaedigt, unvollstaendig oder nicht dem KNX-Standard entspricht. **(C)** |
 
 ### 3.6 Analyse und Validierung (FA-600)
@@ -639,8 +649,8 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 | ID | Anforderung |
 |----|-------------|
 | FA-852 | Das Firmenprofil muss einmalig erfasst und fuer alle Projekte wiederverwendet werden koennen (globale Einstellung). |
-| FA-853 | Pro Projekt muessen zusaetzlich projektspezifische Angaben erfasst werden koennen: Projektname, Projektnummer, Auftraggeber/Kunde, Projektadresse/Standort, Bearbeitungsdatum. |
-| FA-854 | Das Firmenlogo muss als Bilddatei (PNG, JPG, SVG) importiert werden koennen und in der Groesse automatisch fuer die Verwendung in Berichten angepasst werden. |
+| FA-853 | Pro Projekt muessen zusaetzlich projektspezifische Angaben erfasst werden koennen: Projektname, Projektnummer, Auftraggeber/Kunde, Projektadresse/Standort, Bearbeitungsdatum, sowie optional ein Projekt-/Kundenfoto (Kundenprofil-Dialog). |
+| FA-854 | Das Firmenlogo muss als Bilddatei (PNG, JPG, SVG) importiert werden koennen und in der Groesse automatisch fuer die Verwendung in Berichten angepasst werden. Firmenlogo und Projektfoto muessen zusaetzlich direkt per "Aus Zwischenablage einfuegen" gesetzt werden koennen (ohne Umweg ueber eine Datei). |
 
 #### 3.9.2 Verwendung auf Berichten und Exporten
 
@@ -677,23 +687,25 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 
 | ID | Anforderung |
 |----|-------------|
-| FA-1002 | Die GUI muss einen Assistenten (Wizard) fuer die Neuerstellung eines KNX-Projekts bieten mit folgenden 11 Schritten: |
+| FA-1002 | Die GUI muss einen Assistenten (Wizard) fuer die Neuerstellung eines KNX-Projekts bieten mit folgenden 13 Schritten: |
 
 **Wizard-Schritte fuer Neuprojekt:**
 
 | Schritt | Bezeichnung | Beschreibung |
 |---------|-------------|-------------|
 | 1 | Gebaeudestruktur (Etagen) | Erstellen der Gebaeudestruktur mit Stockwerken/Etagen (UG, EG, OG, DG etc.). |
-| 2 | Wohnungen / Zonen | Innerhalb der Gebaeudestruktur werden pro Stockwerk die Wohnungen bzw. Zonen erstellt (z.B. Wohnung 1, Wohnung 2 oder Zone Nord, Zone Sued). |
+| 2 | Wohnungen / Zonen | Innerhalb der Gebaeudestruktur werden pro Stockwerk die Wohnungen bzw. Zonen erstellt (z.B. Wohnung 1, Wohnung 2 oder Zone Nord, Zone Sued). Eine Zone kann mehrere Stockwerke umfassen (Maisonette). |
 | 3 | Raeume | Innerhalb der Wohnungen/Zonen werden die einzelnen Raeume erstellt (z.B. Wohnzimmer, Schlafzimmer, Kueche, Bad). |
-| 4 | Elektroverteilungen (HV / UV) | Es werden die Raeume definiert, in denen die elektrische Hauptverteilung (HV) und die Unterverteilungen (UV) fuer die Aktoren installiert sind. |
+| 4 | Elektroverteilungen (HV / UV) | Es werden pro Raum die elektrischen Verteilungen (Hauptverteilung HV, Unterverteilungen UV) angelegt, in denen die Aktoren installiert sind. |
 | 5 | Gewerke-Definition | Pro Raum werden die Gewerke definiert (z.B. 2x LD, 1x J, 1x H). Pro Gewerk kann ein Produktdatenblatt (PDF) hinterlegt werden, das in die Projektdokumentation einfliesst. |
-| 6 | Topologie und Linienzuteilung | Pro Raum werden Standardwerte fuer Linienteilnehmer angenommen (4 Sensoren, 2 Aktoren). Anhand dieser Werte errechnet das System eine topologisch sinnvolle Linienzuteilung unter Beruecksichtigung der Vorgabedokumente (KNX TP-Topologie, KNX Swiss Richtlinien). Der Benutzer kann die berechnete Topologie manuell anpassen (Bereiche/Linien hinzufuegen/entfernen, Backbone-Typ TP/IP festlegen). |
-| 7 | Aktor-Ermittlung | Das System errechnet anhand der definierten Gewerke, welche Aktorentypen (Schaltaktor, Dimmaktor, Jalousieaktor etc.) pro Linie benoetigt werden, und schlaegt passende Aktoren aus dem Internet vor. Der Anwender kann bevorzugte Hersteller definieren. Die ausgewaehlten Aktoren werden mit Produktdatenblatt fuer die Dokumentation gespeichert. |
-| 8 | Gruppenadress-Generierung | Basierend auf Gebaeudestruktur, Topologie, Gewerken und Aktoren werden die vollstaendigen Gruppenadressen automatisch generiert (inkl. Bezeichnungen, DPTs, Adressblocking). |
-| 9 | Sensor-Ermittlung | Anhand der generierten Gruppenadressen und der Gewerke schlaegt das System geeignete Sensoren (Taster, Praesenzmelder, Temperaturfuehler etc.) aus dem Internet vor. Der Anwender kann bevorzugte Hersteller definieren. Die ausgewaehlten Sensoren werden mit Produktdatenblatt fuer die Dokumentation gespeichert. |
-| 10 | Funktionsdefinition Sensoren (Bauherr-Formular) | Die Funktionen der Sensoren werden durch den Anwender genau definiert: Welcher Taster steuert welches Licht, welche Jalousie etc. Dafuer wird ein Formular generiert, das an den Bauherrn/Auftraggeber gesendet und nach Ausfuellung wieder eingelesen werden kann. So definiert der Bauherr, an welchem Schalter er Licht, Storen usw. bedienen will. |
-| 11 | Export | Die Gruppenadress-Struktur wird als ETS6-kompatible CSV-Datei exportiert. Zusaetzlich wird eine vollstaendige Projektdokumentation generiert. |
+| 6 | Geraetekonfiguration pro Raum | Alle physischen Bedienelemente (Tastereinheiten, Bewegungs-/Praesenzmelder, Thermostate usw.) werden pro Raum festgelegt -- noch vor der Topologieberechnung, damit die Linienzuteilung bereits alle Geraete kennt. Eine Tastereinheit kann mehreren Gewerken gleichzeitig zugeordnet werden. |
+| 7 | Topologie und Linienzuteilung | Anhand der in Schritt 6 konfigurierten Geraete errechnet das System eine topologisch sinnvolle Linienzuteilung unter Beruecksichtigung der Vorgabedokumente (KNX TP-Topologie, KNX Swiss Richtlinien). Der Benutzer kann die berechnete Topologie manuell anpassen (Bereiche/Linien hinzufuegen/entfernen, Backbone-Typ TP/IP festlegen). |
+| 8 | Aktor-Ermittlung | Das System errechnet anhand der definierten Gewerke, welche Aktorentypen (Schaltaktor, Dimmaktor, Jalousieaktor etc.) pro Linie benoetigt werden, und schlaegt passende Aktoren aus dem Internet vor. Der Anwender kann bevorzugte Hersteller definieren. Die ausgewaehlten Aktoren werden mit Produktdatenblatt fuer die Dokumentation gespeichert. |
+| 9 | Szenen-Definition | Lichtszenen und andere Szenen werden definiert, bevor die Gruppenadressen generiert werden, damit Szenen-GAs von Anfang an in der GA-Struktur beruecksichtigt sind. |
+| 10 | Gruppenadress-Generierung | Basierend auf Gebaeudestruktur, Topologie, Gewerken, Aktoren und Szenen werden die vollstaendigen Gruppenadressen automatisch generiert (inkl. Bezeichnungen, DPTs, Adressblocking). |
+| 11 | Funktionszuordnung | Jedem in Schritt 6 angelegten Bedienelement werden die passenden Gruppenadressen je Kanal zugewiesen (Sensorfunktionen gemaess FA-1410). Das System schlaegt passende Sensorprodukte aus dem Internet vor; die Auswahl wird mit Produktdatenblatt gespeichert. |
+| 12 | Funktionsdefinition (Bauherr-Formular) | Die Funktionen der Sensoren werden durch den Anwender bzw. den Bauherrn genau definiert: Welcher Taster steuert welches Licht, welche Jalousie etc. Dafuer wird ein Formular generiert, das an den Bauherrn/Auftraggeber gesendet und nach Ausfuellung wieder eingelesen werden kann, oder die Zuordnung erfolgt live in der Bauherren-Beratungsansicht (FA-1508 bis FA-1511). |
+| 13 | Export | Die Gruppenadress-Struktur wird als ETS6-kompatible CSV-Datei exportiert. Zusaetzlich wird eine vollstaendige Projektdokumentation generiert. |
 | FA-1003 | Die GUI muss eine Baumansicht der Gruppenadress-Hierarchie darstellen (Hauptgruppe > Mittelgruppe > Untergruppe). |
 | FA-1004 | Die GUI muss eine tabellarische Ansicht aller Gruppenadressen mit allen Feldern anbieten. |
 | FA-1005 | Fehlerhafte oder inkonsistente Eintraege muessen farblich hervorgehoben werden (Rot: Fehler, Gelb: Warnung). |
@@ -759,7 +771,7 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 | FA-1304 | Der Anwender muss eine Liste bevorzugter Hersteller definieren koennen (z.B. ABB, MDT, Theben, Gira, Jung). Die Produktvorschlaege muessen bevorzugt Produkte dieser Hersteller anzeigen. |
 | FA-1305 | Die vom Benutzer ausgewaehlten Aktoren muessen mit Produktdatenblatt (gemaess FA-1201) im Projekt gespeichert und der entsprechenden Linie in der Topologie zugeordnet werden. |
 | FA-1306 | Das System muss eine Zusammenfassung der benoetigten Aktoren pro UV/HV erstellen koennen (Stueckliste / Materialliste). |
-| FA-1307 | Das System muss Gateway-basierte Gewerke (interface_type="gateway": LDA, MM, WP) in Wizard Schritt 7 gesondert behandeln: Statt eines klassischen Aktors wird ein Schnittstellengeraet (Device mit device_type="gateway") auf der zugeordneten Linie eingeplant. Das Gateway-Geraet erhaelt die dem Gewerk zugehoerigen Gruppenadressen. **(M)** |
+| FA-1307 | Das System muss Gateway-basierte Gewerke (interface_type="gateway": LDA, MM, WP) in Wizard Schritt 8 gesondert behandeln: Statt eines klassischen Aktors wird ein Schnittstellengeraet (Device mit device_type="gateway") auf der zugeordneten Linie eingeplant. Das Gateway-Geraet erhaelt die dem Gewerk zugehoerigen Gruppenadressen. **(M)** |
 | FA-1308 | Gateway-Geraete muessen in der Materialliste (FA-1306) als eigene Kategorie "Gateways / Schnittstellen" gefuehrt werden und pro Eintrag den Gewerk-Code, den Gateway-Typ (z.B. "DALI-Gateway", "Modbus-KNX-Gateway") sowie Hersteller und Bestellnummer aufnehmen koennen. **(M)** |
 
 ### 3.15 Sensor-Ermittlung und Herstellerpraeferenzen (FA-1400)
@@ -793,24 +805,24 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 
 | Nr. | Anforderung |
 |-----|-------------|
-| FA-1407a | In Wizard Schritt 8 muss der Benutzer per Doppelklick auf eine Sensorzeile einen Dialog oeffnen koennen, in dem der Sensortyp aus einer vordefinierten Liste geaendert werden kann. |
+| FA-1407a | In Wizard Schritt 6 muss der Benutzer per Doppelklick auf eine Sensorzeile einen Dialog oeffnen koennen, in dem der Sensortyp aus einer vordefinierten Liste geaendert werden kann. |
 | FA-1407b | Die vordefinierten Sensortypen zur Auswahl umfassen mindestens: Taster 1-fach, Taster 2-fach, Taster 4-fach, Praesenzmelder, Bewegungsmelder, Raumthermostat, Temperaturfuehler, Fensterkontakt, Tuerkontakt, Magnetkontakt, Wetterstation, Energiezaehler. |
 | FA-1407c | Ein gesetzter Override muss visuell hervorgehoben werden (z.B. kursive Schrift oder abweichende Farbe) damit der Unterschied zum automatisch berechneten Wert erkennbar ist. |
 | FA-1407d | Der Override-Wert muss im Datenmodell auf der `GewerkAssignment`-Ebene als `sensor_type_override` (optionaler String) persistiert werden. Ist `sensor_type_override` gesetzt, hat er Vorrang vor dem automatisch ermittelten Sensortyp. |
-| FA-1407e | Eine erneute Berechnung in Schritt 8 (Button "Bedienelemente berechnen") darf gesetzte Overrides nicht loeschen. |
+| FA-1407e | Eine erneute Berechnung in Schritt 6 (Button "Alle automatisch berechnen") darf gesetzte Overrides nicht loeschen. |
 | FA-1407f | Der Benutzer muss einen Override mit einem "Zuruecksetzen"-Button im Override-Dialog auf den automatisch berechneten Wert zuruecksetzen koennen. |
 
 | ID | Anforderung |
 |----|-------------|
-| FA-1408 | Gewerke vom Typ interface_type="system_sensor" (z.B. W = Wetterstation) werden in Wizard Schritt 9 nicht raumweise, sondern projektweise geplant. Das System muss pruefen, ob ein Gewerk dieses Typs im Projekt vorhanden ist, und automatisch einen Systemsensor-Eintrag in der Materialliste anlegen -- unabhaengig von der Raumanzahl. Pro Projekt wird genau ein Systemsensor-Eintrag pro interface_type="system_sensor"-Gewerk erstellt. **(M)** |
-| FA-1409 | In Wizard Schritt 9 muss ein separater Abschnitt "Systemgeraete" angezeigt werden, der alle geplanten Systemsensoren (interface_type="system_sensor") auflistet. Systemgeraete sind keinem Raum, sondern dem Gesamtprojekt zugeordnet. Ihre Gruppenadressen erscheinen in den empfangenden Gewerken (z.B. Wetterstation-GA "Helligkeit" wird von Gewerk J/Jalousie empfangen). Der Integrator kann Hersteller und Produkt fuer jeden Systemsensor hinterlegen. **(M)** |
+| FA-1408 | Gewerke vom Typ interface_type="system_sensor" (z.B. W = Wetterstation) werden in Wizard Schritt 6 nicht raumweise, sondern projektweise geplant. Das System muss pruefen, ob ein Gewerk dieses Typs im Projekt vorhanden ist, und automatisch einen Systemsensor-Eintrag in der Materialliste anlegen -- unabhaengig von der Raumanzahl. Pro Projekt wird genau ein Systemsensor-Eintrag pro interface_type="system_sensor"-Gewerk erstellt. **(M)** |
+| FA-1409 | In Wizard Schritt 6 muss ein separater Abschnitt "Systemgeraete" angezeigt werden, der alle geplanten Systemsensoren (interface_type="system_sensor") auflistet. Systemgeraete sind keinem Raum, sondern dem Gesamtprojekt zugeordnet. Ihre Gruppenadressen erscheinen in den empfangenden Gewerken (z.B. Wetterstation-GA "Helligkeit" wird von Gewerk J/Jalousie empfangen). Der Integrator kann Hersteller und Produkt fuer jeden Systemsensor hinterlegen. **(M)** |
 
 | ID | Anforderung |
 |----|-------------|
 | FA-1410 | Das System fuehrt das Konzept der «Sensorfunktion» ein. Eine Sensorfunktion ist die logische Steuereinheit an einem Bedienelement: Sie beinhaltet alle zugehoerigen Gruppenadressen (Primaerfunktionen und Rueckmeldungen) einer Gewerk-Instanz. Das Datenmodell speichert Bedienelemente mit einer Liste von Sensorfunktionen (`Bedienelement.funktionen`). **(M)** |
 | FA-1410a | Eine Sensorfunktion referenziert entweder (a) eine Gewerk-Instanz (gewerk_code + element_number + source_room_id, wobei source_room_id leer = eigener Raum) oder (b) eine einzelne direkte Gruppenadresse (ga_designation gesetzt, gewerk_code leer). Fall (b) ist ein degenerierter Sonderfall mit genau einer GA. **(M)** |
 | FA-1410b | Fuer gewerk-basierte Sensorfunktionen werden alle Primaer- und Rueckmelde-GAs des referenzierten Gewerks automatisch und implizit abgeleitet. Der Benutzer muss die Rueckmeldung nicht separat hinzufuegen; sie ist immer inbegriffen. **(M)** |
-| FA-1410c | Im Konfigurationsdialog (Wizard Schritt 8) wird dem Benutzer pro Bedienelement eine Liste von Sensorfunktionen angezeigt – eine Zeile pro logischer Steuereinheit, nicht pro einzelner Gruppenadresse. Das Hinzufuegen erfolgt durch Auswahl eines Gewerks (Tab «Eigener Raum» / «Anderer Raum») oder einer direkten GA (Tab «Direkte GA»). **(M)** |
+| FA-1410c | Im Konfigurationsdialog (Wizard Schritt 11) wird dem Benutzer pro Bedienelement eine Liste von Sensorfunktionen angezeigt – eine Zeile pro logischer Steuereinheit, nicht pro einzelner Gruppenadresse. Das Hinzufuegen erfolgt durch Auswahl eines Gewerks (Tab «Eigener Raum» / «Anderer Raum») oder einer direkten GA (Tab «Direkte GA»). **(M)** |
 | FA-1410d | Beim Einlesen von Projektdaten mit dem alten Feld «control_functions» migriert das System automatisch: Eintraege gleicher (gewerk_code, element_number, source_room_id) werden zu einer einzigen Sensorfunktion zusammengefasst; Eintraege mit ga_designation bleiben als degenerierte Einzelfunktionen erhalten. **(M)** |
 
 ### 3.16 Funktionsdefinition durch Bauherrn (FA-1500)
@@ -824,6 +836,15 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 | FA-1505 | Die importierten Funktionszuordnungen muessen in der GUI angezeigt und vom Anwender nachbearbeitet werden koennen. |
 | FA-1506 | Das System muss die Funktionsdefinitionen in die Projektdokumentation einbinden: Pro Raum eine Uebersicht, welcher Sensor welche Funktionen steuert. |
 | FA-1507 | Das Formular muss Firmenprofil-Daten (FA-855) und Projektangaben (FA-853) im Kopf-/Fussbereich enthalten, um ein professionelles Erscheinungsbild zu gewaehrleisten. |
+
+#### 3.16.1 Bauherren-Beratungsansicht (Live-Funktionszuordnung)
+
+| ID | Anforderung |
+|----|-------------|
+| FA-1508 | Das System muss als Alternative zum Papier-/Excel-Formular (FA-1501 bis FA-1504) eine interaktive Beratungsansicht anbieten, in der der Integrator die Funktionszuordnung gemeinsam mit dem Bauherrn direkt am Bildschirm erfasst -- pro Raum eine Liste aller Bedienelemente mit ihren Sensorfunktionen (FA-1410). |
+| FA-1509 | In der Beratungsansicht muss der Integrator pro Bedienelement und pro Raum eine freie Anmerkung (Freitext) erfassen koennen, die unabhaengig von der Funktionszuordnung im Projekt gespeichert wird. |
+| FA-1510 | Aenderungen an Anmerkungen muessen ein einfaches Autosave des Projekts ausloesen; Aenderungen an Funktionszuordnungen muessen die volle Neuberechnung der Bedienelemente (gemaess FA-1410, FA-1407e) ausloesen. |
+| FA-1511 | In der Beratungsansicht erfasste oder geaenderte Funktionszuordnungen muessen als manuell markiert (nicht automatisch ueberschreibbar) im Projekt gespeichert werden, damit eine spaetere Neuberechnung (z.B. nach Aenderungen in Schritt 6) die Bauherren-Wuensche nicht verwirft. |
 
 ### 3.17 Offertanfragen und Beschaffung (FA-1600)
 
@@ -1552,6 +1573,21 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 | FA-3308b | Diese Astro-GAs werden bei der Validierung (FA-600) speziell behandelt: Fehlt eine dieser GAs trotz vorhandener Astro-SwitchPoints, wird eine Warnung ausgegeben: "Astro-GAs in HG 0 / MG 7 fehlen -- bitte GA-Generierung erneut ausfuehren." **(C)** |
 | FA-3308c | Im CSV- und KNXPROJ-Export (FA-801, FA-2401) werden die Astro-GAs wie alle anderen Zentraladressen mit exportiert. **(C)** |
 
+### 3.35 Workspace- und Projektverwaltung (FA-3400)
+
+Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Arbeitsverzeichnis (Workspace) mit einheitlicher Ordnerstruktur ab. Bestehende, frei abgelegte Projekte bleiben davon unberuehrt und koennen weiterhin von beliebigem Ort geoeffnet werden.
+
+| ID | Anforderung |
+|----|-------------|
+| FA-3401 | Beim allerersten Start des Systems muss ein Ersteinrichtungs-Dialog erscheinen, der einen Vorschlag fuer das Arbeitsverzeichnis macht (Standard: Unterordner "KNX-Projekte" im Dokumente-Ordner des Betriebssystems) und dem Anwender erlaubt, einen abweichenden Ordner zu waehlen. |
+| FA-3402 | Neue Projekte muessen zwingend in der Struktur `{Arbeitsverzeichnis}/{Projektname}/{Projektname}.knxarr` angelegt werden, wobei pro Projekt automatisch die Unterordner `Revisionen/` und `Berichte/` erstellt werden. |
+| FA-3403 | Der Projektname muss beim Anlegen bereinigt werden (unzulaessige Dateisystemzeichen entfernt) und auf Kollisionen mit bestehenden Projektordnern sowie auf reservierte Windows-Namen (z.B. CON, NUL, PRN) geprueft werden; bei einer Kollision oder einem reservierten Namen muss eine verstaendliche Fehlermeldung erscheinen. |
+| FA-3404 | Der Dialog "Neues Projekt erstellen" muss eine Live-Vorschau des resultierenden Projektordnerpfads anzeigen, die sich bei Eingabe des Projektnamens sofort aktualisiert. |
+| FA-3405 | Berichte (FA-900) und Revisionspakete (FA-2101) muessen ohne erneute Ordnerauswahl automatisch in den Unterordnern `Berichte/` bzw. `Revisionen/` neben der `.knxarr`-Datei des aktuellen Projekts abgelegt werden. |
+| FA-3406 | Das Arbeitsverzeichnis muss nachtraeglich in den Einstellungen (Allgemein-Tab) geaendert werden koennen; die Aenderung wirkt sich nur auf zukuenftig neu angelegte Projekte aus. |
+| FA-3407 | Der Willkommens-Dialog muss eine Liste der zuletzt verwendeten Projekte als klickbare Eintraege anzeigen (Projektname als Beschriftung, vollstaendiger Pfad als Tooltip), ueber die ein Projekt direkt geoeffnet werden kann. |
+| FA-3408 | Bestehende, ausserhalb des Arbeitsverzeichnisses abgelegte Projekte muessen weiterhin frei verschiebbar und oeffenbar sein; fuer sie werden Berichte/Revisionen ebenfalls automatisch neben der Projektdatei abgelegt (nicht im zentralen Workspace). |
+
 ---
 
 ## 4. Nicht-funktionale Anforderungen
@@ -1578,7 +1614,7 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 |----|-------------|
 | NFA-031 | Die Benutzeroberflaeche muss in deutscher Sprache gestaltet sein. |
 | NFA-032 | Die Software muss ohne Schulung von einem KNX-Systemintegrator bedienbar sein. |
-| NFA-033 | Der Wizard fuer ein neues Projekt muss in 11 strukturierten Schritten (gemaess FA-1002) zu einem vollstaendigen Projektexport fuehren. Jeder Schritt muss einzeln abschliessbar und navigierbar sein (Vor/Zurueck). |
+| NFA-033 | Der Wizard fuer ein neues Projekt muss in 13 strukturierten Schritten (gemaess FA-1002) zu einem vollstaendigen Projektexport fuehren. Jeder Schritt muss einzeln abschliessbar und navigierbar sein (Vor/Zurueck). |
 | NFA-034 | Alle Tabellen- und Baumansichten muessen ihre Spaltenbreiten automatisch an den laengsten Inhalt anpassen. Dies gilt fuer saemtliche Ansichten: Topologie, Gruppenadressen (Baum und Tabelle), Gebaeudestruktur, Gewerke-Uebersicht, Validierung sowie alle Wizard-Schritte mit Tabellen oder Baeumen. |
 
 ### 4.4 Zuverlaessigkeit (NFA-040)
@@ -1896,7 +1932,7 @@ KNX-Projekt
 |------|-------------|
 | **Akteur** | KNX-Systemintegrator |
 | **Vorbedingung** | Grundrissplaene und Gewerkeliste des Gebaeudes liegen vor |
-| **Ablauf** | 1. Benutzer startet den KNX Arranger und waehlt "Neues Projekt". 2. **(Schritt 1)** Benutzer erfasst die Gebaeudestruktur mit Stockwerken oder waehlt eine Vorlage. 3. **(Schritt 2)** Benutzer erstellt Wohnungen/Zonen pro Stockwerk. 4. **(Schritt 3)** Benutzer erstellt Raeume innerhalb der Wohnungen/Zonen. 5. **(Schritt 4)** Benutzer definiert HV-/UV-Raeume; System errechnet die Linienzuteilung anhand der Geraeteanzahl pro Raum. Benutzer passt Topologie bei Bedarf an. 6. **(Schritt 5)** Benutzer weist jedem Raum Gewerke und Elementanzahlen zu, hinterlegt optional Produktdatenblaetter. 7. **(Schritt 6)** System errechnet benoetigte Aktorentypen und schlaegt Produkte vor. Benutzer waehlt Aktoren aus und speichert mit Datenblatt. 8. **(Schritt 7)** System generiert automatisch die vollstaendige Gruppenadress-Struktur. 9. **(Schritt 8)** System schlaegt passende Sensoren vor. Benutzer waehlt Sensoren aus und speichert mit Datenblatt. 10. **(Schritt 9)** Benutzer erstellt Funktionsdefinitions-Formular fuer den Bauherrn, liest ausgefuelltes Formular ein und uebernimmt die Zuordnungen. 11. **(Schritt 10)** Benutzer exportiert CSV-Datei fuer ETS6-Import und generiert Projektdokumentation. |
+| **Ablauf** | 1. Benutzer startet den KNX Arranger und waehlt "Neues Projekt". 2. **(Schritt 1)** Benutzer erfasst die Gebaeudestruktur mit Stockwerken oder waehlt eine Vorlage. 3. **(Schritt 2)** Benutzer erstellt Wohnungen/Zonen pro Stockwerk. 4. **(Schritt 3)** Benutzer erstellt Raeume innerhalb der Wohnungen/Zonen. 5. **(Schritt 4)** Benutzer legt die Elektroverteilungen (HV/UV) pro Raum an. 6. **(Schritt 5)** Benutzer weist jedem Raum Gewerke und Elementanzahlen zu, hinterlegt optional Produktdatenblaetter. 7. **(Schritt 6)** Benutzer konfiguriert die physischen Bedienelemente (Tastereinheiten, Melder, Thermostate) pro Raum. 8. **(Schritt 7)** System errechnet anhand der Geraetekonfiguration eine topologisch sinnvolle Linienzuteilung; Benutzer passt die Topologie bei Bedarf an. 9. **(Schritt 8)** System errechnet benoetigte Aktorentypen und schlaegt Produkte vor. Benutzer waehlt Aktoren aus und speichert mit Datenblatt. 10. **(Schritt 9)** Benutzer definiert Szenen. 11. **(Schritt 10)** System generiert automatisch die vollstaendige Gruppenadress-Struktur. 12. **(Schritt 11)** Benutzer ordnet jedem Bedienelement die passenden Gruppenadressen zu; das System schlaegt passende Sensorprodukte vor. 13. **(Schritt 12)** Benutzer erstellt Funktionsdefinitions-Formular fuer den Bauherrn (oder nutzt die Bauherren-Beratungsansicht), liest ausgefuelltes Formular ein und uebernimmt die Zuordnungen. 14. **(Schritt 13)** Benutzer exportiert CSV-Datei fuer ETS6-Import und generiert Projektdokumentation. |
 | **Nachbedingung** | Vollstaendige, richtlinienkonforme Gruppenadress-Struktur als CSV, Materialliste, Funktionszuordnungen und Projektdokumentation verfuegbar. |
 
 ### 6.2 UC-02: Bestehendes Projekt importieren und analysieren
@@ -1977,7 +2013,7 @@ KNX-Projekt
 
 | Nr. | Kriterium | Pruefmethode |
 |-----|-----------|-------------|
-| AK-01 | Ein neues Projekt (EFH mit UG, EG, OG, DG, je 5 Raeume) kann vom 10-Schritt-Wizard vollstaendig erstellt werden inkl. Gebaeudestruktur, Wohnungen/Zonen, Topologie, Gewerke, Aktoren, Gruppenadressen, Sensoren und Funktionsdefinition. | Durchlauf des Wizards mit Testdaten |
+| AK-01 | Ein neues Projekt (EFH mit UG, EG, OG, DG, je 5 Raeume) kann vom 13-Schritt-Wizard vollstaendig erstellt werden inkl. Gebaeudestruktur, Wohnungen/Zonen, Topologie, Gewerke, Aktoren, Gruppenadressen, Sensoren und Funktionsdefinition. | Durchlauf des Wizards mit Testdaten |
 | AK-02 | Die generierte Gruppenadress-Struktur entspricht den KNX Swiss Richtlinien (korrekte Hauptgruppen-/Mittelgruppen-Zuordnung, 5er-/10er-Bloecke, Bezeichnungskonzept). | Vergleich mit Referenzstruktur |
 | AK-03 | Sowohl Variante A als auch Variante B der Mittelgruppen-Zuordnung erzeugen korrekte Ergebnisse. | Export und manuelle Pruefung beider Varianten |
 | AK-04 | Die Referenzdatei ETS6_Chalet.csv (1.082 Zeilen, 6 Hauptgruppen) wird fehlerfrei importiert und die Struktur korrekt dargestellt. | Test mit Referenzdatei |
@@ -2004,7 +2040,7 @@ KNX-Projekt
 | AK-23 | Das kontextsensitive Hilfesystem zeigt fuer jeden Hauptbildschirm (Wizard-Schritte, Topologie, Validierung) die passende Hilfeseite an. | F1-Taste auf jedem Bildschirm pruefen |
 | AK-24 | Bei einem simulierten Crash wird ein Crash-Report mit Stack-Trace und Systeminformationen korrekt erstellt und lokal gespeichert. | Provozierter Fehler, Report-Pruefung |
 | AK-25 | Personenbezogene Kundendaten in der Lizenzdatenbank sind verschluesselt gespeichert und koennen auf Anfrage geloescht werden. | Datenbankinspektion und Loeschtest |
-| AK-26 | Der 10-Schritt-Wizard fuehrt fuer ein EFH (4 Stockwerke, je 4 Raeume) vollstaendig durch alle Schritte inkl. Aktor-/Sensor-Ermittlung und Funktionsdefinition. | Vollstaendiger Wizard-Durchlauf mit Testdaten |
+| AK-26 | Der 13-Schritt-Wizard fuehrt fuer ein EFH (4 Stockwerke, je 4 Raeume) vollstaendig durch alle Schritte inkl. Aktor-/Sensor-Ermittlung und Funktionsdefinition. | Vollstaendiger Wizard-Durchlauf mit Testdaten |
 | AK-27 | Die Gebaeudestruktur-Hierarchie (Stockwerk > Wohnung/Zone > Raum) funktioniert korrekt fuer EFH (ohne Wohnungen) und MFH (mit Wohnungen). | Test EFH und MFH mit je 3 Stockwerken |
 | AK-28 | Die automatische Linienzuteilung berechnet bei einem Testprojekt (20 Raeume, je 4 Sensoren + 2 Aktoren = 120 Geraete) eine korrekte Topologie mit max. 85 Geraeten pro Linie. | Berechnung pruefen, Vergleich mit manueller Planung |
 | AK-29 | Produktdatenblaetter (PDF) koennen importiert, mit Gewerken/Aktoren/Sensoren verknuepft und in der Projektdokumentation ausgegeben werden. | Import-Test, Dokumentations-Export pruefen |

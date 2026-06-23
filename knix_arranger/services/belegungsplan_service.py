@@ -148,6 +148,13 @@ class BelegungsplanService:
         gelesen werden.
         """
         from .sensor_service import SensorService
+        from .knxproj_import_service import KnxprojImportService
+        try:
+            KnxprojImportService._create_bedienelemente_from_topology(
+                project.topology, project.areal
+            )
+        except Exception:
+            pass
         SensorService().auto_assign_functions(
             project.all_rooms, project.group_addresses
         )

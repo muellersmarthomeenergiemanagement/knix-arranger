@@ -2,6 +2,7 @@
 Topologie-Report-Ansichten (FA-1009 bis FA-1011)
 """
 from __future__ import annotations
+from collections import defaultdict
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QTreeWidget, QTreeWidgetItem,
@@ -173,6 +174,18 @@ class TopologyReportView(QWidget):
         layout.addWidget(QLabel(
             "Bedienelemente pro Linie mit GA-Funktionszuordnungen (Taste / Kanal → GA)."
         ))
+
+        self._be_fallback_info = QLabel(
+            "ℹ️  Orange Zeilen: Sensorfunktionen ohne vollständige GA-Zuordnung "
+            "(Wizard Schritt 9 noch nicht ausgeführt oder XLSX-Import ohne passende GA-Bezeichnungen)."
+        )
+        self._be_fallback_info.setWordWrap(True)
+        self._be_fallback_info.setStyleSheet(
+            "color: #7B3B00; background: #FFF3E0; "
+            "border: 1px solid #FFCC80; border-radius: 4px; padding: 4px 8px;"
+        )
+        self._be_fallback_info.setVisible(False)
+        layout.addWidget(self._be_fallback_info)
 
         self._be_table = QTableWidget()
         self._be_table.setColumnCount(6)
@@ -517,11 +530,26 @@ class TopologyReportView(QWidget):
     def _refresh_bedienelemente(self):
         self._be_table.setRowCount(0)
         if not self._project:
+            self._be_fallback_info.setVisible(False)
             return
 
+        # Stockwerk-Code-Lookup: floor.id → short_code (z.B. "OG")
+        floor_code_by_id: dict[str, str] = {
+            fl.id: fl.short_code for fl in self._project.all_floors
+        }
+
+        # GA-Lookup für XLSX-Importe: (gewerk_code, "FLOOR.NR") → [designation, ...]
+        # Deckt Fälle ab, wo room_number aus GA-Bezeichnung als "OG.05" gespeichert ist.
+        ga_by_gewerk_room: dict[tuple, list[str]] = defaultdict(list)
+        for ga in self._project.group_addresses.all_addresses():
+            if ga.gewerk_code and ga.room_number:
+                ga_by_gewerk_room[(ga.gewerk_code, ga.room_number)].append(
+                    ga.designation
+                )
+
         room_by_id = {r.id: r for r in self._project.all_rooms}
-        # Reihenfolge: Raum · Gerätetyp · Taste · Kanal · Funktion · GA
-        rows = []
+        # Tuple: (room_cell, be_cell, taste, kanal, func, ga, is_fallback)
+        rows: list[tuple] = []
         for area in self._project.topology.areas:
             for line in area.lines:
                 for rid in line.assigned_room_ids:
@@ -530,35 +558,71 @@ class TopologyReportView(QWidget):
                         continue
                     for be in room.bedienelemente:
                         pn = f" [{be.participant_number}]" if be.participant_number else ""
+                        room_cell = f"{room.number} {room.name}"
+                        be_cell = f"{be.element_type}{pn}"
                         if be.function_assignments:
                             for fa in be.function_assignments:
                                 taste, kanal = _split_button_channel(fa.button_channel)
                                 rows.append((
-                                    f"{room.number} {room.name}",
-                                    f"{be.element_type}{pn}",
-                                    taste,
-                                    kanal,
-                                    fa.description,
-                                    fa.function_ga,
+                                    room_cell, be_cell,
+                                    taste, kanal, fa.description, fa.function_ga,
+                                    False,
                                 ))
+                        elif be.funktionen:
+                            # Fallback: SensorFunktionen anzeigen wenn function_assignments fehlen
+                            fc = floor_code_by_id.get(
+                                getattr(room, "floor_id", ""), ""
+                            )
+                            room_key = (
+                                f"{fc}.{room.number}" if fc else room.number
+                            )
+                            for idx, sf in enumerate(be.funktionen, 1):
+                                if sf.ga_designation:
+                                    rows.append((
+                                        room_cell, be_cell,
+                                        f"F{idx}", "",
+                                        sf.label or sf.ga_designation,
+                                        sf.ga_designation,
+                                        True,
+                                    ))
+                                elif sf.gewerk_code:
+                                    matching = ga_by_gewerk_room.get(
+                                        (sf.gewerk_code, room_key), []
+                                    )
+                                    gas_str = " · ".join(matching) if matching else "–"
+                                    gw = self._project.gewerk_catalog.get(sf.gewerk_code)
+                                    fn_label = gw.name if gw else sf.gewerk_code
+                                    rows.append((
+                                        room_cell, be_cell,
+                                        f"F{idx}", f"Elem {sf.element_number}",
+                                        fn_label, gas_str,
+                                        True,
+                                    ))
                         else:
-                            # BE aus ETS6-Import ohne Funktionszuordnungen
                             rows.append((
-                                f"{room.number} {room.name}",
-                                f"{be.element_type}{pn}",
-                                "-", "", "-", "-",
+                                room_cell, be_cell, "–", "", "–", "–", False,
                             ))
 
         rows.sort(key=lambda r: r[0])  # aufsteigend nach Raum
 
+        has_fallback = any(r[6] for r in rows)
+        self._be_fallback_info.setVisible(has_fallback)
+
+        orange = QColor("#FFF3E0")
         self._be_table.setRowCount(len(rows))
-        for i, (room_name, be_type, taste, kanal, func, ga) in enumerate(rows):
-            self._be_table.setItem(i, 0, QTableWidgetItem(room_name))
-            self._be_table.setItem(i, 1, QTableWidgetItem(be_type))
-            self._be_table.setItem(i, 2, QTableWidgetItem(taste))
-            self._be_table.setItem(i, 3, QTableWidgetItem(kanal))
-            self._be_table.setItem(i, 4, QTableWidgetItem(func))
-            self._be_table.setItem(i, 5, QTableWidgetItem(ga))
+        for i, (room_name, be_type, taste, kanal, func, ga, is_fallback) in enumerate(rows):
+            items = [
+                QTableWidgetItem(room_name),
+                QTableWidgetItem(be_type),
+                QTableWidgetItem(taste),
+                QTableWidgetItem(kanal),
+                QTableWidgetItem(func),
+                QTableWidgetItem(ga),
+            ]
+            for col, item in enumerate(items):
+                if is_fallback:
+                    item.setBackground(orange)
+                self._be_table.setItem(i, col, item)
         fit_columns(self._be_table)
 
     # ── ETS-Belegungsplan Export ──

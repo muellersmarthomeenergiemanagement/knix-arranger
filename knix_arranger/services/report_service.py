@@ -567,6 +567,16 @@ class ReportService:
     def generate_bedienelemente_report(self, filepath: str):
         """Erzeugt einen Bedienelemente-Bericht als PDF (Gerätekarten-Layout)."""
         from .sensor_service import SensorService
+        from .knxproj_import_service import KnxprojImportService
+        # FA-1404: Physikalische Adressen aus Topologie sicherstellen.
+        # Lazy-Aufruf damit auch alte gespeicherte Projekte korrekte Adressen erhalten,
+        # ohne erneuten Import.
+        try:
+            KnxprojImportService._create_bedienelemente_from_topology(
+                self.project.topology, self.project.areal
+            )
+        except Exception:
+            pass
         SensorService().auto_assign_functions(
             self.project.all_rooms, self.project.group_addresses
         )

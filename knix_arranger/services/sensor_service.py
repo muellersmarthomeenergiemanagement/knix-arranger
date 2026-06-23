@@ -313,6 +313,13 @@ class SensorService:
                     else:
                         manual_bes.append(be)
 
+            # Lookup für Import-BEs (is_auto=True, keine function_assignments):
+            # Stellt participant_number + Produktdaten für Auto-BEs wieder her.
+            _import_queue: dict[str, list] = {}
+            for _ibe in saved_import_bes:
+                if _ibe.is_auto:
+                    _import_queue.setdefault(_ibe.element_type, []).append(_ibe)
+
             room.bedienelemente.clear()
 
             # Gewerk-Zuweisungen nach (effektiver Element-Typ, Taster-Index) gruppieren.
@@ -401,9 +408,12 @@ class SensorService:
                     be.element_type = existing_be.element_type  # Typ aus Step 5c
                     be.funktionen = existing_be.funktionen
                     be.channels = existing_be.channels
+                    be.participant_number = existing_be.participant_number
                     be.product_name = existing_be.product_name
                     be.manufacturer = existing_be.manufacturer
                     be.order_number = existing_be.order_number
+                    be.datasheets = existing_be.datasheets
+                    be.bauherr_annotation = existing_be.bauherr_annotation
                     be.is_auto = False
                     consumed_manual_ids.add(existing_be.id)
                 else:
@@ -417,6 +427,14 @@ class SensorService:
                                 element_number=elem_nr,
                                 source_room_id="",
                             ))
+                    # Physikalische Adresse + Produktdaten aus Import wiederherstellen
+                    _ibes = _import_queue.get(element_type, [])
+                    if _ibes:
+                        _ibe = _ibes.pop(0)
+                        be.participant_number = _ibe.participant_number
+                        be.product_name = _ibe.product_name or be.product_name
+                        be.manufacturer = _ibe.manufacturer or be.manufacturer
+                        be.order_number = _ibe.order_number or be.order_number
 
                 # function_assignments aus funktionen ableiten
                 be.function_assignments = []

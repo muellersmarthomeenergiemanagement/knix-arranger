@@ -99,14 +99,14 @@ class TestXlsxImportReference:
         assert total == 2
 
     def test_seventy_devices(self):
-        """Referenzdatei hat 70 Busteilnehmer ohne Spannungsversorgung (AK-04a)."""
+        """Referenzdatei hat 71 Busteilnehmer ohne Spannungsversorgung (AK-04a)."""
         non_ps = sum(
             1 for a in self.topo.areas
             for l in a.lines
             for d in l.devices
             if d.device_type != "power_supply"
         )
-        assert non_ps == 70
+        assert non_ps == 71
 
     def test_metadata_project_name(self):
         """Projektname wird aus Metadaten extrahiert (FA-512)."""
