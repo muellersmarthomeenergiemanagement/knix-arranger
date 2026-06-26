@@ -94,6 +94,7 @@ class MainWindow(QMainWindow):
         self._dirty = False
         self._pending_undo_cmd: ObjectStateCommand | None = None
         self._ga_report_path: str = ""   # Pfad zum zuletzt importierten GA-Report
+        self._topology_xlsx_path: str = ""  # Pfad zum zuletzt importierten Topologie-XLSX
 
         # Auto-Save: 30 Sekunden nach letzter Änderung
         self._autosave_timer = QTimer(self)
@@ -807,23 +808,12 @@ class MainWindow(QMainWindow):
         topology = importer.import_xlsx(filepath)
         topology.is_imported = True
         self._project.topology = topology
+        self._topology_xlsx_path = filepath
 
         # Projektname aus Metadaten uebernehmen, falls noch leer
         meta = getattr(topology, "metadata", {})
         if meta.get("project_name") and self._project.name == "Importiertes Projekt":
             self._project.name = meta["project_name"]
-
-        # Gebäudestruktur aus GA-Namen ableiten (FA-506 analog)
-        try:
-            areal = importer.derive_building_structure(filepath)
-            if meta.get("project_name"):
-                areal.name = meta["project_name"]
-                if areal.buildings:
-                    areal.buildings[0].name = meta["project_name"]
-            self._project.areal = areal
-            self._building_service.assign_main_groups(self._project.areal)
-        except Exception as e:
-            logger.warning(f"Gebäudestruktur konnte nicht abgeleitet werden: {e}")
 
         # Gruppenadressen aus XLSX extrahieren — nur wenn noch kein GA-Report geladen (FA-519)
         # GA-Report hat Vorrang: er liefert echte Gruppen-Namen und mehr GAs
@@ -834,6 +824,23 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logger.warning(f"Gruppenadressen konnten nicht extrahiert werden: {e}")
 
+        # Gebäudestruktur aus GA-Namen ableiten (FA-506 analog). Die bereits
+        # bekannte GA-Struktur wird mitgegeben, damit bei Projekten ohne
+        # Stockwerk-Buchstaben-Konvention die echten Hauptgruppen-Namen
+        # (z.B. "Erdgeschoss") als Stockwerksname uebernommen werden koennen.
+        try:
+            areal = importer.derive_building_structure(
+                filepath, ga_structure=self._project.group_addresses
+            )
+            if meta.get("project_name"):
+                areal.name = meta["project_name"]
+                if areal.buildings:
+                    areal.buildings[0].name = meta["project_name"]
+            self._project.areal = areal
+            self._building_service.assign_main_groups(self._project.areal)
+        except Exception as e:
+            logger.warning(f"Gebäudestruktur konnte nicht abgeleitet werden: {e}")
+
         # Einbauort-Daten aus GA-Report laden (falls bereits importiert)
         device_locations = None
         if self._ga_report_path:
@@ -842,6 +849,13 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logger.warning(f"Einbauort-Extraktion fehlgeschlagen: {e}")
 
+        # Installations-Hinweise aus dem Topologie-Report laden (FA-519c)
+        device_notes = None
+        try:
+            device_notes = importer.extract_device_notes(filepath)
+        except Exception as e:
+            logger.warning(f"Installations-Hinweise-Extraktion fehlgeschlagen: {e}")
+
         # Räume mit Topologie-Linien verknüpfen (assigned_room_ids / device.room_id)
         try:
             linked = importer.link_rooms_to_lines(
@@ -849,6 +863,7 @@ class MainWindow(QMainWindow):
                 self._project.group_addresses,
                 self._project.areal,
                 device_locations=device_locations,
+                device_notes=device_notes,
             )
             logger.info(f"Raum-Linien-Verknüpfung: {linked} Paare hergestellt.")
         except Exception as e:
@@ -921,11 +936,35 @@ class MainWindow(QMainWindow):
 
         # Falls Topologie bereits geladen: Einbauort + KO-Anreicherung nachziehen
         if self._project.topology.areas:
+            # Gebäudestruktur erneut ableiten: war die Topologie vor diesem
+            # GA-Report importiert worden, standen die echten Hauptgruppen-
+            # Namen (z.B. "Erdgeschoss") noch nicht zur Verfügung.
+            if self._topology_xlsx_path:
+                try:
+                    areal = importer.derive_building_structure(
+                        self._topology_xlsx_path, ga_structure=ga_structure
+                    )
+                    if self._project.areal and self._project.areal.name:
+                        areal.name = self._project.areal.name
+                        if areal.buildings and self._project.areal.buildings:
+                            areal.buildings[0].name = self._project.areal.buildings[0].name
+                    self._project.areal = areal
+                    self._building_service.assign_main_groups(self._project.areal)
+                except Exception as e:
+                    logger.warning(f"Gebäudestruktur-Ableitung nach GA-Import fehlgeschlagen: {e}")
+
             device_locations = None
             try:
                 device_locations = importer.extract_device_locations(filepath)
             except Exception as e:
                 logger.warning(f"Einbauort-Extraktion fehlgeschlagen: {e}")
+
+            device_notes = None
+            if self._topology_xlsx_path:
+                try:
+                    device_notes = importer.extract_device_notes(self._topology_xlsx_path)
+                except Exception as e:
+                    logger.warning(f"Installations-Hinweise-Extraktion fehlgeschlagen: {e}")
 
             try:
                 importer.link_rooms_to_lines(
@@ -933,6 +972,7 @@ class MainWindow(QMainWindow):
                     ga_structure,
                     self._project.areal,
                     device_locations=device_locations,
+                    device_notes=device_notes,
                 )
             except Exception as e:
                 logger.warning(f"Raum-Linien-Verknüpfung fehlgeschlagen: {e}")

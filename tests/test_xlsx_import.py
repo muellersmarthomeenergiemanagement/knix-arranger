@@ -483,6 +483,67 @@ class TestExtractDeviceLocations:
 
 
 # ---------------------------------------------------------------------------
+# extract_device_notes
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(
+    not os.path.exists(REFERENCE_XLSX),
+    reason="Topologie.xlsx nicht vorhanden",
+)
+class TestExtractDeviceNotes:
+    def setup_method(self):
+        self.svc = XlsxImportService()
+        self.notes = self.svc.extract_device_notes(REFERENCE_XLSX)
+
+    def test_returns_dict(self):
+        assert isinstance(self.notes, dict)
+
+    def test_keys_are_physical_addresses(self):
+        """Alle Schluessel sind physikalische Adressen im Format B.L.T."""
+        import re
+        phys_re = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{1,3}$")
+        for addr in self.notes:
+            assert phys_re.match(addr), f"Kein gueltiges Adressformat: {addr!r}"
+
+    def test_no_serial_numbers(self):
+        """Reine Seriennummern (XXXX:XXXXXXXX) werden nicht als Hinweis übernommen."""
+        import re
+        serial_re = re.compile(r"^[0-9A-Fa-f]{4}:[0-9A-Fa-f]+$")
+        for text in self.notes.values():
+            assert not serial_re.match(text), f"Seriennummer faelschlich uebernommen: {text!r}"
+
+    def test_nonexistent_file_raises(self):
+        with pytest.raises(FileNotFoundError):
+            self.svc.extract_device_notes("nicht_vorhanden.xlsx")
+
+
+@pytest.mark.skipif(
+    not os.path.exists(REFERENCE_XLSX),
+    reason="Topologie.xlsx nicht vorhanden",
+)
+class TestRoomIdForDesignation:
+    """Unit-Tests fuer die gemeinsame Token/Designation-Aufloesung."""
+
+    def setup_method(self):
+        self.svc = XlsxImportService()
+
+    def test_letter_floor_code(self):
+        room_index = {("OG", "05"): "room-1"}
+        rid = self.svc._room_id_for_designation("LD.OG.05.01_ea", room_index)
+        assert rid == "room-1"
+
+    def test_digit_floor_code(self):
+        room_index = {("D1", "04"): "room-2"}
+        rid = self.svc._room_id_for_designation("L.104.1_ea", room_index)
+        assert rid == "room-2"
+
+    def test_no_match_returns_none(self):
+        room_index = {("OG", "05"): "room-1"}
+        rid = self.svc._room_id_for_designation("nicht passend", room_index)
+        assert rid is None
+
+
+# ---------------------------------------------------------------------------
 # link_rooms_to_lines
 # ---------------------------------------------------------------------------
 
@@ -559,6 +620,28 @@ class TestLinkRoomsToLines:
             if dev.room_id
         ]
         assert len(devices_with_room) > 0
+
+    def test_with_device_notes_highest_priority(self):
+        """Ein Installations-Hinweis setzt die Raum-Zuordnung, auch wenn die
+        GA-Bezeichnungen des Geraets auf einen anderen Raum hindeuten wuerden."""
+        first_floor = self.areal.all_floors[0]
+        first_room = first_floor.all_rooms[0]
+        target_addr = self.topology.areas[0].lines[0].devices[0].physical_address
+
+        device_notes = {
+            target_addr: f"X.{first_floor.short_code}.{first_room.number}.01_ea"
+        }
+        self.svc.link_rooms_to_lines(
+            self.topology, self.ga_structure, self.areal,
+            device_notes=device_notes,
+        )
+        target_device = next(
+            dev for area in self.topology.areas
+            for line in area.lines
+            for dev in line.devices
+            if dev.physical_address == target_addr
+        )
+        assert target_device.room_id == first_room.id
 
     def test_empty_areal_returns_zero(self):
         """Leeres Areal liefert 0."""

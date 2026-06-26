@@ -16,6 +16,12 @@ logger = logging.getLogger("knix_arranger.gewerk_service")
 _GA_DESIGNATOR_RE = re.compile(
     r"^([A-Z]{1,4})\.([A-Z0-9]{2,5})\.(\d{2})\.(\d{2})"
 )
+# Ziffern-Konvention ohne Stockwerk-Buchstaben: GEWERK.{Stockwerk}{RAUM_NR}.ELEM_NR
+# Beispiel: "L.004.1_ea" -> Stockwerk 0, Raum 04, Element 1.
+# Floor-Key muss zu Floor.short_code aus xlsx_import_service passen ("D" + Ziffer).
+_GA_DIGIT_DESIGNATOR_RE = re.compile(
+    r"^([A-Z]{1,4})\.(\d)(\d{2})\.(\d{1,2})"
+)
 
 
 def _com_object_needs_ga(co: dict) -> bool:
@@ -296,12 +302,19 @@ class GewerkService:
             lambda: defaultdict(set)
         )
         for ga in ga_structure.all_addresses():
-            m = _GA_DESIGNATOR_RE.match(ga.designation or "")
-            if not m:
-                continue
-            code, floor_code, room_nr, elem_nr = (
-                m.group(1), m.group(2), m.group(3), m.group(4)
-            )
+            designation = ga.designation or ""
+            m = _GA_DESIGNATOR_RE.match(designation)
+            if m:
+                code, floor_code, room_nr, elem_nr = (
+                    m.group(1), m.group(2), m.group(3), m.group(4)
+                )
+            else:
+                m = _GA_DIGIT_DESIGNATOR_RE.match(designation)
+                if not m:
+                    continue
+                code = m.group(1)
+                floor_code = f"D{m.group(2)}"
+                room_nr, elem_nr = m.group(3), m.group(4)
             if (floor_code, room_nr) in room_index:
                 room_gewerke[(floor_code, room_nr)][code].add(elem_nr)
 

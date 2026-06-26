@@ -2,7 +2,7 @@
 ETS6 XLSX Topologie-Report Import (FA-511 bis FA-520)
 Liest ETS6-Topologie-Reports mit Zusatzwahl "Objekte" ein.
 
-Spaltenstruktur (0-basiert) der ETS6-XLSX-Datei:
+Spaltenstruktur (0-basiert) der ETS6-XLSX-Datei, Referenzlayout:
   Spalte  6: Schlüssel (Adresse / KO-Nummer / Topologie-ID)
   Spalte 11: Medium (TP/IP) bei Topologie-Zeilen; Hersteller bei Geräten
   Spalte 13: Name bei Topologie-Zeilen (Bereich/Linie/Backbone)
@@ -16,7 +16,14 @@ Spaltenstruktur (0-basiert) der ETS6-XLSX-Datei:
   Spalte 30: KO-Flags
   Spalte 33: KO-Datentyp
   Spalte 38: KO verbundene Gruppenadresse(n) / Fortsetzungszeilen
-  Metadaten: Spalte 12 = Label, Spalte 29 = Wert
+
+ETS6 verschiebt diese Indizes je nach gewählten Export-Zusatzspalten
+(z.B. mehr Metadatenfelder) -- die Deltas zwischen den Spalten sind dabei
+nicht einheitlich. Die obigen Werte dienen daher nur noch als Fallback;
+die tatsächlichen Spalten werden pro Datei anhand der Kopfzeilen-Texte
+ermittelt (siehe `_resolve_topology_columns`). Metadaten (Projekt/Datum)
+werden nicht über feste Spalten gelesen, sondern als Label:Wert-Paar
+in derselben Zeile gesucht (siehe `_extract_metadata`).
 """
 from __future__ import annotations
 import logging
@@ -57,8 +64,26 @@ COL_KO_PRIO = 25     # KO-Prioritaet
 COL_KO_FLAGS = 30    # KO-Flags
 COL_KO_DT = 33       # KO-Datentyp
 COL_GA = 38          # Verbundene Gruppenadresse(n)
-COL_META_LABEL = 12  # Metadaten-Label
-COL_META_VALUE = 29  # Metadaten-Wert
+
+# Kopfzeilen-Text -> (Delta Werte-Spalte minus Kopfzeilen-Spalte).
+# Kalibriert am Referenzlayout oben; das Delta entsteht durch Merged-Cell-
+# Header (die Beschriftung sitzt nicht immer exakt über der Werte-Spalte)
+# und ist projektübergreifend stabil, auch wenn ETS6 zusätzliche Spalten
+# einfügt und damit alle Indizes nach rechts verschiebt.
+_TOPOLOGY_HEADER_ANCHORS: dict[str, tuple[str, int]] = {
+    "KEY": ("Adresse", 0),
+    "MEDIUM": ("Hersteller", 1),
+    "ORDER_NR": ("Bestellnummer", 0),
+    "PRODUCT": ("Produkt", -2),
+    "APP_PROG": ("Applikation", 0),
+    "LOCATION": ("Raum", 3),
+    "KO_NAME": ("Name", 0),
+    "KO_FUNC": ("Objektfunktion", 0),
+    "KO_PRIO": ("Priorität", 1),
+    "KO_FLAGS": ("Flags", 0),
+    "KO_DT": ("Datentyp", 0),
+    "GA": ("Verbunden mit", 0),
+}
 
 # Spaltenindizes GA-Report (0-basiert)
 COL_GAR_ADDR = 4        # HG-Nr / MG-Adresse / GA-Adresse / Geräteadresse / KO
@@ -101,6 +126,38 @@ _NON_ROOM_WORDS = frozenset({
     "szene", "nacht", "tag", "abwesend", "anwesend", "abwesenheit",
 })
 
+# 3-stellige Raumnummer ohne Stockwerk-Buchstaben (EFH-Konvention
+# "{Stockwerk}{nn}", z.B. "L.004.1_ea" -> Stockwerk 0, Raum 04).
+# Eine optionale Klammer-Beschreibung wird mitgenommen, falls vorhanden.
+# Kein '^'-Anker: wird per finditer() auf Zellentext "Adresse Bezeichnung..."
+# angewendet, die Bezeichnung beginnt also nicht am Stringanfang.
+_GA_DIGIT_ROOM_RE = re.compile(
+    r"\b[A-Z]{1,4}\.(\d)(\d{2})\.\d{1,2}[_a-z]*\s*(?:\(\s*([^)]{2,40})\))?"
+)
+_GA_DIGIT_ROOM_SIMPLE_RE = re.compile(r"^[A-Z]{1,4}\.(\d)(\d{2})\.")
+# Seriennummern im Format "XXXX:XXXXXXXX" (Hex) -- kein GA-Hinweis
+_SERIAL_NUMBER_RE = re.compile(r"^[0-9A-Fa-f]{4}:[0-9A-Fa-f]+$")
+
+# Produktname-Schluesselwoerter zur Geraete-Klassifizierung (analog
+# knxproj_import_service._infer_device_type), als Ergaenzung zur reinen
+# Adress-Heuristik, die bei Tastern/Sensoren mit niedriger Adresse irrt.
+_INFRA_KEYWORDS = (
+    "remote access", "ip router", "ip interface", "usb interface",
+    "knx router", "knx interface", "knx gateway", "knxnet",
+    "line coupler", "area coupler", "backbone coupler",
+    "power supply", "speisegerät", "netzteil",
+)
+_SENSOR_KEYWORDS = (
+    "sensor", "button", "taster", "push", "presence", "präsenz",
+    "temperature", "temperatur", "weather", "wetter", "detector",
+    "bewegungsmelder", "raumthermostat", "thermostat",
+)
+_ACTOR_KEYWORDS = (
+    "actuator", "aktor", "switch act", "schaltakt", "dimm",
+    "jalousie", "shutter", "blind", "hvac", "heating ctrl",
+    "dali", "rgb led", "led driver",
+)
+
 
 def _ga_sort_key(addr: str) -> tuple[int, int, int]:
     """Sortierschluessel für GA-Adressen (H/M/S)."""
@@ -120,6 +177,51 @@ def _cell(row: tuple, idx: int) -> str:
 
 class XlsxImportService:
     """Importiert ETS6-Topologie-Reports (XLSX) (FA-511)."""
+
+    def _resolve_topology_columns(self, rows: list) -> dict[str, int]:
+        """
+        Ermittelt die tatsächlichen Spaltenindizes des Topologie-Reports
+        anhand der Kopfzeilen-Texte ("Adresse", "Hersteller", "Produkt", ...).
+
+        ETS6 exportiert je nach gewählten Zusatzspalten unterschiedlich
+        breite Reports (z.B. mit mehr Metadatenfeldern) -- feste Indizes
+        brechen dann, da die Verschiebung zwischen den Spaltengruppen
+        nicht einheitlich ist. Die Kopfzeilen-Texte bleiben stabil; ihr
+        Versatz zur Werte-Spalte ist über `_TOPOLOGY_HEADER_ANCHORS`
+        kalibriert. Wird ein Header nicht gefunden (z.B. abweichendes
+        Exportformat), greift der Referenz-Index als Fallback.
+        """
+        cols: dict[str, int] = {
+            "KEY": COL_KEY, "MEDIUM": COL_MEDIUM, "TOPO_NAME": COL_TOPO_NAME,
+            "LOCATION": COL_LOCATION, "ORDER_NR": COL_ORDER_NR,
+            "PRODUCT": COL_PRODUCT, "APP_PROG": COL_APP_PROG,
+            "KO_NAME": COL_KO_NAME, "KO_FUNC": COL_KO_FUNC,
+            "KO_PRIO": COL_KO_PRIO, "KO_FLAGS": COL_KO_FLAGS,
+            "KO_DT": COL_KO_DT, "GA": COL_GA,
+        }
+
+        header_idx: dict[str, int] = {}
+        for row in rows[:80]:
+            if not row:
+                continue
+            for idx, cell in enumerate(row):
+                if isinstance(cell, str):
+                    text = cell.strip()
+                    if text and text not in header_idx:
+                        header_idx[text] = idx
+
+        for key, (text, delta) in _TOPOLOGY_HEADER_ANCHORS.items():
+            if text in header_idx:
+                cols[key] = header_idx[text] + delta
+        # Bereich/Linien-Name liegt relativ zur Medium-Spalte (kein eigener
+        # Header in der Bereichs-/Linien-Tabelle vorhanden).
+        cols["TOPO_NAME"] = cols["MEDIUM"] + 2
+
+        if any(cols[k] != v for k, v in (
+            ("KEY", COL_KEY), ("MEDIUM", COL_MEDIUM), ("PRODUCT", COL_PRODUCT),
+        )):
+            logger.info(f"XLSX-Spalten abweichend vom Referenzlayout erkannt: {cols}")
+        return cols
 
     def detect_report_type(self, filepath: str) -> str:
         """
@@ -174,6 +276,8 @@ class XlsxImportService:
             logger.warning(f"Leere XLSX-Datei: {filepath}")
             return topology
 
+        cols = self._resolve_topology_columns(rows)
+
         # Metadaten aus Kopfzeilen extrahieren (FA-512)
         meta = self._extract_metadata(rows)
         if meta:
@@ -191,18 +295,18 @@ class XlsxImportService:
             if not row:
                 continue
 
-            key_raw = row[COL_KEY] if COL_KEY < len(row) else None
+            key_raw = row[cols["KEY"]] if cols["KEY"] < len(row) else None
 
             # --- Backbone (Spalte 6 = String '0', nicht Integer 0 = KO-Nr.) ---
             if key_raw == "0":
-                medium = _cell(row, COL_MEDIUM)
+                medium = _cell(row, cols["MEDIUM"])
                 if "IP" in medium.upper():
                     topology.backbone_type = "IP"
                 continue
 
             # --- Bereich erkennen (Spalte 6 = einstellige/-zweistellige Ganzzahl als String) ---
             if isinstance(key_raw, str) and re.match(r"^\d{1,2}$", key_raw.strip()):
-                area = self._parse_area_row(row)
+                area = self._parse_area_row(row, cols)
                 if area:
                     current_area = area
                     topology.areas.append(current_area)
@@ -213,7 +317,7 @@ class XlsxImportService:
             # --- Linie erkennen (Spalte 6 = 'B.L') ---
             if isinstance(key_raw, str) and _LINE_ADDR_RE.match(key_raw.strip()):
                 if current_area:
-                    line = self._parse_line_row(row, current_area)
+                    line = self._parse_line_row(row, current_area, cols)
                     if line:
                         current_line = line
                         current_area.lines.append(current_line)
@@ -225,10 +329,10 @@ class XlsxImportService:
                 if current_line:
                     dev = Device(
                         physical_address=key_raw.strip(),
-                        manufacturer=_cell(row, COL_MEDIUM),
-                        order_number=_cell(row, COL_ORDER_NR),
-                        product=_cell(row, COL_PRODUCT),
-                        application_program=_cell(row, COL_APP_PROG),
+                        manufacturer=_cell(row, cols["MEDIUM"]),
+                        order_number=_cell(row, cols["ORDER_NR"]),
+                        product=_cell(row, cols["PRODUCT"]),
+                        application_program=_cell(row, cols["APP_PROG"]),
                         device_type="power_supply",
                     )
                     current_line.devices.append(dev)
@@ -238,26 +342,26 @@ class XlsxImportService:
             # --- Busteilnehmer erkennen (Spalte 6 = 'B.L.T') ---
             if isinstance(key_raw, str) and _PHYS_ADDR_RE.match(key_raw.strip()):
                 if current_line:
-                    device = self._parse_device_row(row)
+                    device = self._parse_device_row(row, cols)
                     current_line.devices.append(device)
                     current_device = device
                 continue
 
             # --- Kommunikationsobjekt (Spalte 6 = Python-int) ---
             if isinstance(key_raw, int):
-                ko = self._parse_ko_row(row, key_raw)
+                ko = self._parse_ko_row(row, key_raw, cols)
                 if ko and current_device:
                     current_device.communication_objects.append(ko)
                 continue
 
             # --- Geräte-Subzeile: Einbauort (Spalte 18 gesetzt, Spalte 6 leer) ---
-            loc = _cell(row, COL_LOCATION)
+            loc = _cell(row, cols["LOCATION"])
             if loc and key_raw is None and current_device:
                 current_device.installation_location = loc
                 continue
 
             # --- KO-Fortsetzungszeile: weitere verbundene GAs (Spalte 38 gesetzt) ---
-            ga_cont = _cell(row, COL_GA)
+            ga_cont = _cell(row, cols["GA"])
             if (ga_cont and key_raw is None
                     and current_device
                     and current_device.communication_objects):
@@ -298,7 +402,14 @@ class XlsxImportService:
     # ------------------------------------------------------------------
 
     def _extract_metadata(self, rows: list) -> dict:
-        """Extrahiert Projektmetadaten aus den Kopfzeilen (FA-512)."""
+        """
+        Extrahiert Projektmetadaten aus den Kopfzeilen (FA-512).
+
+        Sucht das Label (z.B. "Projekt:") an beliebiger Spaltenposition in
+        der Zeile und nimmt die erste nicht-leere Zelle danach als Wert --
+        feste Spaltenindizes sind nicht zuverlässig, da ETS6 je nach
+        Exportkonfiguration unterschiedlich viele Spalten einfügt.
+        """
         meta: dict = {}
         label_map = {
             "projekt":     "project_name",
@@ -311,22 +422,29 @@ class XlsxImportService:
         for row in rows[:20]:
             if not row:
                 continue
-            label = _cell(row, COL_META_LABEL).lower().rstrip(":")
-            if label in label_map:
-                meta[label_map[label]] = _cell(row, COL_META_VALUE)
+            for idx, cell in enumerate(row):
+                if not isinstance(cell, str):
+                    continue
+                label = cell.strip().lower().rstrip(":")
+                if label not in label_map or label_map[label] in meta:
+                    continue
+                for val in row[idx + 1:]:
+                    if val is not None and str(val).strip():
+                        meta[label_map[label]] = str(val).strip()
+                        break
         return meta
 
-    def _parse_area_row(self, row: tuple) -> Optional[Area]:
+    def _parse_area_row(self, row: tuple, cols: dict[str, int]) -> Optional[Area]:
         """Erkennt und liest eine Bereich-Zeile (FA-513)."""
-        key = _cell(row, COL_KEY)
+        key = _cell(row, cols["KEY"])
         try:
             area_num = int(key)
         except ValueError:
             return None
         if area_num == 0:
             return None  # Backbone, kein Bereich
-        medium = _cell(row, COL_MEDIUM)
-        name = _cell(row, COL_TOPO_NAME) or f"Bereich {area_num}"
+        medium = _cell(row, cols["MEDIUM"])
+        name = _cell(row, cols["TOPO_NAME"]) or f"Bereich {area_num}"
         return Area(
             area_number=area_num,
             name=name,
@@ -334,25 +452,27 @@ class XlsxImportService:
             backbone_type="IP" if "IP" in medium.upper() else "TP",
         )
 
-    def _parse_line_row(self, row: tuple, area: Area) -> Optional[Line]:
+    def _parse_line_row(self, row: tuple, area: Area, cols: dict[str, int]) -> Optional[Line]:
         """Erkennt und liest eine Linien-Zeile (FA-513)."""
-        key = _cell(row, COL_KEY)
+        key = _cell(row, cols["KEY"])
         m = _LINE_ADDR_RE.match(key)
         if not m:
             return None
         line_num = int(m.group(2))
-        name = _cell(row, COL_TOPO_NAME) or f"Linie {line_num}"
+        name = _cell(row, cols["TOPO_NAME"]) or f"Linie {line_num}"
         return Line(
             line_number=line_num,
             name=name,
             coupler_address=f"{area.area_number}.{line_num}.0",
         )
 
-    def _parse_device_row(self, row: tuple) -> Device:
+    def _parse_device_row(self, row: tuple, cols: dict[str, int]) -> Device:
         """Liest eine Busteilnehmer-Zeile (FA-514)."""
-        addr = _cell(row, COL_KEY)
+        addr = _cell(row, cols["KEY"])
         m = _PHYS_ADDR_RE.match(addr)
         participant = int(m.group(3)) if m else -1
+
+        product = _cell(row, cols["PRODUCT"])
 
         # Koppler: Teilnehmer-Adresse == 0 (FA-517)
         if participant == 0:
@@ -360,34 +480,36 @@ class XlsxImportService:
         elif participant < 0:
             dev_type = "unknown"
         else:
-            dev_type = self._classify_device(addr)
+            dev_type = self._classify_device(addr, product)
 
         return Device(
             physical_address=addr,
-            manufacturer=_cell(row, COL_MEDIUM),
-            order_number=_cell(row, COL_ORDER_NR),
-            product=_cell(row, COL_PRODUCT),
-            application_program=_cell(row, COL_APP_PROG),
+            manufacturer=_cell(row, cols["MEDIUM"]),
+            order_number=_cell(row, cols["ORDER_NR"]),
+            product=product,
+            application_program=_cell(row, cols["APP_PROG"]),
             device_type=dev_type,
         )
 
-    def _parse_ko_row(self, row: tuple, obj_num: int) -> Optional[CommunicationObject]:
+    def _parse_ko_row(
+        self, row: tuple, obj_num: int, cols: dict[str, int],
+    ) -> Optional[CommunicationObject]:
         """Liest eine Kommunikationsobjekt-Zeile (FA-515)."""
-        name = _cell(row, COL_KO_NAME)
+        name = _cell(row, cols["KO_NAME"])
         # Kopfzeilen der KO-Tabelle (z.B. "Name", " #") uebergehen
         if name.lower() in ("name", "beschreibung", ""):
             return None
 
-        ga_cell = _cell(row, COL_GA)
+        ga_cell = _cell(row, cols["GA"])
         connected_gas = self._extract_gas(ga_cell) if ga_cell else []
 
         return CommunicationObject(
             object_number=obj_num,
             name=name,
-            object_function=_cell(row, COL_KO_FUNC),
-            priority=_cell(row, COL_KO_PRIO) or "Niedrig",
-            flags=_cell(row, COL_KO_FLAGS),
-            data_type=_cell(row, COL_KO_DT),
+            object_function=_cell(row, cols["KO_FUNC"]),
+            priority=_cell(row, cols["KO_PRIO"]) or "Niedrig",
+            flags=_cell(row, cols["KO_FLAGS"]),
+            data_type=_cell(row, cols["KO_DT"]),
             connected_gas=connected_gas,
         )
 
@@ -400,21 +522,40 @@ class XlsxImportService:
         """
         return _GA_RE.findall(ga_text)
 
-    def _classify_device(self, address: str) -> str:
-        """Klassifiziert ein Gerät anhand seiner physikalischen Adresse."""
+    def _classify_device(self, address: str, product: str = "") -> str:
+        """Klassifiziert ein Gerät anhand Produktname (bevorzugt) und Adresse.
+
+        Reine Adress-Heuristik (Teilnehmer <=100 -> Aktor, <=199 -> Sensor)
+        liegt oft falsch, z.B. bei Tastern mit niedriger Adresse. Der
+        Produktname liefert ein zuverlässigeres Signal (analog
+        knxproj_import_service._infer_device_type) und wird deshalb zuerst
+        geprüft; die Adress-Heuristik bleibt Fallback, wenn keine
+        Schlüsselwörter zutreffen oder kein Produktname vorliegt.
+        """
         m = _PHYS_ADDR_RE.match(address)
         if not m:
             return "unknown"
         participant = int(m.group(3))
         if participant == 0:
             return "coupler"
+
+        name_lower = (product or "").lower()
+        if any(kw in name_lower for kw in _INFRA_KEYWORDS):
+            return "other"
+        if any(kw in name_lower for kw in _SENSOR_KEYWORDS):
+            return "sensor"
+        if any(kw in name_lower for kw in _ACTOR_KEYWORDS):
+            return "actor"
+
         if participant <= 100:
             return "actor"
         if participant <= 199:
             return "sensor"
         return "unknown"
 
-    def derive_building_structure(self, filepath: str) -> Areal:
+    def derive_building_structure(
+        self, filepath: str, ga_structure: "GroupAddressStructure | None" = None,
+    ) -> Areal:
         """
         Leitet Gebäudestruktur aus den GA-Namen im XLSX-Topologie-Report ab.
 
@@ -427,6 +568,14 @@ class XlsxImportService:
         Zuordnung (Stockwerk, RaumNr) → echter Raumname aus Spalte S hergestellt
         werden. Dieser Name hat Vorrang vor dem aus GA-Beschreibungen abgeleiteten.
 
+        Manche Projekte benennen GAs ohne Stockwerk-Buchstaben, nach der
+        EFH-Konvention '{Gewerk}.{Stockwerk}{RaumNr}.{Element}' (z.B.
+        'L.004.1_ea' = Stockwerk 0, Raum 04). Liefert das Buchstaben-Muster
+        keine Treffer, wird auf dieses Ziffern-Muster zurückgegriffen; der
+        Stockwerksname wird dabei aus der passenden Hauptgruppe von
+        `ga_structure` übernommen (Hauptgruppe = Stockwerk-Ziffer + 1), falls
+        übergeben, sonst generisch als "Stockwerk N" benannt.
+
         Gibt ein Areal mit Gebäude > Flügel > Stockwerke > Wohnungen > Räume zurück.
         """
         if not os.path.exists(filepath):
@@ -438,16 +587,23 @@ class XlsxImportService:
         floor_rooms: dict[str, dict[str, list[str]]] = {}
         # col_s_names: {(floor_code, room_nr) -> echter Raumname aus Spalte S}
         col_s_names: dict[tuple[str, str], str] = {}
+        # digit_floor_rooms: {stockwerk_ziffer -> {room_nr -> [ga-beschreibungen]}}
+        digit_floor_rooms: dict[str, dict[str, list[str]]] = {}
 
         _LOC_RE = re.compile(r"^(\d{2})\s+(.+)$")
 
         wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
         ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
 
+        cols = self._resolve_topology_columns(rows)
         current_location: str = ""  # Raumname aus Spalte S des aktuellen Geräts
 
-        for row in ws.iter_rows(values_only=True):
-            key_raw = row[COL_KEY] if COL_KEY < len(row) else None
+        for row in rows:
+            if not row:
+                continue
+            key_raw = row[cols["KEY"]] if cols["KEY"] < len(row) else None
 
             # Neue Gerätezeile → Einbauort zurücksetzen
             if isinstance(key_raw, str) and (
@@ -459,7 +615,7 @@ class XlsxImportService:
 
             # Geräte-Subzeile: Einbauort aus Spalte S lesen
             if key_raw is None:
-                loc_raw = row[COL_LOCATION] if COL_LOCATION < len(row) else None
+                loc_raw = row[cols["LOCATION"]] if cols["LOCATION"] < len(row) else None
                 if loc_raw is not None:
                     loc_m = _LOC_RE.match(str(loc_raw).strip())
                     if loc_m:
@@ -467,8 +623,8 @@ class XlsxImportService:
 
             # KO-Zeile: GA-Namen auswerten und Stockwerk/Raum-Mapping aufbauen
             if isinstance(key_raw, int):
-                if COL_GA < len(row) and row[COL_GA] is not None:
-                    text = str(row[COL_GA])
+                if cols["GA"] < len(row) and row[cols["GA"]] is not None:
+                    text = str(row[cols["GA"]])
                     for m in _GA_FLOOR_ROOM_RE.finditer(text):
                         floor_code = m.group(1).upper()
                         room_nr = m.group(2)
@@ -486,7 +642,20 @@ class XlsxImportService:
                         if current_location and fk not in col_s_names:
                             col_s_names[fk] = current_location
 
-        wb.close()
+                    for m in _GA_DIGIT_ROOM_RE.finditer(text):
+                        digit = m.group(1)
+                        room_nr = m.group(2)
+                        desc = (m.group(3) or "").strip()
+
+                        if digit not in digit_floor_rooms:
+                            digit_floor_rooms[digit] = {}
+                        if room_nr not in digit_floor_rooms[digit]:
+                            digit_floor_rooms[digit][room_nr] = []
+                        if desc and desc not in digit_floor_rooms[digit][room_nr]:
+                            digit_floor_rooms[digit][room_nr].append(desc)
+
+        if not floor_rooms and digit_floor_rooms:
+            return self._build_areal_from_digit_floors(digit_floor_rooms, ga_structure)
 
         if not floor_rooms:
             logger.warning("Keine Gebäudestruktur aus XLSX ableitbar (keine GA-Namen gefunden).")
@@ -551,6 +720,60 @@ class XlsxImportService:
         )
         return areal
 
+    def _build_areal_from_digit_floors(
+        self,
+        digit_floor_rooms: dict[str, dict[str, list[str]]],
+        ga_structure: "GroupAddressStructure | None",
+    ) -> Areal:
+        """
+        Baut ein Areal aus der Ziffern-Stockwerk-Konvention ('{Gewerk}.{D}{nn}.{Elem}').
+
+        Stockwerksname wird, falls verfügbar, aus der ETS-Hauptgruppe
+        übernommen (Hauptgruppe = Stockwerk-Ziffer + 1) -- diese trägt im
+        GA-Report meist den echten Stockwerksnamen (z.B. "Erdgeschoss").
+        Ohne GA-Struktur wird generisch "Stockwerk N" verwendet.
+        """
+        hg_names: dict[int, str] = {}
+        if ga_structure is not None:
+            for hg in ga_structure.main_groups:
+                if hg.name and not hg.name.lower().startswith("hauptgruppe"):
+                    hg_names[hg.number] = hg.name
+
+        areal = Areal(name="")
+        building = Building(name="Gebäude")
+        wing = Wing(name="Hauptgebäude")
+
+        for digit in sorted(digit_floor_rooms.keys(), key=int):
+            rooms_dict = digit_floor_rooms[digit]
+            hg_number = int(digit) + 1
+            full_name = hg_names.get(hg_number, f"Stockwerk {digit}")
+            short_code = f"D{digit}"
+            floor = Floor(
+                name=full_name,
+                short_code=short_code,
+                main_group_number=hg_number,
+            )
+            apartment = Apartment(name=short_code)
+            floor.apartments.append(apartment)
+
+            for room_nr in sorted(rooms_dict.keys()):
+                room_name = self._best_room_name(rooms_dict[room_nr], room_nr)
+                room = Room(number=room_nr, name=room_name)
+                apartment.rooms.append(room)
+
+            wing.floors.append(floor)
+            logger.info(f"Stockwerk {short_code} ({full_name}): {len(rooms_dict)} Räume")
+
+        building.wings.append(wing)
+        areal.buildings.append(building)
+
+        total_rooms = sum(len(r) for r in digit_floor_rooms.values())
+        logger.info(
+            f"Gebäudestruktur (Ziffern-Konvention) abgeleitet: "
+            f"{len(digit_floor_rooms)} Stockwerke, {total_rooms} Räume"
+        )
+        return areal
+
     def _best_room_name(self, descriptions: list[str], fallback_nr: str) -> str:
         """Waehlt den besten Raumnamen aus einer Liste von GA-Beschreibungen."""
         if not descriptions:
@@ -585,16 +808,20 @@ class XlsxImportService:
 
         wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
         ws = wb.active
-        for row in ws.iter_rows(values_only=True):
-            if len(row) <= COL_GA or row[COL_GA] is None:
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+
+        cols = self._resolve_topology_columns(rows)
+        ga_col = cols["GA"]
+        for row in rows:
+            if not row or len(row) <= ga_col or row[ga_col] is None:
                 continue
-            text = str(row[COL_GA]).strip()
+            text = str(row[ga_col]).strip()
             if not text:
                 continue
             for addr, designation in self._parse_ga_entries(text):
                 if addr not in ga_map:
                     ga_map[addr] = designation
-        wb.close()
 
         if not ga_map:
             logger.warning("Keine Gruppenadressen aus XLSX extrahierbar.")
@@ -908,25 +1135,122 @@ class XlsxImportService:
         )
         return result
 
+    def extract_device_notes(self, filepath: str) -> dict[str, str]:
+        """
+        Liest das Feld 'Installations-Hinweise' pro Gerät aus dem ETS6-
+        Topologie-Report (XLSX).
+
+        ETS6 stapelt unterhalb jeder Geräte-Hauptzeile bis zu vier Subzeilen
+        (Beschreibung / Seriennummer / Kommentar / Installations-Hinweise),
+        alle in Spalte 6 -- derselben Spalte wie die physikalische Adresse.
+        Leere Felder erzeugen keine eigene Zeile, daher liegt der Hinweistext
+        je Gerät auf unterschiedlicher Zeilenposition; gesucht wird die erste
+        Subzeile mit Text in Spalte 6, die nicht wie eine Seriennummer aussieht.
+
+        Installateure tragen hier oft die GA-Kurzbezeichnung ein, die das
+        Gerät bedient (z.B. 'L.100.1' oder 'S.203.1_LD.203.1'). Das ist bei
+        Aktoren im Verteiler eine zuverlässigere Quelle für den funktional
+        bedienten Raum als der physische Einbauort.
+
+        Gibt {physikalische_adresse -> Hinweistext} zurück (nur nicht-leere,
+        nicht Seriennummer-artige Werte).
+        """
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"XLSX-Datei nicht gefunden: {filepath}")
+        if not HAS_OPENPYXL:
+            raise ImportError("openpyxl wird für XLSX-Import benoetigt.")
+
+        wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+
+        cols = self._resolve_topology_columns(rows)
+        key_col = cols["KEY"]
+        notes: dict[str, str] = {}
+        current_addr: Optional[str] = None
+
+        for row in rows:
+            key_raw = row[key_col] if key_col < len(row) else None
+
+            if key_raw == "0":
+                current_addr = None  # Backbone
+                continue
+            if isinstance(key_raw, str) and re.match(r"^\d{1,2}$", key_raw.strip()):
+                current_addr = None  # Bereich
+                continue
+            if isinstance(key_raw, str) and _LINE_ADDR_RE.match(key_raw.strip()):
+                current_addr = None  # Linie
+                continue
+            if isinstance(key_raw, str) and _POWER_SUPPLY_RE.match(key_raw.strip()):
+                current_addr = None  # Spannungsversorgung
+                continue
+            if isinstance(key_raw, str) and _PHYS_ADDR_RE.match(key_raw.strip()):
+                current_addr = key_raw.strip()
+                continue
+            if isinstance(key_raw, int):
+                continue  # KO-Zeile
+
+            if current_addr and isinstance(key_raw, str):
+                text = key_raw.strip()
+                if (
+                    text
+                    and not _SERIAL_NUMBER_RE.match(text)
+                    and current_addr not in notes
+                ):
+                    notes[current_addr] = text
+
+        logger.info(
+            f"extract_device_notes: {len(notes)} Installations-Hinweise gefunden  [{filepath}]"
+        )
+        return notes
+
+    @staticmethod
+    def _room_id_for_designation(
+        designation: str, room_id_by_floor_nr: dict[tuple[str, str], str],
+    ) -> Optional[str]:
+        """Löst eine GA-Bezeichnung (oder einen Installations-Hinweis-Token)
+        über die Buchstaben- oder Ziffern-Stockwerkskonvention in eine
+        Room-ID auf (gemeinsame Logik für mehrere Raum-Zuordnungsquellen)."""
+        m = _GA_FLOOR_ROOM_SIMPLE_RE.match(designation)
+        if m:
+            rid = room_id_by_floor_nr.get((m.group(1).upper(), m.group(2)))
+            if rid:
+                return rid
+        m_digit = _GA_DIGIT_ROOM_SIMPLE_RE.match(designation)
+        if m_digit:
+            return room_id_by_floor_nr.get((f"D{m_digit.group(1)}", m_digit.group(2)))
+        return None
+
     def link_rooms_to_lines(
         self,
         topology: Topology,
         ga_structure,
         areal,
         device_locations: dict[str, dict] | None = None,
+        device_notes: dict[str, str] | None = None,
     ) -> int:
         """
         Verknüpft Topologie-Linien mit Räumen aus der Gebäudestruktur.
 
-        Zwei Quellen werden kombiniert:
+        Drei Quellen werden kombiniert, in dieser Priorität:
 
-        1. Einbauort (device_locations aus extract_device_locations):
+        1. Installations-Hinweise (device_notes aus extract_device_notes):
+           Freitext-Notiz des Installateurs, z.B. 'L.100.1' oder
+           'S.203.1_LD.203.1'. Explizitester Hinweis auf den funktional
+           bedienten Raum, sofern gepflegt -- höchste Priorität.
+
+        2. GA-Bezeichnungen der Kommunikationsobjekte (funktionaler Raum):
+           'LDA.OG.00.01_ea' bzw. 'L.004.1_ea' → Stockwerk + Raum-Nr → Room-ID.
+           Spiegelt den Raum wider, den die GA tatsächlich steuert. Wichtig
+           bei Aktoren, deren Einbauort (s.u.) i.d.R. der Verteiler ist,
+           nicht der bediente Raum.
+
+        3. Einbauort (device_locations aus extract_device_locations):
            "04 Schlafen" → room_nr + room_name → Room-ID.
-           Primäre Quelle: direkt, zuverlässig, unabhängig von GA-Namenskonventionen.
-
-        2. GA-Bezeichnungen der Kommunikationsobjekte:
-           'LDA.OG.00.01_ea' → Stockwerk + Raum-Nr → Room-ID.
-           Fallback für Geräte ohne Einbauort-Eintrag.
+           Fallback für Geräte ohne auswertbare GA-Bezeichnung/Hinweis.
+           Liefert bei Aktoren oft den physischen Einbauort (z.B. den
+           Verteiler) statt des bedienten Raums und ist daher zuletzt eingestuft.
 
         Pro Linie werden alle gefundenen Room-IDs in assigned_room_ids eingetragen.
         Pro Gerät wird die häufigste Room-ID als device.room_id gesetzt.
@@ -961,6 +1285,7 @@ class XlsxImportService:
         linked_pairs = 0
         via_location = 0
         via_ga = 0
+        via_note = 0
 
         for area in topology.areas:
             for line in area.lines:
@@ -969,8 +1294,45 @@ class XlsxImportService:
                 for device in line.devices:
                     room_id = None
 
-                    # ── Quelle 1: Einbauort aus GA-Report ──
-                    if device_locations:
+                    # ── Quelle 1: Installations-Hinweis (expliziter Installateur-Hinweis) ──
+                    note = (device_notes or {}).get(device.physical_address, "")
+                    if note:
+                        note_room_counts: dict[str, int] = {}
+                        for token in re.split(r"[_\s]+", note.strip()):
+                            if not token:
+                                continue
+                            rid = self._room_id_for_designation(token, room_id_by_floor_nr)
+                            if rid:
+                                note_room_counts[rid] = note_room_counts.get(rid, 0) + 1
+                        if note_room_counts:
+                            room_id = max(
+                                note_room_counts, key=note_room_counts.__getitem__
+                            )
+                            via_note += 1
+
+                    # ── Quelle 2: GA-Bezeichnungen der KOs (funktionaler Raum) ──
+                    if not room_id:
+                        device_room_counts: dict[str, int] = {}
+                        for ko in device.communication_objects:
+                            for ga_addr in ko.connected_gas:
+                                designation = ga_designation.get(ga_addr, "")
+                                if not designation:
+                                    continue
+                                rid = self._room_id_for_designation(
+                                    designation, room_id_by_floor_nr
+                                )
+                                if rid:
+                                    device_room_counts[rid] = (
+                                        device_room_counts.get(rid, 0) + 1
+                                    )
+                        if device_room_counts:
+                            room_id = max(
+                                device_room_counts, key=device_room_counts.__getitem__
+                            )
+                            via_ga += 1
+
+                    # ── Quelle 3: Einbauort aus GA-Report (Fallback, physischer Ort) ──
+                    if not room_id and device_locations:
                         loc = device_locations.get(device.physical_address)
                         if loc and loc["type"] == "room":
                             nr = loc["room_nr"]
@@ -995,30 +1357,6 @@ class XlsxImportService:
                             if room_id:
                                 via_location += 1
 
-                    # ── Quelle 2: GA-Bezeichnungen der KOs (Fallback) ──
-                    if not room_id:
-                        device_room_counts: dict[str, int] = {}
-                        for ko in device.communication_objects:
-                            for ga_addr in ko.connected_gas:
-                                designation = ga_designation.get(ga_addr, "")
-                                if not designation:
-                                    continue
-                                m = _GA_FLOOR_ROOM_SIMPLE_RE.match(designation)
-                                if not m:
-                                    continue
-                                rid = room_id_by_floor_nr.get(
-                                    (m.group(1).upper(), m.group(2))
-                                )
-                                if rid:
-                                    device_room_counts[rid] = (
-                                        device_room_counts.get(rid, 0) + 1
-                                    )
-                        if device_room_counts:
-                            room_id = max(
-                                device_room_counts, key=device_room_counts.__getitem__
-                            )
-                            via_ga += 1
-
                     if room_id:
                         device.room_id = room_id
                         if room_id not in line_room_ids:
@@ -1031,7 +1369,8 @@ class XlsxImportService:
 
         logger.info(
             f"link_rooms_to_lines: {linked_pairs} Paare — "
-            f"{via_location} via Einbauort, {via_ga} via GA-Bezeichnung."
+            f"{via_note} via Installations-Hinweis, {via_ga} via GA-Bezeichnung, "
+            f"{via_location} via Einbauort."
         )
         return linked_pairs
 
@@ -1159,7 +1498,7 @@ class XlsxImportService:
                     physical_address=phys_addr,
                     product=meta.get("product", ""),
                     installation_location=meta.get("location", ""),
-                    device_type=self._classify_device(phys_addr),
+                    device_type=self._classify_device(phys_addr, meta.get("product", "")),
                 )
                 target_line.devices.append(device)
                 device_index[phys_addr] = device
