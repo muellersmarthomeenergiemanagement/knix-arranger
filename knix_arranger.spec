@@ -13,7 +13,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['pytest', 'tkinter'],
+    excludes=['pytest', 'tkinter', 'numpy'],
     noarchive=False,
     optimize=0,
 )

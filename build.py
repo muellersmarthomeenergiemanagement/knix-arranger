@@ -76,6 +76,7 @@ def build():
         "--hidden-import=PySide6.QtSvg",
         "--hidden-import=PySide6.QtPrintSupport",
         "--collect-all=knix_arranger",
+        "--exclude-module=numpy",
         *add_data,
         str(ROOT / "run.py"),
     ]
