@@ -9,6 +9,7 @@ Ausfuehren:
     python build.py
 """
 
+import os
 import subprocess
 import sys
 import shutil
@@ -42,9 +43,36 @@ def ensure_icon():
         print(f"Icon vorhanden: {ICO_PATH}")
 
 
+def check_clean_environment():
+    """Warnt/bricht ab, wenn nicht in einer frischen venv gebaut wird.
+
+    Grund: Ein lokaler Build in der globalen/geteilten Python-Umgebung kann
+    fremde, fuer andere Projekte installierte Pakete (z.B. numpy) versehentlich
+    mitbuendeln. Genau das fuehrte im Release 1.1.5 zu einem Absturz, weil die
+    lokale numpy-Installation beschaedigt war. Der GitHub-Actions-Build laeuft
+    in einer sauberen Umgebung und ist davon nicht betroffen.
+    """
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return
+    in_venv = sys.prefix != sys.base_prefix
+    if in_venv:
+        return
+
+    print("WARNUNG: Kein virtuelles Environment aktiv (globale Python-Umgebung).")
+    print("Ein lokaler Build kann hier fremde Pakete aus anderen Projekten")
+    print("versehentlich mitbuendeln (siehe Release-1.1.5-Bug mit numpy).")
+    print("Empfohlen: python -m venv .venv && .venv\\Scripts\\pip install -r requirements.txt")
+    print("           und den Build aus dieser venv heraus starten.")
+    if "--force" not in sys.argv:
+        print("Abbruch. Mit '--force' erzwingen, falls absichtlich gewollt.")
+        sys.exit(1)
+    print("--force gesetzt, fahre trotzdem fort.")
+
+
 def build():
     print(f"=== KNiX Arranger v{_APP_VERSION} – PyInstaller Build ===")
 
+    check_clean_environment()
     ensure_icon()
 
     # Altes dist-Verzeichnis bereinigen

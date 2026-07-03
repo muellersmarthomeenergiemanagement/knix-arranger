@@ -67,3 +67,44 @@ Filename: "{app}\{#AppExeName}"; Description: "{#AppName} starten"; Flags: nowai
 [UninstallDelete]
 ; Konfiguration beim Deinstallieren behalten (Nutzerdaten in %APPDATA%)
 ; Nur die App selbst wird entfernt.
+
+[Code]
+// Deinstalliert eine evtl. vorhandene alte Version vollstaendig, BEVOR die
+// neuen Dateien kopiert werden. Noetig, weil Inno Setup beim normalen
+// Ueberinstallieren keine Dateien entfernt, die im neuen Paket fehlen
+// (z.B. ausgeschlossene Abhaengigkeiten) - solche Altlasten wuerden sonst
+// liegen bleiben und koennten weiterhin importiert/geladen werden.
+function GetUninstallString(): String;
+var
+  sUnInstPath: String;
+  sUnInstallString: String;
+begin
+  sUnInstPath := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppId}_is1';
+  sUnInstallString := '';
+  if not RegQueryStringValue(HKLM, sUnInstPath, 'UninstallString', sUnInstallString) then
+    RegQueryStringValue(HKCU, sUnInstPath, 'UninstallString', sUnInstallString);
+  Result := sUnInstallString;
+end;
+
+function IsUpgrade(): Boolean;
+begin
+  Result := (GetUninstallString() <> '');
+end;
+
+procedure UninstallOldVersion();
+var
+  sUnInstallString: String;
+  iResultCode: Integer;
+begin
+  sUnInstallString := GetUninstallString();
+  if sUnInstallString <> '' then begin
+    sUnInstallString := RemoveQuotes(sUnInstallString);
+    Exec(sUnInstallString, '/VERYSILENT /NORESTART /SUPPRESSMSGBOXES', '', SW_HIDE, ewWaitUntilTerminated, iResultCode);
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssInstall) and IsUpgrade() then
+    UninstallOldVersion();
+end;
