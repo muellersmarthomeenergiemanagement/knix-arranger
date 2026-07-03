@@ -95,7 +95,17 @@ class ClientProfileDialog(QDialog):
         photo_layout.addLayout(photo_btn_col)
         photo_layout.addStretch()
 
-        photo_group.setLayout(photo_layout)
+        photo_col = QVBoxLayout()
+        photo_col.addLayout(photo_layout)
+
+        source_row = QHBoxLayout()
+        source_row.addWidget(QLabel("Quellenangabe:"))
+        self._photo_source = QLineEdit()
+        self._photo_source.setPlaceholderText("z.B. Fotograf, Architekturbüro, Kunde…")
+        source_row.addWidget(self._photo_source)
+        photo_col.addLayout(source_row)
+
+        photo_group.setLayout(photo_col)
         layout.addWidget(photo_group)
 
         # ── Notizen ──────────────────────────────────────────────────────────
@@ -132,6 +142,7 @@ class ClientProfileDialog(QDialog):
         self._phone.setText(p.phone)
         self._email.setText(p.email)
         self._website.setText(p.website)
+        self._photo_source.setText(p.photo_source)
         self._notes.setPlainText(p.notes)
         if p.photo_path:
             self._update_photo_preview()
@@ -146,6 +157,7 @@ class ClientProfileDialog(QDialog):
         p.website          = self._website.text().strip()
         p.photo_path       = self._photo_path
         p.photo_rotation   = self._photo_rotation
+        p.photo_source     = self._photo_source.text().strip()
         p.notes            = self._notes.toPlainText().strip()
         return p
 

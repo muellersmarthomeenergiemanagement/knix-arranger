@@ -859,6 +859,14 @@ class PdfGenerator:
                     hint, 18, bold=True, color=(0.78, 0.82, 0.87),
                 )
 
+        # Quellenangabe unterhalb des Fotos (nur wenn Foto + Quelle vorhanden)
+        photo_source = getattr(cp, "photo_source", "") if cp else ""
+        if photo_drawn and photo_source:
+            caption = f"Quelle: {photo_source}"
+            tw_cap = self._tw(caption, 6.5)
+            self._txt(page, fitz.Point(W - M - tw_cap, photo_bottom + 8.5),
+                      caption, 6.5, color=(0.55, 0.55, 0.55))
+
         # ── Titelband ────────────────────────────────────────────────────────
         band_top    = photo_bottom + 12
         band_bottom = band_top + 62

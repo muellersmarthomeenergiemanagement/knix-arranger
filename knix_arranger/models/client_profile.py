@@ -16,6 +16,7 @@ class ClientProfile:
     website: str = ""
     photo_path: str = ""       # Pfad zum Projektfoto / Kundenfoto
     photo_rotation: int = 0    # Drehung in Grad (0 / 90 / 180 / 270)
+    photo_source: str = ""     # Quellenangabe zum Foto (erscheint im Bericht darunter)
     notes: str = ""
 
     def to_dict(self) -> dict:
@@ -28,6 +29,7 @@ class ClientProfile:
             "website": self.website,
             "photo_path": self.photo_path,
             "photo_rotation": self.photo_rotation,
+            "photo_source": self.photo_source,
             "notes": self.notes,
         }
 
@@ -42,5 +44,6 @@ class ClientProfile:
             website=data.get("website", ""),
             photo_path=data.get("photo_path", ""),
             photo_rotation=data.get("photo_rotation", 0),
+            photo_source=data.get("photo_source", ""),
             notes=data.get("notes", ""),
         )
