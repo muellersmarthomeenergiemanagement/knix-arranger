@@ -68,6 +68,8 @@ class ReportsDialog(QDialog):
              self._gen_topology),
             ("Bedienelemente", "Taster/Sensoren mit GA-Zuordnung als PDF",
              self._gen_bedienelemente),
+            ("Aktoren und Gateways", "Aktor-/Gateway-Gerätekarten mit KOs als PDF",
+             self._gen_aktoren_gateways),
             ("Räume nach Gewerken", "Gewerke und GAs je Raum als PDF",
              self._gen_room_gewerk),
         ]
@@ -371,6 +373,23 @@ class ReportsDialog(QDialog):
             ReportService(project, company_profile=company).generate_bedienelemente_report(path)
 
         self._run("Bedienelemente-Bericht wird erstellt…", do, f"Bedienelemente-Bericht erstellt: {path}")
+
+    def _gen_aktoren_gateways(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Aktoren-und-Gateways-Bericht speichern",
+            self._default_export_path(f"{self._project.name}_Aktoren_Gateways.pdf"),
+            "PDF-Dateien (*.pdf)",
+        )
+        if not path:
+            return
+        project, company = self._project, self._company_profile
+
+        def do():
+            from ...services.report_service import ReportService
+            ReportService(project, company_profile=company).generate_aktoren_gateway_report(path)
+
+        self._run("Aktoren-und-Gateways-Bericht wird erstellt…", do,
+                  f"Aktoren-und-Gateways-Bericht erstellt: {path}")
 
     def _gen_room_gewerk(self):
         path, _ = QFileDialog.getSaveFileName(

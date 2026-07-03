@@ -88,6 +88,7 @@ class ProjectService:
             raise FileExistsError(project_dir)
         os.makedirs(os.path.join(project_dir, "Revisionen"), exist_ok=True)
         os.makedirs(os.path.join(project_dir, "Berichte"), exist_ok=True)
+        os.makedirs(os.path.join(project_dir, "Datenblätter"), exist_ok=True)
         return knxarr_path
 
     def create_backup(self, filepath: str) -> str:

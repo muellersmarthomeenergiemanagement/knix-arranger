@@ -2,9 +2,11 @@
 Produktdatenblätter-Verwaltung (FA-1201 bis FA-1205)
 """
 from __future__ import annotations
+import os
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QPushButton, QLineEdit,
@@ -137,12 +139,18 @@ class DatasheetView(QWidget):
             "Gefundene Datenblatt-URL manuell eintragen und speichern"
         )
         self._btn_save_url.clicked.connect(self._add_url_link)
+        self._btn_download_ds = QPushButton("Lokal speichern…")
+        self._btn_download_ds.setToolTip(
+            "Alle URL-Datenblätter herunterladen und lokal im Projektordner speichern"
+        )
+        self._btn_download_ds.clicked.connect(self._download_datasheets)
         self._btn_remove_ds = QPushButton("Entfernen")
         self._btn_remove_ds.setObjectName("danger")
         self._btn_remove_ds.clicked.connect(self._remove_datasheet)
         ds_btn_layout.addWidget(self._btn_add_ds)
         ds_btn_layout.addWidget(self._btn_search_online)
         ds_btn_layout.addWidget(self._btn_save_url)
+        ds_btn_layout.addWidget(self._btn_download_ds)
         ds_btn_layout.addWidget(self._btn_remove_ds)
         ds_btn_layout.addStretch()
         ds_layout.addLayout(ds_btn_layout)
@@ -315,12 +323,19 @@ class DatasheetView(QWidget):
                 src.application_program = self._prod_app_program.text()
         self._refresh_devices()
 
+    def _datasheets_folder(self) -> str:
+        """Gibt den Datenblätter-Unterordner des Projekts zurück (leer wenn unbekannt)."""
+        if self._project and self._project.folder_path:
+            return os.path.join(self._project.folder_path, "Datenblätter")
+        return ""
+
     def _add_datasheet(self):
         ref = self._get_selected_ref()
         if not ref:
             return
+        start_dir = self._datasheets_folder() or ""
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Produktdatenblatt hinzufügen", "",
+            self, "Produktdatenblatt hinzufügen", start_dir,
             "PDF-Dateien (*.pdf);;Alle Dateien (*.*)",
         )
         if paths:
@@ -330,6 +345,77 @@ class DatasheetView(QWidget):
                         src.datasheets.append(p)
             self._refresh_datasheets(ref.source)
             self._refresh_devices()
+
+    def _download_datasheets(self):
+        """Lädt alle URL-Datenblätter herunter und speichert sie lokal."""
+        if not self._project:
+            return
+
+        default_folder = self._datasheets_folder() or os.getcwd()
+        os.makedirs(default_folder, exist_ok=True)
+        folder = QFileDialog.getExistingDirectory(
+            self, "Zielordner für Datenblätter wählen", default_folder,
+        )
+        if not folder:
+            return
+
+        url_to_local: dict[str, str] = {}
+        downloaded = 0
+        skipped = 0
+        failed: list[str] = []
+
+        for ref in self._devices:
+            for src in ref.sources:
+                new_datasheets = []
+                for ds in src.datasheets:
+                    if not (ds.startswith("http://") or ds.startswith("https://")):
+                        new_datasheets.append(ds)
+                        continue
+                    if ds in url_to_local:
+                        new_datasheets.append(url_to_local[ds])
+                        continue
+                    parsed = urlparse(ds)
+                    fname = Path(parsed.path).name or "datenblatt.pdf"
+                    if not fname.lower().endswith(".pdf"):
+                        fname += ".pdf"
+                    dest = os.path.join(folder, fname)
+                    if os.path.exists(dest):
+                        url_to_local[ds] = dest
+                        new_datasheets.append(dest)
+                        skipped += 1
+                        continue
+                    # Kollision vermeiden: Zähler-Suffix
+                    base, ext = os.path.splitext(fname)
+                    counter = 2
+                    while os.path.exists(dest):
+                        dest = os.path.join(folder, f"{base}_{counter}{ext}")
+                        counter += 1
+                    try:
+                        urllib.request.urlretrieve(ds, dest)
+                        url_to_local[ds] = dest
+                        new_datasheets.append(dest)
+                        downloaded += 1
+                    except Exception as exc:
+                        url_to_local[ds] = ds  # URL bei Fehler behalten
+                        new_datasheets.append(ds)
+                        failed.append(f"{fname}: {exc}")
+                src.datasheets = new_datasheets
+
+        parts = []
+        if downloaded:
+            parts.append(f"{downloaded} heruntergeladen")
+        if skipped:
+            parts.append(f"{skipped} bereits vorhanden (übersprungen)")
+        summary = ", ".join(parts) or "Keine URL-Datenblätter gefunden"
+        msg = f"{summary}\nZielordner: {folder}"
+        if failed:
+            msg += f"\n\n{len(failed)} Fehler:\n" + "\n".join(failed[:5])
+        QMessageBox.information(self, "Download abgeschlossen", msg)
+
+        ref = self._get_selected_ref()
+        if ref:
+            self._refresh_datasheets(ref.source)
+        self._refresh_devices()
 
     def _remove_datasheet(self):
         ref = self._get_selected_ref()

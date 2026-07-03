@@ -654,7 +654,12 @@ class DocumentationService:
         report_svc.generate_bedienelemente_report(path)
         generated_files.append(("Bedienelemente", path))
 
-        # 4b. Räume nach Gewerken
+        # 4b. Aktoren und Gateways
+        path = os.path.join(output_dir, f"{prefix}_Aktoren_Gateways.pdf")
+        report_svc.generate_aktoren_gateway_report(path)
+        generated_files.append(("Aktoren und Gateways", path))
+
+        # 4c. Räume nach Gewerken
         path = os.path.join(output_dir, f"{prefix}_Raeume_Gewerke.pdf")
         report_svc.generate_room_gewerk_report(path)
         generated_files.append(("Räume nach Gewerken", path))

@@ -89,10 +89,10 @@ class TopologyReportView(QWidget):
         layout.addLayout(filter_layout)
 
         self._device_table = QTableWidget()
-        self._device_table.setColumnCount(6)
+        self._device_table.setColumnCount(7)
         self._device_table.setHorizontalHeaderLabels([
             "Phys. Adresse", "Hersteller", "Produkt",
-            "Applikation", "Einbauort", "Typ",
+            "Seriennummer", "Applikation", "Einbauort", "Typ",
         ])
         self._device_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._device_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -339,9 +339,10 @@ class TopologyReportView(QWidget):
             self._device_table.setItem(i, 0, QTableWidgetItem(d.physical_address))
             self._device_table.setItem(i, 1, QTableWidgetItem(d.manufacturer))
             self._device_table.setItem(i, 2, QTableWidgetItem(d.product))
-            self._device_table.setItem(i, 3, QTableWidgetItem(d.application_program))
-            self._device_table.setItem(i, 4, QTableWidgetItem(d.installation_location))
-            self._device_table.setItem(i, 5, QTableWidgetItem(d.device_type))
+            self._device_table.setItem(i, 3, QTableWidgetItem(d.serial_number))
+            self._device_table.setItem(i, 4, QTableWidgetItem(d.application_program))
+            self._device_table.setItem(i, 5, QTableWidgetItem(d.installation_location))
+            self._device_table.setItem(i, 6, QTableWidgetItem(d.device_type))
         fit_columns(self._device_table)
 
     # ── Kommunikationsobjekte (FA-1010) ──

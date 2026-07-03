@@ -311,6 +311,8 @@ class TopologyView(QWidget):
                         detail_parts.append(device.manufacturer)
                     if device.order_number:
                         detail_parts.append(device.order_number)
+                    if device.serial_number:
+                        detail_parts.append(f"SN: {device.serial_number}")
 
                     name = device.product or device.device_type
                     status = " | ".join(detail_parts)

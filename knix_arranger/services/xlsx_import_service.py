@@ -354,6 +354,13 @@ class XlsxImportService:
                     current_device.communication_objects.append(ko)
                 continue
 
+            # --- Geräte-Subzeile: Seriennummer (Spalte 6 = "XXXX:XXXXXXXX") ---
+            if (isinstance(key_raw, str)
+                    and _SERIAL_NUMBER_RE.match(key_raw.strip())
+                    and current_device):
+                current_device.serial_number = key_raw.strip()
+                continue
+
             # --- Geräte-Subzeile: Einbauort (Spalte 18 gesetzt, Spalte 6 leer) ---
             loc = _cell(row, cols["LOCATION"])
             if loc and key_raw is None and current_device:

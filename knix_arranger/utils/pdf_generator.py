@@ -174,6 +174,10 @@ class PdfGenerator:
         """Zeichnet ein Baumdiagramm der KNX-Topologie (Bereiche → Linien → Geräte)."""
         self._blocks.append({"type": "topology_diagram", "topology": topology})
 
+    def add_link(self, text: str, url: str):
+        """Fügt einen klickbaren Hyperlink ein (blau, unterstrichen)."""
+        self._blocks.append({"type": "link", "text": text, "url": url})
+
     # ── Speichern ─────────────────────────────────────────────────────────────
 
     def save(self, filepath: str):
@@ -214,6 +218,8 @@ class PdfGenerator:
                 lines += ["-" * 60, ""]
             elif btype == "page_break":
                 lines += ["", "=" * 70, ""]
+            elif btype == "link":
+                lines += [f"  -> {block['text']}  [ {block['url']} ]", ""]
             elif btype == "table":
                 hdrs, rows = block["headers"], block["rows"]
                 widths = [
@@ -295,6 +301,27 @@ class PdfGenerator:
                 bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
                 if bottom - y < block["min_height"]:
                     page, y = self._new_page(doc)
+
+            elif btype == "link":
+                text = block["text"]
+                url  = block["url"]
+                fs   = 9
+                if y + fs + 6 > bottom:
+                    page, y = self._new_page(doc)
+                blue = (0.05, 0.30, 0.70)
+                self._txt(page, fitz.Point(self.MARGIN, y), text, fs, color=blue)
+                tw = self._tw(text, fs)
+                page.draw_line(
+                    fitz.Point(self.MARGIN, y + 1.5),
+                    fitz.Point(self.MARGIN + tw, y + 1.5),
+                    color=blue, width=0.5,
+                )
+                page.insert_link({
+                    "kind": fitz.LINK_URI,
+                    "from": fitz.Rect(self.MARGIN, y - fs, self.MARGIN + tw, y + 2),
+                    "uri":  url,
+                })
+                y += fs + 6
 
             elif btype == "topology_diagram":
                 page, y = self._draw_topology_diagram(doc, page, y, block["topology"])

@@ -553,10 +553,11 @@ class ReportService:
                             dev.product or "–",
                             dev.manufacturer or "–",
                             dev.order_number or "–",
+                            dev.serial_number or "–",
                             dev.installation_location or "–",
                         ])
                     pdf.add_table(
-                        ["Phys. Adresse", "Typ", "Produkt", "Hersteller", "Best.-Nr.", "Einbauort"],
+                        ["Phys. Adresse", "Typ", "Produkt", "Hersteller", "Best.-Nr.", "Seriennummer", "Einbauort"],
                         rows,
                     )
 
@@ -698,11 +699,17 @@ class ReportService:
                     info_rows.append(["Einbauort", einbauort])
                 if be.channels:
                     info_rows.append(["Kanäle", str(be.channels)])
-                if be.datasheets:
-                    info_rows.append(["Datenblätter", ", ".join(be.datasheets)])
 
                 if info_rows:
                     pdf.add_table(["Eigenschaft", "Wert"], info_rows)
+
+                if be.datasheets:
+                    pdf.add_heading("Datenblätter", level=4)
+                    for ds in be.datasheets:
+                        if ds.startswith("http://") or ds.startswith("https://"):
+                            pdf.add_link(ds, ds)
+                        else:
+                            pdf.add_paragraph(f"  {ds}")
 
                 # ── Funktionen / GA-Zuordnungen ─────────────────────────────
                 if be.function_assignments:
@@ -764,3 +771,124 @@ class ReportService:
 
         pdf.save(filepath)
         logger.info(f"Bedienelemente-Bericht erstellt: {filepath}")
+
+    def generate_aktoren_gateway_report(self, filepath: str):
+        """Erzeugt einen Aktoren-und-Gateways-Bericht als PDF (Gerätekarten-Layout)."""
+        pdf = self._make_pdf("Aktoren und Gateways")
+
+        pdf.add_heading("Aktoren und Gateways", level=1)
+        pdf.add_paragraph(
+            f"Projekt: {self.project.name} | "
+            f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        )
+        pdf.add_separator()
+
+        ga_by_address = {ga.address: ga for ga in self.project.group_addresses.all_addresses()}
+
+        target_types = {"actor", "gateway"}
+        entries: list[tuple] = []
+        for area in self.project.topology.areas:
+            for line in area.lines:
+                for dev in line.devices:
+                    if dev.device_type in target_types:
+                        entries.append((area, line, dev))
+
+        def _addr_key(entry):
+            try:
+                return tuple(int(p) for p in entry[2].physical_address.split("."))
+            except ValueError:
+                return (0, 0, 0)
+
+        entries.sort(key=_addr_key)
+
+        # ── Übersichtstabelle ────────────────────────────────────────────────
+        summary_rows = []
+        for area, line, dev in entries:
+            summary_rows.append([
+                dev.physical_address,
+                dev.device_type,
+                dev.product or "–",
+                dev.manufacturer or "–",
+                dev.order_number or "–",
+                dev.serial_number or "–",
+                dev.installation_location or "–",
+            ])
+        if summary_rows:
+            pdf.add_table(
+                ["Phys. Adresse", "Typ", "Produkt", "Hersteller", "Best.-Nr.", "Seriennummer", "Einbauort"],
+                summary_rows,
+            )
+            pdf.add_separator()
+
+        # ── Gerätekarten ────────────────────────────────────────────────────
+        has_any = False
+        for area, line, dev in entries:
+            has_any = True
+            pdf.add_conditional_break(min_height=150)
+
+            loc = dev.installation_location or f"Bereich {area.area_number} / Linie {line.line_number}"
+            heading = f"{dev.product or dev.device_type}  [{dev.physical_address}]  |  {loc}"
+            pdf.add_heading(heading, level=3)
+
+            info_rows: list[list[str]] = []
+            if dev.manufacturer:
+                info_rows.append(["Hersteller", dev.manufacturer])
+            if dev.product:
+                info_rows.append(["Produkt", dev.product])
+            if dev.order_number:
+                info_rows.append(["Bestellnummer", dev.order_number])
+            if dev.serial_number:
+                info_rows.append(["Seriennummer", dev.serial_number])
+            if dev.application_program:
+                info_rows.append(["Applikationsprogramm", dev.application_program])
+            info_rows.append(["Phys. Adresse", dev.physical_address])
+            info_rows.append(["Linie", f"{area.name} / {line.name} ({line.coupler_address})"])
+            if dev.installation_location:
+                info_rows.append(["Einbauort", dev.installation_location])
+            info_rows.append(["Gerätetyp", dev.device_type])
+
+            if info_rows:
+                pdf.add_table(["Eigenschaft", "Wert"], info_rows)
+
+            if dev.datasheets:
+                pdf.add_heading("Datenblätter", level=4)
+                for ds in dev.datasheets:
+                    if ds.startswith("http://") or ds.startswith("https://"):
+                        pdf.add_link(ds, ds)
+                    else:
+                        pdf.add_paragraph(f"  {ds}")
+
+            cos_with_ga = [co for co in sorted(dev.communication_objects, key=lambda c: c.object_number)
+                           if co.connected_gas]
+            if cos_with_ga:
+                pdf.add_heading("Kommunikationsobjekte / GA-Verknüpfungen", level=4)
+                co_rows = []
+                for co in cos_with_ga:
+                    ga_designations, ga_addresses = [], []
+                    for ga_addr in co.connected_gas:
+                        ga_obj = ga_by_address.get(ga_addr)
+                        ga_designations.append(ga_obj.designation if ga_obj else ga_addr)
+                        ga_addresses.append(ga_addr)
+                    co_rows.append([
+                        str(co.object_number),
+                        co.name or f"KO {co.object_number}",
+                        co.object_function,
+                        " · ".join(ga_designations),
+                        " · ".join(ga_addresses),
+                        co.data_type,
+                    ])
+                pdf.add_table(
+                    ["KO-Nr.", "Name", "Funktion", "GA-Bezeichnung", "GA-Adresse", "DPT"],
+                    co_rows,
+                    col_widths=[32, 100, 75, 155, 85, 48],
+                )
+            else:
+                pdf.add_paragraph("  (keine GA-Verknüpfungen)")
+
+            pdf.add_separator()
+
+        if not has_any:
+            pdf.add_paragraph("Keine Aktoren oder Gateways im Projekt vorhanden.")
+
+        pdf.save(filepath)
+        logger.info(f"Aktoren-und-Gateways-Bericht erstellt: {filepath}")
