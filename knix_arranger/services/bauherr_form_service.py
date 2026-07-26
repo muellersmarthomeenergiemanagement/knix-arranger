@@ -125,15 +125,6 @@ _DROPDOWN_OPTIONS = [
 _DROPDOWN_FORMULA1 = '"' + ",".join(_DROPDOWN_OPTIONS) + '"'
 
 
-def _button_count_from_type(element_type: str) -> int:
-    """Anzahl Wippen (rockers) aus dem Gerätetyp ableiten."""
-    t = element_type.lower()
-    for n in (8, 6, 4, 2, 1):
-        if f"{n}-fach" in t or f"{n}fach" in t or f"{n} fach" in t:
-            return n
-    return 2  # Fallback
-
-
 class BauherrFormService:
     """Erzeugt und liest Funktionsdefinitions-Formulare für Bauherren."""
 
@@ -152,6 +143,25 @@ class BauherrFormService:
             if room.id == room_id:
                 return room
         return None
+
+    def _device_product_name(self, be: Bedienelement) -> str:
+        """Produktname für die Anzeige: bevorzugt den Live-Wert aus dem per
+        physikalischer Adresse verknüpften Device der Topologie.
+
+        be.product_name wird nur einmalig beim Anlegen des Bedienelements aus
+        dem Device kopiert (siehe _create_bedienelemente_from_topology) und
+        bleibt bei einer späteren Produktzuweisung über die Materialliste
+        (die nur ins Device zurückschreibt) sonst veraltet.
+        """
+        if be.participant_number:
+            for area in self.project.topology.areas:
+                for line in area.lines:
+                    for device in line.devices:
+                        if device.physical_address == be.participant_number:
+                            if device.product_name:
+                                return device.product_name
+                            break
+        return be.product_name or be.element_type
 
     def _label_from_ga(self, ga_str: str) -> str:
         """
@@ -247,6 +257,11 @@ class BauherrFormService:
             return _BTN_FILL_WISH       # leer → Wunsch-Slot (Dropdown)
         if sf and sf.ga_designation:
             return _BTN_FILL_GA         # direkte GA → violett
+        if sf and sf.label and not sf.gewerk_code:
+            # Freitext-Wunsch ohne technische GA-Zuordnung (noch nicht über die
+            # Verknüpfungsmatrix aufgelöst) -- wie ein leerer Wunsch behandeln,
+            # nicht wie eine fertige Zuweisung.
+            return _BTN_FILL_WISH
         if sf and sf.source_room_id:
             return _BTN_FILL_FOREIGN    # Fremdraum → blau
         return _BTN_FILL_ASSIGNED       # eigener Raum → grün
@@ -287,7 +302,7 @@ class BauherrFormService:
         """
         import math
 
-        n_buttons = _button_count_from_type(be.element_type)
+        n_buttons = be.channels
         # Alle definierten SensorFunktionen anzeigen, mindestens n_buttons Slots
         n_slots = max(n_buttons, len(be.funktionen))
         n_rows  = math.ceil(n_slots / 2)
@@ -310,7 +325,7 @@ class BauherrFormService:
 
         # ── Geräte-Header ─────────────────────────────────────────────────
         pn_str   = be.participant_number or "–"
-        dev_name = be.product_name or be.element_type
+        dev_name = self._device_product_name(be)
         status   = "Auto" if be.is_auto else "Manuell"
         te_idx   = getattr(be, "taster_index", 1)
         te_prefix = f"Tastereinheit {te_idx}  –  " if be.element_type == "Tastereinheit" else ""
@@ -665,7 +680,14 @@ class BauherrFormService:
             else:
                 while len(be.funktionen) < sf_idx:
                     be.funktionen.append(SF())
-                be.funktionen.append(SF(label=val, ga_designation=val))
+                # NUR das Freitext-Label setzen -- ga_designation bleibt leer,
+                # bis ein Planer dem Wunsch ueber die Verknuepfungsmatrix
+                # (FA-2503) eine echte Gruppenadresse zuweist. ga_designation
+                # mit dem rohen Bauherr-Freitext zu befuellen wuerde
+                # SensorService._expand_funktionen dazu bringen, ihn wie eine
+                # echte GA zu behandeln (sf.ga_designation ist der alleinige
+                # Trigger fuer die "Direkte GA"-Variante).
+                be.funktionen.append(SF(label=val))
                 imported_count += 1
                 # Wunsch markiert das Bedienelement als manuell konfiguriert, damit
                 # auto_assign_functions die Funktionsliste bei der nachfolgenden

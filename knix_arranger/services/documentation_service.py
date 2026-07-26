@@ -664,6 +664,17 @@ class DocumentationService:
         report_svc.generate_room_gewerk_report(path)
         generated_files.append(("Räume nach Gewerken", path))
 
+        # 4d. Verknüpfungsmatrix / Belegungsplan (FA-2505) -- nur wenn Daten vorhanden
+        from .belegungsplan_service import BelegungsplanService
+        belegungsplan = BelegungsplanService().generate(self.project)
+        if belegungsplan.sensor_rows or belegungsplan.actor_rows:
+            from .belegungsplan_export_service import BelegungsplanExportService
+            path = os.path.join(output_dir, f"{prefix}_Verknuepfungsmatrix.pdf")
+            BelegungsplanExportService().export_pdf(
+                belegungsplan, path, self._company_profile, self.project.project_info
+            )
+            generated_files.append(("Verknüpfungsmatrix", path))
+
         # 5. Validierungsbericht
         path = os.path.join(output_dir, f"{prefix}_Validierung.pdf")
         report_svc.generate_validation_report(path)
@@ -701,6 +712,12 @@ class DocumentationService:
             self.generate_time_programs_doc(path)
             generated_files.append(("Zeitprogramme", path))
 
+        # 10b. KNX Secure Archivbericht (FA-2706) – nur wenn aktiviert
+        if self.project.knx_secure.enabled:
+            path = os.path.join(output_dir, f"{prefix}_KNX_Secure.pdf")
+            self.generate_knx_secure_report(path)
+            generated_files.append(("KNX Secure Archivbericht", path))
+
         # 11. Inhaltsverzeichnis (FA-2103)
         index_path = self.create_revision_index(
             output_dir, revision, generated_files
@@ -708,6 +725,122 @@ class DocumentationService:
 
         logger.info(f"Revisionspaket erstellt in: {output_dir}")
         return output_dir
+
+    def generate_knx_secure_report(self, filepath: str, include_secrets: bool = False):
+        """Erzeugt den KNX-Secure-Archivbericht (FA-2706).
+
+        Dokumentiert den Erfassungsstatus des Zertifikats- und Zugangsdaten-
+        Archivs (FDSK je Gerät, ETS6-Projektpasswort) für die Übergabe.
+
+        include_secrets=False (Standard, z.B. im automatischen Revisionspaket):
+        die eigentlichen Geheimwerte (FDSK, ETS6-Projektpasswort) werden
+        bewusst NICHT abgedruckt -- nur ob sie erfasst sind.
+
+        include_secrets=True (nur auf expliziten Nutzerwunsch, siehe
+        ReportsDialog._gen_knx_secure_confidential -- dort wird die Kenntnis
+        des ETS6-Projektpassworts vor Erstellung geprüft): druckt die echten
+        FDSK- und Passwort-Werte ab, als Vertraulichkeits-Archivkopie für den
+        Fall, dass das Master-Passwort des Archivs verloren geht. Der Bericht
+        ist dann selbst ein Geheimnis und muss entsprechend vertraulich
+        behandelt werden.
+        """
+        from ..services.knx_secure_service import KnxSecureService
+        from ..models.knx_secure import SECURE_MODE_LABELS
+
+        cfg = self.project.knx_secure
+        svc = KnxSecureService()
+
+        title = "KNX Secure – Archivbericht (VERTRAULICH)" if include_secrets else "KNX Secure – Archivbericht"
+        pdf = self._make_pdf(title)
+        pdf.add_heading("KNX Secure – Zertifikats- und Zugangsdaten-Archiv", level=1)
+        if include_secrets:
+            pdf.add_heading("⚠ VERTRAULICH -- enthält echte FDSK- und Passwort-Werte", level=2)
+        pdf.add_paragraph(f"Projekt: {self.project.name}")
+        pdf.add_paragraph(f"Erstellt: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+
+        if not cfg.enabled:
+            pdf.add_paragraph("KNX Secure ist für dieses Projekt nicht aktiviert.")
+            pdf.save(filepath)
+            return
+
+        pdf.add_paragraph(
+            "Hinweis: KNiX Arranger generiert und verwaltet keine KNX-Secure-"
+            "Laufzeitschlüssel -- diese erzeugt ausschliesslich ETS6 aus dem "
+            "geräteindividuellen Zertifikat (FDSK). " + (
+                "Dieser Bericht enthält die tatsächlich hinterlegten Geheimwerte "
+                "als Archivkopie -- vertraulich behandeln, nicht ungeschützt "
+                "weitergeben oder ablegen."
+                if include_secrets else
+                "Dieser Bericht dokumentiert nur den Erfassungsstatus des "
+                "Archivs, keine Geheimwerte."
+            )
+        )
+
+        if cfg.is_locked:
+            pdf.add_paragraph(
+                "⚠ Das Archiv war beim Erstellen dieses Berichts gesperrt "
+                "(Master-Passwort nicht eingegeben). Angaben zu FDSK- und "
+                "Passwort-Erfassung unten können daher unvollständig sein."
+            )
+
+        summary = svc.get_summary(cfg, self.project)
+        mode_label = SECURE_MODE_LABELS.get(cfg.secure_mode, cfg.secure_mode)
+        pdf.add_separator()
+        pdf.add_heading("Projektübersicht", level=2)
+        pdf.add_paragraph(f"Sicherheitsmodus: {mode_label}")
+        if include_secrets and summary['ets_password_set']:
+            pdf.add_paragraph(f"ETS6-Projektpasswort: {cfg.ets_project_password}")
+        else:
+            pdf.add_paragraph(
+                "ETS6-Projektpasswort hinterlegt: "
+                f"{'Ja' if summary['ets_password_set'] else 'Nein'}"
+            )
+        if cfg.ets_password_note:
+            pdf.add_paragraph(f"Notiz / Wiederherstellungsplan: {cfg.ets_password_note}")
+        pdf.add_paragraph(
+            f"KNX Secure-fähige Geräte: {summary['secure_devices']} / {summary['device_infos_count']}"
+        )
+        pdf.add_paragraph(
+            f"FDSK-Zertifikate erfasst: {summary['fdsk_entered']} / {summary['device_infos_count']}"
+        )
+        pdf.add_paragraph(
+            f"Gruppenadressen mit Security 'Ein': {summary['ga_security_on']}"
+        )
+
+        pdf.add_separator()
+        pdf.add_heading("Geräte", level=2)
+        infos = list(cfg.device_infos.values())
+        if not infos:
+            pdf.add_paragraph("Keine Geräte im Archiv erfasst.")
+        else:
+            line_labels = {}
+            for area in self.project.topology.areas:
+                for line in area.lines:
+                    line_labels[line.id] = f"{area.area_number}.{line.line_number}"
+            headers = ["Gerät", "Phys. Adresse", "Linie", "KNX Secure",
+                       "FDSK" if include_secrets else "FDSK erfasst"]
+            rows = [
+                [
+                    info.device_name, info.physical_address,
+                    line_labels.get(info.line_id, ""),
+                    "Ja" if info.secure_supported else "Nein",
+                    (info.fdsk or "–") if include_secrets else ("Ja" if info.fdsk else "Nein"),
+                ]
+                for info in infos
+            ]
+            pdf.add_table(headers, rows)
+
+        warnings = svc.check_mixed_lines(cfg, self.project)
+        pdf.add_separator()
+        pdf.add_heading("Mischlinien-Warnungen", level=2)
+        if not warnings:
+            pdf.add_paragraph("Keine Mischlinien-Warnungen.")
+        else:
+            for w in warnings:
+                pdf.add_paragraph(f"• {w.message}")
+
+        pdf.save(filepath)
+        logger.info(f"KNX-Secure-Archivbericht erstellt: {filepath}")
 
     def generate_dali_device_list(self, filepath: str):
         """Erzeugt die DALI-Geräteliste für das Revisionspaket (FA-2805)."""

@@ -11,7 +11,10 @@ from datetime import datetime
 from ..models.project import KnxProject
 from ..models.group_address import GroupAddressStructure, MIDDLE_GROUP_NAMES_A, MIDDLE_GROUP_NAMES_B
 from ..services.validation_engine import ValidationEngine, ValidationIssue
-from ..services.belegungsplan_service import _split_button_channel
+from ..services.belegungsplan_service import (
+    _split_button_channel, _extract_channel_label, group_actor_rows_by_channel,
+    BelegungsplanService,
+)
 from ..services.naming_engine import NamingEngine
 from ..utils.pdf_generator import PdfGenerator
 
@@ -42,6 +45,8 @@ def _gewerk_category_sort_key(category: str) -> int:
         return GEWERK_CATEGORY_ORDER.index(category)
     except ValueError:
         return len(GEWERK_CATEGORY_ORDER)
+
+
 
 
 class ReportService:
@@ -682,9 +687,15 @@ class ReportService:
 
                 # ── Gerätedaten-Tabelle ──────────────────────────────────────
                 info_rows = []
-                product = be.product_name or (device.product if device else "")
-                mfr     = be.manufacturer or (device.manufacturer if device else "")
-                ordernr = be.order_number or (device.order_number if device else "")
+                # Live-Daten aus dem verknüpften Device haben Vorrang vor be.*,
+                # da be.product_name/manufacturer/order_number nur einmalig beim
+                # Anlegen des Bedienelements aus dem Device kopiert werden
+                # (siehe _create_bedienelemente_from_topology) und bei einer
+                # späteren Produktzuweisung über die Materialliste (die nur ins
+                # Device zurückschreibt) sonst veraltet blieben.
+                product = (device.product_name if device else "") or be.product_name or (device.product if device else "")
+                mfr     = (device.manufacturer if device else "") or be.manufacturer
+                ordernr = (device.order_number if device else "") or be.order_number
                 einbauort = device.installation_location if device else ""
 
                 if mfr:
@@ -785,6 +796,16 @@ class ReportService:
 
         ga_by_address = {ga.address: ga for ga in self.project.group_addresses.all_addresses()}
 
+        # Belegungsplan als primäre Quelle für die Kanal-Zuordnung: in
+        # Wizard-Projekten (Gewerk-/GA-basiert) ist Device.communication_objects
+        # meist leer -- BelegungsplanService liefert dort die einzige Quelle mit
+        # korrekter Kanal-Zuordnung inkl. Gewerk-Kontext (siehe Topologie-Ansicht,
+        # die dieselbe Logik nutzt).
+        belegungsplan = BelegungsplanService().generate(self.project)
+        actor_rows_by_addr: dict[str, list] = {}
+        for r in belegungsplan.actor_rows:
+            actor_rows_by_addr.setdefault(r.physical_address, []).append(r)
+
         target_types = {"actor", "gateway"}
         entries: list[tuple] = []
         for area in self.project.topology.areas:
@@ -858,32 +879,66 @@ class ReportService:
                     else:
                         pdf.add_paragraph(f"  {ds}")
 
-            cos_with_ga = [co for co in sorted(dev.communication_objects, key=lambda c: c.object_number)
-                           if co.connected_gas]
-            if cos_with_ga:
-                pdf.add_heading("Kommunikationsobjekte / GA-Verknüpfungen", level=4)
-                co_rows = []
-                for co in cos_with_ga:
-                    ga_designations, ga_addresses = [], []
-                    for ga_addr in co.connected_gas:
-                        ga_obj = ga_by_address.get(ga_addr)
-                        ga_designations.append(ga_obj.designation if ga_obj else ga_addr)
-                        ga_addresses.append(ga_addr)
-                    co_rows.append([
-                        str(co.object_number),
-                        co.name or f"KO {co.object_number}",
-                        co.object_function,
-                        " · ".join(ga_designations),
-                        " · ".join(ga_addresses),
-                        co.data_type,
-                    ])
-                pdf.add_table(
-                    ["KO-Nr.", "Name", "Funktion", "GA-Bezeichnung", "GA-Adresse", "DPT"],
-                    co_rows,
-                    col_widths=[32, 100, 75, 155, 85, 48],
-                )
+            # Primär: Belegungsplan-Zeilen (Gewerk-/GA-basiert -- deckt auch
+            # ETS6-Importe ohne Gewerk-Zuordnung ab, da _collect_actor_rows
+            # dafür bereits selbst auf die COs zurückfällt). Nur echte
+            # Gateways (kein "actor" in _collect_actor_rows) nutzen den
+            # rohen CO-Fallback unten.
+            actor_rows = actor_rows_by_addr.get(dev.physical_address, [])
+            if actor_rows:
+                pdf.add_heading("Kanäle / GA-Verknüpfungen", level=4)
+                for ch_num, ch_rows in group_actor_rows_by_channel(actor_rows):
+                    first = ch_rows[0]
+                    context = " / ".join(p for p in [first.gewerk_code, first.room_name] if p)
+                    label = f"Kanal {ch_num}" + (f" – {context}" if context else "")
+                    pdf.add_heading(label, level=5)
+                    ch_table_rows = [
+                        [r.gewerk_code, r.function_name, r.ga_designation, r.ga_address, r.dpt]
+                        for r in ch_rows
+                    ]
+                    pdf.add_table(
+                        ["Gewerk", "Funktion", "GA-Bezeichnung", "GA-Adresse", "DPT"],
+                        ch_table_rows,
+                        col_widths=[40, 70, 190, 95, 100],
+                    )
             else:
-                pdf.add_paragraph("  (keine GA-Verknüpfungen)")
+                cos_with_ga = [co for co in sorted(dev.communication_objects, key=lambda c: c.object_number)
+                               if co.connected_gas]
+                if cos_with_ga:
+                    pdf.add_heading("Kommunikationsobjekte / GA-Verknüpfungen", level=4)
+
+                    # Auf Kanäle aufteilen (ETS-Konvention im CO-Namen, z.B. "A, Schalten"
+                    # oder "Kanal A"). Objekte ohne erkennbaren Kanal (geräteweite
+                    # Status-/Szenenobjekte) werden ohne eigene Kanal-Überschrift zuerst gelistet.
+                    channel_groups: dict[str, list] = {}
+                    for co in cos_with_ga:
+                        channel_groups.setdefault(_extract_channel_label(co.name), []).append(co)
+
+                    for channel, cos in channel_groups.items():
+                        if channel:
+                            pdf.add_heading(channel, level=5)
+                        co_rows = []
+                        for co in cos:
+                            ga_designations, ga_addresses = [], []
+                            for ga_addr in co.connected_gas:
+                                ga_obj = ga_by_address.get(ga_addr)
+                                ga_designations.append(ga_obj.designation if ga_obj else ga_addr)
+                                ga_addresses.append(ga_addr)
+                            co_rows.append([
+                                str(co.object_number),
+                                co.name or f"KO {co.object_number}",
+                                co.object_function,
+                                " · ".join(ga_designations),
+                                " · ".join(ga_addresses),
+                                co.data_type,
+                            ])
+                        pdf.add_table(
+                            ["KO-Nr.", "Name", "Funktion", "GA-Bezeichnung", "GA-Adresse", "DPT"],
+                            co_rows,
+                            col_widths=[32, 100, 75, 155, 85, 48],
+                        )
+                else:
+                    pdf.add_paragraph("  (keine GA-Verknüpfungen)")
 
             pdf.add_separator()
 

@@ -292,21 +292,15 @@ class KnxprojExportService:
                     IPRoutingLatencyTolerance="2000")
         puid = _PuidCounter(1)
 
-        # KNX Secure: Installation-Schlüssel (FA-2706)
-        knx_secure = getattr(project, "knx_secure", None)
-        if knx_secure and knx_secure.enabled:
-            sec_attribs: dict[str, str] = {}
-            if knx_secure.backbone_key:
-                sec_attribs["InstallationKey"] = knx_secure.backbone_key
-            if knx_secure.group_key:
-                sec_attribs["GroupKey"] = knx_secure.group_key
-            if sec_attribs:
-                _sub(inst, "Security", **sec_attribs)
+        # Hinweis KNX Secure: Die tatsaechlichen Laufzeitschluessel (Backbone/
+        # Group/Tool Key) werden ausschliesslich von ETS6 aus dem
+        # geraeteindividuellen Zertifikat (FDSK) erzeugt und sind KNiX Arranger
+        # nicht bekannt. Es werden daher keine Security-Schluesselwerte in den
+        # Export geschrieben (siehe models/knx_secure.py).
 
         # 1. Topologie (muss vor Locations sein; baut Device-ID-Map auf)
         dev_count, co_count, missing, dev_id_map = self._write_topology(
             inst, project.topology, puid,
-            secure_cfg=knx_secure if (knx_secure and knx_secure.enabled) else None,
         )
         summary.device_count = dev_count
         summary.co_link_count = co_count
@@ -385,7 +379,6 @@ class KnxprojExportService:
 
     def _write_topology(
         self, parent: ET.Element, topology, puid: _PuidCounter,
-        secure_cfg=None,
     ) -> tuple[int, int, int, dict]:
         """
         Schreibt Bereiche, Linien und Geraete (FA-2402/2403).
@@ -453,15 +446,6 @@ class KnxprojExportService:
                         dev_attribs["Comment"] = device.installation_location
                     dev_inst = _sub(seg_elem, "DeviceInstance", **dev_attribs)
                     dev_id_map[device.id] = dev_xml_id
-
-                    # KNX Secure: Geräteschlüssel (FA-2706)
-                    if secure_cfg is not None:
-                        dev_info = secure_cfg.device_infos.get(device.id)
-                        if dev_info and dev_info.tool_key:
-                            sec_dev_attribs: dict[str, str] = {
-                                "ToolKey": dev_info.tool_key
-                            }
-                            _sub(dev_inst, "Security", **sec_dev_attribs)
 
                     # CO-GA-Links (FA-2404): Im ETS6-Format referenziert
                     # ComObjectInstanceRef.RefId die geraetespezifische

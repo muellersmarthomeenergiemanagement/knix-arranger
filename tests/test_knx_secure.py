@@ -1,10 +1,11 @@
-"""Tests fuer KNX Secure (FA-2701 bis FA-2706)."""
+"""Tests fuer das KNX-Secure-Archiv (FA-2701, FA-2703-2706, ueberarbeitet)."""
 import pytest
 from knix_arranger.models.knx_secure import (
-    KnxSecureConfig, DeviceSecureInfo, generate_knx_key, KEY_LENGTH_BYTES,
-    GA_SECURITY_MODES,
+    KnxSecureConfig, DeviceSecureInfo, GA_SECURITY_MODES, is_valid_knx_key,
 )
-from knix_arranger.services.knx_secure_service import KnxSecureService, MixedLineWarning
+from knix_arranger.services.knx_secure_service import (
+    KnxSecureService, MixedLineWarning, KnxSecureWrongPassword,
+)
 from knix_arranger.models.project import KnxProject
 from knix_arranger.models.group_address import GroupAddress
 
@@ -46,39 +47,40 @@ class TestKnxSecureModel:
         cfg = KnxSecureConfig()
         assert cfg.enabled is False
 
-    def test_default_keys_empty(self):
+    def test_default_fields_empty(self):
         cfg = KnxSecureConfig()
-        assert cfg.backbone_key == ""
-        assert cfg.group_key == ""
-        assert cfg.ga_keys == {}
+        assert cfg.ets_project_password == ""
+        assert cfg.ets_password_note == ""
         assert cfg.device_infos == {}
+        assert cfg.is_locked is False
 
-    def test_generate_knx_key_format(self):
-        """Schluessel hat 32 Hex-Zeichen (128 bit = 16 Byte)."""
-        key = generate_knx_key()
-        assert len(key) == KEY_LENGTH_BYTES * 2
-        assert all(c in "0123456789ABCDEF" for c in key)
-
-    def test_generate_knx_key_unique(self):
-        """Jeder generierte Schluessel ist einzigartig."""
-        keys = {generate_knx_key() for _ in range(50)}
-        assert len(keys) == 50
+    def test_is_valid_knx_key_format(self):
+        assert is_valid_knx_key("A" * 32) is True
+        assert is_valid_knx_key("XYZ") is False
+        assert is_valid_knx_key("A" * 31) is False
 
     def test_serialization_roundtrip(self):
         cfg = KnxSecureConfig(
             enabled=True,
-            backbone_key="AABBCCDDEEFF00112233445566778899",
-            group_key="0011223344556677889900AABBCCDDEE",
+            ets_project_password="geheim123",
+            ets_password_note="Im Firmentresor hinterlegt",
         )
-        cfg.ga_keys["1/1/1"] = "A1B2C3D4E5F6071829304A5B6C7D8E9F"
         cfg.device_infos["dev-1"] = DeviceSecureInfo(
-            device_id="dev-1", device_name="Schalter", secure_supported=True
+            device_id="dev-1", device_name="Schalter", secure_supported=True,
+            fdsk="AABBCCDDEEFF00112233445566778899"[:32],
         )
         restored = KnxSecureConfig.from_dict(cfg.to_dict())
         assert restored.enabled is True
-        assert restored.backbone_key == cfg.backbone_key
-        assert restored.ga_keys["1/1/1"] == cfg.ga_keys["1/1/1"]
+        assert restored.ets_project_password == cfg.ets_project_password
+        assert restored.ets_password_note == cfg.ets_password_note
         assert "dev-1" in restored.device_infos
+        assert restored.device_infos["dev-1"].fdsk == cfg.device_infos["dev-1"].fdsk
+
+    def test_no_tool_key_or_runtime_keys_on_device_info(self):
+        """DeviceSecureInfo verwaltet keine ETS-Laufzeitschluessel mehr,
+        nur das Zertifikat (FDSK)."""
+        info = DeviceSecureInfo(device_id="d1")
+        assert not hasattr(info, "tool_key")
 
     def test_project_knx_secure_default(self):
         """Neues Projekt hat nicht-aktivierten KNX Secure."""
@@ -98,49 +100,10 @@ class TestKnxSecureService:
         self.project = _make_project()
         self.cfg = self.project.knx_secure
 
-    def test_generate_all_keys_backbone(self):
-        """generate_all_project_keys setzt Backbone Key."""
-        self.svc.generate_all_project_keys(self.cfg, self.project)
-        assert len(self.cfg.backbone_key) == 32
-
-    def test_generate_all_keys_group(self):
-        self.svc.generate_all_project_keys(self.cfg, self.project)
-        assert len(self.cfg.group_key) == 32
-
-    def test_generate_all_keys_no_overwrite(self):
-        """Bestehende Schluessel werden nicht ueberschrieben."""
-        fixed = "A" * 32
-        self.cfg.backbone_key = fixed
-        self.svc.generate_all_project_keys(self.cfg, self.project)
-        assert self.cfg.backbone_key == fixed
-
-    def test_generate_all_keys_returns_count(self):
-        """Gibt die Anzahl neu generierter Schluessel zurueck."""
-        n = self.svc.generate_all_project_keys(self.cfg, self.project)
-        assert n >= 2  # Mindestens backbone + group key
-
-    def test_regenerate_backbone_key(self):
-        self.cfg.backbone_key = "OLD" + "A" * 29
-        old = self.cfg.backbone_key
-        new_key = self.svc.regenerate_key(self.cfg, "backbone_key")
-        assert new_key != old
-        assert self.cfg.backbone_key == new_key
-
-    def test_regenerate_group_key(self):
-        new_key = self.svc.regenerate_key(self.cfg, "group_key")
-        assert len(new_key) == 32
-        assert self.cfg.group_key == new_key
-
-    def test_regenerate_ga_key(self):
-        self.cfg.ga_keys["1/2/3"] = "0" * 32
-        new_key = self.svc.regenerate_key(self.cfg, "ga_key", scope_id="1/2/3")
-        assert self.cfg.ga_keys["1/2/3"] == new_key
-        assert new_key != "0" * 32
-
     def test_get_summary(self):
         summary = self.svc.get_summary(self.cfg, self.project)
         assert "enabled" in summary
-        assert "backbone_key_set" in summary
+        assert "ets_password_set" in summary
         assert "ga_security_on" in summary
 
     def test_reset_ga_security(self):
@@ -243,49 +206,70 @@ class TestMixedLineCheck:
         assert "2" in warnings[0].message and "3" in warnings[0].message
 
 
-# ── FA-2706: Verschluesselung ─────────────────────────────────────────────────
+# ── FA-2706: Passwortbasierte Verschluesselung des Archivs ───────────────────
 
 class TestKnxSecureEncryption:
     def test_encrypt_decrypt_roundtrip(self):
-        """Verschluesselung und Entschluesselung ist verlustfrei."""
+        """Verschluesselung/Entschluesselung der sensiblen Felder ist verlustfrei."""
         cfg = KnxSecureConfig(
             enabled=True,
-            backbone_key=generate_knx_key(),
-            group_key=generate_knx_key(),
+            ets_project_password="s3cr3t-ets-pw",
+            ets_password_note="Backup im Tresor",
         )
-        blob = KnxSecureService.encrypt_config(cfg, "test-project-id")
-        assert blob.get("encrypted") is True
-        restored = KnxSecureService.decrypt_config(blob, "test-project-id")
-        assert restored.backbone_key == cfg.backbone_key
-        assert restored.group_key == cfg.group_key
+        cfg.device_infos["d1"] = DeviceSecureInfo(
+            device_id="d1", device_name="Schalter",
+            fdsk="A1B2C3D4E5F6071829304A5B6C7D8E9F",
+        )
+        blob = KnxSecureService.encrypt_config(cfg, "master-passwort")
+        assert blob.get("secure_blob") is not None
+        # Sensible Felder liegen im Klartext-Teil nicht mehr vor
+        assert blob["ets_project_password"] == ""
+        assert blob["device_infos"]["d1"]["fdsk"] == ""
 
-    def test_wrong_project_id_returns_empty(self):
-        """Falscher Projekt-ID liefert leere Konfiguration."""
-        cfg = KnxSecureConfig(
-            enabled=True,
-            backbone_key=generate_knx_key(),
+        restored = KnxSecureService.decrypt_config(blob, "master-passwort")
+        assert restored.ets_project_password == cfg.ets_project_password
+        assert restored.ets_password_note == cfg.ets_password_note
+        assert restored.device_infos["d1"].fdsk == cfg.device_infos["d1"].fdsk
+
+    def test_non_sensitive_fields_stay_plaintext(self):
+        """secure_supported/Geraetestruktur bleiben ohne Passwort lesbar."""
+        cfg = KnxSecureConfig(enabled=True, ets_project_password="pw")
+        cfg.device_infos["d1"] = DeviceSecureInfo(
+            device_id="d1", device_name="Aktor", secure_supported=True,
         )
-        blob = KnxSecureService.encrypt_config(cfg, "project-A")
-        restored = KnxSecureService.decrypt_config(blob, "project-B")
-        # Muss ohne Exception durchlaufen; Schluessel sollten nicht uebereinstimmen
-        assert isinstance(restored, KnxSecureConfig)
+        blob = KnxSecureService.encrypt_config(cfg, "master-passwort")
+        loaded_without_password = KnxSecureConfig.from_dict(blob)
+        assert loaded_without_password.device_infos["d1"].secure_supported is True
+        assert loaded_without_password.device_infos["d1"].device_name == "Aktor"
+
+    def test_wrong_password_raises(self):
+        """Falsches Master-Passwort wirft KnxSecureWrongPassword statt leise zu scheitern."""
+        cfg = KnxSecureConfig(enabled=True, ets_project_password="pw")
+        blob = KnxSecureService.encrypt_config(cfg, "richtiges-passwort")
+        with pytest.raises(KnxSecureWrongPassword):
+            KnxSecureService.decrypt_config(blob, "falsches-passwort")
 
     def test_project_serialization_with_secure(self):
-        """KNX Secure Schluessel ueberstehen Projekt-Serialisierung."""
+        """Archiv uebersteht Projekt-Serialisierung, wenn ein Session-Passwort gesetzt ist."""
         project = KnxProject(name="Secure-Projekt")
         project.knx_secure.enabled = True
-        project.knx_secure.backbone_key = generate_knx_key()
-        project.knx_secure.group_key = generate_knx_key()
+        project.knx_secure.ets_project_password = "s3cr3t"
+        KnxSecureService.unlock(project.knx_secure, "master-pw")
 
-        restored = KnxProject.from_dict(project.to_dict())
+        data = project.to_dict()
+        assert data["knx_secure"].get("secure_blob") is not None
+
+        restored = KnxProject.from_dict(data)
         assert restored.knx_secure.enabled is True
-        # Schluessel muessen nach Serialisierung gleich sein
-        assert restored.knx_secure.backbone_key == project.knx_secure.backbone_key
+        assert restored.knx_secure.is_locked is True
+        # Ohne Passwort ist der Wert nicht lesbar
+        assert restored.knx_secure.ets_project_password == ""
+        unlocked = KnxSecureService.unlock(restored.knx_secure, "master-pw")
+        assert unlocked.ets_project_password == "s3cr3t"
 
-    def test_non_encrypted_blob_loads_normally(self):
-        """Nicht-verschluesselter Blob wird direkt geladen."""
-        cfg = KnxSecureConfig(enabled=False, backbone_key="ABCD" * 8)
-        blob = cfg.to_dict()
-        assert not blob.get("encrypted")
-        restored = KnxSecureService.decrypt_config(blob, "any-id")
-        assert restored.backbone_key == cfg.backbone_key
+    def test_no_password_set_stores_plaintext(self):
+        """Ohne je ein Master-Passwort gesetzt zu haben, wird (leeres) Archiv
+        einfach als Klartext-Dict gespeichert -- kein Absturz."""
+        project = KnxProject(name="Ohne-Passwort")
+        data = project.to_dict()
+        assert data["knx_secure"].get("secure_blob") is None

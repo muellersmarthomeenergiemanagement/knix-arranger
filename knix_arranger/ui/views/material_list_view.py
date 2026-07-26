@@ -173,6 +173,14 @@ class MaterialListView(QWidget):
 
         layout.addLayout(toolbar)
 
+        legend = QLabel(
+            "<span style='color:#1B5E20;'>&#9679;</span> Produkt zugewiesen&nbsp;&nbsp;"
+            "<span style='color:#BF360C;'>&#9679;</span> Kanaldefizit (zu wenig Kanäle zugewiesen)&nbsp;&nbsp;"
+            "<span style='color:#666666;'>&#9679;</span> Wizard-Platzhalter (noch kein Produkt zugewiesen)"
+        )
+        legend.setStyleSheet("font-size: 11px; color: #666;")
+        layout.addWidget(legend)
+
         # --- Tabelle ---
         self._table = QTableWidget(0, _NUM_COLS)
         self._table.setHorizontalHeaderLabels([
@@ -541,10 +549,15 @@ class MaterialListView(QWidget):
                     color = QColor("#1B5E20")   # dunkelgrün = OK
                     for item in items:
                         item.setForeground(color)
+                        item.setToolTip("Produkt zugewiesen, Kanalbedarf gedeckt.")
                 else:
                     color = QColor("#666666")   # grau = Platzhalter ohne Zuweisung
                     for item in items:
                         item.setForeground(color)
+                        item.setToolTip(
+                            "Wizard-Platzhalter: noch kein Produkt zugewiesen.\n"
+                            "Doppelklick oder \"Produkt zuweisen\" verwenden."
+                        )
 
             for col, item in enumerate(items):
                 # Nur Menge (Spalte 0) bei manuellen Einträgen editierbar
@@ -970,8 +983,22 @@ class MaterialListView(QWidget):
         Schreibt Produktdaten in alle Device-Objekte der Topologie zurück,
         die zu diesem Materiallisten-Eintrag gehören (per physical_addresses).
         Schreibt auch ComObjects aus KNXPROD zurück (für DatasheetView).
+
+        Aktualisiert zudem die Kanalzahl verknüpfter Bedienelemente auf die
+        effektive Kanalzahl des zugewiesenen Produkts: die geplante (bedarfs-
+        basierte) Kanalzahl ist oft kleiner als die des tatsächlich verbauten
+        Geräts (z.B. 8-fach-Taster statt berechneter 7 Kanäle) – das Bauherr-
+        Formular bietet dank be.channels dann die zusätzlichen Tasten als
+        wählbare Slots an.
         """
         from ...models.topology import CommunicationObject
+
+        be_by_addr = {
+            be.participant_number: be
+            for room in self._project.all_rooms
+            for be in room.bedienelemente
+            if be.participant_number
+        }
 
         def _apply(device: Device) -> None:
             device.manufacturer = prod.manufacturer
@@ -988,6 +1015,10 @@ class MaterialListView(QWidget):
                     )
                     for co in prod.com_objects
                 ]
+            if prod.channels:
+                be = be_by_addr.get(device.physical_address)
+                if be:
+                    be.channels = prod.channels
 
         addr_set = set(entry.physical_addresses)
         for area in self._project.topology.areas:
@@ -1114,6 +1145,15 @@ class MaterialListView(QWidget):
         try:
             new_qty = int(item.text())
         except (ValueError, TypeError):
+            # Ungültige Eingabe nicht still verwerfen: ohne Rebuild würde die
+            # Zelle den ungültigen Text weiter anzeigen, obwohl das Modell
+            # unveraendert bleibt (Anzeige und Modell laufen auseinander).
+            QMessageBox.warning(
+                self, "Ungültige Menge",
+                f"'{item.text()}' ist keine gültige Ganzzahl.\n"
+                "Der vorherige Wert bleibt erhalten."
+            )
+            self._rebuild_table()
             return
 
         if new_qty < 1:

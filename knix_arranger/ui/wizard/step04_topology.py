@@ -291,6 +291,19 @@ class Step04Topology(QWidget):
         action_layout.addStretch()
         left.addLayout(action_layout)
 
+        legend = QLabel(
+            f"<span style='color:{_COLOR_COUPLER.name()};'>&#9679;</span> Koppler&nbsp;&nbsp;"
+            f"<span style='color:{_COLOR_POWER.name()};'>&#9679;</span> Speisegerät&nbsp;&nbsp;"
+            f"<span style='color:{_COLOR_ROOM.name()};'>&#9679;</span> Raum&nbsp;&nbsp;"
+            f"<span style='color:{_COLOR_ASSIGNED.name()};'>&#9679;</span> Produkt zugewiesen&nbsp;&nbsp;"
+            f"<span style='color:{_COLOR_PLACEHOLDER.name()};'>&#9679;</span> Platzhalter&nbsp;&nbsp;"
+            f"<span style='color:{_COLOR_MANUAL.name()};'>&#9679;</span> manuell hinzugefügt&nbsp;&nbsp;"
+            f"<span style='color:{_COLOR_PROGRAMMED.name()};'>&#9679;</span> programmiert (gesperrt)"
+        )
+        legend.setWordWrap(True)
+        legend.setStyleSheet("font-size: 10px; color: #666;")
+        left.addWidget(legend)
+
         content.addLayout(left, 2)
 
         # --- Rechte Seite: Detail-Panel ---

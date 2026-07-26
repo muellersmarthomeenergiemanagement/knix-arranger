@@ -514,6 +514,7 @@ class SensorService:
                     description=sf.label or sf.ga_designation,
                     action_type=sf.action_type,   # z.B. "kurz" für Szene-Aufruf
                     is_feedback=False,
+                    sf_id=sf.id,
                 ))
                 total += 1
                 continue
@@ -544,6 +545,7 @@ class SensorService:
                     description=desc,
                     action_type=action_type,
                     is_feedback=False,
+                    sf_id=sf.id,
                 ))
                 total += 1
 
@@ -562,6 +564,7 @@ class SensorService:
                     description=fb_desc,
                     action_type="",
                     is_feedback=True,
+                    sf_id=sf.id,
                 ))
                 total += 1
 

@@ -557,6 +557,11 @@ class FunctionAssignment:
     # True = Rückmelde-GA (LED-Ansteuerung, nur empfangen),
     # False = Steuer-GA (Taster sendet)
     is_feedback: bool = False
+    # Id der SensorFunktion, aus der dieser Eintrag abgeleitet wurde (FA-2503).
+    # Direkte GA (Variante 2): eindeutig 1:1 -- per Matrix-Doppelklick editierbar.
+    # Gewerk-basiert (Variante 1): mehrere FunctionAssignment teilen sich eine
+    # sf_id (Primär+Rückmeldung) -- nicht einzeln editierbar, siehe Schritt 5 Gewerke.
+    sf_id: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -565,6 +570,7 @@ class FunctionAssignment:
             "description": self.description,
             "action_type": self.action_type,
             "is_feedback": self.is_feedback,
+            "sf_id": self.sf_id,
         }
 
     @classmethod
@@ -575,6 +581,7 @@ class FunctionAssignment:
             description=data.get("description", ""),
             action_type=data.get("action_type", ""),
             is_feedback=data.get("is_feedback", False),
+            sf_id=data.get("sf_id", ""),
         )
 
 

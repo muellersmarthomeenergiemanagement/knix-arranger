@@ -18,9 +18,7 @@ from PySide6.QtGui import QFont
 
 from ...models.project import KnxProject
 from ...models.building import Room, Bedienelement, SensorFunktion
-from ...services.bauherr_form_service import (
-    _DROPDOWN_OPTIONS, _button_count_from_type, BauherrFormService,
-)
+from ...services.bauherr_form_service import _DROPDOWN_OPTIONS, BauherrFormService
 from ..styles import KNX_BLUE, KNX_DARK_GREEN
 
 # ── Farben (identisch zum Excel-Formular) ────────────────────────────────────
@@ -164,7 +162,7 @@ class _TasterWidget(QFrame):
 
         # ── Geräte-Header ─────────────────────────────────────────────────
         pn   = be.participant_number or "–"
-        name = be.product_name or be.element_type
+        name = service._device_product_name(be)
         mode = "Auto" if be.is_auto else "Manuell"
         te_idx = getattr(be, "taster_index", 1)
         te_label = (f"  Tastereinheit {te_idx}  –  " if be.element_type == "Tastereinheit" else "  ")
@@ -178,7 +176,7 @@ class _TasterWidget(QFrame):
         layout.addWidget(hdr)
 
         # ── Taster-Raster ──────────────────────────────────────────────────
-        n_buttons = _button_count_from_type(be.element_type)
+        n_buttons = be.channels
         n_slots   = max(n_buttons, len(be.funktionen))
 
         grid_widget = QWidget()

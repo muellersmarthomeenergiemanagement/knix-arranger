@@ -16,12 +16,14 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from ...models.topology import Topology, Area, Line, Device
+from ...services.belegungsplan_service import _extract_channel_label, group_actor_rows_by_channel
 from ..column_utils import fit_columns
 
 # Farben für Infrastruktur-Knoten
 _COLOR_COUPLER     = QColor("#1565C0")  # Dunkelblau: Koppler
 _COLOR_POWER       = QColor("#2E7D32")  # Dunkelgrün: Speisegerät
 _COLOR_PROGRAMMED  = QColor("#4527A0")  # Violett: physikalisch programmiert (Adresse fixiert)
+_COLOR_SECURE_MISSING = QColor("#C62828")  # Rot: Gerät unterstützt kein KNX Secure (FA-2704)
 
 # UserRole-Schlüssel für Baumdaten
 _ROLE_DATA = Qt.UserRole
@@ -36,6 +38,9 @@ class TopologyView(QWidget):
         super().__init__(parent)
         self._topology: Topology | None = None
         self._bus = None
+        self._knx_secure = None  # KnxSecureConfig, siehe set_knx_secure() (FA-2704)
+        self._ga_structure = None  # GroupAddressStructure, siehe set_group_addresses()
+        self._belegungsplan = None  # BelegungsplanData, siehe set_project() -- Kanalanzeige Aktoren
 
         layout = QVBoxLayout(self)
 
@@ -66,6 +71,11 @@ class TopologyView(QWidget):
         toolbar.addWidget(hint)
         layout.addLayout(toolbar)
 
+        self._legend = QLabel()
+        self._legend.setStyleSheet("font-size: 11px; color: #666;")
+        self._update_legend()
+        layout.addWidget(self._legend)
+
         self._tree = QTreeWidget()
         self._tree.itemExpanded.connect(lambda _: fit_columns(self._tree))
         self._tree.setHeaderLabels([
@@ -85,6 +95,55 @@ class TopologyView(QWidget):
     def set_topology(self, topology: Topology):
         self._topology = topology
         self._refresh()
+
+    def set_knx_secure(self, knx_secure_config) -> None:
+        """Verbindet die View mit der KNX-Secure-Konfiguration (FA-2704).
+
+        Bei aktiviertem KNX Secure werden Geräte, die laut KNXPROD-Daten kein
+        KNX Secure unterstützen, in der Topologie-Ansicht rot markiert --
+        bisher war das nur im separaten KNX-Secure-Modul sichtbar.
+        """
+        self._knx_secure = knx_secure_config
+        self._update_legend()
+        if self._topology is not None:
+            self._refresh()
+
+    def set_group_addresses(self, ga_structure) -> None:
+        """Verbindet die View mit der GA-Struktur, um Kanal-Gruppenadressen
+        unter Aktoren anzuzeigen (FA-1007 Kanal-Anzeige)."""
+        self._ga_structure = ga_structure
+        if self._topology is not None:
+            self._refresh()
+
+    def set_project(self, project) -> None:
+        """Verbindet die View mit dem vollständigen Projekt (FA-1007 Kanal-Anzeige).
+
+        Berechnet den Belegungsplan (dieselbe Datenquelle wie Verknüpfungsmatrix/
+        Belegungsplan-Export), damit die Kanalknoten unter Aktoren auch in
+        Wizard-Projekten (Gewerk-/GA-basiert, ohne populierte
+        Device.communication_objects) korrekt gruppiert und mit Gewerk-Kontext
+        beschriftet werden -- nicht nur bei ETS6-Importen mit echten COs.
+        """
+        from ...services.belegungsplan_service import BelegungsplanService
+        self._topology = project.topology
+        self._knx_secure = project.knx_secure
+        self._ga_structure = project.group_addresses
+        self._belegungsplan = BelegungsplanService().generate(project)
+        self._update_legend()
+        self._refresh()
+
+    def _update_legend(self) -> None:
+        parts = [
+            f"<span style='color:{_COLOR_COUPLER.name()};'>&#9679;</span> Koppler (BK/LK)",
+            f"<span style='color:{_COLOR_POWER.name()};'>&#9679;</span> Speisegerät (SV)",
+            f"<span style='color:{_COLOR_PROGRAMMED.name()};'>&#9679;</span> [P] physikalisch programmiert (Adresse gesperrt)",
+        ]
+        if self._knx_secure and self._knx_secure.enabled:
+            parts.append(
+                f"<span style='color:{_COLOR_SECURE_MISSING.name()};'>&#9679;</span> "
+                "kein KNX Secure (FA-2704)"
+            )
+        self._legend.setText("&nbsp;&nbsp;".join(parts))
 
     # ── Baum aufbauen ──
 
@@ -182,6 +241,11 @@ class TopologyView(QWidget):
             f"Modus: {self._topology.topology_mode} | "
             f"{total_areas} Bereiche, {total_lines} Linien, "
             f"{total_devices} Geräte  –  Rechtsklick zum Bearbeiten"
+        )
+
+        ga_by_address = (
+            {ga.address: ga for ga in self._ga_structure.all_addresses()}
+            if self._ga_structure else {}
         )
 
         for area in self._topology.areas:
@@ -329,8 +393,29 @@ class TopologyView(QWidget):
                         status,
                     ])
                     dev_item.setData(0, _ROLE_DATA, ("device", area, line, device))
-                    if device.is_programmed:
+
+                    # FA-2704: Secure-inkompatible Geräte rot markieren (nur
+                    # wenn KNX Secure aktiv ist und die Kompatibilität bereits
+                    # geprüft wurde -- ungeprüfte Geräte werden nicht geraten).
+                    secure_missing = False
+                    if self._knx_secure and self._knx_secure.enabled:
+                        info = self._knx_secure.device_infos.get(device.id)
+                        secure_missing = bool(info and not info.secure_supported)
+
+                    if secure_missing:
+                        self._colorize(dev_item, _COLOR_SECURE_MISSING)
+                        dev_item.setToolTip(
+                            0, "Gerät unterstützt laut KNXPROD-Daten kein KNX Secure (FA-2704)"
+                        )
+                    elif device.is_programmed:
                         self._colorize(dev_item, _COLOR_PROGRAMMED)
+
+                    # FA-1007: Kanäle unter Aktoren anzeigen -- gruppiert nach
+                    # physischem Kanal (nicht nach Befehlstyp, siehe
+                    # _extract_channel_label), damit z.B. Schalten/Sperren/
+                    # Status desselben Ausgangs A zusammen erscheinen.
+                    if device.device_type == "actor":
+                        self._add_channel_items(dev_item, device, ga_by_address)
 
         fit_columns(self._tree)
 
@@ -338,6 +423,88 @@ class TopologyView(QWidget):
         self._restore_tree_state(expanded_areas, expanded_lines, selected_id)
         self._tree.setUpdatesEnabled(True)
         self._tree.verticalScrollBar().setValue(vscroll)
+
+    def _add_channel_items(self, dev_item: QTreeWidgetItem, device: Device,
+                            ga_by_address: dict) -> None:
+        """Fügt Kanal-Kindknoten mit ihren Gruppenadressen unter einem Aktor ein.
+
+        Bevorzugt die Belegungsplan-Daten (self._belegungsplan.actor_rows): in
+        Wizard-Projekten (Gewerk-/GA-basiert) ist Device.communication_objects
+        meist leer -- die einzige Quelle mit korrekter Kanal-Zuordnung samt
+        Gewerk-Kontext ist dort BelegungsplanService. Fällt auf die rohen COs
+        zurück, wenn kein Belegungsplan vorliegt oder das Gerät dort keine
+        Zeilen hat (z.B. reine ETS6-Importe ohne Gewerk-Zuordnung -- dort greift
+        der CO-Fallback in belegungsplan_service._collect_actor_rows bereits,
+        und dessen Zeilen erscheinen dann ebenfalls unter self._belegungsplan).
+        """
+        if self._belegungsplan is not None:
+            rows = [r for r in self._belegungsplan.actor_rows
+                    if r.physical_address == device.physical_address]
+            if rows:
+                self._add_channel_items_from_rows(dev_item, rows)
+                return
+        self._add_channel_items_from_cos(dev_item, device, ga_by_address)
+
+    @staticmethod
+    def _add_channel_items_from_rows(dev_item: QTreeWidgetItem, rows: list) -> None:
+        """Kanalknoten aus BelegungsplanService.actor_rows -- inkl. Gewerk-Kontext,
+        damit auch bei mehreren Gewerken auf demselben Kanal klar ist, welche
+        GA wozu gehört (z.B. Jalousieaktor mit Auf/Ab UND Sperren desselben
+        Gewerks am selben Ausgang)."""
+        for ch_num, ch_rows in group_actor_rows_by_channel(rows):
+            first = ch_rows[0]
+            context = " / ".join(p for p in [first.gewerk_code, first.room_name] if p)
+            label = f"Kanal {ch_num}" + (f" – {context}" if context else "")
+            ch_item = QTreeWidgetItem(dev_item, [
+                label, "", "", "", f"{len(ch_rows)} GA(s)",
+            ])
+            ch_item.setForeground(0, QColor("#616161"))
+            for r in ch_rows:
+                gewerk_prefix = f"{r.gewerk_code} " if r.gewerk_code else ""
+                QTreeWidgetItem(ch_item, [
+                    f"{gewerk_prefix}{r.function_name}: {r.ga_designation}",
+                    r.ga_address,
+                    "",
+                    "",
+                    r.dpt,
+                ])
+
+    @staticmethod
+    def _add_channel_items_from_cos(dev_item: QTreeWidgetItem, device: Device,
+                                     ga_by_address: dict) -> None:
+        """Kanalknoten direkt aus Device.communication_objects (ETS6-Import-
+        Fallback ohne Belegungsplan). Gruppierung per
+        _extract_channel_label(co.name) -- fällt auf die CO-Objektnummer
+        zurück, wenn kein Kanal aus dem Namen erkennbar ist.
+        """
+        cos_with_ga = [co for co in sorted(device.communication_objects,
+                                            key=lambda c: c.object_number)
+                       if co.connected_gas]
+        if not cos_with_ga:
+            return
+
+        channel_groups: dict[str, list] = {}
+        for co in cos_with_ga:
+            label = _extract_channel_label(co.name) or f"CO {co.object_number}"
+            channel_groups.setdefault(label, []).append(co)
+
+        for label, cos in channel_groups.items():
+            ga_count = sum(len(co.connected_gas) for co in cos)
+            ch_item = QTreeWidgetItem(dev_item, [
+                label, "", "", "", f"{ga_count} GA(s)",
+            ])
+            ch_item.setForeground(0, QColor("#616161"))
+            for co in cos:
+                for ga_addr in co.connected_gas:
+                    ga_obj = ga_by_address.get(ga_addr)
+                    label_text = ga_obj.designation if ga_obj else ga_addr
+                    QTreeWidgetItem(ch_item, [
+                        f"{co.name or co.object_function}: {label_text}",
+                        ga_addr,
+                        "",
+                        "",
+                        ga_obj.datapoint_type if ga_obj else "",
+                    ])
 
     # ── Toolbar-Aktionen ──
 

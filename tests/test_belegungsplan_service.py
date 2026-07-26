@@ -14,8 +14,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from knix_arranger.models.project import KnxProject
 from knix_arranger.models.building import (
     Areal, Building, Wing, Floor, Apartment, Room, GewerkAssignment,
+    Bedienelement, FunctionAssignment,
 )
-from knix_arranger.models.topology import Topology, Area, Line, Device
+from knix_arranger.models.topology import Topology, Area, Line, Device, CommunicationObject
 from knix_arranger.models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
@@ -240,3 +241,67 @@ class TestAktorRowFelder:
         assert row.gewerk_code == "L"
         assert row.channel_number == "1"
         assert row.element_number == 1
+
+
+class TestVerknuepfungsmatrixFelder:
+    """FA-2501 (Stockwerk-Filter) / FA-2502 (Funktionsspalten aus Gewerk-Code)."""
+
+    def test_actor_row_hat_floor_name(self):
+        """ActorRow traegt den Stockwerksnamen fuer den FA-2501 Stockwerk-Filter."""
+        room = Room(number="E01", name="Wohnzimmer")
+        gas = [_ga(room, "L", 1, "E/A", 0)]
+        project = _make_project([room], "Schaltaktor 4-fach", gas)
+
+        row = BelegungsplanService().generate(project).actor_rows[0]
+        assert row.floor_name == "EG"
+
+    def test_sensor_row_hat_gewerk_code_aus_co_gekoppelter_ga(self):
+        """SensorRow.gewerk_code kommt von der ueber ein KO verknuepften GA --
+        Grundlage der Funktionsspalten in der Verknuepfungsmatrix (FA-2502).
+
+        Nutzt den CO-Fallback-Pfad (_sensor_rows_from_cos), da
+        auto_assign_functions() manuell gesetzte function_assignments ohne
+        zugehörige Gewerk-Zuweisung im Raum wieder verwirft.
+        """
+        room = Room(number="E01", name="Wohnzimmer")
+        ga = _ga(room, "L", 1, "E/A", 0)
+        project = _make_project([room], "Schaltaktor 4-fach", [ga])
+
+        sensor_dev = Device(
+            device_type="sensor", product="Taster 2-fach", physical_address="1.1.2",
+        )
+        sensor_dev.communication_objects = [
+            CommunicationObject(object_number=1, name="Taste 1",
+                                 object_function="Schalten", connected_gas=[ga.address]),
+        ]
+        project.topology.areas[0].lines[0].devices.append(sensor_dev)
+
+        be = Bedienelement(element_type="Tastereinheit", participant_number="1.1.2")
+        room.bedienelemente = [be]
+
+        rows = BelegungsplanService().generate(project).sensor_rows
+        assert len(rows) == 1
+        assert rows[0].gewerk_code == "L"
+        assert rows[0].floor_name == "EG"
+
+    def test_sensor_row_gewerk_code_leer_ohne_aufgeloeste_ga(self):
+        """Ohne auflösbare GA (unbekannte Adresse im KO) bleibt gewerk_code
+        leer statt zu raten."""
+        room = Room(number="E01", name="Wohnzimmer")
+        project = _make_project([room], "Schaltaktor 4-fach", [])
+
+        sensor_dev = Device(
+            device_type="sensor", product="Taster 2-fach", physical_address="1.1.2",
+        )
+        sensor_dev.communication_objects = [
+            CommunicationObject(object_number=1, name="Taste 1",
+                                 object_function="Schalten", connected_gas=["9/7/255"]),
+        ]
+        project.topology.areas[0].lines[0].devices.append(sensor_dev)
+
+        be = Bedienelement(element_type="Tastereinheit", participant_number="1.1.2")
+        room.bedienelemente = [be]
+
+        rows = BelegungsplanService().generate(project).sensor_rows
+        assert len(rows) == 1
+        assert rows[0].gewerk_code == ""

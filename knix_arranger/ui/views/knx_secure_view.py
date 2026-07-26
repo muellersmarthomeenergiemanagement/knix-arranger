@@ -1,15 +1,23 @@
 """
-KNX Secure Konfigurationsansicht (FA-2701).
+KNX Secure Archivansicht (FA-2701, überarbeitet).
 
-Ermöglicht die Verwaltung von KNX Secure Schlüsseln, GA-Sicherheitsmodi
-und zeigt Gerätekompatibilitätsinformationen an.
+Dokumentiert die beiden einzigen Geheimnisse, die im gesamten Projekt
+tatsächlich Bestand haben und nicht rekonstruierbar sind, falls sie
+verloren gehen:
+- FDSK/Zertifikat je Gerät (ab Werk mitgeliefert)
+- ETS6-Projektpasswort (ohne dieses ist das ETS6-Projekt nicht wiederherstellbar)
+
+KNiX Arranger generiert und verwaltet KEINE KNX-Secure-Laufzeitschlüssel --
+diese kennt und erzeugt ausschliesslich ETS6 aus dem FDSK. Die sensiblen
+Felder werden mit einem selbstgewählten Master-Passwort verschlüsselt
+gespeichert (siehe KnxSecureService).
 """
 from __future__ import annotations
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox, QPushButton,
     QTableWidget, QTableWidgetItem, QGroupBox, QTabWidget, QHeaderView,
     QAbstractItemView, QMessageBox, QComboBox, QLineEdit, QFormLayout,
-    QSplitter, QInputDialog,
+    QSplitter, QInputDialog, QTextEdit,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
@@ -18,7 +26,7 @@ from ...models.knx_secure import (
     KnxSecureConfig, GA_SECURITY_MODES, SECURE_MODES, SECURE_MODE_LABELS,
     is_valid_knx_key,
 )
-from ...services.knx_secure_service import KnxSecureService
+from ...services.knx_secure_service import KnxSecureService, KnxSecureWrongPassword
 from ..column_utils import fit_columns
 
 _COL_DEV_NAME   = 0
@@ -26,8 +34,7 @@ _COL_DEV_ADDR   = 1
 _COL_DEV_LINE   = 2
 _COL_DEV_SECURE = 3
 _COL_DEV_FDSK   = 4
-_COL_DEV_TKEY   = 5
-_DEV_COLS = 6
+_DEV_COLS = 5
 
 _COL_GA_ADDR  = 0
 _COL_GA_NAME  = 1
@@ -35,41 +42,45 @@ _COL_GA_FUNC  = 2
 _COL_GA_SEC   = 3
 _GA_COLS = 4
 
-_COL_GAKEY_ADDR = 0
-_COL_GAKEY_KEY  = 1
-_GAKEY_COLS = 3
-
 
 class KnxSecureView(QWidget):
-    """Hauptansicht für KNX Secure (FA-2701)."""
+    """Hauptansicht für das KNX-Secure-Archiv (FA-2701)."""
 
     def __init__(self, project: KnxProject, parent=None):
         super().__init__(parent)
         self._project = project
         self._service = KnxSecureService()
-        self._building_view = None
 
         layout = QVBoxLayout(self)
 
         # ── Header ────────────────────────────────────────────────────────────
         hdr = QHBoxLayout()
-        title = QLabel("<b>KNX Secure Konfiguration</b>")
+        title = QLabel("<b>KNX Secure – Zertifikats- und Zugangsdaten-Archiv</b>")
         title.setStyleSheet("font-size: 14px;")
         hdr.addWidget(title)
         hdr.addStretch()
 
-        self._btn_validate = QPushButton("Konfiguration validieren…")
-        self._btn_validate.setToolTip(
-            "Prüft alle KNX Secure Einstellungen auf Vollständigkeit und Konsistenz (FA-2706)"
-        )
+        self._lock_status = QLabel("")
+        hdr.addWidget(self._lock_status)
+
+        self._btn_unlock = QPushButton("🔒 Entsperren…")
+        self._btn_unlock.clicked.connect(self._on_unlock_clicked)
+        hdr.addWidget(self._btn_unlock)
+
+        self._btn_validate = QPushButton("Archiv validieren…")
         self._btn_validate.clicked.connect(self._validate_config)
         hdr.addWidget(self._btn_validate)
 
         layout.addLayout(hdr)
 
         info = QLabel(
-            "KNX Secure sichert die Kommunikation auf dem KNX-Bus durch AES-128-CCM-Verschlüsselung "
-            "(KNX Data Secure: EN 50090-3-4 | KNX IP Secure: ISO 22510 | Kryptographie: ISO 18033-3)."
+            "KNiX Arranger generiert und verwaltet KEINE KNX-Secure-Laufzeitschlüssel -- "
+            "diese erzeugt ausschliesslich die ETS6 aus dem geräteindividuellen Zertifikat "
+            "(FDSK). Dieses Modul archiviert nur, was tatsächlich unwiederbringlich verloren "
+            "geht, wenn es nicht dokumentiert wird: das FDSK-Zertifikat je Gerät und das "
+            "ETS6-Projektpasswort. Diese Werte werden mit einem selbstgewählten "
+            "Master-Passwort verschlüsselt gespeichert -- geht dieses verloren, sind auch "
+            "die archivierten Werte nicht wiederherstellbar."
         )
         info.setWordWrap(True)
         layout.addWidget(info)
@@ -98,9 +109,9 @@ class KnxSecureView(QWidget):
 
         # ── Tabs ──────────────────────────────────────────────────────────────
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._build_keys_tab(), "Schlüssel (FA-2702)")
+        self._tabs.addTab(self._build_access_tab(), "Zugangsdaten (ETS6-Passwort)")
         self._tabs.addTab(self._build_ga_tab(), "GA-Sicherheit (FA-2703)")
-        self._tabs.addTab(self._build_devices_tab(), "Gerätekompatibilität (FA-2704/2705)")
+        self._tabs.addTab(self._build_devices_tab(), "Gerätekompatibilität / FDSK (FA-2704)")
         self._tabs.addTab(self._build_warnings_tab(), "Mischlinien-Warnungen (FA-2705)")
         layout.addWidget(self._tabs, 1)
 
@@ -113,15 +124,30 @@ class KnxSecureView(QWidget):
     def refresh(self):
         cfg = self._project.knx_secure
         self._enable_check.setChecked(cfg.enabled)
-        # Sicherheitsmodus setzen
         idx = self._mode_combo.findData(cfg.secure_mode)
         if idx >= 0:
             self._mode_combo.setCurrentIndex(idx)
         self._tabs.setEnabled(cfg.enabled)
-        self._populate_keys_tab(cfg)
+        self._update_lock_status()
+        self._populate_access_tab(cfg)
         self._populate_ga_tab()
         self._populate_devices_tab(cfg)
         self._populate_warnings_tab(cfg)
+
+    def _update_lock_status(self):
+        cfg = self._project.knx_secure
+        if cfg.is_locked:
+            self._lock_status.setText("🔒 Archiv gesperrt")
+            self._lock_status.setStyleSheet("color: #C62828; font-weight: bold;")
+            self._btn_unlock.setVisible(True)
+        elif cfg._session_password:
+            self._lock_status.setText("🔓 Archiv entsperrt")
+            self._lock_status.setStyleSheet("color: #2E7D32;")
+            self._btn_unlock.setVisible(False)
+        else:
+            self._lock_status.setText("Kein Master-Passwort gesetzt")
+            self._lock_status.setStyleSheet("color: #9E9E9E;")
+            self._btn_unlock.setVisible(False)
 
     def _on_enable_toggled(self, checked: bool):
         self._project.knx_secure.enabled = checked
@@ -132,111 +158,151 @@ class KnxSecureView(QWidget):
         if mode:
             self._project.knx_secure.secure_mode = mode
 
-    # ── Schlüssel-Tab ─────────────────────────────────────────────────────────
+    # ── Passwort-Sperre ───────────────────────────────────────────────────────
 
-    def _build_keys_tab(self) -> QWidget:
+    def _on_unlock_clicked(self):
+        self._ensure_unlocked(silent_if_ready=False)
+
+    def _ensure_unlocked(self, silent_if_ready: bool = True) -> bool:
+        """Stellt sicher, dass sensible Felder bearbeitet/angezeigt werden können.
+
+        - Archiv bereits entsperrt oder Master-Passwort schon gesetzt: True.
+        - Archiv gesperrt (verschlüsselte Daten vorhanden): Passwort abfragen
+          und entschlüsseln.
+        - Noch nie verschlüsselt: neues Master-Passwort festlegen (mit
+          Bestätigung).
+        Gibt False zurück, wenn der Nutzer abbricht oder das Passwort falsch ist.
+        """
+        cfg = self._project.knx_secure
+        if cfg._session_password and not cfg.is_locked:
+            return True
+
+        if cfg.is_locked:
+            password, ok = QInputDialog.getText(
+                self, "Archiv entsperren",
+                "Master-Passwort für das KNX-Secure-Archiv:",
+                QLineEdit.Password,
+            )
+            if not ok or not password:
+                return False
+            try:
+                unlocked = KnxSecureService.unlock(cfg, password)
+            except KnxSecureWrongPassword:
+                QMessageBox.warning(
+                    self, "Falsches Passwort",
+                    "Das eingegebene Master-Passwort ist falsch."
+                )
+                return False
+            self._project.knx_secure = unlocked
+            self.refresh()
+            return True
+
+        # Noch nie verschlüsselt -- neues Master-Passwort festlegen
+        pw1, ok1 = QInputDialog.getText(
+            self, "Master-Passwort festlegen",
+            "Neues Master-Passwort für dieses KNX-Secure-Archiv:",
+            QLineEdit.Password,
+        )
+        if not ok1 or not pw1:
+            return False
+        pw2, ok2 = QInputDialog.getText(
+            self, "Master-Passwort bestätigen",
+            "Master-Passwort wiederholen:",
+            QLineEdit.Password,
+        )
+        if not ok2 or pw1 != pw2:
+            QMessageBox.warning(self, "Nicht übereinstimmend",
+                                "Die eingegebenen Passwörter stimmen nicht überein.")
+            return False
+        QMessageBox.information(
+            self, "Master-Passwort gesetzt",
+            "Das Master-Passwort wird NICHT im Projekt gespeichert.\n\n"
+            "Bewahren Sie es getrennt vom Projekt auf (z. B. Passwort-Manager). "
+            "Geht es verloren, sind die archivierten Werte nicht wiederherstellbar."
+        )
+        KnxSecureService.unlock(cfg, pw1)
+        self._update_lock_status()
+        return True
+
+    # ── Zugangsdaten-Tab ──────────────────────────────────────────────────────
+
+    def _build_access_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
 
-        # Projektschlüssel
-        proj_box = QGroupBox("Projektweite Schlüssel")
+        warn = QLabel(
+            "<b>ETS6-Projektpasswort:</b> Schützt das ETS6-Projekt selbst. Ohne dieses "
+            "Passwort kann NIEMAND mehr auf das Projekt zugreifen -- auch KNX/der "
+            "Hersteller können es nicht zurücksetzen oder wiederherstellen."
+        )
+        warn.setWordWrap(True)
+        warn.setStyleSheet("color: #B71C1C;")
+        layout.addWidget(warn)
+
         form = QFormLayout()
 
-        self._backbone_edit = QLineEdit()
-        self._backbone_edit.setPlaceholderText("32 Hex-Zeichen (128 bit) – KNX IP Secure")
-        self._backbone_edit.setReadOnly(True)
-        self._backbone_edit.setToolTip(
-            "Backbone Key: gemeinsamer Schlüssel für KNX IP Secure Routing\n"
-            "(Multicast 224.0.23.12). Wird von ETS generiert."
+        self._ets_pw_edit = QLineEdit()
+        self._ets_pw_edit.setEchoMode(QLineEdit.Password)
+        self._ets_pw_edit.setPlaceholderText("ETS6-Projektpasswort")
+        self._ets_pw_edit.editingFinished.connect(self._on_ets_password_edited)
+        form.addRow("ETS6-Projektpasswort:", self._ets_pw_edit)
+
+        self._btn_show_pw = QPushButton("Anzeigen")
+        self._btn_show_pw.setCheckable(True)
+        self._btn_show_pw.toggled.connect(self._on_toggle_show_password)
+        form.addRow("", self._btn_show_pw)
+
+        self._note_edit = QTextEdit()
+        self._note_edit.setPlaceholderText(
+            "z. B. Hinterlegungsort des Passworts (Tresor, Passwort-Manager, "
+            "Ansprechperson) und Wiederherstellungsplan"
         )
-        form.addRow("Backbone Key:", self._backbone_edit)
+        self._note_edit.setMaximumHeight(100)
+        self._note_edit.textChanged.connect(self._on_note_edited)
+        form.addRow("Notiz / Wiederherstellungsplan:", self._note_edit)
 
-        self._group_key_edit = QLineEdit()
-        self._group_key_edit.setPlaceholderText("32 Hex-Zeichen (128 bit) – Standard Runtime Key")
-        self._group_key_edit.setReadOnly(True)
-        self._group_key_edit.setToolTip(
-            "Group Key: Standard-Laufzeitschlüssel für alle GAs ohne eigenen GA Key.\n"
-            "Via Tool Key verschlüsselt an Geräte übertragen."
-        )
-        form.addRow("Group Key:", self._group_key_edit)
-
-        proj_box.setLayout(form)
-        layout.addWidget(proj_box)
-
-        btn_row = QHBoxLayout()
-        self._btn_gen_all = QPushButton("Alle Schlüssel generieren")
-        self._btn_gen_all.setToolTip("Erzeugt fehlende AES-128 Schlüssel für alle Ebenen")
-        self._btn_gen_all.clicked.connect(self._generate_all_keys)
-        btn_row.addWidget(self._btn_gen_all)
-
-        self._btn_regen_backbone = QPushButton("Backbone Key erneuern")
-        self._btn_regen_backbone.clicked.connect(lambda: self._regen_key("backbone_key"))
-        btn_row.addWidget(self._btn_regen_backbone)
-
-        self._btn_regen_group = QPushButton("Group Key erneuern")
-        self._btn_regen_group.clicked.connect(lambda: self._regen_key("group_key"))
-        btn_row.addWidget(self._btn_regen_group)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
-
-        # GA Runtime Keys (ersetzt nicht-standardkonformes Linienschlüssel-Konzept)
-        ga_key_label = QLabel(
-            "GA Runtime Keys – individuelle Laufzeitschlüssel pro Gruppenadresse:"
-        )
-        ga_key_label.setToolTip(
-            "Laufzeitschlüssel werden via Tool Key verschlüsselt an Geräte übertragen.\n"
-            "Ersetzt das frühere Linienschlüssel-Konzept (kein KNX-Standard)."
-        )
-        layout.addWidget(ga_key_label)
-
-        self._ga_key_table = QTableWidget()
-        self._ga_key_table.setColumnCount(_GAKEY_COLS)
-        self._ga_key_table.setHorizontalHeaderLabels(["GA-Adresse", "Runtime Key", ""])
-        self._ga_key_table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self._ga_key_table)
-
+        layout.addLayout(form)
+        layout.addStretch()
         return w
 
-    def _populate_keys_tab(self, cfg: KnxSecureConfig):
-        self._backbone_edit.setText(cfg.backbone_key)
-        self._group_key_edit.setText(cfg.group_key)
+    def _populate_access_tab(self, cfg: KnxSecureConfig):
+        blocked = cfg.is_locked
+        self._ets_pw_edit.blockSignals(True)
+        self._ets_pw_edit.setText(cfg.ets_project_password)
+        self._ets_pw_edit.setEnabled(not blocked)
+        self._ets_pw_edit.blockSignals(False)
 
-        all_gas = list(self._project.group_addresses.all_addresses())
-        rows = []
-        for ga in all_gas:
-            addr = ga.address
-            if addr:
-                key = cfg.ga_keys.get(addr, "")
-                rows.append((addr, key))
+        self._note_edit.blockSignals(True)
+        self._note_edit.setPlainText(cfg.ets_password_note)
+        self._note_edit.setEnabled(not blocked)
+        self._note_edit.blockSignals(False)
 
-        self._ga_key_table.setRowCount(len(rows))
-        for i, (addr, key) in enumerate(rows):
-            self._ga_key_table.setItem(i, _COL_GAKEY_ADDR, QTableWidgetItem(addr))
-            display_key = (key[:8] + "…" + key[-4:]) if len(key) == 32 else key
-            self._ga_key_table.setItem(i, _COL_GAKEY_KEY, QTableWidgetItem(display_key))
-            btn = QPushButton("Erneuern")
-            btn.clicked.connect(lambda checked, a=addr: self._regen_ga_key(a))
-            self._ga_key_table.setCellWidget(i, 2, btn)
-        fit_columns(self._ga_key_table)
+    def _on_toggle_show_password(self, checked: bool):
+        self._ets_pw_edit.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
+        self._btn_show_pw.setText("Verbergen" if checked else "Anzeigen")
 
-    def _generate_all_keys(self):
-        n = self._service.generate_all_project_keys(
-            self._project.knx_secure, self._project
-        )
-        self._populate_keys_tab(self._project.knx_secure)
-        self._populate_devices_tab(self._project.knx_secure)
-        QMessageBox.information(self, "Schlüssel generiert",
-                                f"{n} neue AES-128-Schlüssel generiert.")
+    def _on_ets_password_edited(self):
+        new_value = self._ets_pw_edit.text()
+        cfg = self._project.knx_secure
+        if new_value == cfg.ets_project_password:
+            return
+        if not self._ensure_unlocked():
+            self._ets_pw_edit.setText(self._project.knx_secure.ets_project_password)
+            return
+        self._project.knx_secure.ets_project_password = new_value
+        self._update_lock_status()
 
-    def _regen_key(self, key_type: str):
-        self._service.regenerate_key(self._project.knx_secure, key_type)
-        self._populate_keys_tab(self._project.knx_secure)
-
-    def _regen_ga_key(self, ga_address: str):
-        self._service.regenerate_key(
-            self._project.knx_secure, "ga_key", scope_id=ga_address
-        )
-        self._populate_keys_tab(self._project.knx_secure)
+    def _on_note_edited(self):
+        cfg = self._project.knx_secure
+        new_value = self._note_edit.toPlainText()
+        if new_value == cfg.ets_password_note:
+            return
+        if not self._ensure_unlocked():
+            self._note_edit.blockSignals(True)
+            self._note_edit.setPlainText(cfg.ets_password_note)
+            self._note_edit.blockSignals(False)
+            return
+        self._project.knx_secure.ets_password_note = new_value
 
     # ── GA-Sicherheits-Tab ────────────────────────────────────────────────────
 
@@ -322,9 +388,10 @@ class KnxSecureView(QWidget):
         layout = QVBoxLayout(w)
 
         fdsk_info = QLabel(
-            "<b>FDSK (Factory Default Setup Key):</b> Geräteindividueller Schlüssel, "
-            "ab Werk aufgedruckt (QR-Code oder alphanumerisch). Wird einmalig verwendet, "
-            "um den Tool Key verschlüsselt zu übertragen – niemals über den Bus gesendet. "
+            "<b>FDSK (Factory Default Setup Key):</b> Geräteindividuelles Zertifikat, "
+            "ab Werk mit dem Gerät mitgeliefert (Aufkleber/QR-Code/Zertifikatskarte). "
+            "ETS6 leitet daraus einmalig die eigentlichen Laufzeitschlüssel ab -- "
+            "KNiX Arranger kann diesen Wert nicht generieren, nur archivieren. "
             "Doppelklick auf FDSK-Spalte zum Eingeben."
         )
         fdsk_info.setWordWrap(True)
@@ -352,7 +419,7 @@ class KnxSecureView(QWidget):
         self._dev_table = QTableWidget()
         self._dev_table.setColumnCount(_DEV_COLS)
         self._dev_table.setHorizontalHeaderLabels([
-            "Gerätename", "Phys. Adresse", "Linie", "KNX Secure", "FDSK", "Tool Key"
+            "Gerätename", "Phys. Adresse", "Linie", "KNX Secure", "FDSK"
         ])
         self._dev_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._dev_table.horizontalHeader().setStretchLastSection(True)
@@ -361,7 +428,7 @@ class KnxSecureView(QWidget):
 
         legend = QLabel(
             "Rot = Gerät unterstützt kein KNX Secure. "
-            "FDSK-Spalte: Doppelklick zum manuellen Eingeben des FDSK vom Geräteetikett."
+            "FDSK-Spalte: Doppelklick zum manuellen Eingeben des FDSK vom Zertifikat/Geräteetikett."
         )
         legend.setWordWrap(True)
         layout.addWidget(legend)
@@ -371,6 +438,7 @@ class KnxSecureView(QWidget):
     def _populate_devices_tab(self, cfg: KnxSecureConfig):
         infos = list(cfg.device_infos.values())
         self._dev_table.setRowCount(len(infos))
+        locked = cfg.is_locked
         for i, info in enumerate(infos):
             line_label = ""
             for area in self._project.topology.areas:
@@ -388,20 +456,22 @@ class KnxSecureView(QWidget):
                 sec_item.setForeground(QColor("#C62828"))
             self._dev_table.setItem(i, _COL_DEV_SECURE, sec_item)
 
-            fdsk_display = (info.fdsk[:8] + "…") if info.fdsk else "– eingeben"
+            if locked:
+                fdsk_display = "🔒 gesperrt"
+            else:
+                fdsk_display = (info.fdsk[:8] + "…") if info.fdsk else "– eingeben"
             fdsk_item = QTableWidgetItem(fdsk_display)
             if not info.fdsk:
                 fdsk_item.setForeground(QColor("#9E9E9E"))
             self._dev_table.setItem(i, _COL_DEV_FDSK, fdsk_item)
-
-            tkey_display = (info.tool_key[:8] + "…") if info.tool_key else ""
-            self._dev_table.setItem(i, _COL_DEV_TKEY, QTableWidgetItem(tkey_display))
 
         fit_columns(self._dev_table)
 
     def _on_dev_table_double_click(self, row: int, col: int):
         """FDSK manuell eingeben via Doppelklick auf FDSK-Spalte."""
         if col != _COL_DEV_FDSK:
+            return
+        if not self._ensure_unlocked():
             return
         infos = list(self._project.knx_secure.device_infos.values())
         if row >= len(infos):
@@ -411,7 +481,7 @@ class KnxSecureView(QWidget):
         text, ok = QInputDialog.getText(
             self,
             f"FDSK eingeben – {info.device_name}",
-            "FDSK (32 Hex-Zeichen, vom Geräteetikett / QR-Code):",
+            "FDSK (32 Hex-Zeichen, vom Zertifikat / QR-Code):",
             QLineEdit.Normal,
             current,
         )
@@ -519,7 +589,7 @@ class KnxSecureView(QWidget):
         )
 
     def _validate_config(self):
-        """Validiert die vollständige KNX Secure Konfiguration (FA-2706)."""
+        """Validiert das KNX-Secure-Archiv auf Vollständigkeit (FA-2706)."""
         cfg = self._project.knx_secure
 
         if not cfg.enabled:
@@ -534,19 +604,17 @@ class KnxSecureView(QWidget):
         warnings = self._service.check_mixed_lines(cfg, self._project)
 
         mode_label = SECURE_MODE_LABELS.get(summary.get("secure_mode", ""), "–")
-        needs_backbone = summary.get("secure_mode") in ("ip_secure", "both")
 
         lines = [
             f"Modus: {mode_label}",
             "",
-            f"{'✓' if summary.get('backbone_key_set') else ('✗' if needs_backbone else '–')} "
-            f"Backbone Key: {'gesetzt' if summary.get('backbone_key_set') else 'FEHLT' if needs_backbone else 'nicht benötigt (Data Secure)'}",
-            f"{'✓' if summary.get('group_key_set') else '✗'} Group Key: "
-            f"{'gesetzt' if summary.get('group_key_set') else 'FEHLT'}",
-            f"✓ GA Runtime Keys: {summary.get('ga_keys_count', 0)} gesetzt",
-            f"✓ KNX Secure-Geräte: "
+            f"{'🔒' if summary.get('locked') else '✓'} Archiv-Status: "
+            f"{'gesperrt (Passwort erforderlich)' if summary.get('locked') else 'entsperrt/lesbar'}",
+            f"{'✓' if summary.get('ets_password_set') else '⚠'} ETS6-Projektpasswort: "
+            f"{'hinterlegt' if summary.get('ets_password_set') else 'FEHLT'}",
+            f"✓ KNX Secure-fähige Geräte: "
             f"{summary.get('secure_devices', 0)} / {summary.get('device_infos_count', 0)}",
-            f"{'✓' if summary.get('fdsk_entered', 0) > 0 else '⚠'} FDSKs eingegeben: "
+            f"{'✓' if summary.get('fdsk_entered', 0) > 0 else '⚠'} FDSK-Zertifikate erfasst: "
             f"{summary.get('fdsk_entered', 0)} / {summary.get('device_infos_count', 0)}",
             f"✓ GAs mit Security 'Ein': {summary.get('ga_security_on', 0)}",
             "",
@@ -561,17 +629,15 @@ class KnxSecureView(QWidget):
                 lines.append(f"  … und {len(warnings) - 5} weitere")
 
         issues = []
-        if not summary.get("group_key_set"):
-            issues.append("Group Key fehlt")
-        if needs_backbone and not summary.get("backbone_key_set"):
-            issues.append("Backbone Key fehlt (für IP Secure benötigt)")
+        if not summary.get("ets_password_set") and not summary.get("locked"):
+            issues.append("ETS6-Projektpasswort ist nicht hinterlegt")
         if summary.get("fdsk_entered", 0) == 0 and summary.get("device_infos_count", 0) > 0:
-            issues.append("Keine FDSKs eingegeben – Tool Key-Übertragung nicht möglich")
+            issues.append("Keine FDSK-Zertifikate erfasst")
 
         if issues or warnings:
-            QMessageBox.warning(self, "⚠ Konfiguration unvollständig", "\n".join(lines))
+            QMessageBox.warning(self, "⚠ Archiv unvollständig", "\n".join(lines))
         else:
             QMessageBox.information(
-                self, "✓ KNX Secure Konfiguration OK",
-                "\n".join(lines) + "\n\nDie KNX Secure Konfiguration ist vollständig."
+                self, "✓ KNX Secure Archiv OK",
+                "\n".join(lines) + "\n\nDas Archiv ist vollständig."
             )

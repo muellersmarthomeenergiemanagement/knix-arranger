@@ -7,7 +7,7 @@ import os
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QGridLayout, QFileDialog, QMessageBox, QTextEdit,
-    QSizePolicy,
+    QSizePolicy, QInputDialog, QLineEdit,
 )
 from PySide6.QtCore import Qt
 from ..styles import KNX_GREEN, KNX_DARK_GREEN
@@ -103,6 +103,8 @@ class ReportsDialog(QDialog):
              self._gen_bauherr_form),
             ("Revisionspaket", "Komplettes Dokumentationspaket",
              self._gen_revision),
+            ("KNX Secure (vertraulich)", "Archivbericht MIT echten FDSK-/Passwort-Werten (PDF)",
+             self._gen_knx_secure_confidential),
         ]
 
         for i, (title_text, desc, callback) in enumerate(doc_buttons):
@@ -357,6 +359,86 @@ class ReportsDialog(QDialog):
             os.startfile(dir_path)
 
         run_export(self, "Revisionspaket wird erstellt…", do, on_success, self._worker_ref)
+
+    def _gen_knx_secure_confidential(self):
+        """Vertraulicher KNX-Secure-Bericht MIT echten FDSK-/Passwort-Werten.
+
+        Anders als der Standard-Archivbericht (nur Erfassungsstatus, automatisch
+        im Revisionspaket enthalten) druckt dieser Bericht die tatsächlichen
+        Geheimwerte ab -- als Backup-Kopie falls das Master-Passwort des
+        verschlüsselten Archivs verloren geht. Deshalb: nur auf explizite
+        Anforderung, und nur nach erneuter Eingabe des ETS6-Projektpassworts
+        zur Bestätigung (verhindert versehentliches/beiläufiges Erstellen).
+        """
+        cfg = self._project.knx_secure
+        if not cfg.enabled:
+            QMessageBox.information(
+                self, "KNX Secure nicht aktiv",
+                "KNX Secure ist für dieses Projekt nicht aktiviert."
+            )
+            return
+
+        if cfg.is_locked:
+            from ...services.knx_secure_service import KnxSecureService, KnxSecureWrongPassword
+            password, ok = QInputDialog.getText(
+                self, "Archiv entsperren",
+                "Master-Passwort für das KNX-Secure-Archiv:",
+                QLineEdit.Password,
+            )
+            if not ok or not password:
+                return
+            try:
+                self._project.knx_secure = KnxSecureService.unlock(cfg, password)
+                cfg = self._project.knx_secure
+            except KnxSecureWrongPassword:
+                QMessageBox.warning(
+                    self, "Falsches Passwort",
+                    "Das eingegebene Master-Passwort ist falsch."
+                )
+                return
+
+        if not cfg.ets_project_password:
+            QMessageBox.warning(
+                self, "Kein ETS6-Projektpasswort hinterlegt",
+                "Für den vertraulichen Bericht muss zuerst ein ETS6-Projektpasswort "
+                "im KNX-Secure-Archiv hinterlegt werden."
+            )
+            return
+
+        confirm_pw, ok = QInputDialog.getText(
+            self, "Vertraulicher Bericht -- Bestätigung",
+            "Zur Bestätigung: ETS6-Projektpasswort erneut eingeben.\n\n"
+            "Der erzeugte Bericht enthält die echten FDSK- und Passwort-Werte "
+            "und muss vertraulich behandelt werden.",
+            QLineEdit.Password,
+        )
+        if not ok:
+            return
+        if confirm_pw != cfg.ets_project_password:
+            QMessageBox.warning(
+                self, "Passwort stimmt nicht überein",
+                "Das eingegebene Passwort stimmt nicht mit dem hinterlegten "
+                "ETS6-Projektpasswort überein. Bericht wird nicht erstellt."
+            )
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Vertraulichen KNX-Secure-Bericht speichern",
+            self._default_export_path(f"{self._project.name}_KNX_Secure_VERTRAULICH.pdf"),
+            "PDF-Dateien (*.pdf)",
+        )
+        if not path:
+            return
+        project, company = self._project, self._company_profile
+
+        def do():
+            from ...services.documentation_service import DocumentationService
+            DocumentationService(project, company_profile=company).generate_knx_secure_report(
+                path, include_secrets=True
+            )
+
+        self._run("Vertraulicher KNX-Secure-Bericht wird erstellt…", do,
+                  f"Vertraulicher KNX-Secure-Bericht erstellt: {path}")
 
     def _gen_bedienelemente(self):
         path, _ = QFileDialog.getSaveFileName(

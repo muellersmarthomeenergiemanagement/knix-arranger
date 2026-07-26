@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+from .belegungsplan_service import _split_button_channel
+
 logger = logging.getLogger("knix_arranger.belegungsplan_export")
 
 # Spalten Tab "Taster & Sensoren"  (11 Spalten A–K)
@@ -301,13 +303,15 @@ class BelegungsplanExportService:
 
         s_headers = ["Raum-Nr.", "Raumname", "Sensor-Typ", "Taste", "Kn.", "Funktion",
                      "GA-Bezeichnung", "GA-Adresse", "DPT"]
-        # 495 pts usable width (595 − 2×50)
-        s_widths = [35.0, 68.0, 68.0, 32.0, 22.0, 68.0, 108.0, 44.0, 50.0]
+        # 495 pts usable width (595 − 2×50); Breiten an typische Inhaltslängen angepasst
+        # (Taste/Funktion brauchten mehr Platz, Kn. deutlich weniger).
+        s_widths = [32.0, 58.0, 62.0, 55.0, 18.0, 78.0, 112.0, 34.0, 46.0]
         s_rows = []
         for row in data.sensor_rows:
+            taste, kanal = _split_button_channel(row.taste_label)
             s_rows.append([
                 row.room_number, row.room_name, row.sensor_type,
-                row.taste_label, row.function,
+                taste, kanal, row.function,
                 row.ga_designation, row.ga_address, row.dpt,
             ])
         if s_rows:
@@ -322,7 +326,9 @@ class BelegungsplanExportService:
 
             a_headers = ["Linie", "Aktor-Typ", "Phys.Adr.", "Kn.", "Raum-Nr.",
                          "Gew.", "Funktion", "GA-Bezeichnung", "GA-Adresse", "DPT"]
-            a_widths = [48.0, 65.0, 40.0, 22.0, 34.0, 28.0, 34.0, 104.0, 44.0, 76.0]
+            # Linie/Aktor-Typ/GA-Bezeichnung sind meist die längsten Inhalte und
+            # liefen zuvor über; DPT/Gew./GA-Adresse waren überdimensioniert.
+            a_widths = [73.0, 73.0, 38.0, 16.0, 36.0, 20.0, 42.0, 116.0, 36.0, 45.0]
             a_rows = []
             for row in data.actor_rows:
                 a_rows.append([

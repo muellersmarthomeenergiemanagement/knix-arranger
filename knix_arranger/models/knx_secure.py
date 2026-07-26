@@ -1,26 +1,32 @@
 """
-KNX Secure Konfigurationsmodell (FA-2700).
+KNX Secure Konfigurationsmodell (FA-2700, ueberarbeitet).
 
-Verwaltet KNX Secure Schlüssel, GA-Sicherheitskonfiguration und
-Gerätekompatibilitätsinformationen gemäss ISO 22510 / EN 50090-3-4.
+WICHTIGE KORREKTUR gegenueber der urspruenglichen Fassung:
+KNiX Arranger kann und darf keine KNX-Secure-Laufzeitschluessel (Backbone Key,
+Group Key, GA-Schluessel, Tool Key) selbst generieren oder verwalten. Diese
+werden ausschliesslich von der ETS6 aus dem geraeteindividuellen Zertifikat
+(FDSK, Factory Default Setup Key -- wird dem Geraet ab Werk beigelegt) abgeleitet
+und bleiben KNiX Arranger unbekannt.
+
+Die Rolle dieses Moduls ist daher rein archivarisch:
+- FDSK/Zertifikat je Geraet aufbewahren (das einzige Geheimnis, das der
+  Planer tatsaechlich in Papierform erhaelt und verlieren kann).
+- Das ETS6-Projektpasswort dokumentieren -- ohne dieses ist das ETS6-Projekt
+  unwiederbringlich verloren (kein Reset, keine Wiederherstellung durch KNX
+  oder den Hersteller moeglich).
+- Secure-Kompatibilitaet der Geraete (aus KNXPROD-Herstellerdaten) und
+  GA-Sicherheitsklassifikation (Auto/Ein/Aus) verwalten -- das sind keine
+  Geheimnisse, sondern Planungsmetadaten.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-import secrets
+from typing import Optional
 
-
-# ── Schlüsseltypen-Beschreibungen ─────────────────────────────────────────────
-
-KEY_TYPE_LABELS = {
-    "backbone_key": "Backbone Key (KNX IP Secure Routing)",
-    "group_key":    "Group Key (Standard Runtime Key für alle GAs)",
-    "tool_key":     "Tool Key (Inbetriebnahme-Schlüssel pro Gerät)",
-}
 
 # GA-Sicherheitsmodi
 GA_SECURITY_MODES = ["Auto", "Ein", "Aus"]
 
-# KNX Secure-Modi (Gap 4)
+# KNX Secure-Modi
 SECURE_MODES = ["data_secure", "ip_secure", "both"]
 SECURE_MODE_LABELS = {
     "data_secure": "KNX Data Secure (TP, medienunabhängig, EN 50090-3-4)",
@@ -28,33 +34,26 @@ SECURE_MODE_LABELS = {
     "both":        "KNX Data Secure + KNX IP Secure",
 }
 
-# Schlüssellänge: 128 bit = 16 Bytes
-KEY_LENGTH_BYTES = 16
-
 # FDSK-Länge: 128 bit = 32 Hex-Zeichen
 FDSK_HEX_LENGTH = 32
 
 
-def generate_knx_key() -> str:
-    """Erzeugt einen zufälligen AES-128-Schlüssel als Hex-String (32 Zeichen)."""
-    return secrets.token_bytes(KEY_LENGTH_BYTES).hex().upper()
-
-
 def is_valid_knx_key(key: str) -> bool:
-    """Prüft ob ein Schlüssel 32 gültige Hex-Zeichen enthält."""
+    """Prüft ob ein Wert (z.B. FDSK) 32 gültige Hex-Zeichen enthält."""
     return len(key) == FDSK_HEX_LENGTH and all(c in "0123456789ABCDEFabcdef" for c in key)
 
 
 @dataclass
 class DeviceSecureInfo:
-    """Secure-Kompatibilitätsinformation für ein einzelnes Gerät (FA-2704).
+    """Secure-Kompatibilitäts- und Zertifikatsinformation für ein Gerät (FA-2704).
 
-    Schlüsselhierarchie pro Gerät:
-    - FDSK: Factory Default Setup Key, ab Werk aufgedruckt (QR-Code / alphanumerisch).
-      Wird einmalig verwendet, um den Tool Key verschlüsselt zu übertragen.
-      Wird NICHT über den Bus übertragen – nur manuell in ETS eingegeben.
-    - Tool Key: von ETS generiert, via FDSK verschlüsselt zum Gerät übertragen.
-      Danach für alle weiteren Schlüsselübertragungen (Runtime Keys) verwendet.
+    - secure_supported: aus KNXPROD-Herstellerdaten (SupportsTPSecure/IPSecure),
+      keine Eingabe/Vermutung von KNiX Arranger.
+    - fdsk: Factory Default Setup Key, ab Werk mit dem Gerät mitgeliefert
+      (Aufkleber/QR-Code/Zertifikatskarte). Wird von ETS6 einmalig verwendet,
+      um die eigentlichen Runtime-Schlüssel zu erzeugen und sicher zu
+      übertragen. KNiX Arranger generiert diesen Wert NICHT -- er muss vom
+      Planer vom mitgelieferten Zertifikat abgetippt/archiviert werden.
     """
     device_id: str = ""
     device_name: str = ""
@@ -62,9 +61,7 @@ class DeviceSecureInfo:
     secure_supported: bool = False    # aus KNXPROD-Daten
     line_id: str = ""
     area_id: str = ""
-    # Schlüssel pro Gerät (KNX Standard)
-    fdsk: str = ""                    # Factory Default Setup Key (ab Werk, 32 Hex)
-    tool_key: str = ""                # Tool Key, via FDSK verschlüsselt übertragen
+    fdsk: str = ""                    # Factory Default Setup Key (Zertifikat, 32 Hex)
 
     def to_dict(self) -> dict:
         return {
@@ -75,7 +72,6 @@ class DeviceSecureInfo:
             "line_id": self.line_id,
             "area_id": self.area_id,
             "fdsk": self.fdsk,
-            "tool_key": self.tool_key,
         }
 
     @classmethod
@@ -88,48 +84,47 @@ class DeviceSecureInfo:
             line_id=d.get("line_id", ""),
             area_id=d.get("area_id", ""),
             fdsk=d.get("fdsk", ""),
-            tool_key=d.get("tool_key", ""),
         )
 
 
 @dataclass
 class KnxSecureConfig:
-    """KNX Secure Projektkonfiguration (FA-2701, FA-2702).
+    """KNX-Secure-Archiv eines Projekts (FA-2701, FA-2704--2706, überarbeitet).
 
-    Speichert alle projektweiten und gerätespezifischen Secure-Schlüssel.
-    Die Schlüssel werden im .knxarr-Format AES-128-verschlüsselt gespeichert
-    (FA-2706); in diesem Datenmodell werden sie im Klartext gehalten und erst
-    beim Serialisieren verschlüsselt.
-
-    Schlüsselhierarchie (KNX Standard):
-    1. FDSK: ab Werk pro Gerät (einmalige Nutzung für Tool-Key-Übertragung)
-    2. Tool Key: pro Gerät, via FDSK verschlüsselt übertragen (Inbetriebnahme)
-    3. GA Runtime Keys (ga_keys): pro GA-Adresse, via Tool Key zum Gerät übertragen
-    4. Group Key: gemeinsamer Standard-Runtime-Key wenn keine GA-spezifischen Keys
-    5. Backbone Key: für KNX IP Secure Routing (Multicast 224.0.23.12)
+    Enthält KEINE kryptographischen Laufzeitschlüssel (die kennt nur ETS6).
+    Sensible Felder (FDSK je Gerät, ETS6-Projektpasswort, Notiz) werden beim
+    Speichern passwortbasiert verschlüsselt (siehe KnxSecureService). Die
+    beiden Laufzeit-Attribute (_session_password, _locked_blob) werden nicht
+    serialisiert -- sie steuern nur das Sperren/Entsperren innerhalb der
+    laufenden Sitzung, analog zu KnxProject._file_path.
     """
     enabled: bool = False
     secure_mode: str = "data_secure"   # "data_secure", "ip_secure", "both"
 
-    # Projektweite Schlüssel (FA-2702)
-    backbone_key: str = ""            # 32 Hex = 128 bit, nur für KNX IP Secure
-    group_key: str = ""               # Standard Runtime Key für alle GAs
+    # ETS6-Projektpasswort: schützt den Zugriff auf das ETS6-Projekt selbst.
+    # KRITISCH: ohne dieses Passwort ist das ETS6-Projekt nicht wiederherstellbar.
+    ets_project_password: str = ""
+    ets_password_note: str = ""        # z.B. Hinterlegungsort / Wiederherstellungsplan
 
-    # GA-spezifische Runtime Keys: ga_address → 32 Hex-Zeichen (Gap 3)
-    # Laufzeitschlüssel werden via Tool Key verschlüsselt an Geräte übertragen.
-    # line_keys waren kein KNX-Standard – ersetzt durch ga_keys.
-    ga_keys: dict[str, str] = field(default_factory=dict)
-
-    # Geräteschlüssel: device_id → DeviceSecureInfo
+    # Geräteschlüssel: device_id → DeviceSecureInfo (secure_supported + FDSK)
     device_infos: dict[str, DeviceSecureInfo] = field(default_factory=dict)
+
+    # Nicht serialisiert -- nur zur Laufzeit im Speicher, siehe KnxSecureService
+    _session_password: Optional[str] = field(default=None, repr=False, compare=False)
+    _locked_blob: Optional[dict] = field(default=None, repr=False, compare=False)
+
+    @property
+    def is_locked(self) -> bool:
+        """True wenn verschlüsselte Daten vorhanden sind, aber in dieser
+        Sitzung noch kein gültiges Passwort eingegeben wurde."""
+        return self._locked_blob is not None
 
     def to_dict(self) -> dict:
         return {
             "enabled": self.enabled,
             "secure_mode": self.secure_mode,
-            "backbone_key": self.backbone_key,
-            "group_key": self.group_key,
-            "ga_keys": dict(self.ga_keys),
+            "ets_project_password": self.ets_project_password,
+            "ets_password_note": self.ets_password_note,
             "device_infos": {k: v.to_dict() for k, v in self.device_infos.items()},
         }
 
@@ -138,10 +133,8 @@ class KnxSecureConfig:
         cfg = cls(
             enabled=d.get("enabled", False),
             secure_mode=d.get("secure_mode", "data_secure"),
-            backbone_key=d.get("backbone_key", ""),
-            group_key=d.get("group_key", ""),
-            # line_keys (altes Format) werden verworfen – waren kein KNX-Standard
-            ga_keys=dict(d.get("ga_keys", {})),
+            ets_project_password=d.get("ets_project_password", ""),
+            ets_password_note=d.get("ets_password_note", ""),
         )
         cfg.device_infos = {
             k: DeviceSecureInfo.from_dict(v)

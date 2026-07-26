@@ -39,6 +39,17 @@ class ValidationView(QWidget):
         self._summary.setObjectName("subtitle")
         layout.addWidget(self._summary)
 
+        # Legende
+        legend = QLabel(
+            "Legende:  "
+            f"<span style='color:{COLOR_ERROR}; font-weight:bold;'>Fehler</span> = muss behoben werden&nbsp;&nbsp;"
+            f"<span style='color:{COLOR_WARNING}; font-weight:bold;'>Warnung</span> = sollte geprüft werden&nbsp;&nbsp;"
+            f"<span style='color:{COLOR_INFO}; font-weight:bold;'>Info</span> = zur Kenntnis"
+        )
+        legend.setTextFormat(Qt.RichText)
+        legend.setStyleSheet("font-size: 10px;")
+        layout.addWidget(legend)
+
         # Tabelle
         self._table = QTableWidget()
         self._table.setColumnCount(5)

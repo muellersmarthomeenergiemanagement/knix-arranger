@@ -4,6 +4,7 @@ Nutzt die echte Referenzdatei 241114_Chalet.knxproj.
 """
 from __future__ import annotations
 import os
+import xml.etree.ElementTree as ET
 import pytest
 from knix_arranger.services.knxproj_import_service import (
     KnxprojImportService,
@@ -76,6 +77,55 @@ def test_ga_dpt_present(project):
     dpts = [ga.datapoint_type for ga in project.group_addresses.all_addresses()
             if ga.datapoint_type]
     assert len(dpts) > 10
+
+
+# ------------------------------------------------------------------
+# FA-522b: Description-Fallback aus Klammer-Zusatz (Paritaet zum XLSX-Import)
+# ------------------------------------------------------------------
+
+def _installation_with_ga(name: str, description: str = "", comment: str = "") -> ET.Element:
+    """Baut ein minimales <Installation>-Fragment mit einer einzigen GA (Adresse 0/0/1)."""
+    ns = "http://knx.org/xml/project/23"
+    ET.register_namespace("", ns)
+    installation = ET.Element(f"{{{ns}}}Installation")
+    gas = ET.SubElement(installation, f"{{{ns}}}GroupAddresses")
+    ranges = ET.SubElement(gas, f"{{{ns}}}GroupRanges")
+    hg = ET.SubElement(ranges, f"{{{ns}}}GroupRange", RangeStart="0", Name="HG")
+    mg = ET.SubElement(hg, f"{{{ns}}}GroupRange", RangeStart="0", Name="MG")
+    attribs = {"Address": "1", "Name": name}
+    if description:
+        attribs["Description"] = description
+    if comment:
+        attribs["Comment"] = comment
+    ET.SubElement(mg, f"{{{ns}}}GroupAddress", **attribs)
+    return installation
+
+
+def test_description_fallback_from_parentheses():
+    """Ist ETS-Description/Comment leer, wird der Klammer-Zusatz aus der
+    Bezeichnung als Description uebernommen (Paritaet zum XLSX-Import)."""
+    installation = _installation_with_ga("L.004.1_ea ( Dusche / WC )")
+    structure = KnxprojImportService()._parse_group_addresses(installation)
+    ga = structure.all_addresses()[0]
+    assert ga.description == "Dusche / WC"
+
+
+def test_description_fallback_does_not_override_real_description():
+    """Eine echte, gepflegte ETS-Description hat Vorrang vor dem Klammer-Fallback."""
+    installation = _installation_with_ga(
+        "L.004.1_ea ( Dusche / WC )", description="Echte ETS-Beschreibung"
+    )
+    structure = KnxprojImportService()._parse_group_addresses(installation)
+    ga = structure.all_addresses()[0]
+    assert ga.description == "Echte ETS-Beschreibung"
+
+
+def test_description_fallback_empty_without_parentheses():
+    """Ohne Klammer-Zusatz und ohne ETS-Description bleibt description leer."""
+    installation = _installation_with_ga("L.004.1_ea")
+    structure = KnxprojImportService()._parse_group_addresses(installation)
+    ga = structure.all_addresses()[0]
+    assert ga.description == ""
 
 
 # ------------------------------------------------------------------

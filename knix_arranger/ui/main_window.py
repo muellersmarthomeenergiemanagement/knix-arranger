@@ -364,6 +364,7 @@ class MainWindow(QMainWindow):
         self._address_tree.set_bus(self._bus)
         self._address_table.set_bus(self._bus)
         self._topology_view.set_bus(self._bus)
+        self._linking_matrix_view.set_bus(self._bus)
 
         # Bus-Signale zu Handlern
         self._bus.functions_changed.connect(self._on_functions_changed)
@@ -455,7 +456,7 @@ class MainWindow(QMainWindow):
         self._overview.update_from_project(self._project)
         self._building_view.set_areal(self._project.areal)
         self._building_view.set_topology(self._project.topology)
-        self._topology_view.set_topology(self._project.topology)
+        self._topology_view.set_project(self._project)
         self._address_tree.set_structure(self._project.group_addresses)
         self._address_table.set_structure(self._project.group_addresses)
         self._gewerk_view.set_project(self._project)
@@ -519,7 +520,7 @@ class MainWindow(QMainWindow):
         """
         if not self._project:
             return
-        self._topology_view.set_topology(self._project.topology)
+        self._topology_view.set_project(self._project)
         self._topology_report_view.set_project(self._project)
         self._overview.update_from_project(self._project)
         self._building_view.set_topology(self._project.topology)
@@ -548,9 +549,11 @@ class MainWindow(QMainWindow):
         # Gebäudeansicht: Bedienelement-Zeilen mit aktualisierten function_assignments neu bauen
         self._building_view.set_areal(self._project.areal)
         self._building_view.set_topology(self._project.topology)
-        # GA-Bezeichnungen werden in Verknüpfungsmatrix und CO-Linking angezeigt
+        # GA-Bezeichnungen werden in Verknüpfungsmatrix, CO-Linking und den
+        # Aktor-Kanalknoten der Topologie-Ansicht angezeigt
         self._co_linking_view.set_project(self._project)
         self._linking_matrix_view.set_project(self._project)
+        self._topology_view.set_project(self._project)
 
     def _on_functions_changed(self):
         """Reagiert auf Gewerk-Änderungen aus der manuellen Bearbeitungsphase.
@@ -796,6 +799,30 @@ class MainWindow(QMainWindow):
         self._sidebar.select("addresses")
         self._navigate("addresses")
 
+    def _warn_if_building_structure_empty(self, areal):
+        """Macht sichtbar, wenn aus dem XLSX-Import keine Gebäudestruktur
+        abgeleitet werden konnte (FA-519).
+
+        `derive_building_structure()` scheitert lautlos (nur Log-Warning),
+        wenn keine GA-Bezeichnung dem erwarteten Namensmuster
+        'GEWERK.STOCKWERK.RAUM.ELEMENT' entspricht -- z.B. weil der
+        Integrator die GAs frei/uneinheitlich beschriftet hat. Ohne diesen
+        Hinweis bleibt unbemerkt, dass Stockwerke, Räume und
+        Gewerk-Zuweisungen manuell im Wizard nachgetragen werden müssen.
+        """
+        if areal.all_floors:
+            return
+        QMessageBox.warning(
+            self, "Keine Gebäudestruktur erkannt",
+            "Aus den Gruppenadress-Bezeichnungen konnte keine Gebäudestruktur "
+            "abgeleitet werden.\n\n"
+            "Das deutet darauf hin, dass die GAs nicht nach dem erwarteten Muster "
+            "'GEWERK.STOCKWERK.RAUM.ELEMENT' benannt sind. Gruppenadressen, "
+            "Topologie und Geräte wurden trotzdem vollständig importiert -- "
+            "Stockwerke, Räume und Gewerk-Zuweisungen müssen jedoch manuell im "
+            "Wizard (Schritt 2/3/5) nachgetragen werden."
+        )
+
     def _import_xlsx(self, filepath: str):
         """Importiert einen ETS6 Topologie-Report oder GA-Report (XLSX) (FA-511, FA-519b)."""
         importer = XlsxImportService()
@@ -838,6 +865,7 @@ class MainWindow(QMainWindow):
                     areal.buildings[0].name = meta["project_name"]
             self._project.areal = areal
             self._building_service.assign_main_groups(self._project.areal)
+            self._warn_if_building_structure_empty(areal)
         except Exception as e:
             logger.warning(f"Gebäudestruktur konnte nicht abgeleitet werden: {e}")
 
@@ -950,6 +978,7 @@ class MainWindow(QMainWindow):
                             areal.buildings[0].name = self._project.areal.buildings[0].name
                     self._project.areal = areal
                     self._building_service.assign_main_groups(self._project.areal)
+                    self._warn_if_building_structure_empty(areal)
                 except Exception as e:
                     logger.warning(f"Gebäudestruktur-Ableitung nach GA-Import fehlgeschlagen: {e}")
 
@@ -1050,10 +1079,12 @@ class MainWindow(QMainWindow):
         import re
         if not self._project:
             return 0
-        _DESIG_RE = re.compile(
-            r"^([A-Z]{1,4})\.[A-Z0-9]{2,5}\.(\d{1,2})\.(\d{1,2})",
-            re.IGNORECASE,
-        )
+        # Gewerk-Code: erstes Segment vor "." oder "_", unabhaengig von der
+        # Anzahl folgender Segmente -- deckt sowohl die 4-Segment-Konvention
+        # ("LDA.OG.00.01_ea") als auch die 3-Segment-EFH-Konvention
+        # ("L.002.1_ea") ab. Analog zu xlsx_import_service._parse_xlsx_designation,
+        # damit .knxproj- und XLSX-Import gleich robust sind.
+        _GEWERK_PREFIX_RE = re.compile(r"^([A-Z]{1,4})[._]", re.IGNORECASE)
         _FLOOR_ROOM_RE = re.compile(
             r"^([A-Z]{1,4})\.([A-Z0-9]{2,5})\.(\d{1,2})\.",
             re.IGNORECASE,
@@ -1066,7 +1097,7 @@ class MainWindow(QMainWindow):
                 continue
             changed = False
             if not ga.gewerk_code:
-                m = _DESIG_RE.match(desig)
+                m = _GEWERK_PREFIX_RE.match(desig)
                 if m:
                     ga.gewerk_code = m.group(1).upper()
                     changed = True

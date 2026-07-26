@@ -1,21 +1,27 @@
 """
-KnxSecureService – Verwaltung von KNX Secure Konfigurationen (FA-2701–FA-2706).
+KnxSecureService – Verwaltung des KNX-Secure-Archivs (FA-2701, FA-2703–2706, überarbeitet).
 
 Verantwortlich für:
-- Schlüsselgenerierung (AES-128, FA-2702)
 - Auto-Vorschlag GA-Sicherheitsmodi (FA-2703)
-- Gerätekompatibilitätsliste (FA-2704)
+- Gerätekompatibilitätsliste aus KNXPROD-Daten (FA-2704)
 - Mischlinien-Prüfung (FA-2705)
-- AES-128-Verschlüsselung der Schlüssel im .knxarr-Format (FA-2706)
+- Passwortbasierte Verschlüsselung der sensiblen Archivfelder: FDSK je Gerät,
+  ETS6-Projektpasswort, Notiz (FA-2706)
+
+KNiX Arranger generiert und verwaltet KEINE KNX-Secure-Laufzeitschlüssel
+(Backbone/Group/GA/Tool Key) -- diese werden ausschliesslich von ETS6 aus dem
+geräteindividuellen Zertifikat (FDSK) abgeleitet und sind KNiX Arranger nicht
+bekannt. Siehe models/knx_secure.py für die Begründung.
 """
 from __future__ import annotations
+import base64
+import hashlib
 import json
 import logging
 import os
-import secrets
 from dataclasses import dataclass
 
-from ..models.knx_secure import KnxSecureConfig, DeviceSecureInfo, generate_knx_key
+from ..models.knx_secure import KnxSecureConfig, DeviceSecureInfo
 
 logger = logging.getLogger("knix_arranger.knx_secure")
 
@@ -24,6 +30,12 @@ _SECURE_FUNCTION_KEYWORDS = frozenset([
     "schalten", "szene", "zentral", "sperren", "on_off", "switch",
     "scene", "central", "lock", "alarm", "notaus", "emergency",
 ])
+
+_PBKDF2_ITERATIONS = 100_000
+
+
+class KnxSecureWrongPassword(Exception):
+    """Das Master-Passwort für das Zugangsdaten-Archiv ist falsch."""
 
 
 @dataclass
@@ -50,74 +62,6 @@ class MixedLineWarning:
 
 class KnxSecureService:
     """Verwaltung aller KNX Secure-Aspekte eines Projekts."""
-
-    # ── Schlüsselgenerierung (FA-2702) ────────────────────────────────────────
-
-    def generate_all_project_keys(self, config: KnxSecureConfig, project) -> int:
-        """Generiert alle fehlenden Projektschlüssel.
-
-        Überschreibt keine bereits vorhandenen Schlüssel.
-        Gibt die Anzahl neu generierter Schlüssel zurück.
-
-        Schlüsselhierarchie (KNX Standard):
-        - Backbone Key: einmal pro Projekt (KNX IP Secure Routing)
-        - Group Key: einmal pro Projekt (Standard Runtime Key)
-        - GA Keys: pro GA-Adresse (individuelle Runtime Keys)
-        - Tool Key: pro Gerät (FDSK wird NICHT generiert – kommt vom Gerät)
-        """
-        count = 0
-
-        if not config.backbone_key:
-            config.backbone_key = generate_knx_key()
-            count += 1
-
-        if not config.group_key:
-            config.group_key = generate_knx_key()
-            count += 1
-
-        # GA-spezifische Runtime Keys (ersetzt line_keys – kein KNX-Standard)
-        for ga in project.group_addresses.all_addresses():
-            addr = ga.address
-            if addr and addr not in config.ga_keys:
-                config.ga_keys[addr] = generate_knx_key()
-                count += 1
-
-        # Geräteschlüssel (Tool Key) – FDSK wird nicht generiert
-        for area in project.topology.areas:
-            for line in area.lines:
-                for device in line.devices:
-                    if device.id not in config.device_infos:
-                        dev_name = (device.product_name or device.product
-                                    or device.physical_address)
-                        info = DeviceSecureInfo(
-                            device_id=device.id,
-                            device_name=dev_name,
-                            physical_address=device.physical_address,
-                            line_id=line.id,
-                            area_id=area.id,
-                        )
-                        config.device_infos[device.id] = info
-                    existing = config.device_infos[device.id]
-                    if not existing.tool_key:
-                        existing.tool_key = generate_knx_key()
-                        count += 1
-
-        logger.info(f"KnxSecureService: {count} neue Schlüssel generiert.")
-        return count
-
-    def regenerate_key(self, config: KnxSecureConfig, key_type: str,
-                       scope_id: str = "") -> str:
-        """Regeneriert einen einzelnen Schlüssel. Gibt den neuen Schlüssel zurück."""
-        new_key = generate_knx_key()
-        if key_type == "backbone_key":
-            config.backbone_key = new_key
-        elif key_type == "group_key":
-            config.group_key = new_key
-        elif key_type == "ga_key":
-            config.ga_keys[scope_id] = new_key
-        elif key_type == "tool_key" and scope_id in config.device_infos:
-            config.device_infos[scope_id].tool_key = new_key
-        return new_key
 
     # ── GA-Sicherheits-Auto-Vorschlag (FA-2703) ───────────────────────────────
 
@@ -223,68 +167,96 @@ class KnxSecureService:
                     ))
         return warnings
 
-    # ── Schlüsselverschlüsselung für .knxarr (FA-2706) ───────────────────────
+    # ── Passwortbasierte Verschlüsselung des Zugangsdaten-Archivs (FA-2706) ──
+    #
+    # Nur die tatsächlich sensiblen Werte werden verschlüsselt: FDSK je Gerät,
+    # ETS6-Projektpasswort und die zugehörige Notiz. Gerätestruktur und
+    # secure_supported bleiben im Klartext, da sie keine Geheimnisse sind
+    # (Herstellerdaten) und sonst z.B. die Mischlinien-Prüfung ohne Passwort-
+    # Eingabe unmöglich wäre.
+    #
+    # Das Master-Passwort wird selbst gewählt (vom Planer, wie bei einem
+    # Passwort-Manager-Tresor) und NICHT im Projekt gespeichert. Geht es
+    # verloren, sind die verschlüsselten Werte nicht wiederherstellbar.
 
     @staticmethod
-    def encrypt_config(config: KnxSecureConfig, project_id: str) -> dict:
-        """Verschlüsselt die Schlüssel für Speicherung im .knxarr-Format (AES-128).
-
-        Verwendet Fernet (AES-128-CBC + HMAC) mit einem aus der project_id
-        via PBKDF2-HMAC-SHA256 abgeleiteten Schlüssel (100 000 Iterationen).
-        Der abgeleitete Schlüssel selbst wird NICHT gespeichert.
-
-        Hinweis: Dies ist die lokale Dateiverschlüsselung für das .knxarr-Format.
-        Die KNX-Bus-Kommunikation verwendet AES-128-CCM gemäss ISO 18033-3.
-        """
-        from cryptography.fernet import Fernet
-        import base64, hashlib
-        # PBKDF2 statt rohem SHA-256 – erschwert Brute-Force-Angriffe (Gap 6)
+    def _derive_fernet_key(password: str, salt: bytes) -> bytes:
         raw = hashlib.pbkdf2_hmac(
-            "sha256",
-            project_id.encode("utf-8"),
-            b"knxarr-secure-v2",
-            100_000,
+            "sha256", password.encode("utf-8"), salt, _PBKDF2_ITERATIONS
         )
-        fernet_key = base64.urlsafe_b64encode(raw)
-        f = Fernet(fernet_key)
-
-        plaintext = json.dumps(config.to_dict()).encode("utf-8")
-        return {
-            "encrypted": True,
-            "algorithm": "AES-128-Fernet-PBKDF2",
-            "ciphertext": f.encrypt(plaintext).decode("ascii"),
-        }
+        return base64.urlsafe_b64encode(raw)
 
     @staticmethod
-    def decrypt_config(blob: dict, project_id: str) -> KnxSecureConfig:
-        """Entschlüsselt eine KnxSecureConfig aus dem .knxarr-Blob."""
-        if not blob.get("encrypted"):
-            return KnxSecureConfig.from_dict(blob)
+    def encrypt_config(config: KnxSecureConfig, password: str) -> dict:
+        """Serialisiert die Config; FDSK/Projektpasswort/Notiz werden mit einem
+        aus `password` abgeleiteten AES-128-Schlüssel (Fernet, PBKDF2-HMAC-
+        SHA256, 100 000 Iterationen, zufälliges Salt) verschlüsselt."""
+        from cryptography.fernet import Fernet
+
+        sensitive = {
+            "ets_project_password": config.ets_project_password,
+            "ets_password_note": config.ets_password_note,
+            "fdsk": {
+                dev_id: info.fdsk
+                for dev_id, info in config.device_infos.items() if info.fdsk
+            },
+        }
+        salt = os.urandom(16)
+        f = Fernet(KnxSecureService._derive_fernet_key(password, salt))
+        ciphertext = f.encrypt(json.dumps(sensitive).encode("utf-8"))
+
+        data = config.to_dict()
+        data["ets_project_password"] = ""
+        data["ets_password_note"] = ""
+        for dev in data["device_infos"].values():
+            dev["fdsk"] = ""
+        data["secure_blob"] = {
+            "algorithm": "AES-128-Fernet-PBKDF2",
+            "salt": base64.b64encode(salt).decode("ascii"),
+            "ciphertext": ciphertext.decode("ascii"),
+        }
+        return data
+
+    @staticmethod
+    def decrypt_config(data: dict, password: str) -> KnxSecureConfig:
+        """Lädt eine KnxSecureConfig aus `data` und entschlüsselt die sensiblen
+        Felder mit `password`. Wirft KnxSecureWrongPassword bei falschem
+        Passwort oder beschädigtem Archiv."""
+        config = KnxSecureConfig.from_dict(data)
+        blob = data.get("secure_blob")
+        if not blob:
+            return config
 
         from cryptography.fernet import Fernet, InvalidToken
-        import base64, hashlib
 
-        algorithm = blob.get("algorithm", "AES-128-Fernet")
-        if algorithm == "AES-128-Fernet-PBKDF2":
-            raw = hashlib.pbkdf2_hmac(
-                "sha256",
-                project_id.encode("utf-8"),
-                b"knxarr-secure-v2",
-                100_000,
-            )
-        else:
-            # Rückwärtskompatibilität mit altem SHA-256-Format
-            raw = hashlib.sha256(f"knxarr-secure:{project_id}".encode()).digest()
-
-        fernet_key = base64.urlsafe_b64encode(raw)
-        f = Fernet(fernet_key)
-
+        salt = base64.b64decode(blob["salt"])
+        f = Fernet(KnxSecureService._derive_fernet_key(password, salt))
         try:
             plaintext = f.decrypt(blob["ciphertext"].encode("ascii"))
-            return KnxSecureConfig.from_dict(json.loads(plaintext))
-        except (InvalidToken, Exception) as e:
-            logger.error(f"KNX Secure: Entschlüsselung fehlgeschlagen: {e}")
-            return KnxSecureConfig()
+        except InvalidToken as exc:
+            raise KnxSecureWrongPassword() from exc
+
+        sensitive = json.loads(plaintext)
+        config.ets_project_password = sensitive.get("ets_project_password", "")
+        config.ets_password_note = sensitive.get("ets_password_note", "")
+        for dev_id, fdsk in sensitive.get("fdsk", {}).items():
+            if dev_id in config.device_infos:
+                config.device_infos[dev_id].fdsk = fdsk
+        return config
+
+    @staticmethod
+    def unlock(config: KnxSecureConfig, password: str) -> KnxSecureConfig:
+        """Entsperrt eine Config: setzt entweder erstmalig ein neues
+        Master-Passwort (falls noch kein Archiv verschlüsselt war) oder
+        entschlüsselt ein bestehendes Archiv. Wirft KnxSecureWrongPassword
+        bei falschem Passwort. Gibt die (ggf. neue) entsperrte Config zurück."""
+        if config._locked_blob is None:
+            config._session_password = password
+            return config
+        unlocked = KnxSecureService.decrypt_config(config._locked_blob, password)
+        unlocked._session_password = password
+        unlocked._locked_blob = None
+        return unlocked
 
     # ── Statistik ─────────────────────────────────────────────────────────────
 
@@ -295,9 +267,8 @@ class KnxSecureService:
         return {
             "enabled": config.enabled,
             "secure_mode": config.secure_mode,
-            "backbone_key_set": bool(config.backbone_key),
-            "group_key_set": bool(config.group_key),
-            "ga_keys_count": len(config.ga_keys),
+            "locked": config.is_locked,
+            "ets_password_set": bool(config.ets_project_password),
             "device_infos_count": len(config.device_infos),
             "secure_devices": sum(1 for d in config.device_infos.values() if d.secure_supported),
             "fdsk_entered": sum(1 for d in config.device_infos.values() if d.fdsk),

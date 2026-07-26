@@ -5,6 +5,7 @@ Liest natives ETS6-Projektformat (.knxproj = ZIP mit XML).
 from __future__ import annotations
 import logging
 import os
+import re
 import zipfile
 import xml.etree.ElementTree as ET
 from typing import Optional
@@ -21,6 +22,12 @@ logger = logging.getLogger("knix_arranger.knxproj_import")
 # XML-Namespace der KNXPROJ-Dateien
 _NS = "http://knx.org/xml/project/23"
 _NSM = {"k": _NS}
+
+# Klammer-Zusatz in der GA-Bezeichnung als Description-Fallback, z.B.
+# 'L.004.1_ea ( Dusche / WC )' -> 'Dusche / WC'. Identisch zum Muster in
+# xlsx_import_service._parse_xlsx_designation, fuer Parität zwischen den
+# beiden Importwegen.
+_GA_PAREN_DESC_RE = re.compile(r'\(\s*([^)]+)\)')
 
 
 def _tag(local: str) -> str:
@@ -584,13 +591,24 @@ class KnxprojImportService:
                 for ga_elem in mg_elem.findall("k:GroupAddress", _NSM):
                     raw = int(ga_elem.get("Address", "0"))
                     m, mi, s = self._decode_address(raw)
+                    name = ga_elem.get("Name", "")
+                    description = ga_elem.get("Description", "") or ga_elem.get("Comment", "")
+                    if not description:
+                        # ETS-Description/Comment sind in der Praxis oft leer, weil kaum
+                        # ein Integrator sie pflegt. Fallback: denselben Klammer-Zusatz
+                        # aus der Bezeichnung ziehen wie der XLSX-Import
+                        # (siehe xlsx_import_service._parse_xlsx_designation), damit
+                        # beide Importwege gleich reichhaltig sind, z.B.
+                        # 'L.004.1_ea ( Dusche / WC )' -> 'Dusche / WC'.
+                        paren_m = _GA_PAREN_DESC_RE.search(name)
+                        if paren_m:
+                            description = paren_m.group(1).strip()
                     ga = GroupAddress(
                         main_group=m,
                         middle_group=mi,
                         sub_group=s,
-                        designation=ga_elem.get("Name", ""),
-                        description=ga_elem.get("Description", "")
-                                    or ga_elem.get("Comment", ""),
+                        designation=name,
+                        description=description,
                         datapoint_type=ga_elem.get("DatapointType", ""),
                         security="Auto",
                     )
@@ -849,7 +867,7 @@ class KnxprojImportService:
                     if any(be.participant_number == device.physical_address
                            for be in room.bedienelemente):
                         continue
-                    product_label = device.product or device.product_name
+                    product_label = device.product_name or device.product
                     be = Bedienelement(
                         element_type=KnxprojImportService._infer_element_type(product_label),
                         channels=KnxprojImportService._infer_channel_count(product_label),

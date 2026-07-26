@@ -254,3 +254,15 @@ class TestDocumentationService:
             assert "Topologie" in file_names
             assert "Validierung" in file_names
             assert "CSV" in file_names or "Export" in file_names
+            # FA-2505: Verknuepfungsmatrix fliesst automatisch in die
+            # Revisionsunterlagen ein, wenn Sensor-/Aktor-Daten vorhanden sind.
+            assert "Verknuepfungsmatrix" in file_names
+
+    def test_revision_package_ohne_matrix_ohne_sensor_aktor_daten(self):
+        """FA-2505: Ohne Sensoren/Aktoren wird kein leerer Matrix-Bericht erzeugt."""
+        empty_project = KnxProject(name="Leer")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svc = DocumentationService(empty_project)
+            svc.generate_revision_package(tmpdir)
+            files = " ".join(os.listdir(tmpdir))
+            assert "Verknuepfungsmatrix" not in files

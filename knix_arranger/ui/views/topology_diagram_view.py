@@ -15,6 +15,8 @@ from PySide6.QtGui import (
     QColor, QPen, QBrush, QFont, QFontMetrics, QPainter, QPixmap,
 )
 from ...models.project import KnxProject
+from ...services.cable_length_service import CableLengthService
+from ..styles import COLOR_WARNING, COLOR_ERROR
 
 # ── Farben (KNX-Designbasis, FA-1012) ────────────────────────────────────────
 _C_BACKBONE    = QColor("#1A237E")   # Dunkelblau: Backbone
@@ -22,8 +24,8 @@ _C_AREA        = QColor("#1565C0")   # Blau: Bereich
 _C_COUPLER     = QColor("#1565C0")   # Blau: Koppler
 _C_POWER       = QColor("#2E7D32")   # Grün: Speisegerät
 _C_LINE        = QColor("#37474F")   # Dunkelgrau: Linie
-_C_ACTOR       = QColor("#4A148C")   # Lila: Aktor-Zusammenfassung
-_C_SENSOR      = QColor("#BF360C")   # Dunkelorange: Sensor-Zusammenfassung
+_C_LINE_WARN   = QColor(COLOR_WARNING)  # Orange: Leitungslänge nahe Grenzwert (FA-2603)
+_C_LINE_ERROR  = QColor(COLOR_ERROR)    # Rot: Leitungslänge über Grenzwert (FA-2603)
 _C_BG          = QColor("#FAFAFA")   # Hintergrund
 _C_LINE_WIRE   = QColor("#78909C")   # Verbindungslinien
 
@@ -41,12 +43,13 @@ class _Box:
     """Hilfsobjekt: eine Kasten-Position im Diagramm."""
     def __init__(self, x: float, y: float, w: float, h: float,
                  label: str, sub: str = "", color: QColor = _C_LINE,
-                 text_color: QColor = QColor("white")):
+                 text_color: QColor = QColor("white"), tooltip: str = ""):
         self.x, self.y, self.w, self.h = x, y, w, h
         self.label = label
         self.sub = sub
         self.color = color
         self.text_color = text_color
+        self.tooltip = tooltip or label
 
     @property
     def cx(self) -> float:
@@ -94,6 +97,18 @@ class TopologyDiagramView(QWidget):
         self._info.setObjectName("subtitle")
         layout.addWidget(self._info)
 
+        legend = QLabel(
+            f"<span style='color:{_C_AREA.name()};'>&#9632;</span> Bereich/Koppler&nbsp;&nbsp;"
+            f"<span style='color:{_C_POWER.name()};'>&#9632;</span> Speisegerät&nbsp;&nbsp;"
+            f"<span style='color:{_C_LINE.name()};'>&#9632;</span> Linie (OK)&nbsp;&nbsp;"
+            f"<span style='color:{_C_LINE_WARN.name()};'>&#9632;</span> Leitungslänge nahe Grenzwert&nbsp;&nbsp;"
+            f"<span style='color:{_C_LINE_ERROR.name()};'>&#9632;</span> Leitungslänge überschritten (FA-2603)&nbsp;&nbsp;"
+            f"<span style='color:{_C_BACKBONE.name()};'>&#9632;</span> Backbone&nbsp;&nbsp;&nbsp;"
+            "▶ Aktor(en)&nbsp;&nbsp;⏺ Sensor(en)&nbsp;&nbsp;◆ Sonstige"
+        )
+        legend.setStyleSheet("font-size: 11px; color: #666;")
+        layout.addWidget(legend)
+
         # Zeichenfläche
         self._scene = QGraphicsScene()
         self._scene.setBackgroundBrush(QBrush(_C_BG))
@@ -122,6 +137,13 @@ class TopologyDiagramView(QWidget):
     def _draw_topology(self):
         areas = self._project.topology.areas
         multi_area = len(areas) > 1
+
+        # FA-2603: Leitungslängen-Warnungen/-Fehler pro Linie (dieselbe Prüfung
+        # wie in der separaten Kabellängen-Ansicht, hier zusätzlich direkt im
+        # grafischen Prinzipschema sichtbar statt nur in einer separaten Liste).
+        cable_validations = {
+            v.line_id: v for v in CableLengthService().validate_project(self._project)
+        }
 
         col_x = MARGIN
         area_cols: list[dict] = []   # {"area": Area, "x": float, "boxes": [_Box]}
@@ -167,8 +189,20 @@ class TopologyDiagramView(QWidget):
                     sub_parts.append(f"◆ {others} Sonstige")
                 sub = "\n".join(sub_parts)
                 line_name = f"{lk_addr}  {line.name}" if line.name else lk_addr
+
+                line_color = _C_LINE
+                line_tooltip = line_name
+                validation = cable_validations.get(line.id)
+                if validation and validation.status != "OK":
+                    line_color = (
+                        _C_LINE_ERROR if validation.status == "Fehler" else _C_LINE_WARN
+                    )
+                    line_tooltip = line_name + "\n\n⚠ " + "\n⚠ ".join(validation.messages)
+                    sub_parts.append(f"⚠ Leitungslänge: {validation.status}")
+                    sub = "\n".join(sub_parts)
+
                 boxes.append(_Box(col_x, y, BOX_W, BOX_H_LINE,
-                                  line_name, sub, _C_LINE))
+                                  line_name, sub, line_color, tooltip=line_tooltip))
                 y += BOX_H_LINE + GAP_ROW
 
             area_cols.append({"area": area, "x": col_x, "boxes": boxes,
@@ -227,7 +261,7 @@ class TopologyDiagramView(QWidget):
         rect = QGraphicsRectItem(box.x, box.y, box.w, box.h)
         rect.setBrush(QBrush(box.color))
         rect.setPen(QPen(box.color.darker(130), 1))
-        rect.setToolTip(box.label)
+        rect.setToolTip(box.tooltip)
         self._scene.addItem(rect)
 
         # Titelzeile

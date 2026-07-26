@@ -75,6 +75,19 @@ class SensorRow:
     action_type: str = ""
     # True = LED-Rückmeldung (nur empfangen), False = Steuer-GA (Taster sendet)
     is_feedback: bool = False
+    # Gewerk-Code der ausgelösten GA (z.B. "L", "LD", "J", "SZ") -- bestimmt
+    # die Funktionsspalte in der Verknüpfungsmatrix (FA-2502). Leer bei
+    # ETS6-CO-Fallback-Zeilen ohne aufgelöste GA.
+    gewerk_code: str = ""
+    # Bedienelement.id -- welches BE bekäme eine neue SensorFunktion, falls
+    # der Planer diese Zelle in der Matrix bearbeitet (FA-2503). Leer bei
+    # reinen ETS6-Geräte-Fallback-Zeilen ohne zugehöriges Bedienelement.
+    be_id: str = ""
+    # SensorFunktion.id, aus der diese Zeile abgeleitet wurde. Nur bei
+    # direkten GA-Zuordnungen (Variante 2) editierbar -- gewerk-basierte
+    # Zeilen (Variante 1) sind über die Matrix bewusst nicht editierbar
+    # (siehe Schritt 5 Gewerke). Leer wenn nicht editierbar.
+    sf_id: str = ""
 
 
 @dataclass
@@ -96,6 +109,7 @@ class ActorRow:
     ga_designation: str         # z.B. "LD_E01_01 E/A (Wohnen)"
     ga_address: str             # z.B. "2/0/4"
     dpt: str                    # z.B. "DPST-1-1"
+    floor_name: str = ""        # Stockwerk des bedienten Raums (FA-2501)
 
 
 @dataclass
@@ -119,6 +133,50 @@ def _split_button_channel(button_channel: str) -> tuple[str, str]:
     if button_channel == "Taste":
         return "Taste", "1"
     return button_channel, ""
+
+
+# ETS-Konventionen für Kanalbezeichnungen in CO-Namen, z.B.
+# "Kanal A" / "Ausgang 1" (Präfix) oder "A, Schalten" (Kurzkürzel + Komma).
+_CHANNEL_PREFIX_RE = re.compile(
+    r'^(Kanal\s+\w+|Ausgang\s+\w+|Eingang\s+\w+)\b', re.IGNORECASE
+)
+_CHANNEL_LETTER_RE = re.compile(r'^([A-Za-z]{1,2}\d{0,2})\s*,\s*\S')
+
+
+def _extract_channel_label(name: str) -> str:
+    """Extrahiert die Kanalbezeichnung aus einem ETS-CO-Namen.
+
+    Geräte-globale Objekte ohne erkennbaren Kanal (z.B. "Status Direktbetrieb",
+    "8-bit Szene") liefern "" und werden vom Aufrufer eigenständig behandelt
+    (z.B. Fallback auf Objektnummer statt Funktionsname).
+    """
+    name = (name or "").strip()
+    m = _CHANNEL_PREFIX_RE.match(name)
+    if m:
+        return m.group(1).strip()
+    m = _CHANNEL_LETTER_RE.match(name)
+    if m:
+        return f"Kanal {m.group(1)}"
+    return ""
+
+
+def group_actor_rows_by_channel(rows: list[ActorRow]) -> list[tuple[str, list[ActorRow]]]:
+    """Gruppiert ActorRow-Zeilen (eines einzelnen Geräts) nach channel_number,
+    numerisch sortiert.
+
+    Gemeinsame Hilfsfunktion für Topologie-Ansicht und Aktoren-Bericht, damit
+    beide dieselbe Kanal-Gruppierung -- inkl. Gewerk-Kontext je Kanal, aus
+    row.gewerk_code/row.room_name ableitbar -- konsistent anzeigen.
+    """
+    groups: dict[str, list[ActorRow]] = {}
+    for r in rows:
+        groups.setdefault(r.channel_number or "?", []).append(r)
+
+    def _key(item: tuple[str, list[ActorRow]]) -> int:
+        ch = item[0]
+        return int(ch) if ch.isdigit() else 999
+
+    return sorted(groups.items(), key=_key)
 
 
 def _parse_phys_addr(addr: str) -> tuple[int, ...]:
@@ -254,6 +312,9 @@ class BelegungsplanService:
                                     ga_designation=fa.function_ga,
                                     ga_address=ga.address if ga else "",
                                     dpt=ga.datapoint_type if ga else "",
+                                    gewerk_code=ga.gewerk_code if ga else "",
+                                    be_id=be.id,
+                                    sf_id=fa.sf_id,
                                 ))
                         else:
                             rows.extend(self._sensor_rows_from_cos(
@@ -285,6 +346,9 @@ class BelegungsplanService:
                             ga_designation=fa.function_ga,
                             ga_address=ga.address if ga else "",
                             dpt=ga.datapoint_type if ga else "",
+                            gewerk_code=ga.gewerk_code if ga else "",
+                            be_id=be.id,
+                            sf_id=fa.sf_id,
                         ))
                 else:
                     rows.extend(self._sensor_rows_from_cos(
@@ -325,6 +389,7 @@ class BelegungsplanService:
                                     ga_designation=ga_obj.designation if ga_obj else ga_addr,
                                     ga_address=ga_addr,
                                     dpt=co.data_type,
+                                    gewerk_code=ga_obj.gewerk_code if ga_obj else "",
                                 ))
                     else:
                         # Sensor bekannt aber keine GAs → Platzhalter-Zeile
@@ -390,6 +455,8 @@ class BelegungsplanService:
                         ga_designation=ga_obj.designation if ga_obj else ga_addr,
                         ga_address=ga_addr,
                         dpt=co.data_type,
+                        gewerk_code=ga_obj.gewerk_code if ga_obj else "",
+                        be_id=be.id,
                     ))
         if not result:
             # Kein Device oder keine COs mit GAs → Platzhalter-Zeile
@@ -407,6 +474,7 @@ class BelegungsplanService:
                 ga_designation="",
                 ga_address="",
                 dpt="",
+                be_id=be.id,
             ))
         return result
 
@@ -505,6 +573,7 @@ class BelegungsplanService:
                                 line_name=line.name,
                                 area_number=area.area_number,
                                 line_number=line.line_number,
+                                floor_name=floor_index.get(room_id, ""),
                                 uv_location=device.installation_location or line.uv_location or "",
                                 actor_type=device.product,
                                 physical_address=device.physical_address,
@@ -565,11 +634,16 @@ class BelegungsplanService:
                                 line_name=line.name,
                                 area_number=area.area_number,
                                 line_number=line.line_number,
+                                floor_name=floor_index.get(room_id, "") if room_id else "",
                                 uv_location=uv,
                                 actor_type=device.product,
                                 physical_address=device.physical_address,
                                 channel_number="",
-                                element_number=0,
+                                # Zwischenspeicher für die CO-Objektnummer, wird als
+                                # eindeutiger Kanal-Fallback in der Kanalnummer-Vergabe
+                                # unten verwendet, falls kein Kanal aus dem Namen
+                                # erkennbar ist (siehe dortiger Kommentar).
+                                element_number=co.object_number,
                                 room_number=room.number if room else "",
                                 zone_name=zone_name,
                                 room_name=room.name if room else "",
@@ -582,14 +656,25 @@ class BelegungsplanService:
 
         if fallback_rows:
             # Kanalnummern für Fallback-Zeilen vergeben.
-            # Schlüssel: function_name (entspricht co.name), da element_number und gewerk_code
-            # für ETS6-Importe nicht bekannt sind. Mehrere GAs desselben COs teilen
-            # damit die gleiche Kanalnummer.
+            # Schlüssel: aus dem CO-Namen erkannter physischer Kanal (z.B. "Kanal A"
+            # aus "A, Schalten"/"A, Sperren"/"A, Status Schalten" -- alle drei COs
+            # gehören zum selben Ausgang A und müssen dieselbe Kanalnummer erhalten).
+            # NICHT function_name/co.name selbst verwenden: das gruppiert nach
+            # Befehlstyp statt nach Kanal -- entweder werden dann alle GAs eines
+            # Kanals fälschlich auf mehrere "Kanäle" aufgesplittet (bei
+            # kanalspezifischen Namen wie oben), oder umgekehrt landen alle
+            # gleichnamigen Befehle verschiedener Kanäle (z.B. generisches
+            # "Ein/Aus" ohne Kanalpräfix, wenn der CO-Name leer ist und auf die
+            # geräteweit identische FunctionText zurückgefallen wird) fälschlich
+            # gemeinsam in "Kanal 1". Kann kein Kanal aus dem Namen erkannt werden,
+            # ist die Objektnummer (co.object_number, hier in element_number
+            # zwischengespeichert) das nächstbeste eindeutige Merkmal je Kanal --
+            # sicherer als eine falsche Zusammenlegung.
             for row in fallback_rows:
                 addr = row.physical_address
                 if addr not in actor_channel_counters:
                     actor_channel_counters[addr] = {}
-                key = row.function_name
+                key = _extract_channel_label(row.function_name) or f"CO-{row.element_number}"
                 if key not in actor_channel_counters[addr]:
                     actor_channel_counters[addr][key] = str(len(actor_channel_counters[addr]) + 1)
                 row.channel_number = actor_channel_counters[addr][key]

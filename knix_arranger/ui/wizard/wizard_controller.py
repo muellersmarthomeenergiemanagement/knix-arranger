@@ -141,6 +141,19 @@ class WizardController(QDialog):
 
         layout.addLayout(nav)
 
+        # Legende für die Schritt-Button-Farbcodierung (FA-3211): ohne diese
+        # Zeile ist die Bedeutung von Grün/Orange/Grau nur per Tooltip
+        # (Hover) erschliessbar.
+        legend = QLabel(
+            f"<span style='color:{KNX_GREEN};'>&#9679;</span> Vollständig&nbsp;&nbsp;"
+            f"<span style='color:#FFA726;'>&#9679;</span> Teilweise / optional&nbsp;&nbsp;"
+            f"<span style='color:#C0C0C0;'>&#9679;</span> Leer&nbsp;&nbsp;"
+            f"<span style='color:{KNX_DARK_GREEN};'>&#9679;</span> Aktueller Schritt"
+        )
+        legend.setStyleSheet("font-size: 11px; color: #666;")
+        legend.setAlignment(Qt.AlignCenter)
+        layout.addWidget(legend)
+
         self._update_ui()
 
         # Ersten Schritt initialisieren (vorhandene Projektdaten laden)
@@ -234,6 +247,16 @@ class WizardController(QDialog):
 
         except Exception:
             logger.exception("Fehler in _check_can_leave (Schritt %d)", step_index)
+            # Nicht stillschweigend durchwinken (fail-open): der Nutzer soll
+            # sehen, dass die Vollständigkeitsprüfung fehlgeschlagen ist, auch
+            # wenn wir ihn nicht hart blockieren (der Fehler liegt in der
+            # Prüfung selbst, nicht zwingend in den Projektdaten).
+            return (
+                False,
+                "Die Vollständigkeitsprüfung für diesen Schritt konnte wegen "
+                "eines technischen Fehlers nicht durchgeführt werden.",
+                False,   # weiche Warnung
+            )
 
         return True, "", False
 

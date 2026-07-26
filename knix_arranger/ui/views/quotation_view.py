@@ -545,10 +545,21 @@ class QuotationView(QWidget):
             text = table_item.text().replace("'", "").replace(",", ".").strip()
             try:
                 price = float(text) if text else 0.0
-                qr.items[row].unit_price = price
-                qr.items[row].total_price = price * qr.items[row].quantity
             except ValueError:
-                pass
+                # Ungültige Eingabe nicht still verwerfen: Anzeige würde sonst
+                # vom Modell abweichen (Zelle zeigt den ungültigen Text, das
+                # Modell behält den alten Preis, ohne dass der Nutzer das merkt).
+                QMessageBox.warning(
+                    self, "Ungültiger Preis",
+                    f"'{table_item.text()}' ist keine gültige Zahl.\n"
+                    "Der vorherige Wert bleibt erhalten."
+                )
+                self._items_table.blockSignals(True)
+                table_item.setText(f"{qr.items[row].unit_price:.2f}")
+                self._items_table.blockSignals(False)
+                return
+            qr.items[row].unit_price = price
+            qr.items[row].total_price = price * qr.items[row].quantity
         elif col == 6:  # Bemerkung
             qr.items[row].notes = table_item.text()
 

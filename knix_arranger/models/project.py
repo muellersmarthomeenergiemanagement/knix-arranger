@@ -142,19 +142,20 @@ class KnxProject:
         # Zeitsteuerung (FA-3301)
         data["time_programs"] = [tp.to_dict() for tp in self.time_programs]
         data["location"] = self.location.to_dict()
-        # KNX Secure: Schlüssel verschlüsselt speichern (FA-2706)
-        if self.knx_secure.enabled and (
-            self.knx_secure.backbone_key or self.knx_secure.group_key
-        ):
-            try:
-                from ..services.knx_secure_service import KnxSecureService
-                data["knx_secure"] = KnxSecureService.encrypt_config(
-                    self.knx_secure, self.id
-                )
-            except Exception:
-                data["knx_secure"] = self.knx_secure.to_dict()
+        # KNX Secure: sensible Felder (FDSK/ETS6-Projektpasswort/Notiz)
+        # passwortbasiert verschlüsselt speichern (FA-2706).
+        ks = self.knx_secure
+        if ks._locked_blob is not None:
+            # In dieser Sitzung nie entsperrt -> bestehendes Archiv unveraendert
+            # zurueckschreiben, damit es nicht verloren geht.
+            data["knx_secure"] = ks._locked_blob
+        elif ks._session_password:
+            from ..services.knx_secure_service import KnxSecureService
+            data["knx_secure"] = KnxSecureService.encrypt_config(
+                ks, ks._session_password
+            )
         else:
-            data["knx_secure"] = self.knx_secure.to_dict()
+            data["knx_secure"] = ks.to_dict()
         if self.acceptance_protocol:
             data["acceptance_protocol"] = self.acceptance_protocol.to_dict()
         return data
@@ -208,16 +209,14 @@ class KnxProject:
             TimeProgram.from_dict(tp) for tp in data.get("time_programs", [])
         ]
         project.location = ProjectLocation.from_dict(data.get("location", {}))
-        # KNX Secure laden (evtl. verschlüsselt)
+        # KNX Secure laden: unverschlüsselte Felder sofort verfügbar; falls ein
+        # verschlüsseltes Archiv (secure_blob) vorhanden ist, bleibt dieses
+        # gesperrt, bis in der UI das Master-Passwort eingegeben wird
+        # (siehe KnxSecureService.unlock).
         secure_data = data.get("knx_secure", {})
-        if secure_data:
-            try:
-                from ..services.knx_secure_service import KnxSecureService
-                project.knx_secure = KnxSecureService.decrypt_config(
-                    secure_data, project.id
-                )
-            except Exception:
-                project.knx_secure = KnxSecureConfig.from_dict(secure_data)
+        project.knx_secure = KnxSecureConfig.from_dict(secure_data) if secure_data else KnxSecureConfig()
+        if secure_data.get("secure_blob"):
+            project.knx_secure._locked_blob = secure_data
         return project
 
     def to_json(self) -> str:
