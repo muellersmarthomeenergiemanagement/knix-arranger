@@ -126,6 +126,7 @@ class Sidebar(QWidget):
         self._add_button("time_programs",     "Zeitsteuerung",        "ZT")
         self._add_button("bauherr_form",      "Bauherren-Beratung",  "BB")
         self._add_button("commissioning",     "Inbetriebnahme",      "IB")
+        self._add_button("changelog",         "Änderungsprotokoll",   "H")
 
         self._add_section("EXPORT")
         self._add_button("export",   "CSV Export", "E")

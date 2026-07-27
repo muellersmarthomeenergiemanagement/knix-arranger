@@ -39,6 +39,7 @@ from .views.knx_secure_view import KnxSecureView
 from .views.commissioning_view import CommissioningView
 from .views.time_program_view import TimeProgramView
 from .views.bauherr_form_view import BauherrFormView
+from .views.changelog_view import ChangelogView
 from .dialogs.new_project_dialog import NewProjectDialog
 from .dialogs.about_dialog import AboutDialog
 from .dialogs.import_dialog import ImportDialog
@@ -66,6 +67,7 @@ from ..services.knxproj_import_service import (
     KnxprojImportService, KnxprojImportError,
     KnxprojPasswordRequired, KnxprojPasswordWrong,
 )
+from ..services.project_reconcile_service import reconcile_reimport
 from ..services.undo_manager import UndoManager, ObjectStateCommand
 from ..services.project_bus import ProjectBus
 from ..services.recalc_service import RecalcService
@@ -318,6 +320,10 @@ class MainWindow(QMainWindow):
         self._bauherr_form_view = BauherrFormView()
         self._commissioning_view = CommissioningView(self._project)
         self._commissioning_view.checklist_changed.connect(self._set_dirty)
+        self._changelog_view = ChangelogView()
+        self._changelog_view.changed.connect(
+            lambda: self._bus.any_change.emit("changelog")
+        )
 
         # Wizard-Platzhalter
         self._wizard_widget = QWidget()
@@ -345,6 +351,7 @@ class MainWindow(QMainWindow):
             "time_programs": self._time_program_view,
             "bauherr_form": self._bauherr_form_view,
             "commissioning": self._commissioning_view,
+            "changelog": self._changelog_view,
             "help": self._help_view,
             "wizard": self._wizard_widget,
         }
@@ -439,6 +446,8 @@ class MainWindow(QMainWindow):
                 self._bauherr_form_view.set_project(self._project)
             elif key == "commissioning":
                 self._commissioning_view.set_project(self._project)
+            elif key == "changelog":
+                self._changelog_view.set_project(self._project)
             elif key == "datasheets":
                 self._datasheet_view.set_project(self._project)
             elif key == "topology_diagram":
@@ -474,6 +483,7 @@ class MainWindow(QMainWindow):
         self._knx_secure_view.set_project(self._project)
         self._time_program_view.set_project(self._project)
         self._commissioning_view.set_project(self._project)
+        self._changelog_view.set_project(self._project)
 
         ga_count = len(self._project.group_addresses.all_addresses())
         self._status_bar.set_project_name(self._project.name)
@@ -675,6 +685,8 @@ class MainWindow(QMainWindow):
                 project.areal = areal
                 self._building_service.assign_main_groups(project.areal)
 
+        project.add_changelog_entry("Projekt", f"Projekt '{project.name}' erstellt.")
+
         try:
             project.save(file_path)
         except Exception as e:
@@ -832,6 +844,13 @@ class MainWindow(QMainWindow):
             self._import_ga_report_xlsx(filepath, importer)
             return
 
+        # Snapshot fürs Re-Import-Abgleich (siehe Ende der Methode): die
+        # Objekte selbst werden unten nur ersetzt, nicht mutiert, daher bleibt
+        # diese Referenz gültig auf dem alten Stand.
+        old_snapshot = KnxProject(name="")
+        old_snapshot.topology = self._project.topology
+        old_snapshot.areal = self._project.areal
+
         topology = importer.import_xlsx(filepath)
         topology.is_imported = True
         self._project.topology = topology
@@ -925,6 +944,25 @@ class MainWindow(QMainWindow):
         # DALI-Gateways automatisch konfigurieren (GA-Verknüpfung + Gruppen)
         self._auto_configure_dali()
 
+        # Re-Import-Abgleich (siehe _import_knxproj): alte IDs + KNiX-
+        # Zusatzdaten anhand physischer Adresse/Raumnummer übernehmen, bevor
+        # der Nutzer die Änderungen zu Gesicht bekommt.
+        reconcile_diff = reconcile_reimport(old_snapshot, self._project)
+        is_reimport = reconcile_diff.devices_matched > 0 or reconcile_diff.rooms_matched > 0
+        self._project.add_changelog_entry(
+            "Re-Import" if is_reimport else "Import",
+            f"{os.path.basename(filepath)}: {reconcile_diff.summary_line()}",
+        )
+        if is_reimport and reconcile_diff.has_removed:
+            QMessageBox.warning(
+                self, "Re-Import: Geräte/Räume nicht mehr gefunden",
+                "Beim Abgleich mit dem bisherigen Projektstand wurden folgende "
+                "Geräte/Räume nicht mehr gefunden. Falls sie in Excel nur "
+                "umbenannt statt gelöscht wurden, sind ihre KNiX-Planungsdaten "
+                "(Gewerk-Zuweisungen, Bedienelemente, Materialliste, ...) jetzt "
+                "verwaist:\n\n" + reconcile_diff.details_text(),
+            )
+
         self._update_views()
 
         total_devices = sum(
@@ -951,13 +989,21 @@ class MainWindow(QMainWindow):
             f"Topologie importiert: {len(topology.areas)} Bereiche, "
             f"{sum(len(a.lines) for a in topology.areas)} Linien, "
             f"{total_devices} Geraete, {kos} KOs, {ga_count} GAs{ga_hint} | "
-            f"Gebaeude: {total_floors} Stockwerke, {total_rooms} Raeume.{ga_tipp}"
+            f"Gebaeude: {total_floors} Stockwerke, {total_rooms} Raeume.{ga_tipp} | "
+            f"{reconcile_diff.summary_line()}."
         )
         self._sidebar.select("topology_report")
         self._navigate("topology_report")
 
     def _import_ga_report_xlsx(self, filepath: str, importer):
         """Importiert einen ETS6 Gruppenadress-Report (XLSX) (FA-519b)."""
+        # Snapshot fürs Re-Import-Abgleich (siehe Ende der Methode). Topologie
+        # ändert sich hier nicht, nur ggf. areal (Gebäudestruktur-Re-Ableitung
+        # unten) -- alter Stand bleibt gültig, da nur ersetzt, nicht mutiert.
+        old_snapshot = KnxProject(name="")
+        old_snapshot.topology = self._project.topology
+        old_snapshot.areal = self._project.areal
+
         self._ga_report_path = filepath
         ga_structure = importer.import_ga_report(filepath)
         self._project.group_addresses = ga_structure
@@ -1030,13 +1076,31 @@ class MainWindow(QMainWindow):
         # DALI-Gateways automatisch konfigurieren (GA-Verknüpfung + Gruppen)
         self._auto_configure_dali()
 
+        # Re-Import-Abgleich (siehe _import_knxproj): alte IDs + KNiX-
+        # Zusatzdaten anhand physischer Adresse/Raumnummer übernehmen.
+        reconcile_diff = reconcile_reimport(old_snapshot, self._project)
+        is_reimport = reconcile_diff.devices_matched > 0 or reconcile_diff.rooms_matched > 0
+        self._project.add_changelog_entry(
+            "Re-Import" if is_reimport else "Import",
+            f"{os.path.basename(filepath)}: {reconcile_diff.summary_line()}",
+        )
+        if is_reimport and reconcile_diff.has_removed:
+            QMessageBox.warning(
+                self, "Re-Import: Geräte/Räume nicht mehr gefunden",
+                "Beim Abgleich mit dem bisherigen Projektstand wurden folgende "
+                "Geräte/Räume nicht mehr gefunden. Falls sie in Excel nur "
+                "umbenannt statt gelöscht wurden, sind ihre KNiX-Planungsdaten "
+                "(Gewerk-Zuweisungen, Bedienelemente, Materialliste, ...) jetzt "
+                "verwaist:\n\n" + reconcile_diff.details_text(),
+            )
+
         self._update_views()
         ga_count = len(ga_structure.all_addresses())
         hg_count = len(ga_structure.main_groups)
         gewerk_hint = f", {assigned} Gewerk-Zuweisungen" if assigned else ""
         self._status_bar.set_status(
             f"GA-Report importiert: {hg_count} Hauptgruppen, "
-            f"{ga_count} Gruppenadressen{gewerk_hint}."
+            f"{ga_count} Gruppenadressen{gewerk_hint} | {reconcile_diff.summary_line()}."
         )
         self._sidebar.select("addresses")
         self._navigate("addresses")
@@ -1141,49 +1205,68 @@ class MainWindow(QMainWindow):
             return 0
 
     def _import_knxprod_catalog(self):
-        """Importiert eine KNXPROD-Datei und fügt Produkte dem Katalog hinzu (FA-2304)."""
+        """Importiert eine oder mehrere KNXPROD-Dateien und fügt Produkte dem Katalog hinzu (FA-2304)."""
+        import os
         from PySide6.QtWidgets import QFileDialog
         from ..services.knxprod_catalog_service import KnxprodCatalogService
         from ..services.product_search_service import ProductSearchService
 
-        filepath, _ = QFileDialog.getOpenFileName(
-            self, "KNXPROD-Datei importieren", "",
+        filepaths, _ = QFileDialog.getOpenFileNames(
+            self, "KNXPROD-Dateien importieren (Mehrfachauswahl möglich)", "",
             "KNX Produktdatenbankdateien (*.knxprod);;Alle Dateien (*.*)",
         )
-        if not filepath:
+        if not filepaths:
             return
 
-        try:
-            svc = KnxprodCatalogService()
-            products = svc.import_file(filepath)
-        except ValueError as e:
-            import os
+        svc = KnxprodCatalogService()
+        all_products = []
+        errors: list[tuple[str, str]] = []
+        empty: list[str] = []
+        for filepath in filepaths:
+            name = os.path.basename(filepath)
+            try:
+                products = svc.import_file(filepath)
+            except ValueError as e:
+                errors.append((name, str(e)))
+                continue
+            if not products:
+                empty.append(name)
+                continue
+            all_products.extend(products)
+
+        total_products = len(all_products)
+        ok_count = len(filepaths) - len(errors) - len(empty)
+
+        # In den Katalog aufnehmen -- ein Schreibvorgang, persistiert dauerhaft
+        # (%APPDATA%/KNiX Arranger/), projekt- und session-übergreifend verfügbar
+        if all_products:
+            ProductSearchService().add_products([p.to_catalog_dict() for p in all_products])
+
+        if total_products == 0 and (errors or empty):
+            details = "\n".join(f"• {n}: {e}" for n, e in errors)
+            if empty:
+                details += ("\n" if details else "") + "\n".join(
+                    f"• {n}: keine Produktdaten gefunden" for n in empty
+                )
             QMessageBox.critical(
                 self, "KNXPROD-Import fehlgeschlagen",
-                f"Die Produktdatenbankdatei konnte nicht gelesen werden:\n"
-                f"{os.path.basename(filepath)}\n\n"
-                f"Ursache: {e}\n\n"
-                "Stellen Sie sicher, dass es sich um eine gültige .knxprod-Datei handelt\n"
+                f"Keine der {len(filepaths)} ausgewählten Datei(en) konnte importiert werden:\n\n"
+                f"{details}\n\n"
+                "Stellen Sie sicher, dass es sich um gültige .knxprod-Dateien handelt\n"
                 "(Export aus ETS6: Katalog → Hersteller → Exportieren).",
             )
             return
 
-        if not products:
-            QMessageBox.information(
-                self, "Kein Ergebnis",
-                "In der Datei wurden keine Produktdaten gefunden.",
-            )
-            return
-
-        import os
-        QMessageBox.information(
-            self, "Import erfolgreich",
-            f"{len(products)} Produkte aus '{os.path.basename(filepath)}' eingelesen.\n"
-            f"Die Produkte stehen ab sofort in der Produktauswahl zur Verfügung.",
+        summary = (
+            f"{total_products} Produkte aus {ok_count} von {len(filepaths)} Datei(en) eingelesen.\n"
+            f"Die Produkte stehen ab sofort in der Produktauswahl zur Verfügung."
         )
+        if errors or empty:
+            problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
+            summary += "\n\nÜbersprungen:\n" + "\n".join(problems)
+        QMessageBox.information(self, "Import abgeschlossen", summary)
         self._status_bar.set_status(
-            f"KNXPROD importiert: {len(products)} Produkte aus "
-            f"'{os.path.basename(filepath)}'."
+            f"KNXPROD-Import: {total_products} Produkte aus {ok_count} von {len(filepaths)} Datei(en)."
         )
 
     def _import_knxproj(self, filepath: str):
@@ -1227,12 +1310,26 @@ class MainWindow(QMainWindow):
         if dialog is not None and project_id and dialog.save_password:
             project_service.save_knxproj_password(project_id, password)
 
+        # Re-Import-Abgleich: alte IDs + KNiX-Zusatzdaten (Materialliste,
+        # KNX Secure, DALI, Gewerk-Zuweisungen, Bedienelemente, ...) anhand
+        # physischer Adresse/Raumnummer in den frischen Import übernehmen,
+        # bevor er das laufende Projekt ersetzt (verhindert verwaiste
+        # Verknüpfungen bei Export → ETS-Anpassung → Re-Import-Zyklen).
+        reconcile_diff = reconcile_reimport(self._project, project)
+        is_reimport = reconcile_diff.devices_matched > 0 or reconcile_diff.rooms_matched > 0
+
         # Projektdaten ins laufende Projekt uebernehmen
         self._project.name = project.name or self._project.name
         self._project.modified = project.modified
         self._project.group_addresses = project.group_addresses
         self._project.topology = project.topology
         self._project.areal = project.areal
+
+        # Änderungsprotokoll: Re-Import-Zusammenfassung festhalten
+        self._project.add_changelog_entry(
+            "Re-Import" if is_reimport else "Import",
+            f"{os.path.basename(filepath)}: {reconcile_diff.summary_line()}",
+        )
 
         # GA-Metadaten (Gewerk, Raum) aus Bezeichnung anreichern
         self._enrich_ga_metadata()
@@ -1250,8 +1347,21 @@ class MainWindow(QMainWindow):
         self._status_bar.set_status(
             f"KNXPROJ importiert: {ga_count} GAs | "
             f"{n_areas} Bereiche, {n_lines} Linien, {n_dev} Geräte | "
-            f"{n_rooms} Räume."
+            f"{n_rooms} Räume | {reconcile_diff.summary_line()}."
         )
+
+        # Warnung wenn Geräte/Räume aus dem bisherigen Projekt nicht mehr
+        # gefunden wurden -- deren KNiX-Planungsdaten (Gewerke, Bedienelemente,
+        # Materialliste, ...) sind jetzt verwaist (Umbenennung/Löschung in ETS?).
+        if is_reimport and reconcile_diff.has_removed:
+            QMessageBox.warning(
+                self, "Re-Import: Geräte/Räume nicht mehr gefunden",
+                "Beim Abgleich mit dem bisherigen Projektstand wurden folgende "
+                "Geräte/Räume nicht mehr gefunden. Falls sie in ETS nur "
+                "umbenannt statt gelöscht wurden, sind ihre KNiX-Planungsdaten "
+                "(Gewerk-Zuweisungen, Bedienelemente, Materialliste, ...) jetzt "
+                "verwaist:\n\n" + reconcile_diff.details_text(),
+            )
         self._sidebar.select("addresses")
         self._navigate("addresses")
 

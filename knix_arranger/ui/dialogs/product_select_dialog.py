@@ -381,48 +381,63 @@ class ProductSelectDialog(QDialog):
     # ------------------------------------------------------------------ KNXPROD
 
     def _import_knxprod(self):
-        filepath, _ = QFileDialog.getOpenFileName(
-            self, "KNXPROD-Datei importieren", "",
+        filepaths, _ = QFileDialog.getOpenFileNames(
+            self, "KNXPROD-Dateien importieren (Mehrfachauswahl möglich)", "",
             "KNX Produktdatenbankdateien (*.knxprod);;Alle Dateien (*.*)",
         )
-        if not filepath:
+        if not filepaths:
             return
 
-        try:
-            svc = KnxprodCatalogService()
-            products = svc.import_file(filepath)
-        except ValueError as e:
-            QMessageBox.critical(self, "Import-Fehler", str(e))
-            return
+        svc = KnxprodCatalogService()
+        all_products: list[ProductSuggestion] = []
+        errors: list[tuple[str, str]] = []
+        empty: list[str] = []
+        for filepath in filepaths:
+            name = os.path.basename(filepath)
+            try:
+                products = svc.import_file(filepath)
+            except ValueError as e:
+                errors.append((name, str(e)))
+                continue
+            if not products:
+                empty.append(name)
+                continue
+            all_products.extend(products)
 
-        if not products:
-            QMessageBox.information(
-                self, "Kein Ergebnis",
-                "In der ausgewählten Datei wurden keine Produktdaten gefunden.",
+        if not all_products:
+            problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
+            QMessageBox.critical(
+                self, "Import-Fehler",
+                f"Keine der {len(filepaths)} ausgewählten Datei(en) konnte importiert werden:\n\n"
+                + "\n".join(problems),
             )
             return
 
-        # In laufenden Katalog aufnehmen
-        for prod in products:
-            self._search_service.add_product(prod.to_catalog_dict())
+        # In den Katalog aufnehmen -- ein Schreibvorgang für alle Produkte,
+        # persistiert dauerhaft (%APPDATA%), nicht nur für diese Dialog-Instanz
+        self._search_service.add_products([p.to_catalog_dict() for p in all_products])
 
         # Hersteller-Dropdown aktualisieren
         current_mfrs = {
             self._mfr_combo.itemText(i)
             for i in range(self._mfr_combo.count())
         }
-        for prod in products:
+        for prod in all_products:
             if prod.manufacturer not in current_mfrs:
                 self._mfr_combo.addItem(prod.manufacturer)
                 current_mfrs.add(prod.manufacturer)
 
         self._refresh_results()
 
-        QMessageBox.information(
-            self, "Import erfolgreich",
-            f"{len(products)} Produkte aus '{os.path.basename(filepath)}' importiert\n"
-            f"und dem Katalog hinzugefügt.",
+        ok_count = len(filepaths) - len(errors) - len(empty)
+        summary = (
+            f"{len(all_products)} Produkte aus {ok_count} von {len(filepaths)} Datei(en) "
+            f"importiert und dem Katalog hinzugefügt."
         )
+        if errors or empty:
+            problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
+            summary += "\n\nÜbersprungen:\n" + "\n".join(problems)
+        QMessageBox.information(self, "Import erfolgreich", summary)
 
     # ------------------------------------------------------------------ Ergebnis
 

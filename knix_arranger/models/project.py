@@ -15,7 +15,7 @@ from datetime import datetime
 from .building import Areal, Building, Wing, Floor, Apartment, Room
 from .topology import Topology
 from .group_address import GroupAddressStructure
-from .gewerk import GewerkCatalog
+from .gewerk import Gewerk, GewerkCatalog
 from .scene import Scene
 from .quotation import Supplier, QuotationRequest, CustomerQuote
 from .documentation import AcceptanceProtocol, CommissioningChecklist
@@ -54,6 +54,31 @@ class ProjectConfig:
 
 
 @dataclass
+class ChangelogEntry:
+    """Ein Eintrag im Projekt-Änderungsprotokoll.
+
+    Checkpoint-basiert: automatische Einträge bei wichtigen Ereignissen
+    (Projekt erstellt, ETS-Import/Re-Import, Revisionspaket erstellt) plus
+    freie Notizen. Bewusst keine feldweise Änderungsverfolgung -- für ein
+    Solo-Planungswerkzeug wäre das reines Rauschen ohne Mehrwert.
+    """
+    timestamp: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M"))
+    category: str = "Notiz"   # "Projekt", "Import", "Re-Import", "Revision", "Notiz"
+    message: str = ""
+
+    def to_dict(self) -> dict:
+        return {"timestamp": self.timestamp, "category": self.category, "message": self.message}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> ChangelogEntry:
+        return cls(
+            timestamp=data.get("timestamp", ""),
+            category=data.get("category", "Notiz"),
+            message=data.get("message", ""),
+        )
+
+
+@dataclass
 class KnxProject:
     """Root-Objekt eines KNX-Projekts."""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -84,6 +109,12 @@ class KnxProject:
     # Zeitsteuerung (FA-3301)
     time_programs: list[TimeProgram] = field(default_factory=list)
     location: ProjectLocation = field(default_factory=ProjectLocation)
+    # Änderungsprotokoll (checkpoint-basiert, siehe ChangelogEntry)
+    changelog: list[ChangelogEntry] = field(default_factory=list)
+    # Benutzerdefinierte Gewerke (FA-303), z.B. für Fremdsystem-Gateways ohne
+    # Standard-Katalogeintrag. Gespeichert als Gewerk.to_dict(); werden beim
+    # ersten Zugriff auf gewerk_catalog in den Katalog übernommen (siehe dort).
+    custom_gewerke: list[dict] = field(default_factory=list)
 
     # Nicht serialisiert - wird zur Laufzeit geladen
     _gewerk_catalog: Optional[GewerkCatalog] = field(
@@ -101,7 +132,19 @@ class KnxProject:
         if self._gewerk_catalog is None:
             self._gewerk_catalog = GewerkCatalog()
             self._gewerk_catalog.load_defaults()
+            for cg in self.custom_gewerke:
+                self._gewerk_catalog.add_custom(Gewerk.from_dict(cg))
         return self._gewerk_catalog
+
+    def add_custom_gewerk(self, gewerk: Gewerk) -> None:
+        """Fügt ein benutzerdefiniertes Gewerk zum Katalog hinzu und
+        persistiert es mit dem Projekt (FA-303) -- z.B. für Fremdsystem-
+        Gateways ohne Standard-Katalogeintrag (Musikanlage, individuelle
+        Wärmepumpe, ...) oder Zusatzfunktionen von Kombigeräten."""
+        self.gewerk_catalog.add_custom(gewerk)
+        self.custom_gewerke = [
+            g.to_dict() for g in self.gewerk_catalog.all_gewerke() if g.is_custom
+        ]
 
     @property
     def all_floors(self) -> list[Floor]:
@@ -114,6 +157,10 @@ class KnxProject:
     def touch(self):
         """Aktualisiert das Aenderungsdatum."""
         self.modified = datetime.now().strftime("%Y-%m-%d")
+
+    def add_changelog_entry(self, category: str, message: str) -> None:
+        """Fügt einen Eintrag zum Änderungsprotokoll hinzu (siehe ChangelogEntry)."""
+        self.changelog.append(ChangelogEntry(category=category, message=message))
 
     def to_dict(self) -> dict:
         """Serialisiert das Projekt als Dictionary."""
@@ -142,6 +189,10 @@ class KnxProject:
         # Zeitsteuerung (FA-3301)
         data["time_programs"] = [tp.to_dict() for tp in self.time_programs]
         data["location"] = self.location.to_dict()
+        # Änderungsprotokoll
+        data["changelog"] = [e.to_dict() for e in self.changelog]
+        # Benutzerdefinierte Gewerke
+        data["custom_gewerke"] = self.custom_gewerke
         # KNX Secure: sensible Felder (FDSK/ETS6-Projektpasswort/Notiz)
         # passwortbasiert verschlüsselt speichern (FA-2706).
         ks = self.knx_secure
@@ -209,6 +260,10 @@ class KnxProject:
             TimeProgram.from_dict(tp) for tp in data.get("time_programs", [])
         ]
         project.location = ProjectLocation.from_dict(data.get("location", {}))
+        project.changelog = [
+            ChangelogEntry.from_dict(e) for e in data.get("changelog", [])
+        ]
+        project.custom_gewerke = data.get("custom_gewerke", [])
         # KNX Secure laden: unverschlüsselte Felder sofort verfügbar; falls ein
         # verschlüsseltes Archiv (secure_blob) vorhanden ist, bleibt dieses
         # gesperrt, bis in der UI das Master-Passwort eingegeben wird

@@ -356,6 +356,7 @@ class ReportsDialog(QDialog):
 
         def on_success(_result):
             self._log_msg(f"Revisionspaket erstellt in: {dir_path}")
+            project.add_changelog_entry("Revision", f"Revisionspaket erstellt: {dir_path}")
             os.startfile(dir_path)
 
         run_export(self, "Revisionspaket wird erstellt…", do, on_success, self._worker_ref)

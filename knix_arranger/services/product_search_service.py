@@ -15,6 +15,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger("knix_arranger.product_search")
 
 
+def _user_catalog_path() -> str:
+    """Pfad zur nutzereigenen Katalog-Erweiterung (persistiert KNXPROD-Importe).
+
+    Liegt unter %APPDATA%, nicht im Installationsordner der App (dort läge
+    die mitgelieferte Basis-Datenbank) -- Importe überleben so App-Updates
+    und Neuinstallationen, und stehen projektübergreifend in jedem Projekt
+    zur Verfügung (FA-2304).
+    """
+    appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+    data_dir = os.path.join(appdata, "KNiX Arranger")
+    os.makedirs(data_dir, exist_ok=True)
+    return os.path.join(data_dir, "product_catalog_user.json")
+
+
 @dataclass
 class ProductSuggestion:
     """Produktvorschlag für Aktoren/Sensoren/Infrastruktur."""
@@ -43,10 +57,13 @@ class ProductSearchService:
 
     def __init__(self):
         self._catalog: list[dict] = []
+        self._user_products: list[dict] = []  # nur Nutzer-Importe, für Persistenz
         self._load_catalog()
 
     def _load_catalog(self):
-        """Lädt die lokale Produktdatenbank."""
+        """Lädt die mitgelieferte Basis-Produktdatenbank und die nutzereigene
+        Katalog-Erweiterung (persistierte KNXPROD-Importe, siehe add_product/
+        add_products) und führt beide zusammen."""
         catalog_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "data", "product_catalog.json",
@@ -57,6 +74,39 @@ class ProductSearchService:
             logger.info(f"Produktkatalog geladen: {len(self._catalog)} Produkte")
         else:
             logger.warning(f"Produktkatalog nicht gefunden: {catalog_path}")
+
+        user_path = _user_catalog_path()
+        if os.path.exists(user_path):
+            try:
+                with open(user_path, "r", encoding="utf-8") as f:
+                    self._user_products = json.load(f).get("products", [])
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Nutzereigener Produktkatalog konnte nicht gelesen werden: {e}")
+                self._user_products = []
+            for prod in self._user_products:
+                self._upsert(self._catalog, prod)
+            if self._user_products:
+                logger.info(f"Nutzereigener Produktkatalog geladen: {len(self._user_products)} Produkte")
+
+    @staticmethod
+    def _upsert(target: list[dict], product: dict) -> None:
+        """Fügt product zu target hinzu, oder ersetzt einen bestehenden Eintrag
+        mit gleichem (manufacturer, order_number) -- verhindert Duplikate bei
+        wiederholtem Import derselben KNXPROD-Datei."""
+        key = (product.get("manufacturer", ""), product.get("order_number", ""))
+        for i, existing in enumerate(target):
+            if (existing.get("manufacturer", ""), existing.get("order_number", "")) == key:
+                target[i] = product
+                return
+        target.append(product)
+
+    def _save_user_catalog(self) -> None:
+        path = _user_catalog_path()
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"products": self._user_products}, f, ensure_ascii=False, indent=2)
+        except OSError as e:
+            logger.error(f"Nutzereigener Produktkatalog konnte nicht gespeichert werden: {e}")
 
     def search_actors(self, actor_type: str,
                       preferred_manufacturers: list[str] | None = None,
@@ -270,8 +320,24 @@ class ProductSearchService:
         return sorted(result)
 
     def add_product(self, product: dict):
-        """Fügt ein Produkt zum Laufzeit-Katalog hinzu (z.B. aus KNXPROD-Import)."""
-        self._catalog.append(product)
+        """Fügt ein Produkt zum Katalog hinzu (z.B. aus KNXPROD-Import) und
+        persistiert es dauerhaft (%APPDATA%/KNiX Arranger/product_catalog_user.json) --
+        steht damit nach App-Neustart und in jedem Projekt zur Verfügung.
+        Für mehrere Produkte auf einmal: add_products() (ein Schreibvorgang
+        statt einem pro Produkt)."""
+        self._upsert(self._catalog, product)
+        self._upsert(self._user_products, product)
+        self._save_user_catalog()
+
+    def add_products(self, products: list[dict]) -> None:
+        """Wie add_product(), aber für mehrere Produkte in einem Rutsch --
+        ein einziger Schreibvorgang statt einem pro Produkt (z.B. beim
+        Import einer KNXPROD-Datei mit hunderten Produkten)."""
+        for product in products:
+            self._upsert(self._catalog, product)
+            self._upsert(self._user_products, product)
+        if products:
+            self._save_user_catalog()
 
     def search_online(self, query: str) -> list[ProductSuggestion]:
         """

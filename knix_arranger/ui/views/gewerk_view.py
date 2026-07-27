@@ -16,6 +16,7 @@ from PySide6.QtCore import Qt, Signal
 from ...models.building import Areal, GewerkAssignment
 from ...models.gewerk import GewerkCatalog
 from ..column_utils import fit_columns
+from ..dialogs.custom_gewerk_dialog import CustomGewerkDialog
 
 # Spalten-Indizes
 _COL_FLOOR   = 0
@@ -43,9 +44,20 @@ class GewerkView(QWidget):
 
         layout = QVBoxLayout(self)
 
+        header_layout = QHBoxLayout()
         title = QLabel("Gewerke-Übersicht")
         title.setObjectName("title")
-        layout.addWidget(title)
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+        self._btn_custom_gewerk = QPushButton("Eigenes Gewerk anlegen…")
+        self._btn_custom_gewerk.setToolTip(
+            "Für Bedarfe, die der Standard-Katalog nicht abdeckt -- z.B. ein "
+            "Fremdsystem-Gateway (Musikanlage, individuelle Wärmepumpe) oder "
+            "eine Zusatzfunktion eines Kombigeräts (FA-303)."
+        )
+        self._btn_custom_gewerk.clicked.connect(self._add_custom_gewerk)
+        header_layout.addWidget(self._btn_custom_gewerk)
+        layout.addLayout(header_layout)
 
         # Filter
         filter_layout = QHBoxLayout()
@@ -108,11 +120,14 @@ class GewerkView(QWidget):
     def set_project(self, project):
         """Setzt das Projekt und aktualisiert die Ansicht vollständig."""
         self._project = project
-        self._gewerk_combo.clear()
-        for code in project.gewerk_catalog.all_codes():
-            g = project.gewerk_catalog.get(code)
-            self._gewerk_combo.addItem(f"{code} – {g.name}", code)
+        self._refresh_gewerk_combo()
         self.set_data(project.areal, project.gewerk_catalog)
+
+    def _refresh_gewerk_combo(self):
+        self._gewerk_combo.clear()
+        for code in self._project.gewerk_catalog.all_codes():
+            g = self._project.gewerk_catalog.get(code)
+            self._gewerk_combo.addItem(f"{code} – {g.name}", code)
 
     def set_data(self, areal: Areal, catalog: GewerkCatalog):
         """Aktualisiert Daten (backward-kompatibel mit _update_views)."""
@@ -234,6 +249,23 @@ class GewerkView(QWidget):
 
     def _on_count_changed(self, ga: GewerkAssignment, value: int):
         ga.count = value
+        self._emit_changed()
+
+    def _add_custom_gewerk(self):
+        """Öffnet den Dialog zum Anlegen eines benutzerdefinierten Gewerks (FA-303)."""
+        if not self._project:
+            return
+        dlg = CustomGewerkDialog(self._project.gewerk_catalog, self)
+        if not dlg.exec():
+            return
+        gewerk = dlg.get_gewerk()
+        if not gewerk:
+            return
+        if self._bus:
+            self._bus.begin_change(f"Eigenes Gewerk {gewerk.code} anlegen")
+        self._project.add_custom_gewerk(gewerk)
+        self._refresh_gewerk_combo()
+        self.set_data(self._project.areal, self._project.gewerk_catalog)
         self._emit_changed()
 
     def _add_gewerk(self):

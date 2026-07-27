@@ -15,6 +15,19 @@ from knix_arranger.models.gewerk import GewerkCatalog
 from knix_arranger.models.project import KnxProject
 
 
+@pytest.fixture(autouse=True)
+def isolate_appdata(monkeypatch, tmp_path):
+    """Isoliert alle Tests von der echten %APPDATA%-Umgebung.
+
+    Mehrere Services schreiben dorthin (Produktkatalog-Erweiterung, Logs,
+    Lizenzdaten, ...) -- ohne Isolation würden Testläufe die reale
+    Windows-Benutzerumgebung verändern und/oder Testergebnisse durch dort
+    bereits vorhandene Daten aus früheren Läufen verfälscht (siehe
+    product_catalog_user.json-Verschmutzung durch add_product()-Tests).
+    """
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+
+
 @pytest.fixture
 def gewerk_catalog():
     """Laedt den Standard-Gewerke-Katalog."""
