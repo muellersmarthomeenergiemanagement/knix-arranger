@@ -86,6 +86,58 @@ class DocumentationService:
             if dali_checklist.items:
                 checklists.append(dali_checklist)
 
+        # Verteiler-Geräte (Aktoren, Gateways, Koppler, Netzteile) anhängen
+        checklists.extend(self._create_verteiler_checklists())
+
+        return checklists
+
+    # Gerätetypen mit physikalischer Adresse, die im Verteiler sitzen und
+    # nicht über room.bedienelemente erfasst werden (Aktoren sind keine BEs).
+    _VERTEILER_DEVICE_TYPES = ("actor", "gateway", "coupler", "power_supply")
+
+    def _verteiler_devices_by_location(self) -> dict[str, list]:
+        """Gruppiert alle Verteiler-Geräte (Aktoren/Gateways/Koppler/Netzteile)
+        nach Einbauort (UV/HV), sortiert nach Ortsname."""
+        by_location: dict[str, list] = {}
+        for area in self.project.topology.areas:
+            for line in area.lines:
+                for device in line.devices:
+                    if device.device_type not in self._VERTEILER_DEVICE_TYPES:
+                        continue
+                    location = device.installation_location or "Nicht zugeordnet"
+                    by_location.setdefault(location, []).append(device)
+        return dict(sorted(by_location.items()))
+
+    def _create_verteiler_checklists(self) -> list[CommissioningChecklist]:
+        """Geräte-Grundprüfungen für Verteiler-Geräte, gruppiert nach UV/HV.
+
+        Aktoren, Gateways, Koppler und Netzteile sitzen im Verteiler statt im
+        Raum und tauchen daher nicht in room.bedienelemente auf – sie haben
+        aber ebenfalls eine physikalische Adresse und ein Applikationsprogramm,
+        die bei der Inbetriebnahme geprüft werden müssen.
+        """
+        checklists = []
+        for location, devices in self._verteiler_devices_by_location().items():
+            room_id = f"__verteiler__{location}"
+            checklist = CommissioningChecklist(
+                room_id=room_id,
+                room_name=f"Verteiler {location}",
+                date=datetime.now().strftime("%Y-%m-%d"),
+            )
+            for idx, device in enumerate(devices):
+                dev_number = device.physical_address or f"#{idx + 1}"
+                for check_type, description in self._DEVICE_CHECKS:
+                    checklist.items.append(ChecklistItem(
+                        item_kind=ITEM_KIND_DEVICE,
+                        check_type=check_type,
+                        description=description,
+                        room_id=room_id,
+                        be_type=device.product or device.device_type,
+                        be_number=dev_number,
+                        gewerk_code=device.device_type,
+                    ))
+            if checklist.items:
+                checklists.append(checklist)
         return checklists
 
     def _create_room_checklist(self, room: Room) -> CommissioningChecklist:
@@ -272,6 +324,17 @@ class DocumentationService:
                 if rows:
                     pdf.add_table(self._DEV_HEADERS, rows)
 
+        # Verteiler-Geräte (Aktoren, Gateways, Koppler, Netzteile)
+        for location, devices in self._verteiler_devices_by_location().items():
+            pdf.add_heading(f"Verteiler {location}", level=2)
+            for device in devices:
+                label = device.product or device.device_type
+                addr = f"  [{device.physical_address}]" if device.physical_address else ""
+                pdf.add_heading(f"{label}{addr}", level=3)
+                dev_rows = [[pt, desc, "[ ]", ""] for pt, desc in self._DEVICE_CHECKS]
+                pdf.add_table(self._DEV_HEADERS, dev_rows)
+            pdf.add_conditional_break(min_height=80)
+
         pdf.save(filepath)
         logger.info(f"Checklisten exportiert: {filepath}")
 
@@ -369,6 +432,29 @@ class DocumentationService:
                         data_row_height=20,
                     )
             excel.add_empty_row()
+
+        # Verteiler-Geräte (Aktoren, Gateways, Koppler, Netzteile)
+        for location, devices in self._verteiler_devices_by_location().items():
+            room_id = f"__verteiler__{location}"
+            excel.add_heading(f"Verteiler {location}", level=2)
+            for idx, device in enumerate(devices):
+                label = device.product or device.device_type
+                dev_number = device.physical_address or f"#{idx + 1}"
+                addr = f"  [{device.physical_address}]" if device.physical_address else ""
+                excel.add_heading(f"{label}{addr}", level=3)
+
+                rows = []
+                for pt, desc in self._DEVICE_CHECKS:
+                    it = saved.get((room_id, label, dev_number, pt, ""))
+                    rows.append(["", pt, desc, _result_cell(it), _notes(it)])
+                if rows:
+                    excel.add_table(
+                        self._XL_HEADERS, rows,
+                        center_cols=self._XL_CENTER_COLS,
+                        wrap_cols=self._XL_WRAP_COLS,
+                        data_row_height=20,
+                    )
+                excel.add_empty_row(height=4)
 
         excel.save(filepath)
         logger.info(f"Checklisten Excel exportiert: {filepath}")

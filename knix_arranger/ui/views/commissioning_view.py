@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem,
     QComboBox, QLineEdit, QSplitter, QGroupBox, QProgressBar,
-    QMessageBox, QAbstractItemView, QHeaderView, QFileDialog,
+    QMessageBox, QAbstractItemView, QHeaderView, QFileDialog, QMenu,
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QBrush
@@ -121,7 +121,15 @@ class CommissioningView(QWidget):
         self._tree.setHeaderHidden(True)
         self._tree.setMinimumWidth(200)
         self._tree.setMaximumWidth(320)
+        self._tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self._tree.setToolTip(
+            "Rechtsklick auf Raum oder Bedienelement: Ergebnis für alle\n"
+            "zugehörigen Prüfpunkte auf einmal setzen.\n"
+            "Mit Strg/Shift mehrere Räume/BEs gleichzeitig markieren."
+        )
         self._tree.currentItemChanged.connect(self._on_tree_selection)
+        self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(self._on_tree_context_menu)
         splitter.addWidget(self._tree)
 
         # Rechte Seite: Label + Bulk-Toolbar + Tabelle
@@ -305,6 +313,75 @@ class CommissioningView(QWidget):
 
     def _cl_by_room(self, room_id: str) -> CommissioningChecklist | None:
         return next((c for c in self._project.checklists if c.room_id == room_id), None)
+
+    def _room_node(self, room_id: str) -> QTreeWidgetItem | None:
+        for i in range(self._tree.topLevelItemCount()):
+            node = self._tree.topLevelItem(i)
+            data = node.data(0, Qt.UserRole)
+            if data and data[1] == room_id:
+                return node
+        return None
+
+    def _items_for_node(self, node: QTreeWidgetItem) -> list[ChecklistItem]:
+        """Alle Checklist-Items, die zu einem Raum- oder BE-Knoten gehören."""
+        data = node.data(0, Qt.UserRole)
+        if not data:
+            return []
+        cl = self._cl_by_room(data[1])
+        if not cl:
+            return []
+        if data[0] == _TYPE_ROOM:
+            return list(cl.items)
+        if data[0] == _TYPE_BE:
+            be_type, be_number = data[2], data[3]
+            return [i for i in cl.items if i.be_type == be_type and i.be_number == be_number]
+        return []
+
+    # ── Baum-Kontextmenü: Raum/BE-weise Bulk-Zuweisung ──────────────────────────
+
+    def _on_tree_context_menu(self, pos):
+        nodes = self._tree.selectedItems()
+        if not nodes:
+            node = self._tree.itemAt(pos)
+            if node:
+                nodes = [node]
+        if not nodes:
+            return
+
+        menu = QMenu(self)
+        action_map = {}
+        for r in RESULT_CHOICES:
+            label = "Zurücksetzen (offen)" if r == RESULT_OPEN else f"Alle auf „{_RESULT_DISPLAY[r]}“ setzen"
+            act = menu.addAction(label)
+            action_map[act] = r
+
+        chosen = menu.exec(self._tree.viewport().mapToGlobal(pos))
+        if chosen not in action_map:
+            return
+        result = action_map[chosen]
+
+        touched_room_ids: set[str] = set()
+        for node in nodes:
+            for cl_item in self._items_for_node(node):
+                cl_item.result = result
+            data = node.data(0, Qt.UserRole)
+            if data:
+                touched_room_ids.add(data[1])
+
+        for room_id in touched_room_ids:
+            cl = self._cl_by_room(room_id)
+            room_node = self._room_node(room_id)
+            if cl and room_node:
+                self._recolor_room_node(room_node, cl)
+
+        # Baumauswahl + Tabelle auf den (ersten) bearbeiteten Knoten setzen,
+        # damit das Ergebnis sofort sichtbar ist – auch wenn vorher ein
+        # anderer Raum/BE geöffnet war oder gar keiner.
+        self._tree.setCurrentItem(nodes[0])
+        self._on_tree_selection(nodes[0], None)
+
+        self._update_progress()
+        self.checklist_changed.emit()
 
     # ── Tabelle ───────────────────────────────────────────────────────────────
 

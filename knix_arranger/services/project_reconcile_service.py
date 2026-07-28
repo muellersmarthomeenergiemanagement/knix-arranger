@@ -126,12 +126,23 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
     devices_removed = sorted(old_devices_by_addr.keys() - new_addrs)
 
     old_rooms_by_number = {r.number: r for r in old_project.all_rooms if r.number}
+    # Räume ohne Nummer (z.B. per XLSX aus dem Einbauort abgeleitete
+    # Verteiler-Räume "HV"/"UV1" -- siehe XlsxImportService.create_verteiler_rooms)
+    # werden über ihren Namen wiedererkannt, da sie keine Raumnummer haben.
+    old_unnumbered_by_name = {
+        r.name: r for r in old_project.all_rooms if not r.number and r.name
+    }
     new_numbers: set[str] = set()
+    new_unnumbered_names: set[str] = set()
     rooms_matched = 0
     for room in new_project.all_rooms:
         if room.number:
             new_numbers.add(room.number)
-        old_room = old_rooms_by_number.get(room.number)
+            old_room = old_rooms_by_number.get(room.number)
+        else:
+            if room.name:
+                new_unnumbered_names.add(room.name)
+            old_room = old_unnumbered_by_name.get(room.name) if room.name else None
         if not old_room:
             continue
         rooms_matched += 1
@@ -146,8 +157,14 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
         room.planned_actors = old_room.planned_actors
         if not room.name:
             room.name = old_room.name
-    rooms_new = sorted(new_numbers - old_rooms_by_number.keys())
-    rooms_removed = sorted(old_rooms_by_number.keys() - new_numbers)
+    rooms_new = sorted(
+        (new_numbers - old_rooms_by_number.keys())
+        | (new_unnumbered_names - old_unnumbered_by_name.keys())
+    )
+    rooms_removed = sorted(
+        (old_rooms_by_number.keys() - new_numbers)
+        | (old_unnumbered_by_name.keys() - new_unnumbered_names)
+    )
 
     return ReimportDiff(
         devices_matched=devices_matched, devices_new=devices_new, devices_removed=devices_removed,

@@ -8,13 +8,15 @@ from collections import defaultdict
 from ..models.building import Room, GewerkAssignment, Areal
 from ..models.gewerk import GewerkCatalog, Gewerk
 from ..models.group_address import GroupAddressStructure
+from ..models.topology import Topology
 
 logger = logging.getLogger("knix_arranger.gewerk_service")
 
 # GA-Bezeichnungsmuster: GEWERK.STOCKWERK.RAUM_NR.ELEM_NR[_suffix]
 # Beispiele: "LDA.OG.00.01_ea", "J.EG.06.1_move", "H.DG.01.01_ea"
+# ELEM_NR ist 1- oder 2-stellig -- nicht jeder Installateur zaehlt zweistellig durch.
 _GA_DESIGNATOR_RE = re.compile(
-    r"^([A-Z]{1,4})\.([A-Z0-9]{2,5})\.(\d{2})\.(\d{2})"
+    r"^([A-Z]{1,4})\.([A-Z0-9]{2,5})\.(\d{2})\.(\d{1,2})"
 )
 # Ziffern-Konvention ohne Stockwerk-Buchstaben: GEWERK.{Stockwerk}{RAUM_NR}.ELEM_NR
 # Beispiel: "L.004.1_ea" -> Stockwerk 0, Raum 04, Element 1.
@@ -22,6 +24,11 @@ _GA_DESIGNATOR_RE = re.compile(
 _GA_DIGIT_DESIGNATOR_RE = re.compile(
     r"^([A-Z]{1,4})\.(\d)(\d{2})\.(\d{1,2})"
 )
+# Kombinierte/Bereichs-Adressierung direkt nach der Element-Nr., z.B.
+# "L.OG.05.02+04_ea" (zwei Elemente auf einer GA) oder "J.DG.01.01-03_move"
+# (Bereich). Solche GAs steuern mehrere Elemente gleichzeitig -- als
+# Einzelelement gezaehlt wuerden sie die Kanalzahl verfaelschen.
+_COMBINED_TAIL_RE = re.compile(r"^[+-]\d")
 
 
 def _com_object_needs_ga(co: dict) -> bool:
@@ -275,6 +282,17 @@ class GewerkService:
         Unbekannte Codes (z.B. 'RAUM1', 'AK', 'HS') werden protokolliert und
         übersprungen.
 
+        Zwei Arten von Adressen lassen sich nicht zuverlässig einem einzelnen
+        Raum-Element zuordnen und werden daher NICHT gezählt, sondern nur in
+        `self.last_central_addresses` / `self.last_ambiguous_designations`
+        gesammelt (für eine Warnmeldung des Aufrufers):
+
+        - Zentraladressen (Hauptgruppe 0, verbreitete ETS6-Konvention "0 = Zentral")
+          steuern typischerweise mehrere Räume/Gewerke gleichzeitig.
+        - Kombinierte/Bereichs-Adressierung in der Bezeichnung selbst, z.B.
+          "L.OG.05.02+04_ea" oder "J.DG.01.01-03_move" -- eine GA für mehrere
+          Elemente auf einmal.
+
         Args:
             ga_structure:  Gruppenadress-Struktur (aus GA-Report oder Topologie-Import)
             areal:         Gebäudestruktur mit Floor.short_code und Room.number
@@ -284,6 +302,9 @@ class GewerkService:
         Returns:
             Anzahl der erstellten GewerkAssignment-Einträge.
         """
+        self.last_central_addresses: list[str] = []
+        self.last_ambiguous_designations: list[str] = []
+
         # Raum-Index aufbauen: (floor_code, room_nr) -> Room
         room_index: dict[tuple[str, str], Room] = {}
         for building in areal.buildings:
@@ -303,6 +324,13 @@ class GewerkService:
         )
         for ga in ga_structure.all_addresses():
             designation = ga.designation or ""
+            if not designation:
+                continue
+
+            if ga.main_group == 0:
+                self.last_central_addresses.append(f"{ga.address}  {designation}")
+                continue
+
             m = _GA_DESIGNATOR_RE.match(designation)
             if m:
                 code, floor_code, room_nr, elem_nr = (
@@ -315,6 +343,11 @@ class GewerkService:
                 code = m.group(1)
                 floor_code = f"D{m.group(2)}"
                 room_nr, elem_nr = m.group(3), m.group(4)
+
+            if _COMBINED_TAIL_RE.match(designation[m.end():]):
+                self.last_ambiguous_designations.append(f"{ga.address}  {designation}")
+                continue
+
             if (floor_code, room_nr) in room_index:
                 room_gewerke[(floor_code, room_nr)][code].add(elem_nr)
 
@@ -355,8 +388,69 @@ class GewerkService:
                 f"{sorted(unknown_codes)}"
             )
 
+        if self.last_central_addresses:
+            logger.info(
+                f"derive_gewerk_assignments: {len(self.last_central_addresses)} "
+                f"Zentraladressen (Hauptgruppe 0) von der Zählung ausgeschlossen."
+            )
+        if self.last_ambiguous_designations:
+            logger.info(
+                f"derive_gewerk_assignments: {len(self.last_ambiguous_designations)} "
+                f"kombinierte/Bereichs-Adressierungen von der Zählung ausgeschlossen."
+            )
+
         logger.info(
             f"derive_gewerk_assignments: {total_assignments} Zuweisungen in "
             f"{len(room_gewerke)} Räumen erstellt."
         )
         return total_assignments
+
+    def detect_channel_gewerk_conflicts(
+        self,
+        topology: Topology,
+        ga_structure: GroupAddressStructure,
+    ) -> list[str]:
+        """Erkennt Kommunikationsobjekte, deren verbundene GAs zu UNTERSCHIEDLICHEN
+        Gewerk-Codes gehören (FA-521d) -- z.B. ein Aktorkanal, auf den zwei GAs
+        für zwei verschiedene Gewerke programmiert wurden.
+
+        Solche Kanäle lassen sich nicht automatisch korrekt einem einzelnen
+        Gewerk zuordnen (die Kanal-/Gewerkezählung nimmt implizit 1 Kanal =
+        1 Gewerk-Element an). Statt still ein Gewerk zu wählen, werden sie hier
+        nur zur manuellen Prüfung aufgelistet.
+
+        Nur im Gewerk-Katalog bekannte Codes zählen -- freie GA-Namensteile wie
+        Szenen-Helfer ("Raum5_Szene...") werden sonst faelschlich als eigenes
+        "Gewerk" erkannt, obwohl sie regulaer denselben Kanal wie die primaere
+        Schalt-GA verwenden (kein echter Konflikt).
+
+        Gibt eine Liste menschenlesbarer Warnungen zurück (Gerät, Kanal, Gewerke).
+        """
+        ga_gewerk: dict[str, str] = {
+            ga.address: ga.gewerk_code
+            for ga in ga_structure.all_addresses()
+            if ga.gewerk_code and self.catalog.get(ga.gewerk_code)
+        }
+
+        conflicts: list[str] = []
+        for area in topology.areas:
+            for line in area.lines:
+                for device in line.devices:
+                    for ko in device.communication_objects:
+                        codes = {
+                            ga_gewerk[addr] for addr in ko.connected_gas
+                            if addr in ga_gewerk
+                        }
+                        if len(codes) > 1:
+                            label = device.product_name or device.product or device.physical_address
+                            conflicts.append(
+                                f"{device.physical_address}  {label}  –  "
+                                f"{ko.name or 'Kanal'}: Gewerke {', '.join(sorted(codes))}"
+                            )
+
+        if conflicts:
+            logger.warning(
+                f"detect_channel_gewerk_conflicts: {len(conflicts)} Kanäle mit "
+                f"mehreren Gewerken auf derselben GA-Verbindung gefunden."
+            )
+        return conflicts

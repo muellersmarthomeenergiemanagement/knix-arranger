@@ -916,6 +916,14 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.warning(f"Raum-Linien-Verknüpfung fehlgeschlagen: {e}")
 
+        # Verteiler-Räume (HV/UV/NV/TV) aus Einbauort ableiten (FA-521b) --
+        # Pendant zur DistributionBoard-Erkennung beim .knxproj-Import, für
+        # Projekte, die nur per XLSX importiert werden können (z.B. KNX Secure).
+        try:
+            importer.create_verteiler_rooms(self._project.topology, self._project.areal)
+        except Exception as e:
+            logger.warning(f"Verteiler-Raum-Ableitung fehlgeschlagen: {e}")
+
         # Bedienelemente aus Topologie ableiten (FA-1404) – setzt participant_number
         try:
             KnxprojImportService._create_bedienelemente_from_topology(
@@ -934,6 +942,16 @@ class MainWindow(QMainWindow):
                     logger.info(f"KO-Anreicherung: {enriched} Geräte, {added} neue KOs.")
             except Exception as e:
                 logger.warning(f"KO-Anreicherung fehlgeschlagen: {e}")
+
+        # Funktionszuordnungen direkt aus KO-GA-Verknüpfungen übernehmen (FA-521c) --
+        # auto_assign_functions() allein bleibt für importierte Projekte leer, siehe
+        # XlsxImportService.backfill_function_assignments-Docstring.
+        try:
+            importer.backfill_function_assignments(
+                self._project.topology, self._project.areal, self._project.group_addresses
+            )
+        except Exception as e:
+            logger.warning(f"Funktionszuordnungs-Backfill fehlgeschlagen: {e}")
 
         # Gewerk-Zuweisungen aus GA-Bezeichnungen ableiten (FA-519b)
         self._derive_gewerke_from_gas()
@@ -962,6 +980,7 @@ class MainWindow(QMainWindow):
                 "(Gewerk-Zuweisungen, Bedienelemente, Materialliste, ...) jetzt "
                 "verwaist:\n\n" + reconcile_diff.details_text(),
             )
+        self._warn_if_channel_conflicts()
 
         self._update_views()
 
@@ -1053,6 +1072,11 @@ class MainWindow(QMainWindow):
                 logger.warning(f"Raum-Linien-Verknüpfung fehlgeschlagen: {e}")
 
             try:
+                importer.create_verteiler_rooms(self._project.topology, self._project.areal)
+            except Exception as e:
+                logger.warning(f"Verteiler-Raum-Ableitung fehlgeschlagen: {e}")
+
+            try:
                 importer.enrich_device_ko_connections(
                     self._project.topology, filepath
                 )
@@ -1066,6 +1090,14 @@ class MainWindow(QMainWindow):
                 )
             except Exception as e:
                 logger.warning(f"Bedienelemente-Ableitung nach GA-Import fehlgeschlagen: {e}")
+
+            # Funktionszuordnungen direkt aus KO-GA-Verknüpfungen übernehmen (FA-521c)
+            try:
+                importer.backfill_function_assignments(
+                    self._project.topology, self._project.areal, ga_structure
+                )
+            except Exception as e:
+                logger.warning(f"Funktionszuordnungs-Backfill fehlgeschlagen: {e}")
 
         # Gewerk-Zuweisungen aus GA-Bezeichnungen ableiten (FA-519b)
         assigned = self._derive_gewerke_from_gas()
@@ -1093,6 +1125,7 @@ class MainWindow(QMainWindow):
                 "(Gewerk-Zuweisungen, Bedienelemente, Materialliste, ...) jetzt "
                 "verwaist:\n\n" + reconcile_diff.details_text(),
             )
+        self._warn_if_channel_conflicts()
 
         self._update_views()
         ga_count = len(ga_structure.all_addresses())
@@ -1111,7 +1144,13 @@ class MainWindow(QMainWindow):
 
         Wird nach jedem GA-Import aufgerufen. Befüllt nur Räume ohne bestehende
         Zuweisungen (overwrite=False). Gibt die Anzahl neuer Zuweisungen zurück.
+
+        Sammelt zusätzlich Kanal-/Gewerk-Mehrdeutigkeiten (Zentraladressen,
+        kombinierte Adressierung, mehrere Gewerke auf einem Kanal) in
+        self._last_channel_conflicts für eine Warnmeldung des Aufrufers --
+        siehe GewerkService.derive_gewerk_assignments/.detect_channel_gewerk_conflicts.
         """
+        self._last_channel_conflicts: list[str] = []
         if not self._project:
             return 0
         ga_structure = self._project.group_addresses
@@ -1121,12 +1160,38 @@ class MainWindow(QMainWindow):
             return 0
         try:
             svc = GewerkService(self._project.gewerk_catalog)
-            return svc.derive_gewerk_assignments(
+            assigned = svc.derive_gewerk_assignments(
                 ga_structure, self._project.areal, overwrite=False
             )
+            if self._project.topology.areas:
+                self._last_channel_conflicts = svc.detect_channel_gewerk_conflicts(
+                    self._project.topology, ga_structure
+                )
+            return assigned
         except Exception as e:
             logger.warning(f"Gewerk-Ableitung aus GAs fehlgeschlagen: {e}")
             return 0
+
+    def _warn_if_channel_conflicts(self):
+        """Zeigt eine Warnung, wenn detect_channel_gewerk_conflicts Kanäle mit
+        mehreren Gewerken auf derselben GA-Verbindung gefunden hat (FA-521d).
+
+        Solche Kanäle werden bewusst NICHT automatisch einem Gewerk zugeordnet --
+        die Zuordnung muss hier manuell (Schritt 5 Gewerke) geprüft werden.
+        """
+        conflicts = getattr(self, "_last_channel_conflicts", [])
+        if not conflicts:
+            return
+        shown = conflicts[:30]
+        more = f"\n… und {len(conflicts) - 30} weitere" if len(conflicts) > 30 else ""
+        QMessageBox.warning(
+            self, "Mehrere Gewerke auf einem Kanal",
+            f"{len(conflicts)} Kommunikationsobjekte haben Gruppenadressen "
+            "unterschiedlicher Gewerke verbunden. Das kann nicht automatisch "
+            "korrekt einem einzelnen Gewerk zugeordnet werden -- bitte in "
+            "Schritt 5 (Gewerke) manuell prüfen:\n\n"
+            + "\n".join(shown) + more,
+        )
 
     def _enrich_ga_metadata(self) -> int:
         """

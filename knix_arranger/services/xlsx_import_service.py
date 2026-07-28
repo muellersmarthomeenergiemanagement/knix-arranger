@@ -35,7 +35,8 @@ from ..models.topology import (
     Topology, Area, Line, Device, CommunicationObject,
 )
 from ..models.building import (
-    Areal, Building, Wing, Floor, Apartment, Room,
+    Areal, Building, Wing, Floor, Apartment, Room, Verteiler,
+    SensorFunktion, FunctionAssignment,
     STANDARD_FLOOR_NAMES, FLOOR_TO_MAIN_GROUP,
 )
 from ..models.group_address import (
@@ -110,13 +111,20 @@ _GAR_GA_RE = re.compile(r"^\d{1,2}/\d{1,2}/\d{1,3}$")    # Gruppenadresse: '0/0/
 _GAR_KO_RE = re.compile(r"^\d+:")                          # KO-Zeile: '1: Ausgang B', '32: G1,...'
 # Einbauort-Raum-Format: "04  Schlafen" → (room_nr, room_name)
 _EINBAUORT_ROOM_RE = re.compile(r"^(\d{2})\s+(.+)$")
+# Einbauort-Verteiler-Format: "HV", "UV1", "UV2 (Steigzone)" -- der Klammerzusatz
+# ist optional, da viele ETS6-Exporte (z.B. Secure-Projekte, wo nur der XLSX-Weg
+# funktioniert) den Verteiler ohne benannten Zusatz eintragen.
+_VT_RE = re.compile(r"^(HV|UV|NV|TV)\s*\d*\s*(?:\(\s*(.+?)\s*\))?$", re.IGNORECASE)
 # GA-Name-Muster für Gebäudestruktur-Ableitung: z.B. "S.OG.04.01_ea ( Beschreibung )"
+# Element-Nr. ist 1- oder 2-stellig (\d{1,2}) -- Installateure zaehlen Elemente
+# nicht immer zweistellig durch (z.B. "L.UG.02.1_ea" statt "L.UG.02.01_ea"),
+# waehrend die Raumnummer selbst durchgehend zweistellig ist.
 _GA_FLOOR_ROOM_RE = re.compile(
-    r"[A-Z]{1,2}\.([A-Z0-9]{2,5})\.(\d{2})\.\d{2}[_a-z]*\s*\(\s*([^)]{2,40})\)"
+    r"[A-Z]{1,2}\.([A-Z0-9]{2,5})\.(\d{2})\.\d{1,2}[_a-z]*\s*\(\s*([^)]{2,40})\)"
 )
 # Einfacheres Muster für Stockwerk/Raum-Extraktion (ohne Klammerpflicht)
 _GA_FLOOR_ROOM_SIMPLE_RE = re.compile(
-    r"^[A-Z]{1,4}\.([A-Z0-9]{2,5})\.(\d{2})\.\d{2}"
+    r"^[A-Z]{1,4}\.([A-Z0-9]{2,5})\.(\d{2})\.\d{1,2}"
 )
 # Worte, die KEIN Raumname sind (technische/direktionale Bezeichnungen)
 _NON_ROOM_WORDS = frozenset({
@@ -355,15 +363,16 @@ class XlsxImportService:
                 continue
 
             # --- Geräte-Subzeile: Seriennummer (Spalte 6 = "XXXX:XXXXXXXX") ---
+            # Kein continue: ETS6 legt die Einbauort-Subzeile manchmal auf
+            # dieselbe Zeile wie die Seriennummer (Spalte 6 dann nicht leer).
             if (isinstance(key_raw, str)
                     and _SERIAL_NUMBER_RE.match(key_raw.strip())
                     and current_device):
                 current_device.serial_number = key_raw.strip()
-                continue
 
-            # --- Geräte-Subzeile: Einbauort (Spalte 18 gesetzt, Spalte 6 leer) ---
+            # --- Geräte-Subzeile: Einbauort (Spalte 18 gesetzt) ---
             loc = _cell(row, cols["LOCATION"])
-            if loc and key_raw is None and current_device:
+            if loc and not isinstance(key_raw, int) and current_device:
                 current_device.installation_location = loc
                 continue
 
@@ -605,7 +614,15 @@ class XlsxImportService:
         wb.close()
 
         cols = self._resolve_topology_columns(rows)
-        current_location: str = ""  # Raumname aus Spalte S des aktuellen Geräts
+        # Raumnummer + Name aus Spalte S des aktuellen Geräts. Ein Gerät kann
+        # über seine Kanäle GAs mehrerer RÄUME ansteuern (z.B. ein Mehrfach-
+        # Taster im Flur, der Licht in drei anderen Zimmern schaltet) -- sein
+        # eigener Einbauort beschreibt aber nur, WO ES MONTIERT ist. Der Name
+        # darf daher nur für die GA übernommen werden, deren Raumnummer mit
+        # der Einbauort-Raumnummer übereinstimmt, sonst "erbt" z.B. der
+        # Konikeller fälschlich den Namen "Waschraum" vom dort montierten Taster.
+        current_location_nr: str = ""
+        current_location_name: str = ""
 
         for row in rows:
             if not row:
@@ -617,16 +634,20 @@ class XlsxImportService:
                 _PHYS_ADDR_RE.match(key_raw.strip())
                 or _POWER_SUPPLY_RE.match(key_raw.strip())
             ):
-                current_location = ""
+                current_location_nr = ""
+                current_location_name = ""
                 continue
 
-            # Geräte-Subzeile: Einbauort aus Spalte S lesen
-            if key_raw is None:
-                loc_raw = row[cols["LOCATION"]] if cols["LOCATION"] < len(row) else None
-                if loc_raw is not None:
-                    loc_m = _LOC_RE.match(str(loc_raw).strip())
-                    if loc_m:
-                        current_location = loc_m.group(2).strip()
+            # Geräte-Subzeile: Einbauort aus Spalte S lesen. Nicht auf
+            # key_raw is None beschränkt -- ETS6 legt die Einbauort-Subzeile
+            # manchmal auf dieselbe Zeile wie die Seriennummer-Subzeile
+            # (Spalte 6 dann z.B. "001E:0100412C" statt leer).
+            loc_raw = row[cols["LOCATION"]] if cols["LOCATION"] < len(row) else None
+            if loc_raw is not None:
+                loc_m = _LOC_RE.match(str(loc_raw).strip())
+                if loc_m:
+                    current_location_nr = loc_m.group(1)
+                    current_location_name = loc_m.group(2).strip()
 
             # KO-Zeile: GA-Namen auswerten und Stockwerk/Raum-Mapping aufbauen
             if isinstance(key_raw, int):
@@ -644,10 +665,12 @@ class XlsxImportService:
                         if desc and desc not in floor_rooms[floor_code][room_nr]:
                             floor_rooms[floor_code][room_nr].append(desc)
 
-                        # Spalte-S-Namen mit (Stockwerk, RaumNr) verknüpfen
+                        # Spalte-S-Namen mit (Stockwerk, RaumNr) verknüpfen --
+                        # nur wenn die Einbauort-Raumnummer zur GA-Raumnummer passt.
                         fk = (floor_code, room_nr)
-                        if current_location and fk not in col_s_names:
-                            col_s_names[fk] = current_location
+                        if (current_location_name and room_nr == current_location_nr
+                                and fk not in col_s_names):
+                            col_s_names[fk] = current_location_name
 
                     for m in _GA_DIGIT_ROOM_RE.finditer(text):
                         digit = m.group(1)
@@ -1099,8 +1122,6 @@ class XlsxImportService:
         if not HAS_OPENPYXL:
             raise ImportError("openpyxl wird für XLSX-Import benoetigt.")
 
-        _VT_RE = re.compile(r"^([A-Z0-9]+)\s*\(\s*(.+?)\s*\)$")
-
         result: dict[str, dict] = {}
         wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
         ws = wb.active
@@ -1129,8 +1150,8 @@ class XlsxImportService:
             if m_vt:
                 result[addr] = {
                     "type": "verteiler",
-                    "vt_type": m_vt.group(1).strip(),
-                    "vt_name": m_vt.group(2).strip(),
+                    "vt_type": m_vt.group(1).upper(),
+                    "vt_name": (m_vt.group(2) or "").strip(),
                 }
 
         wb.close()
@@ -1380,6 +1401,166 @@ class XlsxImportService:
             f"{via_location} via Einbauort."
         )
         return linked_pairs
+
+    @staticmethod
+    def _detect_hv_uv_type(name: str) -> str:
+        """Erkennt den Verteiler-Typ aus dem Einbauort-Text (analog zum
+        .knxproj-Import, siehe KnxprojImportService._detect_hv_uv_type)."""
+        upper = name.upper()
+        if "HV" in upper or "HAUPTVERTEIL" in upper:
+            return "HV"
+        if "NV" in upper:
+            return "NV"
+        if "TV" in upper:
+            return "TV"
+        return "UV"
+
+    def create_verteiler_rooms(self, topology: Topology, areal: Areal) -> int:
+        """Erzeugt Räume mit Verteiler-Objekt aus den Einbauort-Texten der
+        Topologie-Geräte (z.B. 'HV', 'UV2 (Steigzone)') (FA-521b).
+
+        Der .knxproj-Import erkennt Verteiler strukturell über
+        DistributionBoard-Space-Elemente (siehe KnxprojImportService).
+        Der XLSX-Export kennt diese Struktur nicht -- hier ist der Einbauort
+        nur freier Text pro Gerät. Diese Methode gruppiert Geräte mit
+        gleichem, als HV/UV/NV/TV erkanntem Einbauort zu einem gemeinsamen
+        Verteiler-Raum. Wird v.a. für KNX-Secure-Projekte benötigt, bei denen
+        der .knxproj-Import mangels Entschlüsselung ausfällt und XLSX der
+        einzige Importweg ist.
+
+        Der Verteiler-Raum wird immer angelegt, sobald der Einbauort-Text auf
+        HV/UV/NV/TV erkannt wird (für Dokumentation/Materialliste/Schritt 3b) --
+        unabhängig davon, ob die Geräte bereits einem funktionalen Raum
+        zugeordnet sind. device.room_id wird aber nur bei Geräten OHNE
+        bestehende Zuordnung nachgetragen: link_rooms_to_lines hat Vorrang,
+        der funktional bediente Raum ist für die Gewerk-/BE-Planung wichtiger
+        als der physische Einbauort (siehe dortige Priorität).
+
+        Gibt die Anzahl neu angelegter Verteiler-Räume zurück.
+        """
+        groups: dict[str, list[Device]] = {}
+        for area in topology.areas:
+            for line in area.lines:
+                for device in line.devices:
+                    loc = (device.installation_location or "").strip()
+                    if not loc or not _VT_RE.match(loc):
+                        continue
+                    groups.setdefault(loc, []).append(device)
+
+        if not groups:
+            return 0
+
+        if not areal.buildings:
+            areal.buildings.append(Building(name="Gebäude"))
+        building = areal.buildings[0]
+        if not building.wings:
+            building.wings.append(Wing(name="Hauptgebäude"))
+        wing = building.wings[0]
+
+        floor = Floor(name="Verteiler", short_code="VT")
+        apartment = Apartment(name="VT")
+        floor.apartments.append(apartment)
+
+        for loc, devices in groups.items():
+            room = Room(number="", name=loc)
+            room.verteiler.append(
+                Verteiler(name=loc, verteiler_type=self._detect_hv_uv_type(loc))
+            )
+            apartment.rooms.append(room)
+            for device in devices:
+                if not device.room_id:
+                    device.room_id = room.id
+
+        wing.floors.append(floor)
+        logger.info(
+            f"Verteiler-Räume aus Einbauort erkannt: {len(groups)} "
+            f"({', '.join(sorted(groups))})"
+        )
+        return len(groups)
+
+    _FEEDBACK_KO_HINTS = ("led", "signal", "status", "rückmeldung", "rueckmeldung", " rm ", "_rm")
+
+    def backfill_function_assignments(
+        self,
+        topology: Topology,
+        areal: Areal,
+        group_addresses: "GroupAddressStructure",
+    ) -> int:
+        """Ergänzt function_assignments direkt aus den KO-GA-Verknüpfungen
+        importierter Geräte (FA-521c).
+
+        SensorService.auto_assign_functions() leitet Funktionszuordnungen aus
+        room.gewerk_assignments her und schlägt dafür (gewerk_code, room,
+        element_number, GroupAddress.function_name) in der GA-Struktur nach.
+        element_number/function_name werden aber nur von KNiX' eigener
+        Adress-Generierung (Schritt 7) gesetzt -- nie von einem Import (weder
+        .knxproj noch XLSX). Für importierte Projekte bleiben Bedienelemente
+        dadurch ohne jede Funktionszuordnung, obwohl die echten Kanal→GA-
+        Zuordnungen bereits an Device.communication_objects[].connected_gas
+        vorhanden sind (siehe enrich_device_ko_connections).
+
+        Übernimmt diese KO→GA-Paare direkt als SensorFunktion (Direkte-GA-
+        Variante, siehe SensorFunktion-Docstring) statt über die Gewerk-
+        Funktionsnamen-Tabelle zu suchen. Greift NUR bei Bedienelementen ohne
+        vorhandene function_assignments -- nicht-invasiv gegenüber der
+        Wizard-Gewerkeplanung (auto_assign_functions bleibt für neu geplante
+        Projekte unverändert die massgebliche Quelle).
+
+        Gibt die Anzahl neu erstellter FunctionAssignment-Einträge zurück.
+        """
+        device_by_addr: dict[str, Device] = {
+            d.physical_address: d
+            for area in topology.areas
+            for line in area.lines
+            for d in line.devices
+            if d.physical_address
+        }
+        ga_designation: dict[str, str] = {
+            ga.address: ga.designation
+            for ga in group_addresses.all_addresses()
+            if ga.designation
+        }
+
+        added = 0
+        for room in areal.all_rooms:
+            for be in room.bedienelemente:
+                if be.function_assignments or not be.participant_number:
+                    continue
+                device = device_by_addr.get(be.participant_number)
+                if not device:
+                    continue
+
+                funktionen: list[SensorFunktion] = []
+                for ko in device.communication_objects:
+                    label = ko.name or ko.object_function
+                    for ga_addr in ko.connected_gas:
+                        designation = ga_designation.get(ga_addr, "")
+                        ga_text = f"{ga_addr}  {designation}".strip() if designation else ga_addr
+                        funktionen.append(SensorFunktion(
+                            label=label or ga_addr,
+                            ga_designation=ga_text,
+                        ))
+                if not funktionen:
+                    continue
+
+                be.funktionen = funktionen
+                be.is_auto = False
+                be.function_assignments = [
+                    FunctionAssignment(
+                        button_channel=sf.label or "GA",
+                        function_ga=sf.ga_designation,
+                        description=sf.label,
+                        is_feedback=any(
+                            hint in sf.label.lower() for hint in self._FEEDBACK_KO_HINTS
+                        ),
+                        sf_id=sf.id,
+                    )
+                    for sf in funktionen
+                ]
+                added += len(funktionen)
+
+        logger.info(f"backfill_function_assignments: {added} Funktionszuordnungen aus KOs übernommen.")
+        return added
 
     def enrich_device_ko_connections(
         self,
