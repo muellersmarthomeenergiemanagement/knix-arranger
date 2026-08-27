@@ -185,7 +185,7 @@ class KnxprodCatalogService:
 
             # Hardware.xml, Catalog.xml lesen
             hardware_entries = self._parse_hardware_xml(zf, folder, namelist)
-            catalog_names = self._parse_catalog_xml(zf, folder, namelist)
+            catalog_names, catalog_hw2prog = self._parse_catalog_xml(zf, folder, namelist)
 
             # Applikationsprogramm-XMLs und Hardware2Program-Mapping lesen
             hw2prog_map = self._parse_hw2prog_map(zf, folder, namelist)
@@ -199,17 +199,18 @@ class KnxprodCatalogService:
                 category = hw.get("category", "actor")
                 device_type = self._infer_device_type(full_name, category)
 
-                # ComObjects über Hardware2Program → ApplikationsprogrammID auflösen
-                hw2prog_id = hw.get("hw2prog_id", "")
+                # ComObjects über Hardware2Program → ApplikationsprogrammID auflösen.
+                # Hardware2ProgramRefId steht je nach Hersteller entweder am Product-
+                # Element (Hardware.xml) oder am CatalogItem (Catalog.xml, per ProductRefId).
+                hw2prog_id = hw.get("hw2prog_id") or catalog_hw2prog.get(hw["id"], "")
                 app_id = hw2prog_map.get(hw2prog_id, "")
                 com_objects = app_comobjects.get(app_id, [])
 
-                # Fallback: wenn kein direkter Match, alle ComObjects aus diesem Ordner
-                if not com_objects and app_comobjects:
-                    all_cos = []
-                    for cos in app_comobjects.values():
-                        all_cos.extend(cos)
-                    com_objects = all_cos
+                # Fallback nur wenn eindeutig: genau ein Applikationsprogramm in der Datei.
+                # Bei mehreren Programmen würde ein blindes Zusammenführen ComObjects
+                # fremder Produkte zuordnen (z.B. Sammel-Produktdatenbanken).
+                if not com_objects and len(app_comobjects) == 1:
+                    com_objects = next(iter(app_comobjects.values()))
 
                 prod = KnxprodProduct(
                     manufacturer=mfr_name,
@@ -314,20 +315,26 @@ class KnxprodCatalogService:
 
     def _parse_catalog_xml(
         self, zf: zipfile.ZipFile, folder: str, namelist: list[str]
-    ) -> dict[str, str]:
-        """Liest Produktnamen aus Catalog.xml (ID → Name-Mapping)."""
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """
+        Liest Catalog.xml.
+        Returns (name_map, hw2prog_map): je ProductRefId → Name bzw. Hardware2ProgramRefId.
+        Manche Hersteller tragen Hardware2ProgramRefId nur hier ein (nicht am
+        Product-Element in Hardware.xml), z.B. bei Sammel-Produktdatenbanken.
+        """
         cat_path = f"{folder}/Catalog.xml"
         if cat_path not in namelist:
-            return {}
+            return {}, {}
 
         try:
             xml_bytes = zf.read(cat_path)
             root = self._parse_xml(xml_bytes)
         except Exception as e:
             logger.warning(f"Catalog.xml in {folder} nicht lesbar: {e}")
-            return {}
+            return {}, {}
 
         name_map: dict[str, str] = {}
+        hw2prog_map: dict[str, str] = {}
         for elem in root.iter():
             if not elem.tag.endswith("CatalogItem"):
                 continue
@@ -335,8 +342,11 @@ class KnxprodCatalogService:
             name = elem.get("Name", "")
             if ref_id and name:
                 name_map[ref_id] = name
+            h2p_id = elem.get("Hardware2ProgramRefId", "")
+            if ref_id and h2p_id:
+                hw2prog_map[ref_id] = h2p_id
 
-        return name_map
+        return name_map, hw2prog_map
 
     def _parse_hw2prog_map(
         self, zf: zipfile.ZipFile, folder: str, namelist: list[str]
@@ -379,22 +389,25 @@ class KnxprodCatalogService:
         Liest ComObjects aus Applikationsprogramm-XMLs.
         Returns {application_program_id: [ComObjectInfo]}
 
-        Applikations-XMLs liegen in Unterordnern: M-XXXX/M-XXXX_A-YYYY-ZZ/M-XXXX_A-YYYY-ZZ.xml
+        Applikations-XMLs liegen je nach Hersteller/ETS-Version entweder flach
+        direkt im Herstellerordner (M-XXXX/M-XXXX_A-YYYY-ZZ.xml, 2 Segmente)
+        oder in einem eigenen Unterordner (M-XXXX/M-XXXX_A-YYYY-ZZ/M-XXXX_A-YYYY-ZZ.xml,
+        3 Segmente) - beide Formen sind gültig.
         """
         result: dict[str, list[ComObjectInfo]] = {}
         app_prefix = f"{folder}/{folder}_A-"
 
         for name in namelist:
-            # Nur XML-Dateien in App-Unterordnern
+            # Nur XML-Dateien im App-Pfad (flach oder in Unterordner)
             parts = name.split("/")
-            if len(parts) != 3:
+            if len(parts) not in (2, 3):
                 continue
             if not name.startswith(app_prefix):
                 continue
-            if not parts[2].endswith(".xml"):
+            if not name.endswith(".xml"):
                 continue
 
-            app_id = parts[1]  # Vorläufige ID aus Ordnername
+            app_id = parts[1] if len(parts) == 3 else parts[1][:-4]  # Vorläufige ID aus Ordner-/Dateiname
 
             try:
                 xml_bytes = zf.read(name)
