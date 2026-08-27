@@ -212,7 +212,7 @@ class _SensorFunktionDialog(QDialog):
             hint = QLabel(
                 "Keine Szenen-GAs vorhanden.\n"
                 "Bitte zuerst Szenen definieren und Gruppenadressen\n"
-                "in Schritt 8 neu generieren."
+                "in Schritt 10 neu generieren."
             )
             hint.setStyleSheet("color: #E67E22; font-style: italic;")
             hint.setWordWrap(True)
@@ -407,7 +407,7 @@ class Step08Sensors(QWidget):
 
         self._no_ga_hint = QLabel(
             "Hinweis: Noch keine Gruppenadressen vorhanden. "
-            "Bitte zuerst in Schritt 8 Gruppenadressen generieren."
+            "Bitte zuerst in Schritt 10 Gruppenadressen generieren."
         )
         self._no_ga_hint.setStyleSheet("color: #E67E22; font-weight: bold;")
         self._no_ga_hint.setWordWrap(True)

@@ -2,7 +2,7 @@
 Wizard Schritt 7b: Szenen definieren
 
 Eingebettete SceneView im Wizard-Flow, so dass Szenen-GAs
-vor der GA-Generierung (Schritt 8) bekannt sind.
+vor der GA-Generierung (Schritt 10) bekannt sind.
 """
 from __future__ import annotations
 from PySide6.QtWidgets import QVBoxLayout, QLabel
@@ -22,7 +22,7 @@ class Step07bScenes(SceneView):
             "Definieren Sie hier die Szenen des Projekts.\n"
             "Im nächsten Schritt werden für jede Szene automatisch "
             "eine Gruppenadresse generiert.\n"
-            "Szenen können danach in Schritt 9 (Sensor-Ermittlung) "
+            "Szenen können danach in Schritt 11 (Funktionszuordnung) "
             "auf Taster gelegt werden."
         )
         info.setWordWrap(True)

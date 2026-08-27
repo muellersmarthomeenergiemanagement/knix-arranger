@@ -49,7 +49,7 @@ class Step06Actors(QWidget):
 
         self._no_topology_hint = QLabel(
             "Hinweis: Keine Topologie vorhanden. "
-            "Bitte zuerst in Schritt 6 die Topologie berechnen."
+            "Bitte zuerst in Schritt 7 die Topologie berechnen."
         )
         self._no_topology_hint.setStyleSheet("color: #E67E22; font-weight: bold;")
         self._no_topology_hint.setWordWrap(True)

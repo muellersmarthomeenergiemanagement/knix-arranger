@@ -66,7 +66,7 @@ class Step05Gewerke(QWidget):
         self._import_banner = QLabel(
             "Hinweis: Die Topologie wurde aus einer ETS-Datei importiert. "
             "Ohne Gewerk-Zuweisungen bleibt die importierte Topologie unverändert erhalten.\n"
-            "Weisen Sie hier Gewerke zu, damit der Wizard in Schritt 6 die Topologie "
+            "Weisen Sie hier Gewerke zu, damit der Wizard in Schritt 7 die Topologie "
             "ergänzen und validieren kann."
         )
         self._import_banner.setWordWrap(True)
@@ -266,8 +266,8 @@ class Step05Gewerke(QWidget):
     def on_leave(self):
         """GAs beim Verlassen sofort aktualisieren.
 
-        Stellt sicher, dass Schritt 8 (Sensoren) und Schritt 9 (Funktionen)
-        aktuelle GAs vorfinden – auch wenn der User Schritt 7 überspringt.
+        Stellt sicher, dass Schritt 11 (Funktionszuordnung) und Schritt 12 (Funktionsdefinition)
+        aktuelle GAs vorfinden – auch wenn der User Schritt 10 überspringt.
         Manuelle GAs (is_manual=True) bleiben erhalten.
         """
         has_gewerke = any(r.gewerk_assignments for r in self._project.all_rooms)

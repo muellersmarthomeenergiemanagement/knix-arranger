@@ -7,7 +7,7 @@ berechnet wird.  So kennt populate_devices() alle Geräte von Anfang an und
 muss keine Geräte nachträglich einfügen.
 
 Die Funktionszuordnung (welche Gruppenadresse steuert welchen Kanal) erfolgt
-erst nach der GA-Generierung in Schritt 9 (Funktionszuordnung).
+erst nach der GA-Generierung in Schritt 11 (Funktionszuordnung).
 """
 from __future__ import annotations
 from PySide6.QtWidgets import (
@@ -48,7 +48,7 @@ class _DeviceConfigDialog(QDialog):
     """
     Einfacher Konfigurations-Dialog: Gerätetyp + Kanalzahl.
 
-    Keine Funktionszuordnung – diese erfolgt in Schritt 9.
+    Keine Funktionszuordnung – diese erfolgt in Schritt 11.
     """
 
     def __init__(self, be: Bedienelement, parent=None):
@@ -87,7 +87,7 @@ class _DeviceConfigDialog(QDialog):
 
         hint = QLabel(
             "Funktionen (welche GA dieses Gerät steuert) werden\n"
-            "in Schritt 9 nach der GA-Generierung zugewiesen."
+            "in Schritt 11 nach der GA-Generierung zugewiesen."
         )
         hint.setStyleSheet("color: #808080; font-style: italic;")
         main.addWidget(hint)

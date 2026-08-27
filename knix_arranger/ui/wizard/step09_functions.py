@@ -45,7 +45,7 @@ class Step09Functions(QWidget):
 
         self._no_ga_hint = QLabel(
             "Hinweis: Keine Gruppenadressen vorhanden. "
-            "Bitte zuerst in Schritt 7 die Gruppenadressen berechnen."
+            "Bitte zuerst in Schritt 10 die Gruppenadressen berechnen."
         )
         self._no_ga_hint.setStyleSheet("color: #E67E22; font-weight: bold;")
         self._no_ga_hint.setWordWrap(True)
