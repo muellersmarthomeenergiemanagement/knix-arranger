@@ -8,10 +8,10 @@ from __future__ import annotations
 import logging
 import os
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QTableWidget, QTableWidgetItem, QPushButton,
     QHeaderView, QAbstractItemView, QFileDialog, QMessageBox,
-    QGroupBox, QSpinBox, QFormLayout,
+    QGroupBox, QSpinBox, QFormLayout, QProgressDialog,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QColor
@@ -23,6 +23,31 @@ from ...models.material_list import MaterialEntry, MATERIAL_CATEGORIES
 from ...models.topology import Topology, Line
 
 logger = logging.getLogger("knix_arranger.product_select_dialog")
+
+
+def _default_products_folder() -> str:
+    """Liefert den Standardordner für gesammelte KNXPROD-Dateien
+    (<Arbeitsverzeichnis>/Produkte KNX, siehe WorkspaceSetupDialog), falls
+    ein Arbeitsverzeichnis konfiguriert ist und der Ordner existiert."""
+    from pathlib import Path
+    import json
+    if os.name == "nt":
+        base = Path(os.environ.get("APPDATA", Path.home()))
+    else:
+        base = Path.home() / ".config"
+    settings_path = base / "KNiXArranger" / "app_settings.json"
+    if not settings_path.exists():
+        return ""
+    try:
+        with open(settings_path, "r", encoding="utf-8") as f:
+            settings = json.load(f)
+    except Exception:
+        return ""
+    workspace_root = settings.get("workspace_root_path", "")
+    if not workspace_root:
+        return ""
+    candidate = os.path.join(workspace_root, "Produkte KNX")
+    return candidate if os.path.isdir(candidate) else ""
 
 # Mapping: interne catalog-Kategorie → Anzeigename
 _CAT_DISPLAY = {
@@ -136,6 +161,15 @@ class ProductSelectDialog(QDialog):
         )
         btn_knxprod.clicked.connect(self._import_knxprod)
         filter_layout.addWidget(btn_knxprod)
+
+        btn_knxprod_folder = QPushButton("Ordner importieren…")
+        btn_knxprod_folder.setToolTip(
+            "Alle .knxprod-Dateien in einem Ordner (inkl. Unterordner) importieren.\n"
+            "Bereits vorhandene Produkte (gleicher Hersteller + Bestellnummer) werden "
+            "aktualisiert – so lässt sich der Katalog nach einem Parser-Update auffrischen."
+        )
+        btn_knxprod_folder.clicked.connect(self._import_knxprod_folder)
+        filter_layout.addWidget(btn_knxprod_folder)
 
         filter_group.setLayout(filter_layout)
         layout.addWidget(filter_group)
@@ -434,6 +468,101 @@ class ProductSelectDialog(QDialog):
             f"{len(all_products)} Produkte aus {ok_count} von {len(filepaths)} Datei(en) "
             f"importiert und dem Katalog hinzugefügt."
         )
+        if errors or empty:
+            problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
+            summary += "\n\nÜbersprungen:\n" + "\n".join(problems)
+        QMessageBox.information(self, "Import erfolgreich", summary)
+
+    def _import_knxprod_folder(self):
+        """
+        Importiert alle .knxprod-Dateien eines Ordners (inkl. Unterordner) in
+        einem Rutsch. Bereits vorhandene Produkte (gleicher Hersteller +
+        Bestellnummer) werden dabei überschrieben (siehe ProductSearchService._upsert)
+        -- so lässt sich der Katalog nach einer Parser-Korrektur einfach auffrischen,
+        indem derselbe Ordner erneut importiert wird.
+        """
+        folder = QFileDialog.getExistingDirectory(
+            self, "Ordner mit KNXPROD-Dateien wählen (inkl. Unterordner)",
+            _default_products_folder(),
+        )
+        if not folder:
+            return
+
+        filepaths = []
+        for root, _dirs, files in os.walk(folder):
+            for fn in files:
+                if fn.lower().endswith(".knxprod"):
+                    filepaths.append(os.path.join(root, fn))
+        filepaths.sort()
+
+        if not filepaths:
+            QMessageBox.information(
+                self, "Keine Dateien gefunden",
+                f"Im Ordner \"{folder}\" wurden keine .knxprod-Dateien gefunden.",
+            )
+            return
+
+        progress = QProgressDialog(
+            "Importiere KNXPROD-Dateien…", "Abbrechen", 0, len(filepaths), self,
+        )
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+
+        svc = KnxprodCatalogService()
+        all_products = []
+        errors: list[tuple[str, str]] = []
+        empty: list[str] = []
+        processed = 0
+        for filepath in filepaths:
+            name = os.path.relpath(filepath, folder)
+            progress.setLabelText(f"Importiere: {name}")
+            progress.setValue(processed)
+            QApplication.processEvents()
+            if progress.wasCanceled():
+                break
+            try:
+                products = svc.import_file(filepath)
+            except ValueError as e:
+                errors.append((name, str(e)))
+            else:
+                if products:
+                    all_products.extend(products)
+                else:
+                    empty.append(name)
+            processed += 1
+        progress.setValue(len(filepaths))
+
+        if not all_products:
+            problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
+            QMessageBox.critical(
+                self, "Import-Fehler",
+                f"Keine der {processed} verarbeiteten Datei(en) konnte importiert werden:\n\n"
+                + "\n".join(problems),
+            )
+            return
+
+        # In den Katalog aufnehmen -- ein Schreibvorgang für alle Produkte,
+        # persistiert dauerhaft (%APPDATA%), nicht nur für diese Dialog-Instanz
+        self._search_service.add_products([p.to_catalog_dict() for p in all_products])
+
+        current_mfrs = {
+            self._mfr_combo.itemText(i)
+            for i in range(self._mfr_combo.count())
+        }
+        for prod in all_products:
+            if prod.manufacturer not in current_mfrs:
+                self._mfr_combo.addItem(prod.manufacturer)
+                current_mfrs.add(prod.manufacturer)
+
+        self._refresh_results()
+
+        ok_count = processed - len(errors) - len(empty)
+        summary = (
+            f"{len(all_products)} Produkte aus {ok_count} von {processed} verarbeiteten "
+            f"Datei(en) importiert bzw. aktualisiert."
+        )
+        if processed < len(filepaths):
+            summary += f"\n\nAbgebrochen nach {processed} von {len(filepaths)} gefundenen Datei(en)."
         if errors or empty:
             problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
             summary += "\n\nÜbersprungen:\n" + "\n".join(problems)

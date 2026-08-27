@@ -1707,6 +1707,9 @@ class MainWindow(QMainWindow):
         """
         path = self._load_app_setting("workspace_root_path", "")
         if path and os.path.isdir(path):
+            # Auch bei bereits konfiguriertem Workspace sicherstellen (z.B. für
+            # Bestandsnutzer, die den Ordner vor dessen Einführung eingerichtet haben).
+            os.makedirs(os.path.join(path, "Produkte KNX"), exist_ok=True)
             return path
         while True:
             dialog = WorkspaceSetupDialog(self)

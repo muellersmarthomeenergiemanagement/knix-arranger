@@ -81,6 +81,10 @@ class WorkspaceSetupDialog(QDialog):
 
     def _confirm(self):
         os.makedirs(self._path, exist_ok=True)
+        # Standardordner für gesammelte Hersteller-KNXPROD-Dateien (siehe
+        # ProductSelectDialog._import_knxprod_folder) - erspart das manuelle
+        # Anlegen und liefert dem Ordner-Import einen naheliegenden Startpfad.
+        os.makedirs(os.path.join(self._path, "Produkte KNX"), exist_ok=True)
         self.accept()
 
     @property
