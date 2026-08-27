@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QTableWidget, QTableWidgetItem, QPushButton,
     QHeaderView, QAbstractItemView, QFileDialog, QMessageBox,
-    QGroupBox, QSpinBox, QFormLayout, QProgressDialog,
+    QGroupBox, QSpinBox, QFormLayout, QProgressDialog, QMenu, QInputDialog,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QColor
@@ -190,6 +190,8 @@ class ProductSelectDialog(QDialog):
         self._table.setAlternatingRowColors(True)
         self._table.setSortingEnabled(True)
         self._table.doubleClicked.connect(self._on_double_click)
+        self._table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._show_table_context_menu)
         layout.addWidget(self._table)
 
         # --- Menge ---
@@ -343,18 +345,25 @@ class ProductSelectDialog(QDialog):
         self._table.setRowCount(0)
         bold = QFont()
         bold.setBold(True)
+        italic_grey = QFont()
+        italic_grey.setItalic(True)
 
         for row, prod in enumerate(results):
             self._table.insertRow(row)
             cat_text = _CAT_DISPLAY.get(prod.category, prod.category)
             device_type = prod.display_type()
+            name_text = prod.product_name
+            tooltip = ""
+            if prod.superseded_by:
+                name_text += "  ⚠ veraltet"
+                tooltip = f"Ersetzt durch Bestellnummer: {prod.superseded_by}"
 
             items = [
                 QTableWidgetItem(cat_text),
                 QTableWidgetItem(device_type),
                 QTableWidgetItem(prod.manufacturer),
                 QTableWidgetItem(prod.order_number),
-                QTableWidgetItem(prod.product_name),
+                QTableWidgetItem(name_text),
                 QTableWidgetItem(str(prod.channels) if prod.channels else "–"),
             ]
             for col, item in enumerate(items):
@@ -365,6 +374,13 @@ class ProductSelectDialog(QDialog):
             if prod.manufacturer in self._preferred:
                 for item in items:
                     item.setFont(bold)
+
+            # Veraltete Produkte grau/kursiv absetzen
+            if prod.superseded_by:
+                for item in items:
+                    item.setFont(italic_grey)
+                    item.setForeground(QColor("#888888"))
+                    item.setToolTip(tooltip)
 
         self._table.setSortingEnabled(True)
         n = len(results)
@@ -403,6 +419,75 @@ class ProductSelectDialog(QDialog):
     def _on_double_click(self):
         if self._selected:
             self.accept()
+
+    # ------------------------------------------------------------------ Veraltet-Markierung
+
+    def _product_at_row(self, row: int) -> ProductSuggestion | None:
+        """Löst die ProductSuggestion für eine Tabellenzeile auf (robust gegen
+        Sortierung: Abgleich über Hersteller + Bestellnummer, siehe _on_selection)."""
+        order_num = self._table.item(row, 3).text()
+        mfr = self._table.item(row, 2).text()
+        return next(
+            (r for r in self._all_results
+             if r.order_number == order_num and r.manufacturer == mfr),
+            None,
+        )
+
+    def _show_table_context_menu(self, pos):
+        row = self._table.rowAt(pos.y())
+        if row < 0:
+            return
+        self._table.selectRow(row)
+        prod = self._product_at_row(row)
+        if prod is None:
+            return
+
+        menu = QMenu(self)
+        if prod.superseded_by:
+            action = menu.addAction("Veraltet-Markierung entfernen")
+        else:
+            action = menu.addAction("Als veraltet markieren…")
+        chosen = menu.exec(self._table.viewport().mapToGlobal(pos))
+        if chosen != action:
+            return
+
+        if prod.superseded_by:
+            self._search_service.mark_superseded(prod.manufacturer, prod.order_number, "")
+            self._refresh_results()
+            return
+
+        self._mark_product_superseded(prod)
+
+    def _mark_product_superseded(self, prod: ProductSuggestion):
+        """Fragt das Nachfolgeprodukt ab (gleicher Hersteller) und markiert
+        `prod` entsprechend als veraltet."""
+        candidates = [
+            p for p in self._search_service.products_for_manufacturer(prod.manufacturer)
+            if p.get("order_number", "") != prod.order_number
+        ]
+        if not candidates:
+            QMessageBox.information(
+                self, "Kein Nachfolger verfügbar",
+                f"Für Hersteller \"{prod.manufacturer}\" gibt es im Katalog kein "
+                "anderes Produkt, das als Nachfolger gewählt werden könnte.",
+            )
+            return
+
+        labels = [
+            f"{c.get('order_number', '')} – {c.get('product_name', '')}"
+            for c in candidates
+        ]
+        choice, ok = QInputDialog.getItem(
+            self, "Als veraltet markieren",
+            f"\"{prod.product_name}\" ({prod.order_number}) ist ersetzt durch:",
+            labels, 0, False,
+        )
+        if not ok or not choice:
+            return
+
+        successor_order_number = candidates[labels.index(choice)].get("order_number", "")
+        self._search_service.mark_superseded(prod.manufacturer, prod.order_number, successor_order_number)
+        self._refresh_results()
 
     def _on_line_changed(self, index: int):
         if self._line_combo:

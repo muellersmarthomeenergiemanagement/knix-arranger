@@ -46,6 +46,9 @@ class ProductSuggestion:
     com_objects: list = field(default_factory=list)
     ga_min: int = 0           # Minimaler GA-Bedarf (Basis-ComObjects)
     ga_max: int = 0           # Maximaler GA-Bedarf (alle aktiven ComObjects)
+    # Bestellnummer des Nachfolgeprodukts (gleicher Hersteller), falls dieses
+    # Produkt manuell als veraltet markiert wurde ("" = aktuell/nicht markiert)
+    superseded_by: str = ""
 
     def display_type(self) -> str:
         """Gibt den anzuzeigenden Gerätetyp zurück (kategorie-unabhängig)."""
@@ -137,6 +140,7 @@ class ProductSearchService:
                 com_objects=prod.get("com_objects", []),
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
+                superseded_by=prod.get("superseded_by", ""),
             ))
 
         # Bevorzugte Hersteller zuerst (FA-1304)
@@ -178,6 +182,7 @@ class ProductSearchService:
                 com_objects=prod.get("com_objects", []),
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
+                superseded_by=prod.get("superseded_by", ""),
             ))
 
         if preferred_manufacturers:
@@ -218,6 +223,7 @@ class ProductSearchService:
                 com_objects=prod.get("com_objects", []),
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
+                superseded_by=prod.get("superseded_by", ""),
             ))
 
         if preferred_manufacturers:
@@ -280,6 +286,7 @@ class ProductSearchService:
                 com_objects=prod.get("com_objects", []),
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
+                superseded_by=prod.get("superseded_by", ""),
             ))
 
         if preferred_manufacturers:
@@ -338,6 +345,40 @@ class ProductSearchService:
             self._upsert(self._user_products, product)
         if products:
             self._save_user_catalog()
+
+    def mark_superseded(self, manufacturer: str, order_number: str, superseded_by: str) -> None:
+        """Markiert ein Produkt als veraltet, ersetzt durch die Bestellnummer
+        `superseded_by` (gleicher Hersteller). `superseded_by=""` hebt die
+        Markierung wieder auf.
+
+        Funktioniert auch für Produkte aus der mitgelieferten Basis-Datenbank:
+        der volle Eintrag wird dafür in den nutzereigenen Katalog kopiert und
+        dort dauerhaft mit der Markierung persistiert -- die schreibgeschützte
+        Basis-Datei selbst bleibt unverändert.
+        """
+        key = (manufacturer, order_number)
+        for prod in self._catalog:
+            if (prod.get("manufacturer", ""), prod.get("order_number", "")) == key:
+                prod["superseded_by"] = superseded_by
+                self._upsert(self._user_products, dict(prod))
+                self._save_user_catalog()
+                return
+        logger.warning(
+            f"mark_superseded: Produkt {manufacturer} / {order_number} nicht im Katalog gefunden."
+        )
+
+    def products_for_manufacturer(self, manufacturer: str) -> list[dict]:
+        """Gibt alle Katalogeinträge eines Herstellers zurück (für die
+        Nachfolgerauswahl beim Markieren als veraltet)."""
+        return [p for p in self._catalog if p.get("manufacturer", "") == manufacturer]
+
+    def find_product(self, manufacturer: str, order_number: str) -> dict | None:
+        """Sucht einen Katalogeintrag nach (Hersteller, Bestellnummer)."""
+        key = (manufacturer, order_number)
+        for prod in self._catalog:
+            if (prod.get("manufacturer", ""), prod.get("order_number", "")) == key:
+                return prod
+        return None
 
     def search_online(self, query: str) -> list[ProductSuggestion]:
         """
