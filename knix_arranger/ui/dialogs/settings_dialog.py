@@ -205,6 +205,12 @@ class SettingsDialog(QDialog):
         self._rate_commissioning.setSuffix(" / h")
         rates_form.addRow("Inbetriebnahme:", self._rate_commissioning)
 
+        self._rate_documentation = QDoubleSpinBox()
+        self._rate_documentation.setRange(0, 999)
+        self._rate_documentation.setPrefix("CHF ")
+        self._rate_documentation.setSuffix(" / h")
+        rates_form.addRow("Dokumentation:", self._rate_documentation)
+
         self._markup = QDoubleSpinBox()
         self._markup.setRange(0, 100)
         self._markup.setSuffix(" %")
@@ -212,6 +218,50 @@ class SettingsDialog(QDialog):
 
         rates_group.setLayout(rates_form)
         layout.addWidget(rates_group)
+
+        effort_group = QGroupBox("Aufwandsschätzung (FA-1707)")
+        effort_form = QFormLayout()
+
+        effort_hint = QLabel(
+            "Richtwerte für die automatische Aufwandsschätzung in der Kundenofferte,\n"
+            "pro Bus-Gerät (Aktoren, Sensoren, Gateways). Programmierung/Inbetrieb-\n"
+            "nahme angelehnt an die ZVEH-Kalkulationshilfe (KFE); für Dokumentation\n"
+            "gibt es keinen publizierten Richtwert – bei Bedarf an eigene Erfahrung anpassen."
+        )
+        effort_hint.setWordWrap(True)
+        effort_hint.setStyleSheet("color: #808080; font-style: italic;")
+        effort_form.addRow(effort_hint)
+
+        self._minutes_programming = QDoubleSpinBox()
+        self._minutes_programming.setRange(0, 300)
+        self._minutes_programming.setSuffix(" Min. / Gerät")
+        effort_form.addRow("Programmierung:", self._minutes_programming)
+
+        self._minutes_commissioning = QDoubleSpinBox()
+        self._minutes_commissioning.setRange(0, 300)
+        self._minutes_commissioning.setSuffix(" Min. / Gerät")
+        effort_form.addRow("Inbetriebnahme:", self._minutes_commissioning)
+
+        self._commissioning_base = QDoubleSpinBox()
+        self._commissioning_base.setRange(0, 100)
+        self._commissioning_base.setDecimals(1)
+        self._commissioning_base.setSuffix(" h")
+        effort_form.addRow("Inbetriebnahme-Sockel:", self._commissioning_base)
+
+        self._minutes_documentation = QDoubleSpinBox()
+        self._minutes_documentation.setRange(0, 300)
+        self._minutes_documentation.setSuffix(" Min. / Gerät")
+        effort_form.addRow("Dokumentation:", self._minutes_documentation)
+
+        self._documentation_base = QDoubleSpinBox()
+        self._documentation_base.setRange(0, 100)
+        self._documentation_base.setDecimals(1)
+        self._documentation_base.setSuffix(" h")
+        effort_form.addRow("Dokumentation-Sockel:", self._documentation_base)
+
+        effort_group.setLayout(effort_form)
+        layout.addWidget(effort_group)
+
         layout.addStretch()
         return tab
 
@@ -229,7 +279,13 @@ class SettingsDialog(QDialog):
         self._rate_mounting.setValue(p.hourly_rate_mounting)
         self._rate_programming.setValue(p.hourly_rate_programming)
         self._rate_commissioning.setValue(p.hourly_rate_commissioning)
+        self._rate_documentation.setValue(p.hourly_rate_documentation)
         self._markup.setValue(p.material_markup_percent)
+        self._minutes_programming.setValue(p.minutes_programming_per_device)
+        self._minutes_commissioning.setValue(p.minutes_commissioning_per_device)
+        self._commissioning_base.setValue(p.commissioning_base_hours)
+        self._minutes_documentation.setValue(p.minutes_documentation_per_device)
+        self._documentation_base.setValue(p.documentation_base_hours)
         if p.logo_path:
             self._update_logo_preview(p.logo_path)
 
@@ -247,7 +303,13 @@ class SettingsDialog(QDialog):
         p.hourly_rate_mounting = self._rate_mounting.value()
         p.hourly_rate_programming = self._rate_programming.value()
         p.hourly_rate_commissioning = self._rate_commissioning.value()
+        p.hourly_rate_documentation = self._rate_documentation.value()
         p.material_markup_percent = self._markup.value()
+        p.minutes_programming_per_device = self._minutes_programming.value()
+        p.minutes_commissioning_per_device = self._minutes_commissioning.value()
+        p.commissioning_base_hours = self._commissioning_base.value()
+        p.minutes_documentation_per_device = self._minutes_documentation.value()
+        p.documentation_base_hours = self._documentation_base.value()
         return p
 
     # ─── Arbeitsverzeichnis ───────────────────────────────────────────────────

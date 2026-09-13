@@ -40,7 +40,36 @@ class TopologyReportView(QWidget):
         self._tabs.addTab(self._create_ko_tab(), "Kommunikationsobjekte (FA-1010)")
         self._tabs.addTab(self._create_crossref_tab(), "Kreuzreferenz (FA-1011)")
         self._tabs.addTab(self._create_bedienelement_tab(), "Bedienelemente (FA-1404)")
+        self._tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self._tabs)
+
+    def showEvent(self, event):
+        """Spaltenbreiten neu berechnen, wenn diese Ansicht sichtbar wird.
+
+        set_project()/_refresh_all() laufen oft, während dieser Tab noch gar
+        nicht sichtbar ist -- main_window.py hält alle Ansichten dauerhaft in
+        einem QStackedWidget vor, statt sie neu zu erzeugen.
+        resizeColumnToContents() (in fit_columns()) liefert auf einem
+        verborgenen Widget teils falsche (zu schmale) Breiten. Beim ersten
+        Einblenden hier korrekt nachziehen, für die gerade aktive innere
+        Tab-Seite (die übrigen zieht _on_tab_changed() nach)."""
+        super().showEvent(event)
+        self._fit_columns_for_tab(self._tabs.currentIndex())
+
+    def _on_tab_changed(self, index: int):
+        """Dieselbe Korrektur wie showEvent(), aber für die inneren Tabs
+        (Geräte-Detail/KO/Kreuzreferenz/Bedienelemente): QTabWidget verwendet
+        intern ebenfalls einen QStackedWidget, eine nicht aktive Tab-Seite ist
+        also genauso "verborgen" wie die ganze Ansicht vor dem ersten Öffnen."""
+        self._fit_columns_for_tab(index)
+
+    def _fit_columns_for_tab(self, index: int):
+        table = {
+            0: self._device_table, 1: self._ko_table,
+            2: self._crossref_tree, 3: self._be_table,
+        }.get(index)
+        if table is not None:
+            fit_columns(table, stretch_to_fit=False)
 
     # ── Hinweis-Banner (kein ETS-Import) ──
 
@@ -96,7 +125,9 @@ class TopologyReportView(QWidget):
         ])
         self._device_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._device_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self._device_table.horizontalHeader().setStretchLastSection(True)
+        # KEIN setStretchLastSection: erzwingt sonst eine volle Breite der
+        # letzten Spalte unabhängig vom Inhalt und widerspricht damit der
+        # inhaltsbasierten Breite aus fit_columns(..., stretch_to_fit=False).
         self._device_table.setAlternatingRowColors(True)
         layout.addWidget(self._device_table)
 
@@ -151,7 +182,7 @@ class TopologyReportView(QWidget):
         ])
         self._ko_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._ko_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self._ko_table.horizontalHeader().setStretchLastSection(True)
+        # KEIN setStretchLastSection, siehe _create_device_tab().
         self._ko_table.setAlternatingRowColors(True)
         self._ko_table.cellDoubleClicked.connect(self._on_ko_cell_double_clicked)
         layout.addWidget(self._ko_table)
@@ -194,7 +225,7 @@ class TopologyReportView(QWidget):
         ])
         self._be_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._be_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self._be_table.horizontalHeader().setStretchLastSection(True)
+        # KEIN setStretchLastSection, siehe _create_device_tab().
         self._be_table.setAlternatingRowColors(True)
         layout.addWidget(self._be_table)
 
@@ -251,7 +282,9 @@ class TopologyReportView(QWidget):
         layout.addLayout(dir_row)
 
         self._crossref_tree = QTreeWidget()
-        self._crossref_tree.itemExpanded.connect(lambda _: fit_columns(self._crossref_tree))
+        self._crossref_tree.itemExpanded.connect(
+            lambda _: fit_columns(self._crossref_tree, stretch_to_fit=False)
+        )
         self._crossref_tree.setHeaderLabels([
             "GA / Gerät", "Objekt", "Funktion", "Datentyp",
         ])
@@ -336,14 +369,25 @@ class TopologyReportView(QWidget):
 
         self._device_table.setRowCount(len(devices))
         for i, d in enumerate(devices):
-            self._device_table.setItem(i, 0, QTableWidgetItem(d.physical_address))
-            self._device_table.setItem(i, 1, QTableWidgetItem(d.manufacturer))
-            self._device_table.setItem(i, 2, QTableWidgetItem(d.product))
-            self._device_table.setItem(i, 3, QTableWidgetItem(d.serial_number))
-            self._device_table.setItem(i, 4, QTableWidgetItem(d.application_program))
-            self._device_table.setItem(i, 5, QTableWidgetItem(d.installation_location))
-            self._device_table.setItem(i, 6, QTableWidgetItem(d.device_type))
-        fit_columns(self._device_table)
+            items = [
+                QTableWidgetItem(d.physical_address),
+                QTableWidgetItem(d.manufacturer),
+                QTableWidgetItem(d.product),
+                QTableWidgetItem(d.serial_number),
+                QTableWidgetItem(d.application_program),
+                QTableWidgetItem(d.installation_location),
+                QTableWidgetItem(d.device_type),
+            ]
+            if d.button_configuration:
+                # Tastenbelegung aus dem ETS-Report -- rein informativ (siehe
+                # XlsxImportService.extract_button_configuration), daher nur
+                # als Tooltip statt eigener Spalte/automatischer Auswertung.
+                tooltip = "Tastenbelegung (aus ETS-Report):\n\n" + d.button_configuration
+                for item in items:
+                    item.setToolTip(tooltip)
+            for col, item in enumerate(items):
+                self._device_table.setItem(i, col, item)
+        fit_columns(self._device_table, stretch_to_fit=False)
 
     # ── Kommunikationsobjekte (FA-1010) ──
 
@@ -413,7 +457,7 @@ class TopologyReportView(QWidget):
                 if not has_ga:
                     item.setForeground(grey)
                 self._ko_table.setItem(i, items.index(item), item)
-        fit_columns(self._ko_table)
+        fit_columns(self._ko_table, stretch_to_fit=False)
 
     def _on_ko_cell_double_clicked(self, row: int, col: int):
         """Doppelklick auf GA-Spalte → wechselt zu Kreuzreferenz-Tab mit GA-Suche."""
@@ -443,7 +487,7 @@ class TopologyReportView(QWidget):
         else:
             self._fill_crossref_dev_to_ga()
 
-        fit_columns(self._crossref_tree)
+        fit_columns(self._crossref_tree, stretch_to_fit=False)
 
     def _fill_crossref_ga_to_dev(self):
         """GA → Geräte: Jede GA als Wurzel, verbundene Geräte/KOs als Kinder."""
@@ -558,6 +602,8 @@ class TopologyReportView(QWidget):
                     if not room:
                         continue
                     for be in room.bedienelemente:
+                        if be.suppressed:
+                            continue
                         pn = f" [{be.participant_number}]" if be.participant_number else ""
                         room_cell = f"{room.number} {room.name}"
                         be_cell = f"{be.element_type}{pn}"
@@ -624,7 +670,7 @@ class TopologyReportView(QWidget):
                 if is_fallback:
                     item.setBackground(orange)
                 self._be_table.setItem(i, col, item)
-        fit_columns(self._be_table)
+        fit_columns(self._be_table, stretch_to_fit=False)
 
     # ── ETS-Belegungsplan Export ──
 

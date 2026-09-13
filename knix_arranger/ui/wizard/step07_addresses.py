@@ -40,6 +40,19 @@ class Step07Addresses(QWidget):
         info.setWordWrap(True)
         layout.addWidget(info)
 
+        self._import_banner = QLabel(
+            "Dieses Projekt wurde aus einem ETS-Projekt importiert. Die importierten\n"
+            "Gruppenadressen werden NICHT automatisch überschrieben. Über 'Gruppenadressen\n"
+            "generieren' können Sie bei Bedarf trotzdem eine (heuristische) Generierung starten\n"
+            "– bestätigen Sie dazu den Warnhinweis."
+        )
+        self._import_banner.setWordWrap(True)
+        self._import_banner.setStyleSheet(
+            "background-color: #FFF3CD; color: #856404; padding: 8px; border-radius: 4px;"
+        )
+        self._import_banner.hide()
+        layout.addWidget(self._import_banner)
+
         # Variante
         variant_group = QGroupBox("Mittelgruppen-Variante")
         variant_layout = QHBoxLayout()
@@ -163,6 +176,16 @@ class Step07Addresses(QWidget):
         else:
             self._variant_a.setChecked(True)
 
+        self._import_banner.setVisible(self._project.topology.is_imported)
+
+        # Importierte GAs (XLSX/knxproj) bleiben unverändert (FA-ImportGuard) –
+        # nur anzeigen, keine automatische (Neu-)Generierung.
+        if self._project.topology.is_imported:
+            if self._project.group_addresses.main_groups:
+                self._display_preview(self._project.group_addresses)
+                self._update_summary()
+            return
+
         # Automatisch (neu) generieren wenn Gewerk-Zuweisungen vorhanden –
         # analog zu Step06 (Aktoren) und Step08 (Sensoren).
         has_gewerke = any(r.gewerk_assignments for r in self._project.all_rooms)
@@ -175,6 +198,21 @@ class Step07Addresses(QWidget):
     # ── Haupt-Aktionen ─────────────────────────────────────────────────────
 
     def _generate(self):
+        if self._project.topology.is_imported:
+            reply = QMessageBox.question(
+                self,
+                "Importierte Gruppenadressen überschreiben?",
+                "Dieses Projekt wurde aus einem ETS-Projekt importiert.\n"
+                "Eine (Neu-)Generierung ersetzt alle nicht-manuellen Gruppenadressen\n"
+                "durch heuristisch erzeugte – importierte Adressen ohne 'manuell'-Markierung\n"
+                "gehen dabei verloren.\n\n"
+                "Trotzdem fortfahren?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+
         variant = "B" if self._variant_b.isChecked() else "A"
         self._project.config.mg_variant = variant
 
@@ -185,8 +223,11 @@ class Step07Addresses(QWidget):
         ]
 
         catalog = self._project.gewerk_catalog
+        existing = self._project.group_addresses
         gen = AddressGenerator(catalog, variant=variant)
-        structure = gen.generate(self._project.areal, scenes=self._project.scenes)
+        structure = gen.generate(
+            self._project.areal, scenes=self._project.scenes, existing=existing,
+        )
         self._project.group_addresses = structure
 
         # Manuelle GAs wieder einfügen
@@ -201,6 +242,8 @@ class Step07Addresses(QWidget):
         self._log.append(f"Generierung abgeschlossen: {ga_count} GAs")
         if manual_gas:
             self._log.append(f"{len(manual_gas)} manuelle GA(s) beibehalten.")
+        for warning in structure.warnings:
+            self._log.append(f'<b style="color:#c62828">WARNUNG:</b> {warning}')
 
     def _validate(self):
         if not self._project.group_addresses.main_groups:

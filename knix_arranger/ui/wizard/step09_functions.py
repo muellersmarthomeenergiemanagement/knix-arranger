@@ -5,7 +5,7 @@ Automatische Zuordnung Sensor-Tasten -> Gruppenadressen
 from __future__ import annotations
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget,
-    QTreeWidgetItem, QPushButton, QAbstractItemView,
+    QTreeWidgetItem, QPushButton, QAbstractItemView, QMessageBox,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -31,6 +31,18 @@ class Step09Functions(QWidget):
         )
         info.setWordWrap(True)
         layout.addWidget(info)
+
+        self._import_banner = QLabel(
+            "Dieses Projekt wurde aus einem ETS-Projekt importiert. Funktionszuordnungen\n"
+            "werden NICHT automatisch neu berechnet. 'Funktionen automatisch zuordnen'\n"
+            "bleibt bei Bedarf manuell verfügbar (mit Warnhinweis)."
+        )
+        self._import_banner.setWordWrap(True)
+        self._import_banner.setStyleSheet(
+            "background-color: #FFF3CD; color: #856404; padding: 8px; border-radius: 4px;"
+        )
+        self._import_banner.hide()
+        layout.addWidget(self._import_banner)
 
         btn_layout = QHBoxLayout()
         self._btn_auto = QPushButton("Funktionen automatisch zuordnen")
@@ -72,6 +84,14 @@ class Step09Functions(QWidget):
         layout.addWidget(hint)
 
     def on_enter(self):
+        self._import_banner.setVisible(self._project.topology.is_imported)
+
+        # Importierte Verknüpfungen (XLSX/knxproj) bleiben unverändert
+        # (FA-ImportGuard) – nur anzeigen, keine automatische Neuzuordnung.
+        if self._project.topology.is_imported:
+            self._refresh()
+            return
+
         all_rooms = self._project.all_rooms
         has_gewerke = any(r.gewerk_assignments for r in all_rooms)
         has_gas = bool(self._project.group_addresses.all_addresses())
@@ -82,6 +102,21 @@ class Step09Functions(QWidget):
             self._refresh()
 
     def _auto_assign(self):
+        if self._project.topology.is_imported:
+            reply = QMessageBox.question(
+                self,
+                "Importierte Verknüpfungen überschreiben?",
+                "Dieses Projekt wurde aus einem ETS-Projekt importiert.\n"
+                "Die automatische Zuordnung erstellt Funktionszuordnungen anhand von\n"
+                "Heuristiken (Raum/Gewerk) und kann bestehende, manuell geprüfte\n"
+                "Verknüpfungen überschreiben.\n\n"
+                "Trotzdem fortfahren?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+
         gas = self._project.group_addresses
 
         if not gas.all_addresses():
@@ -123,12 +158,13 @@ class Step09Functions(QWidget):
         rooms_with_assignments = 0
 
         for room in all_rooms:
-            if not room.bedienelemente:
+            active_bes = [be for be in room.bedienelemente if not be.suppressed]
+            if not active_bes:
                 continue
 
             rooms_with_assignments += 1
             room_fas = sum(
-                len(be.function_assignments) for be in room.bedienelemente
+                len(be.function_assignments) for be in active_bes
             )
             total_assignments += room_fas
 
@@ -142,7 +178,7 @@ class Step09Functions(QWidget):
             room_item.setData(0, Qt.UserRole, room)
             room_item.setExpanded(True)
 
-            for be in room.bedienelemente:
+            for be in active_bes:
                 ch_label = f"{be.channels}-Kanal"
                 pn_str = be.participant_number if be.participant_number else "–"
                 # Bedienelement-Knoten

@@ -275,6 +275,31 @@ class TestGruppenadressen:
         finally:
             os.unlink(path)
 
+    def test_ungueltige_ga_wird_uebersprungen_statt_kodiert(self):
+        """Eine GA mit sub_group>255 (z.B. durch manuelle Fehleingabe) darf
+        nicht als falsche, bit-verschobene Adresse in den Export gelangen -
+        sie wird uebersprungen und als Warnung gemeldet."""
+        project = _make_project()
+        mg = project.group_addresses.main_groups[1].middle_groups[0]
+        bad_ga = GroupAddress(
+            main_group=2, middle_group=mg.number, sub_group=300,
+            designation="Kaputte Adresse",
+        )
+        mg.group_addresses.append(bad_ga)
+
+        fd, path = tempfile.mkstemp(suffix=".knxproj")
+        os.close(fd)
+        try:
+            summary = KnxprojExportService().export(project, path)
+            assert any("Kaputte Adresse" in w for w in summary.warnings)
+
+            root = _xml_from_zip(path, "0.xml")
+            ns = f"{{{_NS}}}"
+            names = {ga.get("Name") for ga in root.findall(f".//{ns}GroupAddress")}
+            assert "Kaputte Adresse" not in names
+        finally:
+            os.unlink(path)
+
 
 # ── Topologie (FA-2402/2403) ──────────────────────────────────────────────────
 

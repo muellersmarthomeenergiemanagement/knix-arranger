@@ -115,6 +115,16 @@ class KnxProject:
     # Standard-Katalogeintrag. Gespeichert als Gewerk.to_dict(); werden beim
     # ersten Zugriff auf gewerk_catalog in den Katalog übernommen (siehe dort).
     custom_gewerke: list[dict] = field(default_factory=list)
+    # Manuell zugewiesener Zielraum für einen aus dem Einbauort abgeleiteten
+    # Verteiler-Pseudo-Raum (XlsxImportService.create_verteiler_rooms legt bei
+    # jedem Import wieder einen neuen an, z.B. "HV  HV") -- Schlüssel ist der
+    # kanonische Verteiler-Key (siehe xlsx_import_service._vt_key, z.B. "HV",
+    # "UV2"), Wert [floor_short_code, room_number] des echten Zielraums (z.B.
+    # ["EG", "01"] für "Technikraum"). Wird bei jedem Import automatisch
+    # erneut angewendet (XlsxImportService.apply_verteiler_room_overrides),
+    # damit eine einmal in Schritt 3b vorgenommene Zuordnung Re-Importe
+    # übersteht.
+    verteiler_room_overrides: dict[str, list[str]] = field(default_factory=dict)
 
     # Nicht serialisiert - wird zur Laufzeit geladen
     _gewerk_catalog: Optional[GewerkCatalog] = field(
@@ -193,6 +203,7 @@ class KnxProject:
         data["changelog"] = [e.to_dict() for e in self.changelog]
         # Benutzerdefinierte Gewerke
         data["custom_gewerke"] = self.custom_gewerke
+        data["verteiler_room_overrides"] = self.verteiler_room_overrides
         # KNX Secure: sensible Felder (FDSK/ETS6-Projektpasswort/Notiz)
         # passwortbasiert verschlüsselt speichern (FA-2706).
         ks = self.knx_secure
@@ -264,6 +275,7 @@ class KnxProject:
             ChangelogEntry.from_dict(e) for e in data.get("changelog", [])
         ]
         project.custom_gewerke = data.get("custom_gewerke", [])
+        project.verteiler_room_overrides = data.get("verteiler_room_overrides", {})
         # KNX Secure laden: unverschlüsselte Felder sofort verfügbar; falls ein
         # verschlüsseltes Archiv (secure_blob) vorhanden ist, bleibt dieses
         # gesperrt, bis in der UI das Master-Passwort eingegeben wird

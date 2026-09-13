@@ -29,6 +29,7 @@ class GroupAddress:
     function_name: str = ""   # z.B. "E/A", "DIM", "WERT"
     is_placeholder: bool = False  # Reserve-Platzhalter (FA-434)
     is_manual: bool = False       # Manuell hinzugefügt (kein Auto-GA)
+    assignment_id: str = ""       # GewerkAssignment.id – für stabile Neugenerierung
 
     @property
     def address(self) -> str:
@@ -54,6 +55,7 @@ class GroupAddress:
             "function_name": self.function_name,
             "is_placeholder": self.is_placeholder,
             "is_manual": self.is_manual,
+            "assignment_id": self.assignment_id,
         }
 
     @classmethod
@@ -76,6 +78,7 @@ class GroupAddress:
             function_name=data.get("function_name", ""),
             is_placeholder=data.get("is_placeholder", False),
             is_manual=data.get("is_manual", False),
+            assignment_id=data.get("assignment_id", ""),
         )
 
 
@@ -143,6 +146,10 @@ class GroupAddressStructure:
     main_groups: list[MainGroup] = field(default_factory=list)
     variant: str = "A"   # "A" oder "B" (FA-421)
     source: str = ""     # "topology" | "ga_report" | "csv" — bestimmt Merge-Priorität
+    # Nicht persistiert: wird bei jedem generate()-Aufruf frisch befuellt
+    # (z.B. "Mittelgruppe erschoepft, N GAs nicht platziert"). Absichtlich
+    # kein Feld in to_dict/from_dict.
+    warnings: list[str] = field(default_factory=list)
 
     def all_addresses(self) -> list[GroupAddress]:
         """Alle Gruppenadressen flach."""

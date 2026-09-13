@@ -8,6 +8,11 @@ from datetime import date
 import uuid
 
 
+def round_rappen(value: float) -> float:
+    """Rundet einen Frankenbetrag auf 5-Rappen-Schritte (CH-Rundungsregel)."""
+    return round(value * 20) / 20
+
+
 @dataclass
 class Supplier:
     """Lieferant/Händler (FA-1601)."""
@@ -151,24 +156,42 @@ class CustomerQuote:
     labor_mounting_hours: float = 0.0
     labor_programming_hours: float = 0.0
     labor_commissioning_hours: float = 0.0
+    labor_documentation_hours: float = 0.0
     hourly_rate_mounting: float = 125.0
     hourly_rate_programming: float = 145.0
     hourly_rate_commissioning: float = 145.0
+    hourly_rate_documentation: float = 125.0
     overhead_costs: float = 0.0
     discount_percent: float = 0.0
     vat_percent: float = 8.1     # CH MwSt.
     validity_days: int = 60
     payment_terms: str = "30 Tage netto"
     items: list[QuotationItem] = field(default_factory=list)
+    # Signatur der Materialliste, aus der `items` zuletzt importiert wurde
+    # (siehe customer_quote_view._material_signature) -- weicht sie vom
+    # aktuellen Stand ab, entspricht die Offerte nicht mehr der Planung.
+    material_snapshot: str = ""
     # Ist-Werte für Nachkalkulation (FA-2201)
     actual_material_cost: float = 0.0
     actual_mounting_hours: float = 0.0
     actual_programming_hours: float = 0.0
     actual_commissioning_hours: float = 0.0
+    actual_documentation_hours: float = 0.0
     actual_overhead_costs: float = 0.0
 
     @property
     def material_with_markup(self) -> float:
+        """Bruttomaterialbetrag inkl. Aufschlag.
+
+        Sobald Positionen erfasst sind, wird deren Summe direkt verwendet --
+        damit stimmt der hier (und in Kalkulation, Excel-Export, PDF-Brief)
+        angezeigte Materialbetrag immer exakt mit der Summe der einzelnen
+        Positionspreise überein, die der Kunde sieht. Ohne Positionen (z.B.
+        manuell erfasster Materialwert ohne Einzelpositionen) wird der
+        Aufschlag weiterhin auf material_total gerechnet.
+        """
+        if self.items:
+            return sum(item.total_price for item in self.items)
         return self.material_total * (1 + self.material_markup_percent / 100)
 
     @property
@@ -177,6 +200,7 @@ class CustomerQuote:
             self.labor_mounting_hours * self.hourly_rate_mounting
             + self.labor_programming_hours * self.hourly_rate_programming
             + self.labor_commissioning_hours * self.hourly_rate_commissioning
+            + self.labor_documentation_hours * self.hourly_rate_documentation
         )
 
     @property
@@ -207,6 +231,7 @@ class CustomerQuote:
             self.actual_mounting_hours * self.hourly_rate_mounting
             + self.actual_programming_hours * self.hourly_rate_programming
             + self.actual_commissioning_hours * self.hourly_rate_commissioning
+            + self.actual_documentation_hours * self.hourly_rate_documentation
         )
 
     @property
@@ -245,19 +270,23 @@ class CustomerQuote:
             "labor_mounting_hours": self.labor_mounting_hours,
             "labor_programming_hours": self.labor_programming_hours,
             "labor_commissioning_hours": self.labor_commissioning_hours,
+            "labor_documentation_hours": self.labor_documentation_hours,
             "hourly_rate_mounting": self.hourly_rate_mounting,
             "hourly_rate_programming": self.hourly_rate_programming,
             "hourly_rate_commissioning": self.hourly_rate_commissioning,
+            "hourly_rate_documentation": self.hourly_rate_documentation,
             "overhead_costs": self.overhead_costs,
             "discount_percent": self.discount_percent,
             "vat_percent": self.vat_percent,
             "validity_days": self.validity_days,
             "payment_terms": self.payment_terms,
             "items": [i.to_dict() for i in self.items],
+            "material_snapshot": self.material_snapshot,
             "actual_material_cost": self.actual_material_cost,
             "actual_mounting_hours": self.actual_mounting_hours,
             "actual_programming_hours": self.actual_programming_hours,
             "actual_commissioning_hours": self.actual_commissioning_hours,
+            "actual_documentation_hours": self.actual_documentation_hours,
             "actual_overhead_costs": self.actual_overhead_costs,
         }
 
@@ -276,18 +305,22 @@ class CustomerQuote:
             labor_mounting_hours=data.get("labor_mounting_hours", 0.0),
             labor_programming_hours=data.get("labor_programming_hours", 0.0),
             labor_commissioning_hours=data.get("labor_commissioning_hours", 0.0),
+            labor_documentation_hours=data.get("labor_documentation_hours", 0.0),
             hourly_rate_mounting=data.get("hourly_rate_mounting", 125.0),
             hourly_rate_programming=data.get("hourly_rate_programming", 145.0),
             hourly_rate_commissioning=data.get("hourly_rate_commissioning", 145.0),
+            hourly_rate_documentation=data.get("hourly_rate_documentation", 125.0),
             overhead_costs=data.get("overhead_costs", 0.0),
             discount_percent=data.get("discount_percent", 0.0),
             vat_percent=data.get("vat_percent", 8.1),
             validity_days=data.get("validity_days", 60),
             payment_terms=data.get("payment_terms", "30 Tage netto"),
+            material_snapshot=data.get("material_snapshot", ""),
             actual_material_cost=data.get("actual_material_cost", 0.0),
             actual_mounting_hours=data.get("actual_mounting_hours", 0.0),
             actual_programming_hours=data.get("actual_programming_hours", 0.0),
             actual_commissioning_hours=data.get("actual_commissioning_hours", 0.0),
+            actual_documentation_hours=data.get("actual_documentation_hours", 0.0),
             actual_overhead_costs=data.get("actual_overhead_costs", 0.0),
         )
         cq.items = [QuotationItem.from_dict(i) for i in data.get("items", [])]

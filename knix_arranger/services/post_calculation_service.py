@@ -145,6 +145,12 @@ class PostCalculationService:
                 f"{quote.actual_commissioning_hours:.1f}",
                 f"{quote.actual_commissioning_hours - quote.labor_commissioning_hours:+.1f}",
             ],
+            [
+                "Dokumentation",
+                f"{quote.labor_documentation_hours:.1f}",
+                f"{quote.actual_documentation_hours:.1f}",
+                f"{quote.actual_documentation_hours - quote.labor_documentation_hours:+.1f}",
+            ],
         ]
         pdf.add_table(headers2, rows2)
 

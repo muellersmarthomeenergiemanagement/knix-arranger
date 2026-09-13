@@ -464,15 +464,29 @@ class KnxprojImportService:
         """Heuristik zur Gerätekategorie aus Produktname und CO-Flags.
 
         Reihenfolge:
-        1. Sensor-Keywords zuerst (spezifischer, z.B. "Taster" schlägt "rgb")
-        2. Aktor-Keywords als zweite Prüfung
-        3. CO-Flag-Muster als Fallback
+        1. Gateway-Keywords (Schnittstellen zu anderen Systemen/PC, z.B.
+           "KNX-Gateway", "IP-Interface") -- spezifischer als die übrigen
+           Infrastruktur-Schlüsselwörter, daher zuerst geprüft.
+        2. Sensor-Keywords (spezifischer, z.B. "Taster" schlägt "rgb")
+        3. Aktor-Keywords als dritte Prüfung
+        4. CO-Flag-Muster als Fallback
+
+        Geprüft wird gegen den normalisierten Produktnamen (Binde-/Unter-
+        striche als Leerzeichen, siehe `xlsx_import_service._normalize_product_name`
+        -- analoge Logik hier dupliziert, da dieser Service keine Abhängigkeit
+        zum XLSX-Importer haben soll): sonst verfehlt z.B. "KNX-Gateway" das
+        Schlüsselwort "knx gateway", weil der Bindestrich kein Leerzeichen ist.
         """
-        name_lower = product_name.lower()
-        # Infrastrukturgeräte zuerst prüfen (schlagen sensor/actor)
+        name_lower = re.sub(r"[-_/]+", " ", product_name.lower())
+        name_lower = re.sub(r"\s+", " ", name_lower).strip()
+        # Gateway/Schnittstellen-Keywords zuerst (FA-1307/1308: Gateway-
+        # Gewerke werden als device_type="gateway" geplant/erkannt)
+        gateway_kw = (
+            "gateway", "ip interface", "usb interface", "knxnet", "remote access",
+        )
+        # Infrastrukturgeräte (Router/Koppler/Speisung) zuerst prüfen (schlagen sensor/actor)
         infra_kw = (
-            "remote access", "ip router", "ip interface", "usb interface",
-            "knx router", "knx interface", "knx gateway", "knxnet",
+            "ip router", "knx router", "knx interface",
             "line coupler", "area coupler", "backbone coupler",
             "power supply", "speisegerät", "netzteil",
         )
@@ -486,6 +500,8 @@ class KnxprojImportService:
             "jalousie", "shutter", "blind", "hvac", "heating ctrl",
             "dali", "rgb led", "led driver",
         )
+        if any(kw in name_lower for kw in gateway_kw):
+            return "gateway"
         if any(kw in name_lower for kw in infra_kw):
             return "other"
         if any(kw in name_lower for kw in sensor_kw):
@@ -802,9 +818,67 @@ class KnxprojImportService:
     # FA-1404: Bedienelemente aus importierter Topologie erzeugen
     # ------------------------------------------------------------------
 
+    # Erkennt KO-Namen wie "Taste 1, links" oder "Taste 3, Signal-LED" -- die
+    # Gruppennummer (hier "1"/"3") identifiziert die physische Taste; mehrere
+    # KOs (Schalten + Status-LED) teilen sich dieselbe Nummer.
+    _TASTE_KO_RE = re.compile(r'\btaste\s*(\d+)', re.IGNORECASE)
+
     @staticmethod
-    def _infer_element_type(product_name: str) -> str:
-        """Leitet den Bedienelement-Typ aus dem Produktnamen ab."""
+    def _count_taste_buttons(communication_objects) -> int:
+        """Zählt distinkte physische Tasten anhand der KO-Namen (siehe
+        `_TASTE_KO_RE`). Zuverlässiger als eine Produktname-Heuristik, da sie
+        direkt aus der realen KO-Tabelle des Geräts stammt -- insbesondere
+        bei Tastern mit mehreren KOs pro physischer Taste (Schalten +
+        Status-LED) und nicht-sequentiellen KO-Nummern (z.B. Feller
+        EDIZIOdue: KO-Nummern 0,2,3,5,6,8,9,11,12,13,14,16 für 3 Tasten).
+        Gibt 0 zurück, wenn keine "Taste N"-KOs gefunden werden (andere
+        Hersteller benennen KOs anders, z.B. "Kanal A")."""
+        numbers: set[int] = set()
+        for co in (communication_objects or []):
+            m = KnxprojImportService._TASTE_KO_RE.search(co.name or "")
+            if m:
+                numbers.add(int(m.group(1)))
+        return len(numbers)
+
+    # KO-Namen-Hinweise für Melder, deren tatsächliche Funktion sich NICHT
+    # zuverlässig am Produktnamen/Hersteller ablesen lässt (z.B. baut der
+    # Hersteller "Salva" sowohl Rauch- als auch Wassermelder -- "salva" im
+    # Produktnamen sagt also nichts über die Funktion aus). Die KO-Namen
+    # nennen dagegen herstellerunabhängig die überwachte Grösse (z.B.
+    # "Rauchm.:Alarm", "Leckage Alarm") und sind daher das zuverlässigere
+    # Signal, siehe `_infer_element_type`.
+    _RAUCHMELDER_KO_HINTS = ("rauch", "smoke")
+    _WASSERMELDER_KO_HINTS = ("leck", "leak", "wasser", "water")
+
+    @staticmethod
+    def _has_ko_hint(communication_objects, hints: tuple[str, ...]) -> bool:
+        return any(
+            any(h in (co.name or "").lower() for h in hints)
+            for co in (communication_objects or [])
+        )
+
+    @staticmethod
+    def _infer_element_type(product_name: str, communication_objects=None) -> str:
+        """Leitet den Bedienelement-Typ aus Produktname und KO-Namen ab.
+
+        Der Fallback für unbekannte Sensoren war früher pauschal
+        "Tastereinheit" -- das führte dazu, dass z.B. Leckage-/Wassermelder
+        (deren Produktname keine der obigen Kategorien trifft) fälschlich
+        als Taster eingelesen wurden, inkl. Taster-spezifischer Behandlung
+        (Teilnehmernummern ab 101, TE-Sortierpriorität, Bauherr-Formular-
+        Label "Tastereinheit N"). "Tastereinheit" wird daher nur noch
+        vergeben, wenn der Produktname es explizit nahelegt ODER das Gerät
+        tatsächlich "Taste N"-benannte Kommunikationsobjekte hat (siehe
+        `_count_taste_buttons`) -- echte Taster wie Feller EDIZIOdue, deren
+        Produktname keines der Schlüsselwörter enthält, werden darüber
+        weiterhin korrekt erkannt.
+
+        Rauch-/Wassermelder werden primär über ihre KO-Namen unterschieden
+        (siehe `_RAUCHMELDER_KO_HINTS`/`_WASSERMELDER_KO_HINTS`), erst danach
+        über Produktname-Schlüsselwörter als Fallback ohne Hersteller-/
+        Markennamen (Regression: "salva" fälschte jeden Salva-Rauchmelder zu
+        "Wassermelder", weil derselbe Hersteller beide Meldertypen baut).
+        """
         nl = product_name.lower()
         if any(kw in nl for kw in ("präsenz", "praesenz", "presence")):
             return "Präsenzmelder"
@@ -821,19 +895,39 @@ class KnxprojImportService:
             return "Türkontakt"
         if any(kw in nl for kw in ("wetter", "weather")):
             return "Wetterstation"
+        if KnxprojImportService._has_ko_hint(communication_objects, KnxprojImportService._RAUCHMELDER_KO_HINTS):
+            return "Rauchmelder"
+        if KnxprojImportService._has_ko_hint(communication_objects, KnxprojImportService._WASSERMELDER_KO_HINTS):
+            return "Wassermelder"
+        if any(kw in nl for kw in ("rauchmelder", "smoke detector")):
+            return "Rauchmelder"
+        if any(kw in nl for kw in ("leak", "leckage", "wassermelder", "water sensor")):
+            return "Wassermelder"
         # Tastereinheit / Button als breiteste Sensor-Kategorie
         if any(kw in nl for kw in ("taster", "button", "push", "tastatur", "keypad")):
             return "Tastereinheit"
-        return "Tastereinheit"  # Fallback für unbekannte Sensoren
+        if KnxprojImportService._count_taste_buttons(communication_objects) > 0:
+            return "Tastereinheit"
+        return "Sensor"  # Neutraler Fallback statt pauschal "Tastereinheit"
 
     @staticmethod
-    def _infer_channel_count(product_name: str) -> int:
-        """Versucht die Kanalanzahl aus dem Produktnamen zu lesen.
+    def _infer_channel_count(product_name: str, communication_objects=None) -> int:
+        """Ermittelt die Kanal-/Tastenanzahl eines Bedienelements.
 
-        Erkennt Muster wie '4-fach', '4-fold', '4gang', '1-8fach' (→ 8),
-        '2-6 fold' (→ 6). Gibt 1 zurück wenn kein Muster gefunden.
+        Bevorzugt eine Auszählung distinkter "Taste N"-KO-Namen (siehe
+        `_count_taste_buttons`) -- zuverlässiger als die Produktname-
+        Heuristik unten, die bei Produktfamilien-Bezeichnungen wie "1-8fach"
+        (beschreibt die maximal unterstützte Tastengröße des Grundprodukts,
+        NICHT die tatsächlich verbaute Tastenanzahl dieses Geräts) falsche
+        Werte liefert -- z.B. Feller EDIZIOdue "Taster EDIZIOdue 1-8fach"
+        mit tatsächlich 3 verbauten Tasten ergäbe sonst fälschlich 8.
+        Fällt auf die Produktname-Heuristik zurück, wenn keine "Taste N"-KOs
+        gefunden werden (andere Hersteller/Produkte benennen KOs anders);
+        letzter Fallback ist 1.
         """
-        import re
+        count = KnxprojImportService._count_taste_buttons(communication_objects)
+        if count:
+            return min(count, 16)
         # "1-8fach" oder "2-6 fold" → nimm die höhere Zahl
         m = re.search(r'(\d+)\s*[-–]\s*(\d+)\s*(?:fach|fold|gang|kanal|channel)', product_name.lower())
         if m:
@@ -869,8 +963,12 @@ class KnxprojImportService:
                         continue
                     product_label = device.product_name or device.product
                     be = Bedienelement(
-                        element_type=KnxprojImportService._infer_element_type(product_label),
-                        channels=KnxprojImportService._infer_channel_count(product_label),
+                        element_type=KnxprojImportService._infer_element_type(
+                            product_label, device.communication_objects
+                        ),
+                        channels=KnxprojImportService._infer_channel_count(
+                            product_label, device.communication_objects
+                        ),
                         participant_number=device.physical_address,
                         manufacturer=device.manufacturer,
                         order_number=device.order_number,

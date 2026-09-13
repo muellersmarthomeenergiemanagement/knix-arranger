@@ -525,6 +525,12 @@ class ProductSelectDialog(QDialog):
 
         if not all_products:
             problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
+            # Die Import-Schleife oben laeuft ohne UI-Feedback komplett
+            # synchron durch -- bei vielen Dateien kann das spuerbar dauern;
+            # ohne explizites Aktivieren bleibt der Dialog im Hintergrund,
+            # falls der Nutzer zwischenzeitlich das Fenster gewechselt hat.
+            self.raise_()
+            self.activateWindow()
             QMessageBox.critical(
                 self, "Import-Fehler",
                 f"Keine der {len(filepaths)} ausgewählten Datei(en) konnte importiert werden:\n\n"
@@ -556,6 +562,11 @@ class ProductSelectDialog(QDialog):
         if errors or empty:
             problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
             summary += "\n\nÜbersprungen:\n" + "\n".join(problems)
+        # Siehe Kommentar bei "Import-Fehler" oben: ohne explizites
+        # Aktivieren bleibt der Dialog im Hintergrund, falls der Nutzer
+        # zwischenzeitlich das Fenster gewechselt hat.
+        self.raise_()
+        self.activateWindow()
         QMessageBox.information(self, "Import erfolgreich", summary)
 
     def _import_knxprod_folder(self):
@@ -619,6 +630,12 @@ class ProductSelectDialog(QDialog):
 
         if not all_products:
             problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
+            # Die Import-Schleife oben pumpt processEvents() ueber
+            # potenziell viele Dateien -- kann laenger dauern, ohne
+            # explizites Aktivieren bleibt der Dialog im Hintergrund, falls
+            # der Nutzer zwischenzeitlich das Fenster gewechselt hat.
+            self.raise_()
+            self.activateWindow()
             QMessageBox.critical(
                 self, "Import-Fehler",
                 f"Keine der {processed} verarbeiteten Datei(en) konnte importiert werden:\n\n"
@@ -651,6 +668,12 @@ class ProductSelectDialog(QDialog):
         if errors or empty:
             problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
             summary += "\n\nÜbersprungen:\n" + "\n".join(problems)
+        # Die Import-Schleife oben pumpt processEvents() ueber potenziell
+        # viele Dateien -- ohne explizites Aktivieren bleibt der Dialog im
+        # Hintergrund, falls der Nutzer zwischenzeitlich das Fenster
+        # gewechselt hat.
+        self.raise_()
+        self.activateWindow()
         QMessageBox.information(self, "Import erfolgreich", summary)
 
     # ------------------------------------------------------------------ Ergebnis

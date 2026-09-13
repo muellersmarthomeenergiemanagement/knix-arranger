@@ -78,7 +78,9 @@ class AddressTreeView(QWidget):
 
         # Baum
         self._tree = QTreeWidget()
-        self._tree.itemExpanded.connect(lambda _: fit_columns(self._tree))
+        self._tree.itemExpanded.connect(
+            lambda _: fit_columns(self._tree, stretch_to_fit=False)
+        )
         self._tree.setHeaderLabels([
             "Adresse", "Bezeichnung", "Beschreibung", "DPT", "Gewerk", "Raum",
         ])
@@ -87,6 +89,18 @@ class AddressTreeView(QWidget):
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self._tree)
+
+    def showEvent(self, event):
+        """Spaltenbreiten neu berechnen, wenn diese Ansicht sichtbar wird.
+
+        set_structure() läuft oft, während dieser Tab noch gar nicht sichtbar
+        ist -- main_window.py hält alle Ansichten dauerhaft in einem
+        QStackedWidget vor, statt sie neu zu erzeugen. resizeColumnToContents()
+        (in fit_columns()) liefert auf einem verborgenen Widget teils falsche
+        (zu schmale) Breiten. Beim ersten Einblenden hier korrekt nachziehen.
+        """
+        super().showEvent(event)
+        fit_columns(self._tree, stretch_to_fit=False)
 
     def set_bus(self, bus):
         """Verbindet die View mit dem zentralen ProjectBus."""
@@ -144,7 +158,7 @@ class AddressTreeView(QWidget):
                         for col in range(6):
                             ga_item.setForeground(col, QBrush(QColor("#808080")))
 
-        fit_columns(self._tree)
+        fit_columns(self._tree, stretch_to_fit=False)
 
     def _get_gewerk_color(self, gewerk_code: str) -> str | None:
         """Gibt die Farbe basierend auf Gewerk-Kategorie zurück."""
@@ -163,7 +177,7 @@ class AddressTreeView(QWidget):
 
     def _expand_all(self):
         self._tree.expandAll()
-        fit_columns(self._tree)
+        fit_columns(self._tree, stretch_to_fit=False)
 
     def _collapse_all(self):
         """Nur MG zuklappen – HG-Ebene bleibt sichtbar."""
@@ -173,7 +187,7 @@ class AddressTreeView(QWidget):
             hg_item.setExpanded(True)
             for j in range(hg_item.childCount()):
                 hg_item.child(j).setExpanded(False)
-        fit_columns(self._tree)
+        fit_columns(self._tree, stretch_to_fit=False)
 
     def _on_item_clicked(self, item: QTreeWidgetItem, column: int):
         address = item.data(0, Qt.UserRole)
@@ -206,7 +220,7 @@ class AddressTreeView(QWidget):
             action = menu.exec(global_pos)
             if action == expand_act:
                 item.setExpanded(True)
-                fit_columns(self._tree)
+                fit_columns(self._tree, stretch_to_fit=False)
             elif action == collapse_act:
                 item.setExpanded(False)
 

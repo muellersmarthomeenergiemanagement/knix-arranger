@@ -67,6 +67,66 @@ class TestSensorDetermination:
         requirements = service.determine_sensors([room], gewerk_catalog)
         assert len(requirements) == 0
 
+    def test_deleted_auto_device_not_recreated(self, gewerk_catalog):
+        """Ein in der Gerätekonfiguration (Schritt 5c) gelöschtes Auto-Gerät
+        darf nicht erneut als SensorRequirement auftauchen.
+
+        Nachbildet den Löschvorgang aus step05c_devices._delete_bedienelement:
+        is_auto=False, suppressed=True, funktionen/function_assignments geleert.
+        """
+        room = Room(number="E01", name="Schlafzimmer")
+        room.gewerk_assignments = [
+            GewerkAssignment(gewerk_code="LD", count=1, taster_indices=[1]),
+        ]
+
+        from knix_arranger.models.group_address import GroupAddressStructure
+
+        service = SensorService()
+        service.auto_assign_functions([room], GroupAddressStructure())
+
+        assert len(room.bedienelemente) == 1
+        be = room.bedienelemente[0]
+        assert be.element_type == "Tastereinheit"
+
+        # Löschvorgang nachbilden (step05c_devices._delete_bedienelement, Auto-BE-Zweig)
+        be.is_auto = False
+        be.suppressed = True
+        be.funktionen = []
+        be.function_assignments = []
+
+        requirements = service.determine_sensors([room], gewerk_catalog)
+        assert not any(r.sensor_type == "Tastereinheit" for r in requirements), (
+            f"Gelöschtes Gerät wurde erneut ermittelt: {requirements}"
+        )
+
+    def test_deleted_import_only_device_survives_recalculation(self):
+        """Ein gelöschtes Bedienelement ohne Gewerk-Entsprechung (z.B. aus einem
+        ETS6-Import, wo kein Gewerk zugewiesen ist) darf bei einer erneuten
+        auto_assign_functions()-Berechnung nicht verloren gehen -- sonst gilt
+        das Gerät danach wieder als 'nie verknüpft' und taucht in anderen
+        Formularen (Verknüpfungsmatrix-Fallback etc.) wieder auf.
+        """
+        from knix_arranger.models.group_address import GroupAddressStructure
+        from knix_arranger.models.building import Bedienelement
+
+        room = Room(number="E01", name="Wohnzimmer")
+        # Bewusst KEINE gewerk_assignments -- reiner Import-Fall.
+        be = Bedienelement(
+            element_type="Tastereinheit", participant_number="1.1.2",
+            is_auto=False, suppressed=True,
+        )
+        room.bedienelemente = [be]
+
+        service = SensorService()
+        service.auto_assign_functions([room], GroupAddressStructure())
+
+        assert len(room.bedienelemente) == 1, (
+            "Gelöschtes Import-BE ohne Gewerk-Match ging bei Neuberechnung "
+            f"verloren: {room.bedienelemente}"
+        )
+        assert room.bedienelemente[0].suppressed is True
+        assert room.bedienelemente[0].participant_number == "1.1.2"
+
 
 class TestSensorSuggestion:
     """Tests fuer suggest_sensors."""

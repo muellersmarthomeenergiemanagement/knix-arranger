@@ -4,6 +4,16 @@ CO-Auto-Linking Service (FA-3000)
 Generiert Vorschlaege fuer Kommunikationsobjekt-Gruppenadress-Verknuepfungen
 basierend auf dem generierten Belegungsplan (Aktor-Rows) und schreibt
 bestaetigte Verknuepfungen in Device.communication_objects[].connected_gas.
+
+FA-3006: Ist am Geraet ein echtes (aus KNXPROD importiertes) Kommunikations-
+objekt vorhanden, dessen Funktionsname exakt zur GA-Funktion passt, wird
+dieses reale CO (mit seinem tatsaechlichen DPT/Flags) als Vorschlag
+verwendet statt des generischen _FUNCTION_MAP-Eintrags. Das greift sowohl,
+wenn die GAs bereits aus dem Produkt-Schema generiert wurden
+(AddressGenerator._build_product_schema, ueber GewerkAssignment.linked_product),
+als auch, wenn ein Produkt erst nachtraeglich am Geraet zugewiesen wurde
+(MaterialListView._update_device_product) und dessen Funktionsnamen zufaellig
+mit den generierten GA-Funktionsnamen uebereinstimmen.
 """
 from __future__ import annotations
 import logging
@@ -60,6 +70,12 @@ _FUNCTION_MAP: dict[str, list[tuple[str, str, str, str]]] = {
     "UMSCHALTEN BETRIEBSART": [("Betriebsart",          "DPST-20-102", "KSUA", "empfangen")],
     "STATUS BETRIEBSART":   [("Status Betriebsart",     "DPST-20-102", "KLU",  "senden")],
     "STOERUNG":             [("Stoerung",               "DPST-1-1",    "KLU",  "senden")],
+    # Fremdsystem-Gateway "MM" (z.B. Multiroom-Audio wie Revox)
+    "EIN/AUS":              [("Ein/Aus",                "DPST-1-1",    "KSUA", "empfangen")],
+    "LAUTSTAERKE":          [("Lautstaerke",             "DPST-5-1",    "KSUA", "empfangen")],
+    "QUELLE":               [("Quelle",                  "DPST-5-1",    "KSUA", "empfangen")],
+    "PLAY/PAUSE":           [("Play/Pause",              "DPST-1-1",    "KSUA", "empfangen")],
+    "STATUS":               [("Status",                  "DPST-1-1",    "KLU",  "senden")],
 }
 
 
@@ -126,14 +142,24 @@ class CoLinkingService:
         for row in belegungsplan.actor_rows:
             if not row.function_name or not row.ga_address:
                 continue
-            co_specs = _FUNCTION_MAP.get(row.function_name)
-            if not co_specs:
-                continue
             device = device_map.get(row.physical_address)
             device_id = device.id if device else ""
             already = row.ga_address in existing.get(
                 (row.physical_address, row.function_name), set()
             )
+
+            real_co = self._match_real_co(device, row.function_name)
+            if real_co is not None:
+                co_specs = [(
+                    real_co.name or row.function_name,
+                    real_co.data_type,
+                    real_co.flags or "K",
+                    self._direction_from_flags(real_co.flags),
+                )]
+            else:
+                co_specs = _FUNCTION_MAP.get(row.function_name)
+                if not co_specs:
+                    continue
             for co_name, co_dpt, co_flags, direction in co_specs:
                 # FA-3004: DPT-Kompatibilitaetspruefung
                 ga_dpt = row.dpt or ""
@@ -209,22 +235,51 @@ class CoLinkingService:
         Gibt bestehende CO-GA-Verknuepfungen zurueck als
         {(phys_addr, function_name): {ga_address, ...}}.
 
-        Benoetigt eine Heuristik: CO-Name → function_name Mapping.
+        Der Funktionsname eines COs steckt in object_function: bei
+        generisch angelegten COs ist das der _FUNCTION_MAP-Funktionsname
+        (z.B. "E/A"), bei aus KNXPROD importierten COs der reale
+        Funktionstext des Produkts -- beides ist direkt mit
+        row.function_name vergleichbar, ohne Umweg ueber den CO-Namen.
         """
-        # Umkehrtabelle: co_name → function_name
-        _CO_TO_FUNC: dict[str, str] = {}
-        for func, specs in _FUNCTION_MAP.items():
-            for co_name, *_ in specs:
-                _CO_TO_FUNC[co_name] = func
-
         result: dict[tuple[str, str], set[str]] = {}
         for phys_addr, device in device_map.items():
             for co in device.communication_objects:
-                func = _CO_TO_FUNC.get(co.name, "")
+                func = co.object_function or co.name
                 if func:
                     key = (phys_addr, func)
                     result.setdefault(key, set()).update(co.connected_gas)
         return result
+
+    def _match_real_co(self, device, function_name: str):
+        """
+        FA-3006: Sucht ein reales (aus KNXPROD importiertes) Kommunikations-
+        objekt des Geraets, dessen Funktionsname/Name exakt (ohne Gross-/
+        Kleinschreibung) zur GA-Funktion passt.
+
+        Nur ein exakter Treffer zaehlt -- eine unscharfe Zuordnung wuerde
+        bei generischen Vorlagen-Funktionsnamen (z.B. "EIN/AUS") faelschlich
+        auf voellig andere Produktfunktionen matchen.
+        """
+        if device is None:
+            return None
+        target = function_name.strip().lower()
+        if not target:
+            return None
+        for co in device.communication_objects:
+            if co.object_function.strip().lower() == target:
+                return co
+            if co.name.strip().lower() == target:
+                return co
+        return None
+
+    def _direction_from_flags(self, flags: str) -> str:
+        """Leitet 'empfangen'/'senden' aus den ETS-Flags eines realen COs ab
+        (Konvention aus knxprod_catalog_service: K,L,Ü=Schreiben,S=Senden,U)."""
+        if "Ü" in flags:
+            return "empfangen"
+        if "S" in flags:
+            return "senden"
+        return "empfangen"
 
     def _find_or_create_co(
         self, device, proposal: CoLinkingProposal, co_class

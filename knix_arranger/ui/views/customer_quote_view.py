@@ -2,6 +2,7 @@
 Kundenofferte-Verwaltung (FA-1701 bis FA-1715)
 """
 from __future__ import annotations
+import hashlib
 from datetime import date
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
@@ -11,9 +12,20 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from ...models.project import KnxProject
-from ...models.quotation import CustomerQuote, QuotationItem
+from ...models.quotation import CustomerQuote, QuotationItem, round_rappen
 from ...services.material_list_export_service import MaterialListExportService
 from ..column_utils import fit_columns
+
+
+def _material_signature(ml) -> str:
+    """Signatur des bepreisten Materiallisten-Stands -- dieselbe Filterung
+    wie beim Positionsimport (nur Einträge mit unit_price), damit Signatur
+    und importierte Positionen immer synchron bleiben."""
+    parts = sorted(
+        f"{e.manufacturer}|{e.order_number}|{e.quantity}"
+        for e in ml.entries if e.unit_price
+    )
+    return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
 
 
 class CustomerQuoteView(QWidget):
@@ -51,9 +63,10 @@ class CustomerQuoteView(QWidget):
         # Tabelle
         left = QVBoxLayout()
         self._quote_table = QTableWidget()
-        self._quote_table.setColumnCount(6)
+        self._quote_table.setColumnCount(7)
         self._quote_table.setHorizontalHeaderLabels([
             "Offert-Nr.", "Rev.", "Datum", "Kunde", "Status", "Total (CHF)",
+            "Aktualität",
         ])
         self._quote_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._quote_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -133,6 +146,13 @@ class CustomerQuoteView(QWidget):
 
         self._detail_group.setLayout(form)
         right.addWidget(self._detail_group)
+
+        self._stale_warning = QLabel("")
+        self._stale_warning.setStyleSheet("color: #c62828; font-weight: bold;")
+        self._stale_warning.setWordWrap(True)
+        self._stale_warning.setVisible(False)
+        right.addWidget(self._stale_warning)
+
         right.addStretch()
 
         content.addLayout(right, 1)
@@ -258,6 +278,19 @@ class CustomerQuoteView(QWidget):
         self._rate_commissioning.setValue(145.0)
         cost_form.addRow("Stundensatz IBN:", self._rate_commissioning)
 
+        self._hours_documentation = QDoubleSpinBox()
+        self._hours_documentation.setRange(0, 9999)
+        self._hours_documentation.setDecimals(1)
+        self._hours_documentation.setSuffix(" h")
+        cost_form.addRow("Dokumentation:", self._hours_documentation)
+
+        self._rate_documentation = QDoubleSpinBox()
+        self._rate_documentation.setRange(0, 999)
+        self._rate_documentation.setDecimals(2)
+        self._rate_documentation.setPrefix("CHF ")
+        self._rate_documentation.setValue(125.0)
+        cost_form.addRow("Stundensatz Dok.:", self._rate_documentation)
+
         self._overhead = QDoubleSpinBox()
         self._overhead.setRange(0, 999999)
         self._overhead.setDecimals(2)
@@ -291,6 +324,15 @@ class CustomerQuoteView(QWidget):
         )
         self._btn_import_awarded.clicked.connect(self._import_from_awarded_requests)
         cost_form.addRow("", self._btn_import_awarded)
+
+        self._btn_estimate_effort = QPushButton("Aufwand automatisch schätzen…")
+        self._btn_estimate_effort.setToolTip(
+            "Schätzt Programmier- und Inbetriebnahmestunden aus der Anzahl "
+            "Busgeräte in der Topologie (FA-1707).\n"
+            "Richtwerte editierbar unter Einstellungen → Stundensätze."
+        )
+        self._btn_estimate_effort.clicked.connect(self._estimate_effort)
+        cost_form.addRow("", self._btn_estimate_effort)
 
         self._btn_calc = QPushButton("Berechnen + Übernehmen")
         self._btn_calc.clicked.connect(self._calculate)
@@ -370,6 +412,12 @@ class CustomerQuoteView(QWidget):
         self._actual_commissioning.setSuffix(" h")
         actual_form.addRow("Inbetriebnahme (Ist):", self._actual_commissioning)
 
+        self._actual_documentation = QDoubleSpinBox()
+        self._actual_documentation.setRange(0, 9999)
+        self._actual_documentation.setDecimals(1)
+        self._actual_documentation.setSuffix(" h")
+        actual_form.addRow("Dokumentation (Ist):", self._actual_documentation)
+
         self._actual_overhead = QDoubleSpinBox()
         self._actual_overhead.setRange(0, 999999)
         self._actual_overhead.setDecimals(2)
@@ -424,6 +472,7 @@ class CustomerQuoteView(QWidget):
         cq.actual_mounting_hours = self._actual_mounting.value()
         cq.actual_programming_hours = self._actual_programming.value()
         cq.actual_commissioning_hours = self._actual_commissioning.value()
+        cq.actual_documentation_hours = self._actual_documentation.value()
         cq.actual_overhead_costs = self._actual_overhead.value()
 
         # Vergleichstabelle
@@ -480,6 +529,7 @@ class CustomerQuoteView(QWidget):
         self._actual_mounting.setValue(cq.actual_mounting_hours)
         self._actual_programming.setValue(cq.actual_programming_hours)
         self._actual_commissioning.setValue(cq.actual_commissioning_hours)
+        self._actual_documentation.setValue(cq.actual_documentation_hours)
         self._actual_overhead.setValue(cq.actual_overhead_costs)
 
     # ── Public ──
@@ -489,6 +539,14 @@ class CustomerQuoteView(QWidget):
         self._refresh_quotes()
 
     # ── Offerten-Logik ──
+
+    def _is_stale(self, cq: CustomerQuote) -> bool:
+        """True wenn sich die Materialliste seit dem letzten Positionsimport
+        in diese Offerte verändert hat (Offerte entspricht nicht mehr dem
+        aktuellen Planungsstand)."""
+        if not cq.material_snapshot or not self._project:
+            return False
+        return cq.material_snapshot != _material_signature(self._project.material_list)
 
     def _refresh_quotes(self):
         if not self._project:
@@ -504,8 +562,10 @@ class CustomerQuoteView(QWidget):
             self._quote_table.setItem(i, 3, QTableWidgetItem(cq.customer_name))
             self._quote_table.setItem(i, 4, QTableWidgetItem(cq.status))
             self._quote_table.setItem(
-                i, 5, QTableWidgetItem(f"{cq.grand_total:,.2f}")
+                i, 5, QTableWidgetItem(f"{round_rappen(cq.grand_total):,.2f}")
             )
+            staleness = "⚠ Material geändert" if self._is_stale(cq) else ""
+            self._quote_table.setItem(i, 6, QTableWidgetItem(staleness))
         fit_columns(self._quote_table)
         self._info.setText(f"{len(quotes)} Kundenofferten")
 
@@ -525,6 +585,20 @@ class CustomerQuoteView(QWidget):
 
         self._quote_validity.setValue(cq.validity_days)
         self._quote_payment.setText(cq.payment_terms)
+
+        if self._is_stale(cq):
+            if cq.status in ("Versendet", "Akzeptiert"):
+                text = (
+                    "Achtung: Diese bereits versendete Offerte entspricht "
+                    "nicht mehr dem aktuellen Planungsstand."
+                )
+            else:
+                text = "Hinweis: Die Materialliste wurde seit dem letzten Import verändert."
+            self._stale_warning.setText(text)
+            self._stale_warning.setVisible(True)
+        else:
+            self._stale_warning.setText("")
+            self._stale_warning.setVisible(False)
 
         self._refresh_items(cq)
         self._load_calculation(cq)
@@ -553,6 +627,8 @@ class CustomerQuoteView(QWidget):
         self._rate_programming.setValue(cq.hourly_rate_programming)
         self._hours_commissioning.setValue(cq.labor_commissioning_hours)
         self._rate_commissioning.setValue(cq.hourly_rate_commissioning)
+        self._hours_documentation.setValue(cq.labor_documentation_hours)
+        self._rate_documentation.setValue(cq.hourly_rate_documentation)
         self._overhead.setValue(cq.overhead_costs)
         self._discount.setValue(cq.discount_percent)
         self._vat.setValue(cq.vat_percent)
@@ -560,25 +636,27 @@ class CustomerQuoteView(QWidget):
 
     def _update_result(self, cq: CustomerQuote):
         rows = [
-            ("Material (netto)", f"{cq.material_total:,.2f}"),
+            ("Material (netto)", f"{round_rappen(cq.material_total):,.2f}"),
             (f"Material-Aufschlag ({cq.material_markup_percent}%)",
-             f"{cq.material_with_markup - cq.material_total:,.2f}"),
-            ("Material (brutto)", f"{cq.material_with_markup:,.2f}"),
+             f"{round_rappen(cq.material_with_markup - cq.material_total):,.2f}"),
+            ("Material (brutto)", f"{round_rappen(cq.material_with_markup):,.2f}"),
             ("", ""),
             (f"Montage ({cq.labor_mounting_hours}h x CHF {cq.hourly_rate_mounting})",
-             f"{cq.labor_mounting_hours * cq.hourly_rate_mounting:,.2f}"),
+             f"{round_rappen(cq.labor_mounting_hours * cq.hourly_rate_mounting):,.2f}"),
             (f"Programmierung ({cq.labor_programming_hours}h x CHF {cq.hourly_rate_programming})",
-             f"{cq.labor_programming_hours * cq.hourly_rate_programming:,.2f}"),
+             f"{round_rappen(cq.labor_programming_hours * cq.hourly_rate_programming):,.2f}"),
             (f"Inbetriebnahme ({cq.labor_commissioning_hours}h x CHF {cq.hourly_rate_commissioning})",
-             f"{cq.labor_commissioning_hours * cq.hourly_rate_commissioning:,.2f}"),
-            ("Arbeitszeit total", f"{cq.labor_total:,.2f}"),
+             f"{round_rappen(cq.labor_commissioning_hours * cq.hourly_rate_commissioning):,.2f}"),
+            (f"Dokumentation ({cq.labor_documentation_hours}h x CHF {cq.hourly_rate_documentation})",
+             f"{round_rappen(cq.labor_documentation_hours * cq.hourly_rate_documentation):,.2f}"),
+            ("Arbeitszeit total", f"{round_rappen(cq.labor_total):,.2f}"),
             ("", ""),
-            ("Nebenkosten", f"{cq.overhead_costs:,.2f}"),
-            ("Zwischensumme", f"{cq.subtotal:,.2f}"),
-            (f"Rabatt ({cq.discount_percent}%)", f"-{cq.discount_amount:,.2f}"),
-            ("Nettobetrag", f"{cq.net_total:,.2f}"),
-            (f"MwSt. ({cq.vat_percent}%)", f"{cq.vat_amount:,.2f}"),
-            ("GESAMTBETRAG", f"{cq.grand_total:,.2f}"),
+            ("Nebenkosten", f"{round_rappen(cq.overhead_costs):,.2f}"),
+            ("Zwischensumme", f"{round_rappen(cq.subtotal):,.2f}"),
+            (f"Rabatt ({cq.discount_percent}%)", f"-{round_rappen(cq.discount_amount):,.2f}"),
+            ("Nettobetrag", f"{round_rappen(cq.net_total):,.2f}"),
+            (f"MwSt. ({cq.vat_percent}%)", f"{round_rappen(cq.vat_amount):,.2f}"),
+            ("GESAMTBETRAG", f"{round_rappen(cq.grand_total):,.2f}"),
         ]
 
         self._result_table.setRowCount(len(rows))
@@ -595,7 +673,7 @@ class CustomerQuoteView(QWidget):
             self._result_table.setItem(i, 1, item_amount)
         fit_columns(self._result_table)
 
-        self._grand_total_label.setText(f"Gesamtbetrag: CHF {cq.grand_total:,.2f}")
+        self._grand_total_label.setText(f"Gesamtbetrag: CHF {round_rappen(cq.grand_total):,.2f}")
 
     def _add_quote(self):
         if not self._project:
@@ -698,6 +776,8 @@ class CustomerQuoteView(QWidget):
         cq.hourly_rate_programming = self._rate_programming.value()
         cq.labor_commissioning_hours = self._hours_commissioning.value()
         cq.hourly_rate_commissioning = self._rate_commissioning.value()
+        cq.labor_documentation_hours = self._hours_documentation.value()
+        cq.hourly_rate_documentation = self._rate_documentation.value()
         cq.overhead_costs = self._overhead.value()
         cq.discount_percent = self._discount.value()
         cq.vat_percent = self._vat.value()
@@ -726,6 +806,10 @@ class CustomerQuoteView(QWidget):
 
         ml = self._project.material_list
 
+        # Aktuellen Aufschlagssatz übernehmen, bevor er auf die Positionspreise
+        # angewendet wird (Spinbox kann noch nicht via "Berechnen" gespeichert sein).
+        cq.material_markup_percent = self._material_markup.value()
+
         # Materialwert aus den Einträgen mit bekanntem Preis summieren
         material_total = sum(
             e.total_price for e in ml.entries if e.unit_price
@@ -741,15 +825,24 @@ class CustomerQuoteView(QWidget):
             QMessageBox.Yes | QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
+            # Positionen zeigen dem Kunden den Endpreis inkl. Zuschlag, nicht
+            # den Einkaufspreis aus der Materialliste (auf 5 Rappen gerundet).
+            # Es werden alle bepreisten Einträge übernommen -- exakt dieselben,
+            # die oben in material_total einfliessen (Filter "if unit_price").
+            # Sonst würde ein Eintrag ohne zugewiesenen Hersteller zwar den
+            # Material-Betrag erhöhen, aber ohne sichtbare Position bleiben.
+            markup_factor = 1 + cq.material_markup_percent / 100
             cq.items.clear()
             pos = 1
             for entry in ml.entries:
-                if not entry.manufacturer:
+                if not entry.unit_price:
                     continue
-                name = (
-                    f"{entry.product_name or entry.device_type} "
-                    f"[{entry.manufacturer} {entry.order_number}]".strip()
-                )
+                base_name = entry.product_name or entry.device_type or "Material"
+                if entry.manufacturer or entry.order_number:
+                    name = f"{base_name} [{entry.manufacturer} {entry.order_number}]".strip()
+                else:
+                    name = base_name
+                customer_unit_price = round_rappen((entry.unit_price or 0) * markup_factor)
                 cq.items.append(QuotationItem(
                     position=pos,
                     manufacturer=entry.manufacturer,
@@ -757,10 +850,13 @@ class CustomerQuoteView(QWidget):
                     product_name=name,
                     quantity=entry.quantity,
                     unit="Stk.",
-                    unit_price=entry.unit_price,
-                    total_price=entry.total_price,
+                    unit_price=customer_unit_price,
+                    total_price=round_rappen(customer_unit_price * entry.quantity),
                 ))
                 pos += 1
+            cq.material_snapshot = _material_signature(ml)
+            self._stale_warning.setText("")
+            self._stale_warning.setVisible(False)
             self._refresh_items(cq)
 
         cq.material_total = material_total
@@ -834,13 +930,20 @@ class CustomerQuoteView(QWidget):
 
         cq.material_total = total
         self._material_total.setValue(total)
+        # Aktuellen Aufschlagssatz übernehmen, bevor er auf die Positionspreise
+        # angewendet wird (Spinbox kann noch nicht via "Berechnen" gespeichert sein).
+        cq.material_markup_percent = self._material_markup.value()
 
         if reply == QMessageBox.Yes:
+            # Positionen zeigen dem Kunden den Endpreis inkl. Zuschlag, nicht
+            # den Einkaufspreis des Lieferanten (auf 5 Rappen gerundet).
+            markup_factor = 1 + cq.material_markup_percent / 100
             cq.items.clear()
             pos = 1
             for qr in awarded:
                 supplier_name = self._get_supplier_name(qr.supplier_id)
                 for item in qr.items:
+                    customer_unit_price = round_rappen((item.unit_price or 0) * markup_factor)
                     cq.items.append(QuotationItem(
                         position=pos,
                         manufacturer=item.manufacturer,
@@ -848,8 +951,8 @@ class CustomerQuoteView(QWidget):
                         product_name=item.product_name,
                         quantity=item.quantity,
                         unit=item.unit,
-                        unit_price=item.unit_price,
-                        total_price=item.unit_price * item.quantity,
+                        unit_price=customer_unit_price,
+                        total_price=round_rappen(customer_unit_price * item.quantity),
                         notes=f"Lieferant: {supplier_name}" if supplier_name else "",
                     ))
                     pos += 1
@@ -857,6 +960,90 @@ class CustomerQuoteView(QWidget):
 
         self._update_result(cq)
         self._refresh_quotes()
+
+    def _count_programmable_devices(self) -> int:
+        """Zählt Busgeräte, die programmiert/in Betrieb genommen werden müssen
+        (Aktoren, Sensoren, Gateways) – Koppler und Spannungsversorgungen
+        werden nicht mitgezählt, da sie kaum Projektierungsaufwand verursachen."""
+        if not self._project:
+            return 0
+        count = 0
+        for area in self._project.topology.areas:
+            for line in area.lines:
+                for device in line.devices:
+                    if device.device_type not in ("coupler", "power_supply"):
+                        count += 1
+        return count
+
+    def _estimate_effort(self) -> None:
+        """Schätzt Programmier-/Inbetriebnahmestunden aus der Geräteanzahl (FA-1707).
+
+        Basiert auf editierbaren Min./Gerät-Richtwerten aus dem Firmenprofil
+        (Startwerte angelehnt an die ZVEH-Kalkulationshilfe KFE). Die Montage
+        wird bewusst nicht geschätzt, da der Einbauaufwand je nach Gerätetyp
+        und Einbausituation zu stark streut, um mit einem einzelnen Faktor
+        sinnvoll abgebildet zu werden.
+        """
+        cq = self._get_selected_quote()
+        if not cq:
+            QMessageBox.information(
+                self, "Keine Offerte gewählt",
+                "Bitte zuerst eine Offerte auswählen oder anlegen.",
+            )
+            return
+        if not self._project:
+            return
+
+        device_count = self._count_programmable_devices()
+        if device_count == 0:
+            QMessageBox.information(
+                self, "Keine Geräte gefunden",
+                "In der Projekttopologie sind noch keine Busgeräte vorhanden.\n"
+                "Bitte zuerst die Topologie berechnen (Schritt 7).",
+            )
+            return
+
+        from ...services.project_service import ProjectService
+        profile = ProjectService().load_company_profile()
+
+        programming_hours = round(
+            device_count * profile.minutes_programming_per_device / 60, 1
+        )
+        commissioning_hours = round(
+            profile.commissioning_base_hours
+            + device_count * profile.minutes_commissioning_per_device / 60, 1
+        )
+        documentation_hours = round(
+            profile.documentation_base_hours
+            + device_count * profile.minutes_documentation_per_device / 60, 1
+        )
+
+        reply = QMessageBox.question(
+            self, "Aufwand automatisch schätzen",
+            f"Basis: {device_count} Busgeräte (Aktoren, Sensoren, Gateways) "
+            f"aus der Topologie.\n\n"
+            f"Programmierung: {device_count} × "
+            f"{profile.minutes_programming_per_device:.0f} Min. "
+            f"= {programming_hours:.1f} h\n"
+            f"Inbetriebnahme: {profile.commissioning_base_hours:.1f} h Sockel + "
+            f"{device_count} × {profile.minutes_commissioning_per_device:.0f} Min. "
+            f"= {commissioning_hours:.1f} h\n"
+            f"Dokumentation: {profile.documentation_base_hours:.1f} h Sockel + "
+            f"{device_count} × {profile.minutes_documentation_per_device:.0f} Min. "
+            f"= {documentation_hours:.1f} h\n\n"
+            "Dies sind Richtwerte (Faktoren unter Einstellungen → Stundensätze "
+            "editierbar) – bitte prüfen und bei Bedarf anpassen.\n\n"
+            "Bestehende Werte für Programmierung, Inbetriebnahme und "
+            "Dokumentation werden ersetzt. Fortfahren?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        self._hours_programming.setValue(programming_hours)
+        self._hours_commissioning.setValue(commissioning_hours)
+        self._hours_documentation.setValue(documentation_hours)
+        self._calculate()
 
     def _export_quote_excel(self) -> None:
         """Exportiert die ausgewählte Offerte als .xlsx (FA-1713)."""
@@ -962,25 +1149,27 @@ class CustomerQuoteView(QWidget):
         gen.add_empty_row()
 
         calc_rows = [
-            ["Material (netto)", f"{cq.material_total:,.2f}"],
+            ["Material (netto)", f"{round_rappen(cq.material_total):,.2f}"],
             [f"Material-Aufschlag ({cq.material_markup_percent}%)",
-             f"{cq.material_with_markup - cq.material_total:,.2f}"],
-            ["Material (brutto)", f"{cq.material_with_markup:,.2f}"],
+             f"{round_rappen(cq.material_with_markup - cq.material_total):,.2f}"],
+            ["Material (brutto)", f"{round_rappen(cq.material_with_markup):,.2f}"],
             ["", ""],
             [f"Montage ({cq.labor_mounting_hours}h × CHF {cq.hourly_rate_mounting})",
-             f"{cq.labor_mounting_hours * cq.hourly_rate_mounting:,.2f}"],
+             f"{round_rappen(cq.labor_mounting_hours * cq.hourly_rate_mounting):,.2f}"],
             [f"Programmierung ({cq.labor_programming_hours}h × CHF {cq.hourly_rate_programming})",
-             f"{cq.labor_programming_hours * cq.hourly_rate_programming:,.2f}"],
+             f"{round_rappen(cq.labor_programming_hours * cq.hourly_rate_programming):,.2f}"],
             [f"Inbetriebnahme ({cq.labor_commissioning_hours}h × CHF {cq.hourly_rate_commissioning})",
-             f"{cq.labor_commissioning_hours * cq.hourly_rate_commissioning:,.2f}"],
-            ["Arbeitszeit total", f"{cq.labor_total:,.2f}"],
+             f"{round_rappen(cq.labor_commissioning_hours * cq.hourly_rate_commissioning):,.2f}"],
+            [f"Dokumentation ({cq.labor_documentation_hours}h × CHF {cq.hourly_rate_documentation})",
+             f"{round_rappen(cq.labor_documentation_hours * cq.hourly_rate_documentation):,.2f}"],
+            ["Arbeitszeit total", f"{round_rappen(cq.labor_total):,.2f}"],
             ["", ""],
-            ["Nebenkosten", f"{cq.overhead_costs:,.2f}"],
-            ["Zwischensumme", f"{cq.subtotal:,.2f}"],
-            [f"Rabatt ({cq.discount_percent}%)", f"-{cq.discount_amount:,.2f}"],
-            ["Nettobetrag", f"{cq.net_total:,.2f}"],
-            [f"MwSt. ({cq.vat_percent}%)", f"{cq.vat_amount:,.2f}"],
-            ["GESAMTBETRAG (CHF)", f"{cq.grand_total:,.2f}"],
+            ["Nebenkosten", f"{round_rappen(cq.overhead_costs):,.2f}"],
+            ["Zwischensumme", f"{round_rappen(cq.subtotal):,.2f}"],
+            [f"Rabatt ({cq.discount_percent}%)", f"-{round_rappen(cq.discount_amount):,.2f}"],
+            ["Nettobetrag", f"{round_rappen(cq.net_total):,.2f}"],
+            [f"MwSt. ({cq.vat_percent}%)", f"{round_rappen(cq.vat_amount):,.2f}"],
+            ["GESAMTBETRAG (CHF)", f"{round_rappen(cq.grand_total):,.2f}"],
         ]
         gen.add_table(
             headers=["Position", "Betrag (CHF)"],
@@ -1160,32 +1349,76 @@ class CustomerQuoteView(QWidget):
         y += LINE + 12
 
         # ── Hilfsfunktion: Tabelle zeichnen ──
-        def draw_table(cur_y, headers, rows, col_widths, fontsize=9):
-            """Zeichnet eine Tabelle und gibt das neue y zurück."""
+        def draw_table(cur_y, headers, rows, col_widths, fontsize=9,
+                       align=None, bold_labels=None):
+            """Zeichnet eine Tabelle und gibt das neue y zurück.
+
+            Wiederholt die Kopfzeile automatisch auf Folgeseiten, kürzt zu
+            lange Zelltexte mit "…" statt sie in die Nachbarspalte laufen zu
+            lassen, und erlaubt rechtsbündige Spalten (`align`, Liste von
+            "left"/"right" je Spalte) sowie fett hervorgehobene Zeilen
+            (`bold_labels`, Menge von Werten der ersten Spalte).
+            """
+            nonlocal page
             row_h = fontsize + 5
             total_w = sum(col_widths)
             xs = [LM]
             for w in col_widths[:-1]:
                 xs.append(xs[-1] + w)
             xs.append(LM + total_w)
+            aligns = align or ["left"] * len(headers)
+            bold_labels = bold_labels or set()
 
-            # Kopfzeile
-            filled_rect(LM, cur_y - row_h + 3, LM + total_w, cur_y + 3, GRAY_HEADER)
-            for i, hdr in enumerate(headers):
-                text(xs[i] + 3, cur_y, hdr, size=fontsize, bold=True, color=WHITE)
-            cur_y += row_h
-            hline(cur_y, LM, LM + total_w, width=0.8, color=(0.0, 0.0, 0.0))
+            def fname_for(bold):
+                return "hebo" if bold else "helv"
+
+            def fit(cell_str, c_idx, bold):
+                max_w = xs[c_idx + 1] - xs[c_idx] - 6
+                fn = fname_for(bold)
+                if fitz.get_text_length(cell_str, fontname=fn, fontsize=fontsize) <= max_w:
+                    return cell_str
+                # "…" (U+2026) fehlt im PyMuPDF-Basis-14-Helvetica und würde
+                # als falsches Glyph gerendert -- ASCII-Punkte sind sicher.
+                ell = "..."
+                lo, hi = 0, len(cell_str)
+                while lo < hi:
+                    mid = (lo + hi + 1) // 2
+                    cand = cell_str[:mid].rstrip() + ell
+                    if fitz.get_text_length(cand, fontname=fn, fontsize=fontsize) <= max_w:
+                        lo = mid
+                    else:
+                        hi = mid - 1
+                return (cell_str[:lo].rstrip() + ell) if lo > 0 else ell
+
+            def cell_x(c_idx, cell_str, bold):
+                if aligns[c_idx] == "right":
+                    w = fitz.get_text_length(cell_str, fontname=fname_for(bold), fontsize=fontsize)
+                    return xs[c_idx + 1] - 5 - w
+                return xs[c_idx] + 3
+
+            def draw_header(y0):
+                filled_rect(LM, y0 - row_h + 3, LM + total_w, y0 + 3, GRAY_HEADER)
+                for i, hdr in enumerate(headers):
+                    text(cell_x(i, hdr, True), y0, hdr, size=fontsize, bold=True, color=WHITE)
+                y1 = y0 + row_h
+                hline(y1 - row_h + 3, LM, LM + total_w, width=0.8, color=(0.0, 0.0, 0.0))
+                return y1
+
+            cur_y = draw_header(cur_y)
 
             for r_idx, row in enumerate(rows):
-                cur_y = new_page_if_needed(cur_y, row_h + 2)
+                if cur_y + row_h + 2 > 790:
+                    page = doc.new_page(width=595, height=842)
+                    cur_y = draw_header(60)
+                is_bold_row = bool(row) and str(row[0]) in bold_labels
                 if r_idx % 2 == 1:
                     filled_rect(LM, cur_y - row_h + 3, LM + total_w, cur_y + 3, LIGHT_GRAY)
                 for c_idx, cell in enumerate(row):
-                    is_bold = getattr(cell, "_bold", False)
-                    cell_str = str(cell)
-                    text(xs[c_idx] + 3, cur_y, cell_str, size=fontsize, bold=is_bold)
+                    cell_str = fit(str(cell), c_idx, is_bold_row)
+                    text(cell_x(c_idx, cell_str, is_bold_row), cur_y, cell_str,
+                         size=fontsize, bold=is_bold_row)
                 cur_y += row_h
-            hline(cur_y - row_h + row_h, LM, LM + total_w, width=0.5)
+            hline(cur_y - row_h + 3, LM, LM + total_w, width=0.5)
             return cur_y + 4
 
         # ── Einzelpositionen ──
@@ -1195,14 +1428,18 @@ class CustomerQuoteView(QWidget):
 
         pos_headers = ["Pos.", "Produkt / Leistung", "Menge", "Einh.", "EP (CHF)", "GP (CHF)"]
         col_pos = [30, 220, 35, 30, 55, 55]
+        pos_aligns = ["left", "left", "right", "left", "right", "right"]
         pos_rows = []
         for item in cq.items:
+            # EP/GP zeigen den Kundenendpreis inkl. Aufschlag (bereits bei
+            # Import/Erfassung als item.unit_price/total_price hinterlegt),
+            # nicht den Einkaufspreis.
             ep = f"{item.unit_price:,.2f}" if item.unit_price else "-"
             gp = f"{item.total_price:,.2f}" if item.total_price else "-"
             pos_rows.append([str(item.position), item.product_name or "-",
                               str(item.quantity), item.unit or "Stk.", ep, gp])
         if pos_rows:
-            y = draw_table(y, pos_headers, pos_rows, col_pos)
+            y = draw_table(y, pos_headers, pos_rows, col_pos, align=pos_aligns)
         else:
             text(LM, y, "(Keine Positionen erfasst)", size=9,
                  color=(0.5, 0.5, 0.5))
@@ -1215,7 +1452,7 @@ class CustomerQuoteView(QWidget):
         y += LINE + 2
 
         def _chf(val):
-            return f"CHF {val:,.2f}"
+            return f"CHF {round_rappen(val):,.2f}"
 
         cost_rows = [
             ["Material", _chf(cq.material_with_markup)],
@@ -1235,25 +1472,31 @@ class CustomerQuoteView(QWidget):
                 f"Inbetriebnahme ({cq.labor_commissioning_hours:.1f} h \u00d7 CHF {cq.hourly_rate_commissioning:.2f})",
                 _chf(cq.labor_commissioning_hours * cq.hourly_rate_commissioning),
             ])
+        if cq.labor_documentation_hours:
+            cost_rows.append([
+                f"Dokumentation ({cq.labor_documentation_hours:.1f} h \u00d7 CHF {cq.hourly_rate_documentation:.2f})",
+                _chf(cq.labor_documentation_hours * cq.hourly_rate_documentation),
+            ])
         if cq.overhead_costs:
             cost_rows.append(["Nebenkosten", _chf(cq.overhead_costs)])
         cost_rows.append(["Zwischensumme", _chf(cq.subtotal)])
         if cq.discount_percent:
             cost_rows.append([
                 f"Rabatt ({cq.discount_percent:.1f} %)",
-                f"- CHF {cq.discount_amount:,.2f}",
+                f"- CHF {round_rappen(cq.discount_amount):,.2f}",
             ])
         cost_rows.append(["Nettobetrag", _chf(cq.net_total)])
         cost_rows.append([f"MwSt. {cq.vat_percent:.1f} %", _chf(cq.vat_amount)])
         # Gesamtbetrag als Sonderzeile – wird separat gezeichnet
-        bold_rows = {"Zwischensumme", "Nettobetrag"}
-        y = draw_table(y, ["Position", "Betrag"], cost_rows, [310, 115])
+        y = draw_table(y, ["Position", "Betrag"], cost_rows, [310, 115],
+                       align=["left", "right"],
+                       bold_labels={"Zwischensumme", "Nettobetrag"})
 
         # Gesamtbetrag-Box
         y = new_page_if_needed(y, 30)
         filled_rect(LM, y - 14, RM, y + 6, (0.22, 0.40, 0.60))
         text(LM + 4, y, "GESAMTBETRAG (inkl. MwSt.)", size=10, bold=True, color=WHITE)
-        text(RM - 118, y, f"CHF {cq.grand_total:,.2f}", size=10, bold=True, color=WHITE)
+        text(RM - 118, y, f"CHF {round_rappen(cq.grand_total):,.2f}", size=10, bold=True, color=WHITE)
         y += 22
 
         # ── Gültigkeit & Zahlungsbedingungen ──
@@ -1278,6 +1521,16 @@ class CustomerQuoteView(QWidget):
         if user_name:
             y += LINE
             text(LM, y, user_name, size=10)
+
+        # ── Seitenzahlen (nur bei mehrseitigen Briefen) ──
+        if doc.page_count > 1:
+            for i, pg in enumerate(doc):
+                label = f"Seite {i + 1} von {doc.page_count}"
+                w = fitz.get_text_length(label, fontname="helv", fontsize=8)
+                pg.insert_text(
+                    fitz.Point(RM - w, 815), label,
+                    fontname="helv", fontsize=8, color=(0.5, 0.5, 0.5),
+                )
 
         if not filepath.endswith(".pdf"):
             filepath += ".pdf"

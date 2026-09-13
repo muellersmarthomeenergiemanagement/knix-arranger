@@ -32,6 +32,7 @@ _ACTOR_TYPE_GEWERKE: dict[str, set[str]] = {
     "Wallbox-KNX-Gateway":  {"EV"},
     "PV-KNX-Gateway":       {"PV"},
     "Speicher-KNX-Gateway": {"SP"},
+    "KNX-Schnittstelle":    {"MM"},
     # Englisch (ETS6-Import) – spezifische Einträge zuerst
     "switch act":    {"L", "S", "V", "G", "DF", "BW", "BL", "P"},
     "dimming act":   {"LD", "SD"},
@@ -295,6 +296,8 @@ class BelegungsplanService:
                     floor_name = floor_index.get(room_id, "")
                     zone_name = zone_index.get(room_id, "")
                     for be in room.bedienelemente:
+                        if be.suppressed:
+                            continue
                         if be.function_assignments:
                             for fa in be.function_assignments:
                                 ga = ga_index.get(fa.function_ga)
@@ -326,11 +329,12 @@ class BelegungsplanService:
         for room in project.all_rooms:
             if room.id in seen_room_ids:
                 continue
-            if not room.bedienelemente:
+            active_bes = [be for be in room.bedienelemente if not be.suppressed]
+            if not active_bes:
                 continue
             floor_name = floor_index.get(room.id, "")
             zone_name = zone_index.get(room.id, "")
-            for be in room.bedienelemente:
+            for be in active_bes:
                 if be.function_assignments:
                     for fa in be.function_assignments:
                         ga = ga_index.get(fa.function_ga)
@@ -359,12 +363,22 @@ class BelegungsplanService:
         # Fallback für ETS6-Importe: Sensor-Devices ohne Bedienelement-Eintrag
         # direkt über ihre COs und connected_gas ausgeben (analog zum Aktor-Fallback).
         covered_phys: set[str] = {r.physical_address for r in rows if r.physical_address}
+        # Physikalische Adressen gelöschter (suppressed) Bedienelemente: diese
+        # Geräte dürfen als "gelöscht" nicht über den Import-Fallback wieder auftauchen.
+        suppressed_phys: set[str] = {
+            be.participant_number
+            for room in project.all_rooms
+            for be in room.bedienelemente
+            if be.suppressed and be.participant_number
+        }
         for area in project.topology.areas:
             for line in area.lines:
                 for device in line.devices:
                     if device.device_type != "sensor":
                         continue
                     if device.physical_address in covered_phys:
+                        continue
+                    if device.physical_address in suppressed_phys:
                         continue
                     room_id = device.room_id or (line.assigned_room_ids[0] if line.assigned_room_ids else "")
                     room = room_index.get(room_id)
@@ -507,7 +521,12 @@ class BelegungsplanService:
 
         for area in project.topology.areas:
             for line in area.lines:
-                actor_devices = [d for d in line.devices if d.device_type == "actor"]
+                # Gateways (FA-1307: DALI, Modbus, KNX-Schnittstelle, ...) werden wie
+                # Aktoren behandelt -- sie steuern GAs genauso, nur über ein
+                # Fremdsystem statt direkt über KNX-Ausgänge.
+                actor_devices = [
+                    d for d in line.devices if d.device_type in ("actor", "gateway")
+                ]
                 if not actor_devices:
                     continue
 
@@ -618,7 +637,7 @@ class BelegungsplanService:
         for area in project.topology.areas:
             for line in area.lines:
                 for device in line.devices:
-                    if device.device_type != "actor":
+                    if device.device_type not in ("actor", "gateway"):
                         continue
                     if device.physical_address in covered_device_addrs:
                         continue

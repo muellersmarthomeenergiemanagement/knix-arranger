@@ -461,7 +461,7 @@ class TopologyEngine:
                     if not mroom:
                         continue
                     for be in mroom.bedienelemente:
-                        if be.is_auto or not be.element_type:
+                        if be.is_auto or not be.element_type or be.suppressed:
                             continue
                         te_key = (mroom.id, be.element_type, be.taster_index)
                         if te_key in covered_te_keys:
@@ -788,7 +788,7 @@ class TopologyEngine:
                     # Alle Bedienelemente dieses Typs im Raum (in Listenreihenfolge)
                     matching_bes = [
                         be for be in room.bedienelemente
-                        if be.element_type == device.product
+                        if be.element_type == device.product and not be.suppressed
                     ]
 
                     key = (device.room_id, device.product)

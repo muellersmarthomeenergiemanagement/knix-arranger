@@ -184,6 +184,13 @@ class SensorService:
         aggregated: dict[tuple, SensorRequirement] = {}
 
         for room in rooms:
+            # In der Gerätekonfiguration (Schritt 5c) gelöschte Auto-Geräte
+            # hinterlassen ein suppressed=True-Tombstone-BE. Diese Typen dürfen
+            # hier nicht neu ermittelt werden, sonst erscheint das gelöschte
+            # Gerät wieder in der Topologie.
+            suppressed_types = {
+                be.element_type for be in room.bedienelemente if be.suppressed
+            }
             for assignment in room.gewerk_assignments:
                 # FA-1408: Systemsensoren (W) werden projektweise geplant – hier überspringen.
                 if assignment.gewerk_code in SYSTEM_SENSOR_GEWERKE:
@@ -201,6 +208,8 @@ class SensorService:
                     effective_type = self._effective_sensor_type(
                         room, assignment, taster_idx, auto_type
                     )
+                    if effective_type in suppressed_types:
+                        continue
                     agg_key = (
                         room.id, effective_type, taster_idx,
                         assignment.id if is_overridden else "",
@@ -302,6 +311,7 @@ class SensorService:
             saved_import_bes: list = []
             manual_bes: list = []        # is_auto=False, nicht suppressed
             suppressed_types: set[str] = set()  # element_types die unterdrückt sind
+            suppressed_bes: list = []    # Tombstones, für Wiederherstellung ohne Gewerk-Match
             consumed_manual_ids: set[str] = set()
             for be in room.bedienelemente:
                 saved_pn.setdefault(be.element_type, []).append(be.participant_number)
@@ -310,6 +320,7 @@ class SensorService:
                 if not be.is_auto:
                     if be.suppressed:
                         suppressed_types.add(be.element_type)
+                        suppressed_bes.append(be)
                     else:
                         manual_bes.append(be)
 
@@ -378,6 +389,7 @@ class SensorService:
                         pre_claimed.add(b.id)
                         break
 
+            handled_suppressed_types: set[str] = set()
             for (element_type, taster_idx, _asgn_id), assignments in sorted_groups:
                 # Unterdrücktes BE: Tombstone wiederherstellen, auto-BE NICHT neu erstellen
                 if element_type in suppressed_types:
@@ -393,6 +405,7 @@ class SensorService:
                             suppressed=True,
                         )
                     room.bedienelemente.append(tombstone)
+                    handled_suppressed_types.add(element_type)
                     continue
 
                 total_channels = sum(a.count for a, _, _et in assignments)
@@ -454,6 +467,14 @@ class SensorService:
                     )
                     total += added
                     room.bedienelemente.append(mbe)
+
+            # Gelöschte (suppressed) BEs ohne Gewerk-Entsprechung beibehalten
+            # (z.B. ETS6-Importe ohne Gewerk-Zuweisung) -- sonst geht die
+            # Löschmarkierung bei der nächsten Neuberechnung verloren und das
+            # Gerät taucht andernorts (Verknüpfungsmatrix-Fallback etc.) wieder auf.
+            for sbe in suppressed_bes:
+                if sbe.element_type not in handled_suppressed_types:
+                    room.bedienelemente.append(sbe)
 
             # Keine Gewerke → import-erzeugte Bedienelemente wiederherstellen
             if not room.bedienelemente and saved_import_bes:

@@ -243,6 +243,55 @@ class TestAktorRowFelder:
         assert row.element_number == 1
 
 
+class TestGatewayActorRows:
+    """Regression: Gateway-Geraete (device_type='gateway', z.B. DALI, Modbus,
+    KNX-Schnittstelle/MM) wurden bisher nirgends als Aktor-Zeile erfasst, da
+    _collect_actor_rows strikt auf device_type == 'actor' filterte. Damit
+    fehlten sie auch als Grundlage der CO-Verknuepfung."""
+
+    def _make_gateway_project(self, rooms, gateway_product, gas):
+        project = _make_project(rooms, gateway_product, gas)
+        device = project.topology.areas[0].lines[0].devices[0]
+        device.device_type = "gateway"
+        return project
+
+    def test_mm_gateway_produces_actor_rows(self):
+        room = Room(number="M01", name="Musikzimmer")
+        gas = [_ga(room, "MM", 1, "EIN/AUS", 0)]
+        project = self._make_gateway_project(
+            [room], "KNX-Schnittstelle 1-fach", gas,
+        )
+
+        rows = BelegungsplanService().generate(project).actor_rows
+        assert len(rows) == 1
+        assert rows[0].gewerk_code == "MM"
+        assert rows[0].function_name == "EIN/AUS"
+        assert rows[0].physical_address == "1.1.1"
+
+    def test_dali_gateway_product_maps_to_lda(self):
+        """DALI-Gateway war bereits vor diesem Fix in _ACTOR_TYPE_GEWERKE
+        eingetragen -- nur der device_type-Filter fehlte."""
+        room = Room(number="E01", name="Zimmer")
+        gas = [_ga(room, "LDA", 1, "E/A", 0)]
+        project = self._make_gateway_project(
+            [room], "DALI-Gateway 16-fach", gas,
+        )
+
+        rows = BelegungsplanService().generate(project).actor_rows
+        assert len(rows) == 1
+        assert rows[0].gewerk_code == "LDA"
+
+    def test_plain_actor_devices_unaffected(self):
+        """Normale Aktoren (device_type='actor') funktionieren unveraendert."""
+        room = Room(number="E01", name="Zimmer")
+        gas = [_ga(room, "L", 1, "E/A", 0)]
+        project = _make_project([room], "Schaltaktor 4-fach", gas)
+
+        rows = BelegungsplanService().generate(project).actor_rows
+        assert len(rows) == 1
+        assert rows[0].gewerk_code == "L"
+
+
 class TestVerknuepfungsmatrixFelder:
     """FA-2501 (Stockwerk-Filter) / FA-2502 (Funktionsspalten aus Gewerk-Code)."""
 
@@ -305,3 +354,28 @@ class TestVerknuepfungsmatrixFelder:
         rows = BelegungsplanService().generate(project).sensor_rows
         assert len(rows) == 1
         assert rows[0].gewerk_code == ""
+
+    def test_suppressed_bedienelement_excluded_from_sensor_rows(self):
+        """Ein in der Gerätekonfiguration gelöschtes (suppressed) Bedienelement
+        darf nicht in der Verknüpfungsmatrix auftauchen."""
+        room = Room(number="E01", name="Wohnzimmer")
+        ga = _ga(room, "L", 1, "E/A", 0)
+        project = _make_project([room], "Schaltaktor 4-fach", [ga])
+
+        sensor_dev = Device(
+            device_type="sensor", product="Taster 2-fach", physical_address="1.1.2",
+        )
+        sensor_dev.communication_objects = [
+            CommunicationObject(object_number=1, name="Taste 1",
+                                 object_function="Schalten", connected_gas=[ga.address]),
+        ]
+        project.topology.areas[0].lines[0].devices.append(sensor_dev)
+
+        be = Bedienelement(
+            element_type="Tastereinheit", participant_number="1.1.2",
+            is_auto=False, suppressed=True,
+        )
+        room.bedienelemente = [be]
+
+        rows = BelegungsplanService().generate(project).sensor_rows
+        assert rows == []

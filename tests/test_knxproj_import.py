@@ -168,3 +168,176 @@ def test_physical_address_format(project):
             for dev in line.devices:
                 parts = dev.physical_address.split(".")
                 assert len(parts) == 3, f"Ungueltige Adresse: {dev.physical_address}"
+
+
+# ------------------------------------------------------------------
+# FA-1404: Bedienelement-Typ/Kanalanzahl aus Produktname + KO-Namen
+# (Regression: ein Leckage-/Wassermelder ohne "Taste N"-KOs und ohne
+# Taster-Keyword im Produktnamen wurde faelschlich als "Tastereinheit"
+# eingelesen -- der alte Fallback war pauschal "Tastereinheit" fuer JEDEN
+# unbekannten Sensor. Und: die Kanalanzahl eines echten Tasters wurde aus
+# der Produktname-Bereichsangabe wie "1-8fach" gelesen (Produktfamilien-
+# Maximalgroesse, nicht die tatsaechlich verbaute Tastenanzahl) statt aus
+# den echten "Taste N"-KO-Namen.)
+# ------------------------------------------------------------------
+
+from knix_arranger.models.topology import CommunicationObject
+
+
+def _kos(*names: str) -> list[CommunicationObject]:
+    return [
+        CommunicationObject(object_number=i, name=name)
+        for i, name in enumerate(names)
+    ]
+
+
+class TestInferElementType:
+    def test_leak_sensor_not_classified_as_tastereinheit(self):
+        """Regression: 'Leak KNX 2.0' (kein Taster-Keyword, keine
+        'Taste N'-KOs) darf nicht mehr pauschal als Tastereinheit gelten."""
+        kos = _kos(
+            "Softwareversion",
+            "Leckage Sensorfehler (1 = An | 0 = Aus)",
+            "Leckage Alarm (0 = Aus | 1 = An)",
+        )
+        assert KnxprojImportService._infer_element_type("Leak KNX 2.0", kos) == "Wassermelder"
+
+    def test_leak_keyword_variants(self):
+        for name in ("Leckagemelder", "Water Sensor Pro"):
+            assert KnxprojImportService._infer_element_type(name, []) == "Wassermelder"
+
+    def test_salva_smoke_detector_not_classified_as_wassermelder(self):
+        """Regression: 'Salva' ist der Hersteller, nicht die Funktion -- er
+        baut sowohl Rauch- als auch Wassermelder. Das reale Chalet-Gerät
+        1.1.25 'Salva KNX TH' ist ein Rauchmelder (KO-Namen 'Rauchm.:...'),
+        wurde aber wegen des Marken-Keywords 'salva' faelschlich als
+        Wassermelder eingelesen."""
+        kos = _kos(
+            "Softwareversion", "Temp.Sensor: Messwert", "Feuchte Sensor: Messwert",
+            "Rauchm.:Alarm (0: Aktiv)", "Rauchm.:Störung (1: Aktiv)",
+            "Rauchm.: Warnung Rauchkammer (1: defekt)",
+        )
+        assert KnxprojImportService._infer_element_type("Salva KNX TH", kos) == "Rauchmelder"
+
+    def test_smoke_detector_ko_names_detected_without_product_keyword(self):
+        kos = _kos("Rauchmelder Alarm", "Rauchmelder Batterie")
+        assert KnxprojImportService._infer_element_type("Unbekanntes Geraet X1", kos) == "Rauchmelder"
+
+    def test_rauchmelder_keyword_in_product_name(self):
+        assert KnxprojImportService._infer_element_type("ABC Rauchmelder 3000", []) == "Rauchmelder"
+
+    def test_real_taster_without_keyword_still_detected_via_kos(self):
+        """Ein echter Taster, dessen Produktname kein Taster-Keyword enthaelt
+        (z.B. Feller EDIZIOdue), muss weiterhin ueber seine 'Taste N'-KOs als
+        Tastereinheit erkannt werden -- die Fallback-Aenderung darf das
+        nicht regressieren."""
+        kos = _kos("Taste 1, links", "Taste 1, links, Signal-LED", "Taste 2, links")
+        assert (
+            KnxprojImportService._infer_element_type("Taster EDIZIOdue 1-8fach", kos)
+            == "Tastereinheit"
+        )
+
+    def test_explicit_taster_keyword_still_wins(self):
+        assert KnxprojImportService._infer_element_type("Universaltaster 4-fach", []) == "Tastereinheit"
+
+    def test_unmatched_sensor_falls_back_to_generic(self):
+        assert KnxprojImportService._infer_element_type("Unbekanntes Gadget X200", []) == "Sensor"
+
+    def test_specific_categories_take_priority_over_taste_kos(self):
+        """Ein Praesenzmelder mit (hypothetisch) einem KO namens 'Taste 1'
+        soll trotzdem als Praesenzmelder gelten -- Produktname-Kategorien
+        haben Vorrang vor der KO-basierten Tastereinheit-Erkennung."""
+        kos = _kos("Taste 1")
+        assert (
+            KnxprojImportService._infer_element_type("Präsenzmelder 360", kos)
+            == "Präsenzmelder"
+        )
+
+
+class TestInferChannelCount:
+    def test_real_button_count_from_ko_names_not_product_range(self):
+        """Regression: 'Taster EDIZIOdue 1-8fach' beschreibt die maximale
+        Produktfamiliengroesse, nicht die tatsaechlich verbaute Tastenzahl.
+        Das echte Chalet-Geraet 1.1.53 hat 3 Tasten (KO-Nummern
+        0,2,3,5,6,8,9,11,12,13,14,16 fuer Taste 1/2/3) -- vorher lieferte
+        die Regex faelschlich 8 (aus '1-8fach')."""
+        kos = _kos(
+            "Taste 1, links", "Taste 1, links, Signal-LED",
+            "Taste 1, rechts", "Taste 1, rechts, Signal-LED",
+            "Taste 2, links", "Taste 2, links, Signal-LED",
+            "Taste 2, rechts", "Taste 2, rechts, Signal-LED",
+            "Taste 3", "Taste 3", "Taste 3, Signal-LED", "Taste 3, Doppelklick",
+        )
+        assert (
+            KnxprojImportService._infer_channel_count("Taster EDIZIOdue 1-8fach", kos) == 3
+        )
+
+    def test_falls_back_to_product_name_without_taste_kos(self):
+        assert KnxprojImportService._infer_channel_count("Schaltaktor 4-fach", []) == 4
+
+    def test_falls_back_to_one_without_any_signal(self):
+        assert KnxprojImportService._infer_channel_count("Leak KNX 2.0", []) == 1
+
+
+class TestCreateBedienelementeFromTopology:
+    def test_leak_sensor_gets_wassermelder_type_and_single_channel(self):
+        from knix_arranger.models.topology import Topology, Area, Line, Device
+        from knix_arranger.models.building import Areal, Building, Wing, Floor, Apartment, Room
+
+        room = Room(number="04", name="Liftschacht")
+        apartment = Apartment(name="UG")
+        apartment.rooms.append(room)
+        floor = Floor(name="Untergeschoss", short_code="UG")
+        floor.apartments.append(apartment)
+        wing = Wing(name="Hauptgebäude")
+        wing.floors.append(floor)
+        building = Building(name="Gebäude")
+        building.wings.append(wing)
+        areal = Areal(name="Test")
+        areal.buildings.append(building)
+
+        device = Device(
+            physical_address="1.1.24", device_type="sensor", product="Leak KNX 2.0",
+            room_id=room.id,
+        )
+        device.communication_objects = _kos(
+            "Softwareversion", "Leckage Sensorfehler", "Leckage Alarm",
+        )
+        line = Line(line_number=1, name="L1")
+        line.devices.append(device)
+        area = Area(area_number=1, name="Bereich 1")
+        area.lines.append(line)
+        topology = Topology(areas=[area])
+
+        KnxprojImportService._create_bedienelemente_from_topology(topology, areal)
+
+        assert len(room.bedienelemente) == 1
+        be = room.bedienelemente[0]
+        assert be.element_type == "Wassermelder"
+        assert be.channels == 1
+
+
+# ------------------------------------------------------------------
+# _infer_device_type -- Gateway-Klassifizierung (FA-1307/1308-analog fuer
+# importierte Geraete): device_type="gateway" wurde bisher fuer keinen
+# importierten Pfad vergeben (weder XLSX- noch knxproj-Import), Gateway-
+# Produkte fielen auf "other"/die Adress-Heuristik zurueck. Zusaetzlich
+# verfehlte "knx gateway" Produktnamen mit Bindestrich statt Leerzeichen
+# (z.B. "KNX-Gateway").
+# ------------------------------------------------------------------
+
+class TestInferDeviceTypeGateway:
+    def test_hyphenated_knx_gateway_is_gateway(self):
+        assert KnxprojImportService._infer_device_type("KNX-Gateway", []) == "gateway"
+
+    def test_knx_gateway_with_space_is_gateway(self):
+        assert KnxprojImportService._infer_device_type("KNX Gateway", []) == "gateway"
+
+    def test_ip_interface_is_gateway(self):
+        assert KnxprojImportService._infer_device_type("IP-Interface 300", []) == "gateway"
+
+    def test_power_supply_keyword_still_other(self):
+        assert KnxprojImportService._infer_device_type("Speisegerät 640mA", []) == "other"
+
+    def test_taster_still_sensor(self):
+        assert KnxprojImportService._infer_device_type("Taster EDIZIOdue 1-8fach", []) == "sensor"

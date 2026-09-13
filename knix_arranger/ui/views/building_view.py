@@ -18,7 +18,18 @@ _DEVICE_TYPE_LABELS: dict[str, str] = {
     "sensor":        "Sensor",
     "coupler":       "Koppler",
     "power_supply":  "Spannungsversorgung",
+    "gateway":       "Gateway",
     "other":         "Sonstiges",
+}
+
+# Bedienelement-Typen mit echter Nutzerinteraktion (Tasten/Display/Einstellrad).
+# Alle anderen element_types sind reine Melde-/Messgeräte ohne "Bedienung"
+# (z.B. Wassermelder, Fensterkontakt, Temperaturfühler) und werden in der
+# Baumansicht als "Sensor" statt "Bedienelement" ausgewiesen, auch wenn sie
+# intern weiterhin als Bedienelement-Objekt modelliert sind (siehe
+# Bedienelement-Docstring: "Taster, Thermostat, Sensor, ...").
+_INTERACTIVE_ELEMENT_TYPES = {
+    "Tastereinheit", "Präsenzmelder", "Bewegungsmelder", "Raumthermostat",
 }
 
 
@@ -80,7 +91,7 @@ class BuildingView(QWidget):
         # Baum
         self._tree = QTreeWidget()
         self._tree.itemExpanded.connect(lambda _: fit_columns(self._tree))
-        self._tree.setHeaderLabels(["Element", "Typ", "Details"])
+        self._tree.setHeaderLabels(["Element", "Typ", "Adresse", "Details"])
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree.itemDoubleClicked.connect(self._on_double_click)
@@ -155,25 +166,32 @@ class BuildingView(QWidget):
         return False
 
     def _devices_for_verteiler(self, room, vt) -> list:
-        """Geräte auf Linien, die diesen Raum bedienen und deren
-        installation_location mit dem Verteiler-Namen übereinstimmt
-        (Aktoren, Spannungsversorgungen)."""
-        if not self._topology:
+        """Geräte, die diesem Verteiler-Objekt zugeordnet sind.
+
+        Kandidaten sind ausschließlich Geräte mit device.room_id == room.id
+        (die verlässliche, bereits vom Import aufgelöste Zuordnung -- siehe
+        XlsxImportService.link_rooms_to_lines), NICHT mehr alle Geräte auf
+        Linien, die den Raum irgendwie berühren: ein Raum mit mehreren
+        Verteilern (z.B. nach einer manuellen Zusammenführung, Step 3b) kann
+        auf derselben physischen KNX-Linie liegen wie ein GANZ ANDERER Raum
+        mit eigenem Verteiler -- die alte Linien-basierte Prüfung fing
+        dessen Geräte fälschlich mit ein.
+
+        Innerhalb der room.id-gefilterten Kandidaten wird nur noch gegen den
+        spezifischen vt.name geprüft, NICHT gegen den bloßen Verteiler-Typ
+        (vt.verteiler_type): zwei Verteiler desselben Typs im selben Raum
+        (oder auf derselben Linie, wie UV1/UV2) haben sonst denselben
+        Typ-Präfix ("UV") und "stehlen" sich gegenseitig Geräte, da z.B.
+        "UV2 (...)" mit dem Präfix "UV" von UV1 übereinstimmt.
+        """
+        room_devices = self._devices_for_room(room)
+        vt_name = (vt.name or "").strip().lower()
+        if not vt_name:
             return []
-        vt_names = {n.strip().lower() for n in [vt.name, vt.verteiler_type] if n}
-        result = []
-        seen: set[str] = set()
-        for area in self._topology.areas:
-            for line in area.lines:
-                if room.id not in line.assigned_room_ids:
-                    continue
-                for device in line.devices:
-                    if device.id in seen:
-                        continue
-                    if self._loc_matches_vt(device.installation_location, vt_names):
-                        result.append(device)
-                        seen.add(device.id)
-        return result
+        return [
+            d for d in room_devices
+            if self._loc_matches_vt(d.installation_location, {vt_name})
+        ]
 
     # ------------------------------------------------------------------
     # Baumdarstellung
@@ -184,7 +202,7 @@ class BuildingView(QWidget):
         if not self._areal:
             return
 
-        areal_item = QTreeWidgetItem(self._tree, [self._areal.name or "Areal", "Areal", ""])
+        areal_item = QTreeWidgetItem(self._tree, [self._areal.name or "Areal", "Areal", "", ""])
         areal_item.setData(0, Qt.UserRole, ("areal", self._areal))
         areal_item.setExpanded(True)
 
@@ -192,13 +210,13 @@ class BuildingView(QWidget):
             bld_devices = self._devices_for_building(building)
             bld_item = QTreeWidgetItem(
                 areal_item,
-                [building.name, "Gebäude", f"{bld_devices} Geräte"],
+                [building.name, "Gebäude", "", f"{bld_devices} Geräte"],
             )
             bld_item.setData(0, Qt.UserRole, ("building", building))
             bld_item.setExpanded(True)
 
             for wing in building.wings:
-                wing_item = QTreeWidgetItem(bld_item, [wing.name, "Flügel", ""])
+                wing_item = QTreeWidgetItem(bld_item, [wing.name, "Flügel", "", ""])
                 wing_item.setData(0, Qt.UserRole, ("wing", wing))
                 wing_item.setExpanded(True)
 
@@ -207,7 +225,7 @@ class BuildingView(QWidget):
                     detail = f"HG {floor.main_group_number}, {devices} Geräte"
                     floor_item = QTreeWidgetItem(
                         wing_item,
-                        [f"{floor.short_code} – {floor.name}", "Stockwerk", detail],
+                        [f"{floor.short_code} – {floor.name}", "Stockwerk", "", detail],
                     )
                     floor_item.setData(0, Qt.UserRole, ("floor", floor))
                     floor_item.setExpanded(True)
@@ -215,7 +233,7 @@ class BuildingView(QWidget):
                     for apt in floor.apartments:
                         apt_item = QTreeWidgetItem(
                             floor_item,
-                            [apt.name, "Wohnung/Zone", f"{len(apt.rooms)} Räume"],
+                            [apt.name, "Wohnung/Zone", "", f"{len(apt.rooms)} Räume"],
                         )
                         apt_item.setData(0, Qt.UserRole, ("apartment", apt))
                         apt_item.setExpanded(True)
@@ -231,17 +249,49 @@ class BuildingView(QWidget):
                                 for d in vd:
                                     shown_ids.add(d.id)
 
-                            topo_total = len(room_devices) + len(shown_ids)
-                            sensor_count = len(room.bedienelemente)
-                            dev_count    = topo_total if topo_total else room.total_devices()
+                            active_bes = [be for be in room.bedienelemente if not be.suppressed]
+                            # `room_devices` sind ALLE Geräte mit device.room_id ==
+                            # room.id -- das schließt die Verteiler-Teilmenge (in
+                            # `shown_ids`, s.o.) bereits mit ein, da ein Verteiler-
+                            # Objekt am selben Raum hängt (z.B. ein im Raum
+                            # verschachtelter Hauptverteiler). `shown_ids` steuert nur,
+                            # welche Geräte in der flachen Liste NICHT nochmal gezeigt
+                            # werden (sie erscheinen stattdessen unter ihrem Verteiler-
+                            # Knoten) -- die Gesamtzahl darf sie daher nicht ein zweites
+                            # Mal addieren, sonst zeigt die Raumzusammenfassung z.B.
+                            # "21 Geräte" für einen Raum mit tatsächlich 12 Geräten
+                            # (3 raumgebunden + 9 im dort verschachtelten Verteiler).
+                            topo_total = len(room_devices)
+
+                            # Geräte, die bereits als Bedienelement dargestellt werden
+                            # (aus demselben importierten Gerät abgeleitet, über die
+                            # Teilnehmernummer verknüpft), nicht zusätzlich als
+                            # eigene Geräte-Zeile zeigen -- sonst erscheint z.B. ein
+                            # Sensor doppelt: einmal roh, einmal als Bedienelement.
+                            be_participant_numbers = {
+                                be.participant_number for be in active_bes if be.participant_number
+                            }
+                            for device in room_devices:
+                                if device.physical_address in be_participant_numbers:
+                                    shown_ids.add(device.id)
+
+                            interactive_bes = [
+                                be for be in active_bes if be.element_type in _INTERACTIVE_ELEMENT_TYPES
+                            ]
+                            passive_bes = [
+                                be for be in active_bes if be.element_type not in _INTERACTIVE_ELEMENT_TYPES
+                            ]
+                            dev_count = topo_total if topo_total else room.total_devices()
                             gewerke      = len(room.gewerk_assignments)
                             room_label   = room.name if not room.number else f"{room.number} – {room.name}"
                             parts = [f"{gewerke} Gewerke", f"{dev_count} Geräte"]
-                            if sensor_count:
-                                parts.append(f"{sensor_count} Bedienelemente")
+                            if interactive_bes:
+                                parts.append(f"{len(interactive_bes)} Bedienelemente")
+                            if passive_bes:
+                                parts.append(f"{len(passive_bes)} Sensoren")
                             room_item = QTreeWidgetItem(
                                 apt_item,
-                                [room_label, "Raum", ", ".join(parts)],
+                                [room_label, "Raum", "", ", ".join(parts)],
                             )
                             room_item.setData(0, Qt.UserRole, ("room", room))
 
@@ -259,7 +309,7 @@ class BuildingView(QWidget):
                                     )
                                 vt_item = QTreeWidgetItem(
                                     room_item,
-                                    [vt.name or vt.verteiler_type, vt.verteiler_type, vt_detail],
+                                    [vt.name or vt.verteiler_type, vt.verteiler_type, "", vt_detail],
                                 )
                                 vt_item.setData(0, Qt.UserRole, ("verteiler", vt))
                                 vt_item.setExpanded(True)
@@ -267,21 +317,25 @@ class BuildingView(QWidget):
                                     label = device.product_name or device.product or device.device_type
                                     addr  = device.physical_address or "–"
                                     dtype = _DEVICE_TYPE_LABELS.get(device.device_type, device.device_type)
-                                    QTreeWidgetItem(vt_item, [label, addr, dtype])
+                                    QTreeWidgetItem(vt_item, [label, dtype, addr, ""])
 
                             # Bedienelemente aus Wizard-Funktionsdefinition
-                            for be in room.bedienelemente:
+                            for be in active_bes:
                                 ch_info = f"{be.channels}-Kanal"
-                                pn = f"  [{be.participant_number}]" if be.participant_number else ""
+                                row_type = (
+                                    "Bedienelement" if be.element_type in _INTERACTIVE_ELEMENT_TYPES
+                                    else "Sensor"
+                                )
                                 be_item = QTreeWidgetItem(
                                     room_item,
-                                    [f"{be.element_type}{pn}", "Bedienelement",
+                                    [be.element_type, row_type, be.participant_number,
                                      f"{ch_info}, {len(be.function_assignments)} Funktionen"],
                                 )
+                                be_item.setData(0, Qt.UserRole, ("bedienelement", (be, room)))
                                 for fa in be.function_assignments:
                                     QTreeWidgetItem(
                                         be_item,
-                                        [fa.button_channel, fa.function_ga, fa.description],
+                                        [fa.button_channel, "Funktion", fa.function_ga, fa.description],
                                     )
 
                             # Raumgebundene Topologie-Geräte (Sensoren, manuell, Import)
@@ -291,7 +345,7 @@ class BuildingView(QWidget):
                                 label = device.product_name or device.product or device.device_type
                                 addr  = device.physical_address or "–"
                                 dtype = _DEVICE_TYPE_LABELS.get(device.device_type, device.device_type)
-                                QTreeWidgetItem(room_item, [label, addr, dtype])
+                                QTreeWidgetItem(room_item, [label, dtype, addr, ""])
 
         fit_columns(self._tree)
 
@@ -461,17 +515,43 @@ class BuildingView(QWidget):
         if not data:
             return
         kind, obj = data
-        reply = QMessageBox.question(
-            self, "Löschen",
-            f"'{getattr(obj, 'name', kind)}' wirklich löschen?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
+        if kind == "bedienelement":
+            be, _room = obj
+            label = be.element_type or "Bedienelement"
+            hint = (
+                "\n\nDas Gerät wird unterdrückt und nicht neu berechnet."
+                if be.is_auto else ""
+            )
+            reply = QMessageBox.question(
+                self, "Gerät löschen",
+                f"«{label}» wirklich löschen?{hint}",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+        else:
+            reply = QMessageBox.question(
+                self, "Löschen",
+                f"'{getattr(obj, 'name', kind)}' wirklich löschen?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
         if reply == QMessageBox.Yes:
             self._remove_from_structure(kind, obj)
             self._refresh_tree()
             self.structure_changed.emit()
 
     def _remove_from_structure(self, kind: str, obj):
+        if kind == "bedienelement":
+            be, room = obj
+            if be.is_auto:
+                be.is_auto = False
+                be.suppressed = True
+                be.funktionen = []
+                be.function_assignments = []
+            else:
+                try:
+                    room.bedienelemente.remove(be)
+                except ValueError:
+                    pass
+            return
         if not self._areal:
             return
         if kind == "building":
@@ -553,6 +633,8 @@ class BuildingView(QWidget):
         elif kind == "verteiler":
             menu.addAction("Umbenennen",           self._rename_selected)
             menu.addSeparator()
+            menu.addAction("Löschen",              self._delete_selected)
+        elif kind == "bedienelement":
             menu.addAction("Löschen",              self._delete_selected)
 
         menu.exec(self._tree.viewport().mapToGlobal(pos))

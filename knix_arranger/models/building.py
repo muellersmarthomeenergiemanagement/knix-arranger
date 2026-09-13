@@ -285,10 +285,21 @@ class GewerkAssignment:
     extra_entries: list[dict] = field(default_factory=list)
     # Verknüpftes Produkt (FA-Produktbasierte GA-Generierung): wenn gesetzt,
     # wird der GA-Block aus den ComObjects dieses Produkts generiert statt
-    # aus dem generischen/gewerk-spezifischen Schema.
+    # aus dem generischen/gewerk-spezifischen Schema. Dient NUR der
+    # GA-Generierung, erzeugt bewusst keinen Materialliste-Eintrag (dafür
+    # ist ausschliesslich die Materialliste zuständig, siehe
+    # MaterialListView._assign_product_to_entry).
     # {"manufacturer": str, "order_number": str, "product_name": str,
-    #  "com_objects": list[dict], "material_entry_id": str}
+    #  "com_objects": list[dict],
+    #  "excluded_co_numbers": list[int]}  # ComObject-Nummern ohne GA (Integrator-Auswahl)
     linked_product: dict | None = None
+    # Manuelle Verknüpfung mit bereits importierten Gruppenadressen (FA-521f):
+    # Schema-Funktion (z.B. "E/A") -> GroupAddress.id einer bestehenden GA.
+    # Nur für count==1 unterstützt. Die referenzierte GA bekommt is_manual=True
+    # (siehe address_generator.place_block_with_manual_links) und wird von der
+    # Generierung NIE neu platziert oder umbenannt – nur unbefüllte Slots
+    # werden wie gewohnt automatisch generiert.
+    linked_ga_ids: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -300,6 +311,7 @@ class GewerkAssignment:
             "sensor_type_override": self.sensor_type_override,
             "extra_entries": self.extra_entries,
             "linked_product": self.linked_product,
+            "linked_ga_ids": self.linked_ga_ids,
         }
 
     @classmethod
@@ -321,6 +333,7 @@ class GewerkAssignment:
         )
         obj.extra_entries = data.get("extra_entries", [])
         obj.linked_product = data.get("linked_product")
+        obj.linked_ga_ids = data.get("linked_ga_ids", {})
         return obj
 
 
@@ -399,6 +412,13 @@ class Bedienelement:
     taster_index: int = 1
     # Freitext-Anmerkung des Bauherrn zu diesem Bedienelement (FA-1501 Bauherrenberatung)
     bauherr_annotation: str = ""
+    # Verknüpftes Produkt für Zusatzsensorik (z.B. eingebauter Temperaturfühler
+    # einer Tastereinheit) – erzeugt echte GAs für gezielt ausgewählte
+    # ComObjects, ohne die Gewerk-Blockschemata (Licht/Jalousie/…) zu berühren.
+    # Gleiche Form wie GewerkAssignment.linked_product, ohne material_entry_id:
+    # {"manufacturer": str, "order_number": str, "product_name": str,
+    #  "com_objects": list[dict], "excluded_co_numbers": list[int]}
+    linked_product: dict | None = None
 
     def to_dict(self) -> dict:
         d = {
@@ -418,6 +438,8 @@ class Bedienelement:
         }
         if self.bauherr_annotation:
             d["bauherr_annotation"] = self.bauherr_annotation
+        if self.linked_product:
+            d["linked_product"] = self.linked_product
         return d
 
     @classmethod
@@ -442,6 +464,7 @@ class Bedienelement:
             suppressed=data.get("suppressed", False),
             taster_index=data.get("taster_index", 1),
             bauherr_annotation=data.get("bauherr_annotation", ""),
+            linked_product=data.get("linked_product"),
         )
         be.function_assignments = [
             FunctionAssignment.from_dict(f) for f in data.get("function_assignments", [])

@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import uuid4
 
+from ..utils.validators import is_valid_ga
+
 logger = logging.getLogger("knix_arranger.knxproj_export")
 
 # KNX-Standard XML-Namespace (ETS6, Version 23)
@@ -308,7 +310,7 @@ class KnxprojExportService:
 
         # 2. Gruppenadressen
         summary.ga_count = self._write_group_addresses(
-            inst, project.group_addresses, puid
+            inst, project.group_addresses, puid, summary.warnings
         )
 
         # 3. Gebaeude-/Raumstruktur (referenziert Device-IDs aus Topologie)
@@ -324,7 +326,8 @@ class KnxprojExportService:
     # ------------------------------------------------------------------
 
     def _write_group_addresses(
-        self, parent: ET.Element, structure, puid: _PuidCounter
+        self, parent: ET.Element, structure, puid: _PuidCounter,
+        warnings: list[str] | None = None,
     ) -> int:
         """Schreibt die vollstaendige GA-Hierarchie (FA-2402)."""
         ga_root = _sub(parent, "GroupAddresses")
@@ -351,6 +354,15 @@ class KnxprojExportService:
                                 Puid=puid.next())
                 for ga in mg.group_addresses:
                     if ga.is_placeholder:
+                        continue
+                    if not is_valid_ga(ga.main_group, ga.middle_group, ga.sub_group):
+                        msg = (
+                            f"Ungültige Gruppenadresse {ga.address} "
+                            f"('{ga.designation}') übersprungen – nicht exportiert."
+                        )
+                        logger.warning(msg)
+                        if warnings is not None:
+                            warnings.append(msg)
                         continue
                     attribs: dict[str, str] = {
                         "Id":      f"P-GA-{ga.id[:8]}",
@@ -568,14 +580,18 @@ class _Ets5Exporter:
         summary.device_count = dev_count
 
         # Gruppenadressen
-        summary.ga_count = self._write_group_addresses(inst, project.group_addresses)
+        summary.ga_count = self._write_group_addresses(
+            inst, project.group_addresses, summary.warnings
+        )
 
         # Gebäudestruktur
         self._write_buildings(inst, project.areal, project.topology, dev_id_map)
 
         return self._xml_header(root), summary
 
-    def _write_group_addresses(self, parent: ET.Element, structure) -> int:
+    def _write_group_addresses(
+        self, parent: ET.Element, structure, warnings: list[str] | None = None,
+    ) -> int:
         ga_root = _sub5(parent, "GroupAddresses")
         ranges = _sub5(ga_root, "GroupRanges")
         count = 0
@@ -593,6 +609,15 @@ class _Ets5Exporter:
                                 RangeEnd=str(_encode_ga(hg.number, mg.number, 255)))
                 for ga in mg.group_addresses:
                     if ga.is_placeholder:
+                        continue
+                    if not is_valid_ga(ga.main_group, ga.middle_group, ga.sub_group):
+                        msg = (
+                            f"Ungültige Gruppenadresse {ga.address} "
+                            f"('{ga.designation}') übersprungen – nicht exportiert."
+                        )
+                        logger.warning(msg)
+                        if warnings is not None:
+                            warnings.append(msg)
                         continue
                     attribs: dict[str, str] = {
                         "Id": f"P-GA-{ga.id[:8]}",

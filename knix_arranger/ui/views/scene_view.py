@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from ...models.project import KnxProject
 from ...models.scene import Scene, SceneAction
+from ...services.scene_detection_service import detect_scenes
+from ...services.scene_value_linking import link_scene_values, link_scene_triggers
 from ..column_utils import fit_columns
 
 
@@ -43,9 +45,9 @@ class SceneView(QWidget):
         left = QVBoxLayout()
 
         self._table = QTableWidget()
-        self._table.setColumnCount(5)
+        self._table.setColumnCount(6)
         self._table.setHorizontalHeaderLabels([
-            "Name", "Nr.", "Geltungsbereich", "Auslöser", "Aktionen",
+            "Name", "Nr.", "Geltungsbereich", "Auslöser", "Aktionen", "Quelle",
         ])
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -60,12 +62,28 @@ class SceneView(QWidget):
         self._btn_add.clicked.connect(self._add_scene)
         self._btn_from_template = QPushButton("Aus Vorlage")
         self._btn_from_template.clicked.connect(self._add_from_template)
+        self._btn_detect = QPushButton("Szenen erkennen")
+        self._btn_detect.setToolTip(
+            "Durchsucht importierte Gruppenadressen nach Szenen-Funktionen "
+            "(Szenennummer-DPTs, Szenen-Ordner, Taster-Lichtstimmungen)."
+        )
+        self._btn_detect.clicked.connect(self._detect_scenes)
         self._btn_remove = QPushButton("Entfernen")
         self._btn_remove.setObjectName("danger")
         self._btn_remove.clicked.connect(self._remove_scene)
+        self._btn_remove_all = QPushButton("Alle löschen")
+        self._btn_remove_all.setObjectName("danger")
+        self._btn_remove_all.setToolTip(
+            "Entfernt alle Szenen dieses Projekts (manuell angelegte und "
+            "automatisch erkannte). Die zugrundeliegenden Gruppenadressen "
+            "bleiben unverändert."
+        )
+        self._btn_remove_all.clicked.connect(self._remove_all_scenes)
         btn_layout.addWidget(self._btn_add)
         btn_layout.addWidget(self._btn_from_template)
+        btn_layout.addWidget(self._btn_detect)
         btn_layout.addWidget(self._btn_remove)
+        btn_layout.addWidget(self._btn_remove_all)
         btn_layout.addStretch()
         left.addLayout(btn_layout)
 
@@ -96,10 +114,21 @@ class SceneView(QWidget):
 
         self._scene_number = QSpinBox()
         self._scene_number.setRange(1, 64)
+        self._scene_number.setToolTip(
+            "KNX-Konvention (DPT 17/18): Szenen mit gleichem Geltungsbereich "
+            "teilen sich eine gemeinsame Szenenaufruf-GA. Szene 1 = Bus-Wert 0, "
+            "Szene 2 = Bus-Wert 1, ... Szene 64 = Bus-Wert 63. Welcher Aktor bei "
+            "welcher Nummer was tut, wird in dessen eigenen ETS-Parametern "
+            "konfiguriert, nicht hier."
+        )
         detail_form.addRow("Szenen-Nr. (1-64):", self._scene_number)
 
         self._scene_scope = QComboBox()
         self._scene_scope.addItems(["room", "apartment", "zone", "central"])
+        self._scene_scope.setToolTip(
+            "Szenen mit gleichem Geltungsbereich (+ Raum/Zone) teilen sich beim "
+            "Generieren der Adressen (Schritt 7) eine gemeinsame Szenenaufruf-GA."
+        )
         detail_form.addRow("Geltungsbereich:", self._scene_scope)
 
         self._scene_scope_id = QComboBox()
@@ -123,9 +152,9 @@ class SceneView(QWidget):
         actions_layout = QVBoxLayout()
 
         self._actions_table = QTableWidget()
-        self._actions_table.setColumnCount(3)
+        self._actions_table.setColumnCount(4)
         self._actions_table.setHorizontalHeaderLabels([
-            "Gruppenadresse / Gewerk", "Wert", "Verzögerung (s)",
+            "Gruppenadresse / Gewerk", "Adresse", "Wert", "Verzögerung (s)",
         ])
         self._actions_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._actions_table.horizontalHeader().setStretchLastSection(True)
@@ -212,10 +241,15 @@ class SceneView(QWidget):
             "zone": "Zone",
             "central": "Zentral",
         }
+        source_labels = {
+            "dpt": "Import (DPT)",
+            "folder": "Import (Ordner)",
+            "pattern": "Import (Muster)",
+        }
 
         for i, scene in enumerate(scenes):
             self._table.setItem(i, 0, QTableWidgetItem(scene.name))
-            self._table.setItem(i, 1, QTableWidgetItem(str(scene.scene_number)))
+            self._table.setItem(i, 1, QTableWidgetItem(str(scene.scene_number or "")))
             self._table.setItem(
                 i, 2,
                 QTableWidgetItem(scope_labels.get(scene.scope, scene.scope))
@@ -223,6 +257,10 @@ class SceneView(QWidget):
             self._table.setItem(i, 3, QTableWidgetItem(scene.trigger))
             self._table.setItem(
                 i, 4, QTableWidgetItem(str(len(scene.actions)))
+            )
+            self._table.setItem(
+                i, 5,
+                QTableWidgetItem(source_labels.get(scene.detection_kind, ""))
             )
 
         fit_columns(self._table)
@@ -256,10 +294,13 @@ class SceneView(QWidget):
                 i, 0, QTableWidgetItem(action.group_address)
             )
             self._actions_table.setItem(
-                i, 1, QTableWidgetItem(action.value)
+                i, 1, QTableWidgetItem(action.ga_address)
             )
             self._actions_table.setItem(
-                i, 2, QTableWidgetItem(str(action.delay_seconds))
+                i, 2, QTableWidgetItem(action.value)
+            )
+            self._actions_table.setItem(
+                i, 3, QTableWidgetItem(str(action.delay_seconds))
             )
         fit_columns(self._actions_table)
 
@@ -331,6 +372,60 @@ class SceneView(QWidget):
         self._refresh_table()
         self._table.selectRow(len(self._project.scenes) - 1)
 
+    def _detect_scenes(self):
+        """Erkennt Szenen in importierten Gruppenadressen und übernimmt sie
+        (FA-1808); ergänzt ausserdem echte Schaltwerte (Aktor-Seite, FA-1809)
+        und Ausloeser (Sensor-Seite: welche Taste sendet welche Szenennummer,
+        FA-1810) aus den Geräteparametern, sofern ein Topologie-/Gebäude-
+        Report mit erkennbarem Muster importiert wurde."""
+        if not self._project:
+            return
+
+        added = detect_scenes(self._project)
+        if added:
+            self._project.scenes.extend(added)
+
+        count_before_linking = len(self._project.scenes)
+        linked = link_scene_values(self._project)
+        triggers_linked = link_scene_triggers(self._project)
+        new_numbered_scenes = self._project.scenes[count_before_linking:]
+
+        if not added and not linked and not triggers_linked:
+            QMessageBox.information(
+                self, "Szenen erkennen",
+                "Keine neuen Szenen oder Schaltwerte gefunden."
+            )
+            return
+
+        self._refresh_table()
+        if new_numbered_scenes:
+            # link_scene_values/link_scene_triggers haben eine geteilte
+            # "Kanal"-Szene (Nr. 0, z.B. "Anwesendheit Chalet") in separate
+            # numerierte Szenen aufgeteilt (z.B. "... – Szene 2") -- dorthin
+            # springen, sonst sind die neuen Zeilen am Tabellenende bei
+            # vielen Szenen leicht zu uebersehen.
+            self._table.selectRow(count_before_linking)
+        elif added:
+            self._table.selectRow(len(self._project.scenes) - len(added))
+        elif linked or triggers_linked:
+            selected = self._get_selected_scene()
+            if selected:
+                self._refresh_actions(selected)
+
+        parts = []
+        if added:
+            parts.append(f"{len(added)} neue Szene(n) aus Gruppenadressen übernommen")
+        if linked:
+            parts.append(f"{linked} Aktion(en) aus Gerätedaten ergänzt")
+        if triggers_linked:
+            parts.append(f"{triggers_linked} Auslöser aus Tastenkonfiguration ergänzt")
+        if new_numbered_scenes:
+            parts.append(
+                f"{len(new_numbered_scenes)} numerierte Szene(n) aus geteiltem "
+                f"Recall-Kanal aufgeteilt (siehe markierte Zeile)"
+            )
+        QMessageBox.information(self, "Szenen erkennen", " – ".join(parts) + ".")
+
     def _remove_scene(self):
         """Entfernt die ausgewählte Szene."""
         scene = self._get_selected_scene()
@@ -344,6 +439,23 @@ class SceneView(QWidget):
         )
         if reply == QMessageBox.Yes:
             self._project.scenes.remove(scene)
+            self._refresh_table()
+            self._actions_table.setRowCount(0)
+
+    def _remove_all_scenes(self):
+        """Entfernt alle Szenen dieses Projekts (manuell + automatisch erkannt)."""
+        if not self._project or not self._project.scenes:
+            return
+
+        count = len(self._project.scenes)
+        reply = QMessageBox.question(
+            self, "Alle Szenen löschen",
+            f"Alle {count} Szenen wirklich löschen? Das kann nicht rückgängig "
+            f"gemacht werden.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self._project.scenes.clear()
             self._refresh_table()
             self._actions_table.setRowCount(0)
 

@@ -19,6 +19,7 @@ from ..dialogs.product_select_dialog import ProductSelectDialog
 import math
 from ...models.material_list import MaterialList, MaterialEntry, MATERIAL_CATEGORIES, parse_channel_count, split_device_type
 from ...models.topology import Device
+from ...models.device import GEWERK_TO_SENSOR_TYPE, GEWERK_TO_ACTOR_TYPE
 from ...services.product_search_service import ProductSuggestion
 from ...services.topology_engine import TopologyEngine
 from ...services.material_list_export_service import MaterialListExportService
@@ -905,6 +906,40 @@ class MaterialListView(QWidget):
         self.list_changed.emit()
         self.topology_changed.emit()   # Topologie-Views benachrichtigen
 
+    def _suggested_search_text(self, entry: MaterialEntry) -> str:
+        """Best-Effort-Vorschlag für die Produktsuche: Bestellnummer eines in
+        Schritt 5 (Gewerke) bereits für denselben Raum/dasselbe Gewerk
+        verknüpften Produkts (GewerkAssignment.linked_product), falls
+        eindeutig zuordenbar. Liefert "" wenn nichts Passendes gefunden wird
+        (Aufrufer fällt dann auf den generischen Gerätetyp zurück)."""
+        if not self._project or not entry.device_id:
+            return ""
+
+        device = next(
+            (dev for area in self._project.topology.areas
+             for line in area.lines for dev in line.devices
+             if dev.id == entry.device_id),
+            None,
+        )
+        if device is None or not device.room_id:
+            return ""
+
+        room = next(
+            (r for r in self._project.all_rooms if r.id == device.room_id), None,
+        )
+        if room is None:
+            return ""
+
+        type_map = GEWERK_TO_SENSOR_TYPE if entry.category == "Sensor" else GEWERK_TO_ACTOR_TYPE
+        for assignment in room.gewerk_assignments:
+            if assignment.gewerk_code not in type_map:
+                continue
+            lp = assignment.linked_product
+            if lp and lp.get("order_number"):
+                return lp["order_number"]
+
+        return ""
+
     def _assign_product_to_entry(self, entry: MaterialEntry) -> None:
         """
         Öffnet den Produktauswahl-Dialog für einen Platzhalter und
@@ -925,8 +960,12 @@ class MaterialListView(QWidget):
             topology=topology,
             parent=self,
         )
-        # Suche mit dem Gerätetyp vorbelegen, damit passende Produkte sofort erscheinen
-        dialog._search_edit.setText(entry.device_type)
+        # Suche vorbelegen: falls in Schritt 5 für dasselbe Gewerk bereits ein
+        # Produkt verknüpft wurde (GA-Generierung), dessen Bestellnummer als
+        # praezisen Vorschlag nutzen - sonst den generischen Gerätetyp.
+        dialog._search_edit.setText(
+            self._suggested_search_text(entry) or entry.device_type
+        )
 
         if not dialog.exec():
             return

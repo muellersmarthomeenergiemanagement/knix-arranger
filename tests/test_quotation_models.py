@@ -17,7 +17,37 @@ from knix_arranger.models.quotation import (
     QuotationItem,
     QuotationRequest,
     CustomerQuote,
+    round_rappen,
 )
+
+
+# ---------------------------------------------------------------------------
+# round_rappen (CH 5-Rappen-Rundung)
+# ---------------------------------------------------------------------------
+
+class TestRoundRappen:
+    """5-Rappen-Rundung fuer Kundenofferte-Betraege."""
+
+    def test_already_multiple_of_five_unchanged(self):
+        assert round_rappen(115.00) == pytest.approx(115.00)
+        assert round_rappen(0.05) == pytest.approx(0.05)
+
+    def test_rounds_up(self):
+        # 114.9885 -> naeher an 115.00 als an 114.95
+        assert round_rappen(114.9885) == pytest.approx(115.00)
+
+    def test_rounds_down(self):
+        # 59.916 -> naeher an 59.90 als an 59.95
+        assert round_rappen(59.916) == pytest.approx(59.90)
+
+    def test_zero(self):
+        assert round_rappen(0.0) == 0.0
+
+    def test_result_is_multiple_of_five_rappen(self):
+        for val in (12.345, 0.01, 999.99, 1.0 / 3):
+            result = round_rappen(val)
+            cents = round(result * 100)
+            assert cents % 5 == 0, f"{result} ist kein 5-Rappen-Schritt"
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +286,25 @@ class TestCustomerQuoteCalculations:
         q = self._quote(material_total=5_000.0, material_markup_percent=0.0)
         assert q.material_with_markup == 5_000.0
 
+    def test_material_with_markup_uses_item_sum_when_items_present(self):
+        """Sobald Positionen erfasst sind, muss material_with_markup exakt
+        deren Summe sein -- damit die dem Kunden gezeigte Materialsumme
+        immer mit der Summe der Positionspreise uebereinstimmt."""
+        q = self._quote(material_total=10_000.0, material_markup_percent=15.0)
+        q.items = [
+            QuotationItem(position=1, quantity=1, unit_price=115.0, total_price=115.0),
+            QuotationItem(position=2, quantity=2, unit_price=40.0, total_price=80.0),
+        ]
+        assert q.material_with_markup == pytest.approx(195.0)
+        # Absichtlich unabhaengig von material_total/markup_percent, sobald
+        # Positionen vorhanden sind.
+        assert q.material_with_markup != pytest.approx(11_500.0)
+
+    def test_material_with_markup_falls_back_without_items(self):
+        q = self._quote(material_total=10_000.0, material_markup_percent=15.0)
+        q.items = []
+        assert q.material_with_markup == pytest.approx(11_500.0)
+
     # labor_total
 
     def test_labor_total_all_three_types(self):
@@ -266,6 +315,24 @@ class TestCustomerQuoteCalculations:
         )
         expected = 40 * 125 + 20 * 145 + 16 * 145
         assert q.labor_total == pytest.approx(expected)
+
+    def test_labor_total_includes_documentation(self):
+        q = self._quote(
+            labor_mounting_hours=0.0, labor_programming_hours=0.0,
+            labor_commissioning_hours=0.0,
+            labor_documentation_hours=8.0, hourly_rate_documentation=110.0,
+        )
+        assert q.labor_total == pytest.approx(8.0 * 110.0)
+
+    def test_actual_labor_total_includes_documentation(self):
+        q = self._quote(hourly_rate_documentation=110.0)
+        q.actual_documentation_hours = 5.0
+        assert q.actual_labor_total == pytest.approx(
+            q.actual_mounting_hours * q.hourly_rate_mounting
+            + q.actual_programming_hours * q.hourly_rate_programming
+            + q.actual_commissioning_hours * q.hourly_rate_commissioning
+            + 5.0 * 110.0
+        )
 
     def test_labor_total_zero_hours(self):
         q = self._quote(
@@ -362,9 +429,11 @@ class TestCustomerQuoteSerialization:
             labor_mounting_hours=60.0,
             labor_programming_hours=30.0,
             labor_commissioning_hours=20.0,
+            labor_documentation_hours=10.0,
             hourly_rate_mounting=120.0,
             hourly_rate_programming=150.0,
             hourly_rate_commissioning=150.0,
+            hourly_rate_documentation=105.0,
             overhead_costs=800.0,
             discount_percent=5.0,
             vat_percent=8.1,
@@ -382,11 +451,14 @@ class TestCustomerQuoteSerialization:
             "customer_name", "customer_address",
             "material_total", "material_markup_percent",
             "labor_mounting_hours", "labor_programming_hours", "labor_commissioning_hours",
+            "labor_documentation_hours",
             "hourly_rate_mounting", "hourly_rate_programming", "hourly_rate_commissioning",
+            "hourly_rate_documentation",
             "overhead_costs", "discount_percent", "vat_percent",
-            "validity_days", "payment_terms", "items",
+            "validity_days", "payment_terms", "items", "material_snapshot",
             "actual_material_cost", "actual_mounting_hours",
-            "actual_programming_hours", "actual_commissioning_hours", "actual_overhead_costs",
+            "actual_programming_hours", "actual_commissioning_hours",
+            "actual_documentation_hours", "actual_overhead_costs",
         ):
             assert key in d, f"Schluessel '{key}' fehlt in to_dict()"
 
@@ -403,6 +475,8 @@ class TestCustomerQuoteSerialization:
         assert restored.vat_percent == 8.1
         assert restored.validity_days == 30
         assert restored.payment_terms == "14 Tage netto"
+        assert restored.labor_documentation_hours == 10.0
+        assert restored.hourly_rate_documentation == 105.0
 
     def test_items_preserved_in_round_trip(self):
         q = self._full_quote()
@@ -417,4 +491,14 @@ class TestCustomerQuoteSerialization:
         assert q.vat_percent == 8.1
         assert q.validity_days == 60
         assert q.payment_terms == "30 Tage netto"
+        assert q.labor_documentation_hours == 0.0
+        assert q.hourly_rate_documentation == 125.0
+        assert q.material_snapshot == ""
+        assert q.actual_documentation_hours == 0.0
         assert q.items == []
+
+    def test_material_snapshot_preserved_in_round_trip(self):
+        q = self._full_quote()
+        q.material_snapshot = "abc123"
+        restored = CustomerQuote.from_dict(q.to_dict())
+        assert restored.material_snapshot == "abc123"

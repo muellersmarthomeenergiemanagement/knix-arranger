@@ -19,7 +19,160 @@ logger = logging.getLogger("knix_arranger.dali_service")
 _GA_RE = re.compile(r"^\d+/\d+/\d+$")
 
 # LDA-GA-Bezeichnung: "LDA_001_01 E/A" → (room_nr="001", elem_nr="01", func="E/A")
+# KNiX-eigene NamingEngine-Konvention ("KNX Swiss Bezeichnungskonzept"),
+# vergeben von der App selbst beim Neu-Generieren von Adressen (Schritt 7).
 _LDA_PREFIX_RE = re.compile(r"^LDA_(\w+)_(\d{2})\s+(.+)$", re.IGNORECASE)
+
+# LDA-GA-Bezeichnung nach ETS6-XLSX-Importkonvention (siehe
+# xlsx_import_service._GA_FLOOR_ROOM_RE): "LDA.OG.00.02_ea" bzw. mehrere per
+# "+" verknüpfte Raum-Codes für eine Broadcast-GA, z.B.
+# "LDA.OG.00.02+LDA.OG.00.01_ea". Das ist die Bezeichnung, die der
+# Installateur selbst in ETS vergeben hat -- bei importierten (nicht in
+# KNiX Arranger neu generierten) Projekten die tatsächlich vorkommende Form,
+# im Gegensatz zur obigen NamingEngine-Konvention mit Leerzeichen.
+_LDA_DOT_RE = re.compile(r"^LDA\.[A-Z0-9]{2,5}\.\d{2}\.\d{1,3}", re.IGNORECASE)
+_LDA_DOT_ROOM_RE = re.compile(r"\.([A-Z0-9]{2,5})\.(\d{2})\.\d{1,3}", re.IGNORECASE)
+_LDA_DOT_SUFFIX_RE = re.compile(r"_([a-zA-Z]+)\s*$")
+# Suffix (Kleinschreibung) → kanonische Funktionsbezeichnung, wie sie
+# find_lda_ga() für die NamingEngine-Konvention erwartet (siehe
+# create_dali_block_schema in models/address_block.py für die vollständige
+# Liste; "wert" fehlt hier bewusst -- das ist der Sollwert-Kanal [Schreiben],
+# keine der fünf DaliGateway-Zielgrößen unten).
+_LDA_DOT_SUFFIX_TO_FUNC = {
+    "ea": "e/a",
+    "dim": "dim",
+    "szene": "szene",
+    "scene": "szene",
+    "stoerung": "stoerung",
+    "rm": "rm",
+    "rmwert": "rm wert",
+}
+
+
+def _lda_dot_convention_func(desig: str) -> str:
+    """Extrahiert die kanonische Funktionsbezeichnung aus einer LDA-GA im
+    XLSX-Importformat (siehe `_LDA_DOT_RE`). Leerstring, wenn die
+    Bezeichnung nicht dieser Konvention folgt oder das Suffix unbekannt ist.
+    """
+    if not _LDA_DOT_RE.match(desig):
+        return ""
+    base = desig.split("(", 1)[0].strip()  # Klartext-Kommentar abtrennen
+    m = _LDA_DOT_SUFFIX_RE.search(base)
+    if not m:
+        return ""
+    return _LDA_DOT_SUFFIX_TO_FUNC.get(m.group(1).lower(), "")
+
+
+def _lda_dot_room_numbers(desig: str) -> set[str]:
+    """Alle Raumnummern aus einer (ggf. per '+' mehrfachen) LDA-GA im
+    XLSX-Importformat, z.B. "LDA.OG.00.02+LDA.OG.00.01_ea" -> {"00"}."""
+    return {m.group(2) for m in _LDA_DOT_ROOM_RE.finditer(desig)}
+
+
+def _lda_dot_room_numbers_ordered(desig: str) -> list[str]:
+    """Wie `_lda_dot_room_numbers`, aber als Liste in Vorkommensreihenfolge
+    (ohne Duplikate) -- für die Gruppen-Namensbildung, bei der die
+    Reihenfolge der '+'-verknüpften Raum-Codes erhalten bleiben soll."""
+    seen: list[str] = []
+    for m in _LDA_DOT_ROOM_RE.finditer(desig):
+        nr = m.group(2)
+        if nr not in seen:
+            seen.append(nr)
+    return seen
+
+
+# Funktions-Suffix (Kleinschreibung) → GROSSGESCHRIEBENE Funktionsbezeichnung,
+# wie sie _derive_groups_from_import()/_derive_evgs_from_import() für die
+# NamingEngine-Konvention erwarten. Enthält bewusst auch "wert"/"rmwert"
+# (anders als _LDA_DOT_SUFFIX_TO_FUNC oben) -- hier wird der Sollwert-/
+# Rückmelde-Kanal einer DALI-Gruppe zugeordnet, keine der fünf
+# DaliGateway-Zielgrößen aus find_lda_ga().
+_LDA_DOT_SUFFIX_TO_GROUP_FUNC = {
+    "ea": "E/A",
+    "dim": "DIM",
+    "wert": "WERT",
+    "rmwert": "RM WERT",
+    "helligkeitswert": "HELLIGKEITSWERT",
+}
+
+
+def _parse_lda_designation_for_grouping(desig: str) -> tuple[str, str] | None:
+    """Liefert (Gruppen-Schlüssel, FUNKTION) aus einer LDA-GA-Bezeichnung,
+    für beide bekannten Namenskonventionen (siehe `_LDA_PREFIX_RE` und
+    `_LDA_DOT_RE`/`_lda_dot_key` oben). Der Schlüssel ist für beide
+    Konventionen ein String (bei der NamingEngine-Konvention "{room_nr}_
+    {elem_nr}"), damit `sorted()` auf der gemischten Gruppenliste nicht mit
+    einem TypeError (Tupel vs. String) abbricht. None, wenn `desig` keiner
+    der beiden Konventionen folgt.
+    """
+    m = _LDA_PREFIX_RE.match(desig)
+    if m:
+        return f"{m.group(1)}_{m.group(2)}", m.group(3).strip().upper()
+
+    key = _lda_dot_key(desig)
+    if not key:
+        return None
+    base = desig.split("(", 1)[0].strip()
+    m2 = _LDA_DOT_SUFFIX_RE.search(base)
+    if not m2:
+        return None
+    func = _LDA_DOT_SUFFIX_TO_GROUP_FUNC.get(m2.group(1).lower())
+    return (key, func) if func else None
+
+
+def _group_name_for_key(key: str, room_index: dict[str, str]) -> str:
+    """Menschenlesbarer Gruppenname aus dem Schlüssel von
+    `_parse_lda_designation_for_grouping()`, für beide Konventionen."""
+    if _LDA_DOT_RE.match(key):
+        names: list[str] = []
+        for room_nr in _lda_dot_room_numbers_ordered(key):
+            name = room_index.get(room_nr, f"Raum {room_nr}")
+            if name not in names:
+                names.append(name)
+        return " + ".join(names) if names else key
+    if "_" in key:
+        room_nr, elem_nr = key.rsplit("_", 1)
+        room_name = room_index.get(room_nr, f"Raum {room_nr}")
+        return room_name if elem_nr == "01" else f"{room_name} {elem_nr}"
+    return key
+
+
+def _lda_primary_room_and_elem(desig: str) -> tuple[str, str]:
+    """Liefert (room_nr, elem_nr) einer LDA-GA für beide Namenskonventionen
+    -- für Anzeige-/Zuordnungszwecke (EVG-Name, Raumzuordnung in
+    `_derive_evgs_from_import`). Bei der Importkonvention mit mehreren
+    '+'-verknüpften Raum-Codes wird der erste genommen (ein EVG sitzt
+    physisch in genau einem Raum, auch wenn seine Broadcast-GA mehrere
+    Räume gemeinsam schaltet); elem_nr bleibt dort leer, da es dort keine
+    projektweit eindeutige Elementnummer über mehrere Räume hinweg gibt.
+    ("", "") wenn `desig` keiner der beiden Konventionen folgt.
+    """
+    m = _LDA_PREFIX_RE.match(desig)
+    if m:
+        return m.group(1), m.group(2)
+    if _LDA_DOT_RE.match(desig):
+        room_nrs = _lda_dot_room_numbers_ordered(desig)
+        if room_nrs:
+            return room_nrs[0], ""
+    return "", ""
+
+
+def _lda_dot_key(desig: str) -> str:
+    """Gibt den Bezeichnungs-Präfix vor dem Funktions-Suffix zurück, z.B.
+    "LDA.OG.00.02+LDA.OG.00.01_ea" -> "LDA.OG.00.02+LDA.OG.00.01". Eindeutig
+    pro Broadcast-Ziel (Kombination von Raum-Codes), unabhängig von der
+    jeweiligen Funktions-GA -- Pendant zum (room_nr, elem_nr)-Schlüssel der
+    NamingEngine-Konvention, nur als String statt als Tupel (muss mit dessen
+    Schlüsseln sortierbar bleiben, siehe `_derive_groups_from_import`).
+    Leerstring, wenn `desig` nicht der Importkonvention folgt.
+    """
+    if not _LDA_DOT_RE.match(desig):
+        return ""
+    base = desig.split("(", 1)[0].strip()
+    m = _LDA_DOT_SUFFIX_RE.search(base)
+    if not m:
+        return ""
+    return base[: m.start()]
 
 # KO-Name-Pattern für Gruppen/Kanäle:
 #   Deutsch: "Gruppe 3 Schalten", "Kanal 2 Dimmen relativ"
@@ -125,29 +278,42 @@ class DaliService:
         # ── Schritt 2: LDA-GAs nach Namenskonvention suchen ──────────────────
         # Filtert optional auf Räume der Gateway-Linie (wenn bekannt)
         def find_lda_ga(suffix: str, exclude_suffix: str = "") -> str:
-            # Sucht LDA_xxx_xx <suffix> [optionaler Kommentar]
+            # Sucht LDA-GAs nach beiden bekannten Namenskonventionen (siehe
+            # _LDA_PREFIX_RE / _LDA_DOT_RE oben):
+            #   NamingEngine: "LDA_xxx_xx <suffix> [optionaler Kommentar]"
+            #   XLSX-Import:  "LDA.xxx.xx.yy[+...]_<suffix> [(Kommentar)]"
             # suffix z.B. " E/A", " DIM", " RM WERT", " RM"
             suffix_lc = suffix.strip().lower()
             excl_lc = exclude_suffix.strip().lower()
             candidates = []
             for ga in all_gas:
                 desig = (ga.designation or "").strip()
-                if not desig.upper().startswith("LDA_"):
-                    continue
                 if not _GA_RE.match(ga.address or ""):
                     continue
-                # Funktions-Teil: alles nach "LDA_xxx_xx "
-                parts = desig.split(" ", 1)
-                if len(parts) < 2:
-                    continue
-                func_lc = parts[1].lower()
+
+                func_lc = ""
+                room_nrs: set[str] = set()
+                if desig.upper().startswith("LDA_"):
+                    # Funktions-Teil: alles nach "LDA_xxx_xx "
+                    parts = desig.split(" ", 1)
+                    if len(parts) < 2:
+                        continue
+                    func_lc = parts[1].lower()
+                    room_nr = desig.split("_")[1] if "_" in desig else ""
+                    if room_nr:
+                        room_nrs = {room_nr}
+                else:
+                    func_lc = _lda_dot_convention_func(desig)
+                    if not func_lc:
+                        continue
+                    room_nrs = _lda_dot_room_numbers(desig)
+
                 # func_lc ist z.B. "e/a (garage)" oder "dim" oder "rm wert"
                 if not (func_lc == suffix_lc or func_lc.startswith(suffix_lc + " ")):
                     continue
                 if excl_lc and (func_lc == excl_lc or func_lc.startswith(excl_lc + " ")):
                     continue
-                room_nr = desig.split("_")[1] if "_" in desig else ""
-                priority = 0 if room_nr in room_numbers else 1
+                priority = 0 if room_nrs & room_numbers else 1
                 candidates.append((priority, ga.address))
             if candidates:
                 return sorted(candidates)[0][1]
@@ -353,10 +519,13 @@ class DaliService:
         """
         Leitet DALI-Gruppen aus dem importierten Gerät ab.
 
-        Strategie 1 – LDA-GAs (KNX-Arranger-Namenskonvention):
-          Alle GAs mit Bezeichnung 'LDA_xxx_xx FUNKTION' werden nach
-          (room_nr, elem_nr) gruppiert. Jede eindeutige Kombination ergibt
-          eine DALI-Gruppe mit ga_switch (E/A) und ga_dim (DIM).
+        Strategie 1 – LDA-GAs (beide Namenskonventionen, siehe
+          `_parse_lda_designation_for_grouping`): NamingEngine
+          ('LDA_xxx_xx FUNKTION') oder ETS6-XLSX-Importkonvention
+          ('LDA.Stockwerk.Raum.Elem[+...]_funktion'). Alle GAs werden nach
+          ihrem Gruppen-Schlüssel gruppiert (Raum+Element bzw. die exakte
+          Raum-Code-Kombination); jede eindeutige Kombination ergibt eine
+          DALI-Gruppe mit ga_switch (E/A) und ga_dim (DIM).
 
         Strategie 2 – KO-Namen (ETS6-Import ohne LDA-Konvention):
           KO-Namen des Gateway-Devices werden auf
@@ -378,16 +547,15 @@ class DaliService:
             connected_gas.update(co.connected_gas)
 
         # LDA-GAs aus connected_gas parsen
-        lda_groups: dict[tuple, dict] = {}  # (room_nr, elem_nr) → {switch, dim, value, name}
+        lda_groups: dict[str, dict] = {}  # Gruppen-Schlüssel → {switch, dim, value, name}
         for ga_addr in connected_gas:
             ga = ga_by_addr.get(ga_addr)
             if not ga or not ga.designation:
                 continue
-            m = _LDA_PREFIX_RE.match(ga.designation.strip())
-            if not m:
+            parsed = _parse_lda_designation_for_grouping(ga.designation.strip())
+            if not parsed:
                 continue
-            key = (m.group(1), m.group(2))
-            func = m.group(3).strip().upper()
+            key, func = parsed
             if key not in lda_groups:
                 lda_groups[key] = {"switch": "", "dim": "", "value": "", "name": ""}
             if func in ("E/A", "SCHALTEN", "SWITCH"):
@@ -402,11 +570,10 @@ class DaliService:
             for ga in project.group_addresses.all_addresses():
                 if not ga.designation:
                     continue
-                m = _LDA_PREFIX_RE.match(ga.designation.strip())
-                if not m:
+                parsed = _parse_lda_designation_for_grouping(ga.designation.strip())
+                if not parsed:
                     continue
-                key = (m.group(1), m.group(2))
-                func = m.group(3).strip().upper()
+                key, func = parsed
                 if key not in lda_groups:
                     lda_groups[key] = {"switch": "", "dim": "", "value": "", "name": ""}
                 if func in ("E/A", "SCHALTEN", "SWITCH"):
@@ -419,9 +586,8 @@ class DaliService:
         if lda_groups:
             # Räume für Namensgebung
             room_index = {r.number: r.name for r in project.all_rooms}
-            for grp_nr, ((room_nr, elem_nr), info) in enumerate(sorted(lda_groups.items())):
-                room_name = room_index.get(room_nr, f"Raum {room_nr}")
-                grp_name = f"{room_name}" if elem_nr == "01" else f"{room_name} {elem_nr}"
+            for grp_nr, (key, info) in enumerate(sorted(lda_groups.items())):
+                grp_name = _group_name_for_key(key, room_index)
                 grp = DaliGroup(
                     number=grp_nr,
                     name=grp_name,
@@ -540,26 +706,24 @@ class DaliService:
             elif any(k in func_raw for k in ("wert", "value", "helligkeit")):
                 evg_data[short_addr]["value"] = ga_addr
 
-            # Raum aus GA-Bezeichnung ableiten (LDA_xxx_xx → room_nr)
+            # Raum aus GA-Bezeichnung ableiten (beide Namenskonventionen,
+            # siehe _lda_primary_room_and_elem)
             if not evg_data[short_addr]["room_id"]:
                 ga_obj = ga_by_addr.get(ga_addr)
                 if ga_obj and ga_obj.designation:
-                    lda_m = _LDA_PREFIX_RE.match(ga_obj.designation.strip())
-                    if lda_m:
-                        room_nr = lda_m.group(1)
+                    room_nr, _elem_nr = _lda_primary_room_and_elem(ga_obj.designation.strip())
+                    if room_nr:
                         evg_data[short_addr]["room_id"] = room_id_by_nr.get(room_nr, "")
 
             # Name aus Raumname + Element-Nr. ableiten
             if not evg_data[short_addr]["name"]:
                 ga_obj = ga_by_addr.get(ga_addr)
                 if ga_obj and ga_obj.designation:
-                    lda_m = _LDA_PREFIX_RE.match(ga_obj.designation.strip())
-                    if lda_m:
-                        room_nr = lda_m.group(1)
-                        elem_nr = lda_m.group(2)
+                    room_nr, elem_nr = _lda_primary_room_and_elem(ga_obj.designation.strip())
+                    if room_nr:
                         room_name = room_name_by_nr.get(room_nr, f"Raum {room_nr}")
                         evg_data[short_addr]["name"] = (
-                            room_name if elem_nr == "01"
+                            room_name if not elem_nr or elem_nr == "01"
                             else f"{room_name} {elem_nr}"
                         )
 

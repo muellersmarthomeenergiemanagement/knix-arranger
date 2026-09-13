@@ -9,6 +9,7 @@ from ..models.building import Room, GewerkAssignment, Areal
 from ..models.gewerk import GewerkCatalog, Gewerk
 from ..models.group_address import GroupAddressStructure
 from ..models.topology import Topology
+from .naming_engine import NamingEngine
 
 logger = logging.getLogger("knix_arranger.gewerk_service")
 
@@ -264,6 +265,158 @@ class GewerkService:
                 })
         return summary
 
+    @staticmethod
+    def _build_room_index(areal: Areal) -> dict[tuple[str, str], Room]:
+        """Baut (floor_code, room_nr) -> Room über die gesamte Gebäudestruktur."""
+        room_index: dict[tuple[str, str], Room] = {}
+        for building in areal.buildings:
+            for wing in building.wings:
+                for floor in wing.floors:
+                    for apartment in floor.apartments:
+                        for room in apartment.rooms:
+                            room_index[(floor.short_code, room.number)] = room
+        return room_index
+
+    @staticmethod
+    def _match_ga_designation(
+        designation: str,
+    ) -> tuple[str, str, str, str, bool] | None:
+        """Matched eine GA-Bezeichnung gegen die GEWERK.STOCKWERK.RAUM.ELEM[_suffix]-
+        Konvention (beide Regex-Varianten, siehe _GA_DESIGNATOR_RE /
+        _GA_DIGIT_DESIGNATOR_RE). Gibt (code, floor_code, room_nr, elem_nr,
+        is_combined) zurück, oder None wenn kein Muster passt. is_combined=True
+        bei kombinierter/Bereichs-Adressierung (z.B. "L.OG.05.02+04_ea") -- die
+        Elem-Nr. ist dann nicht eindeutig einem einzelnen Element zuordenbar."""
+        m = _GA_DESIGNATOR_RE.match(designation)
+        if m:
+            code, floor_code, room_nr, elem_nr = (
+                m.group(1), m.group(2), m.group(3), m.group(4)
+            )
+        else:
+            m = _GA_DIGIT_DESIGNATOR_RE.match(designation)
+            if not m:
+                return None
+            code = m.group(1)
+            floor_code = f"D{m.group(2)}"
+            room_nr, elem_nr = m.group(3), m.group(4)
+        is_combined = bool(_COMBINED_TAIL_RE.match(designation[m.end():]))
+        return code, floor_code, room_nr, elem_nr, is_combined
+
+    def _resolve_room_for_designation(
+        self, designation: str,
+        room_by_number: dict[str, Room],
+        room_by_floor_room: dict[tuple[str, str], Room],
+    ) -> tuple[Room, str] | None:
+        """Löst eine GA-Bezeichnung zu (Room, gewerk_code) auf -- probiert erst
+        die native KNiX-Konvention (NamingEngine: "GEWERK_RAUMNUMMER_NR ...",
+        Raumnummer enthält bereits das Stockwerk, z.B. "E05"), dann als
+        Fallback die externe/ETS-Punkt-Konvention ("GEWERK.STOCKWERK.RAUM.ELEM",
+        siehe _match_ga_designation) für Bezeichnungen aus fremd-erzeugten
+        ETS-Projekten. Gibt None wenn nichts passt oder der Gewerk-Code
+        unbekannt/die Adressierung mehrdeutig ist."""
+        parsed = NamingEngine.parse_designation(designation)
+        code = parsed["gewerk_code"]
+        room_nr = parsed["room_number"]
+        if code and room_nr and room_nr in room_by_number:
+            return room_by_number[room_nr], code
+
+        matched = self._match_ga_designation(designation)
+        if matched is None:
+            return None
+        code, floor_code, room_nr, _elem_nr, is_combined = matched
+        if is_combined:
+            return None
+        room = room_by_floor_room.get((floor_code, room_nr))
+        if room is None:
+            return None
+        return room, code
+
+    def relink_assignment_ids(
+        self, ga_structure: GroupAddressStructure, areal: Areal,
+    ) -> int:
+        """Verknüpft importierte GroupAddress-Objekte ohne assignment_id mit der
+        passenden (ggf. per Reimport erhaltenen) GewerkAssignment, damit
+        AddressGenerator._index_existing_hg sie bei der nächsten Neugenerierung
+        wiedererkennt statt Duplikat-Blöcke zu erzeugen (FA-521e).
+
+        Muss NACH project_reconcile_service.reconcile_reimport() aufgerufen
+        werden, wenn room.gewerk_assignments den finalen (ggf. reimportierten)
+        Stand hat. Erzeugt keine neuen Zuweisungen (siehe dazu
+        derive_gewerk_assignments) -- nur Verknüpfung. Bereits gesetzte
+        assignment_ids werden nie überschrieben.
+
+        Returns:
+            Anzahl der neu verknüpften GroupAddress-Objekte.
+        """
+        room_by_number = {r.number: r for r in areal.all_rooms if r.number}
+        room_by_floor_room = self._build_room_index(areal)
+        if not room_by_number and not room_by_floor_room:
+            return 0
+        relinked = 0
+        for ga in ga_structure.all_addresses():
+            if ga.assignment_id:
+                continue
+            designation = ga.designation or ""
+            if not designation or ga.main_group == 0:
+                continue
+            resolved = self._resolve_room_for_designation(
+                designation, room_by_number, room_by_floor_room,
+            )
+            if resolved is None:
+                continue
+            room, code = resolved
+            if not self.catalog.get(code):
+                continue
+            assignment = next(
+                (a for a in room.gewerk_assignments if a.gewerk_code == code), None
+            )
+            if assignment is None:
+                continue
+            ga.assignment_id = assignment.id
+            relinked += 1
+
+        # Reserve-/Platzhalter-Eintraege ("--") tragen keinen auswertbaren
+        # Inhalt und werden von der Schleife oben nie erkannt, gehoeren aber
+        # zum selben Block wie ihre Nachbarn -- ueber Position statt Inhalt
+        # nachtraeglich verknuepfen.
+        relinked += self._relink_sandwiched_gaps(ga_structure)
+
+        if relinked:
+            logger.info(f"relink_assignment_ids: {relinked} GAs verknüpft.")
+        return relinked
+
+    @staticmethod
+    def _relink_sandwiched_gaps(ga_structure: GroupAddressStructure) -> int:
+        """Verknüpft GAs ohne assignment_id (typischerweise Reserve-Platzhalter
+        ohne eigenen Inhalt), die innerhalb einer Mittelgruppe direkt zwischen
+        zwei bereits verknüpften Einträgen mit identischer assignment_id
+        liegen -- diese lassen sich nicht aus ihrer eigenen Bezeichnung
+        ableiten, sind aber eindeutig demselben Block zugehörig, wenn sie auf
+        beiden Seiten von genau dieser einen Zuweisung eingerahmt werden.
+        Randlücken ohne beidseitigen Nachbarn bleiben bewusst unverknüpft."""
+        relinked = 0
+        for hg in ga_structure.main_groups:
+            for mg in hg.middle_groups:
+                gas = sorted(mg.group_addresses, key=lambda g: g.sub_group)
+                n = len(gas)
+                i = 0
+                while i < n:
+                    if gas[i].assignment_id:
+                        i += 1
+                        continue
+                    start = i
+                    while i < n and not gas[i].assignment_id:
+                        i += 1
+                    if start == 0 or i == n:
+                        continue
+                    before_id = gas[start - 1].assignment_id
+                    after_id = gas[i].assignment_id
+                    if before_id and before_id == after_id:
+                        for j in range(start, i):
+                            gas[j].assignment_id = before_id
+                            relinked += 1
+        return relinked
+
     def derive_gewerk_assignments(
         self,
         ga_structure: GroupAddressStructure,
@@ -305,15 +458,7 @@ class GewerkService:
         self.last_central_addresses: list[str] = []
         self.last_ambiguous_designations: list[str] = []
 
-        # Raum-Index aufbauen: (floor_code, room_nr) -> Room
-        room_index: dict[tuple[str, str], Room] = {}
-        for building in areal.buildings:
-            for wing in building.wings:
-                for floor in wing.floors:
-                    for apartment in floor.apartments:
-                        for room in apartment.rooms:
-                            room_index[(floor.short_code, room.number)] = room
-
+        room_index = self._build_room_index(areal)
         if not room_index:
             logger.warning("derive_gewerk_assignments: Keine Räume in Gebäudestruktur.")
             return 0
@@ -331,20 +476,12 @@ class GewerkService:
                 self.last_central_addresses.append(f"{ga.address}  {designation}")
                 continue
 
-            m = _GA_DESIGNATOR_RE.match(designation)
-            if m:
-                code, floor_code, room_nr, elem_nr = (
-                    m.group(1), m.group(2), m.group(3), m.group(4)
-                )
-            else:
-                m = _GA_DIGIT_DESIGNATOR_RE.match(designation)
-                if not m:
-                    continue
-                code = m.group(1)
-                floor_code = f"D{m.group(2)}"
-                room_nr, elem_nr = m.group(3), m.group(4)
+            matched = self._match_ga_designation(designation)
+            if matched is None:
+                continue
+            code, floor_code, room_nr, elem_nr, is_combined = matched
 
-            if _COMBINED_TAIL_RE.match(designation[m.end():]):
+            if is_combined:
                 self.last_ambiguous_designations.append(f"{ga.address}  {designation}")
                 continue
 

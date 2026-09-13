@@ -60,13 +60,27 @@ class AddressTableView(QWidget):
         self._table.setSortingEnabled(True)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self._table.horizontalHeader().setStretchLastSection(True)
+        # KEIN setStretchLastSection: erzwingt sonst eine volle Breite der
+        # letzten Spalte unabhängig vom Inhalt und widerspricht damit der
+        # inhaltsbasierten Breite aus fit_columns(..., stretch_to_fit=False).
         self._table.setAlternatingRowColors(True)
         self._table.cellClicked.connect(self._on_cell_clicked)
         self._table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self._table)
+
+    def showEvent(self, event):
+        """Spaltenbreiten neu berechnen, wenn diese Ansicht sichtbar wird.
+
+        set_structure() läuft oft, während dieser Tab noch gar nicht sichtbar
+        ist -- main_window.py hält alle Ansichten dauerhaft in einem
+        QStackedWidget vor, statt sie neu zu erzeugen. resizeColumnToContents()
+        (in fit_columns()) liefert auf einem verborgenen Widget teils falsche
+        (zu schmale) Breiten. Beim ersten Einblenden hier korrekt nachziehen.
+        """
+        super().showEvent(event)
+        fit_columns(self._table, stretch_to_fit=False)
 
     def set_bus(self, bus):
         """Verbindet die View mit dem zentralen ProjectBus."""
@@ -103,7 +117,7 @@ class AddressTableView(QWidget):
                 self._table.setItem(row, col, item)
 
         self._table.setSortingEnabled(True)
-        fit_columns(self._table)
+        fit_columns(self._table, stretch_to_fit=False)
         self._info_label.setText(f"{len(addresses)} Gruppenadressen")
 
     def _find_ga_for_row(self, row: int) -> GroupAddress | None:

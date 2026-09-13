@@ -352,7 +352,7 @@ class BauherrFormView(QWidget):
         if not self._project:
             return
         for room in self._project.all_rooms:
-            if not room.bedienelemente:
+            if not any(not be.suppressed for be in room.bedienelemente):
                 continue
             item = QListWidgetItem(f"{room.number}  {room.name}")
             item.setData(Qt.UserRole, room)
@@ -383,6 +383,8 @@ class BauherrFormView(QWidget):
 
         # Taster-Widgets aufbauen
         for be in room.bedienelemente:
+            if be.suppressed:
+                continue
             taster = _TasterWidget(be, self._service)
             taster.changed.connect(self.project_changed)
             taster.notes_changed.connect(self.notes_changed)

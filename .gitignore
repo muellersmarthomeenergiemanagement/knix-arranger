@@ -40,6 +40,7 @@ version_info.txt
 *.xlsx
 *.pdf
 *.docx
+*.zpro
 nul
 nuitka-crash-report.xml
 

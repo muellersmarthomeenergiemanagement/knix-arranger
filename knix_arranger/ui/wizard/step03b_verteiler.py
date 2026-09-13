@@ -6,11 +6,12 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget,
     QTreeWidgetItem, QTreeWidgetItemIterator, QPushButton,
     QLineEdit, QFormLayout, QGroupBox, QComboBox, QListWidget,
-    QListWidgetItem, QSplitter, QMessageBox,
+    QListWidgetItem, QSplitter, QMessageBox, QInputDialog,
 )
 from PySide6.QtCore import Qt
 from ...models.project import KnxProject
 from ...models.building import Room, Verteiler
+from ...services.xlsx_import_service import XlsxImportService
 from ..column_utils import fit_columns
 
 
@@ -24,6 +25,7 @@ class Step03bVerteiler(QWidget):
         super().__init__(parent)
         self._project = project
         self._selected_room: Room | None = None
+        self._selected_room_floor_code: str = ""
         self._selected_vt: Verteiler | None = None
 
         layout = QVBoxLayout(self)
@@ -46,6 +48,19 @@ class Step03bVerteiler(QWidget):
         self._room_tree.setHeaderLabels(["Raum", "Nr."])
         self._room_tree.currentItemChanged.connect(self._on_room_selected)
         left_layout.addWidget(self._room_tree)
+
+        self._btn_move_to_room = QPushButton("Diesen Verteiler-Platzhalter einem Raum zuordnen…")
+        self._btn_move_to_room.setToolTip(
+            "Für aus dem Import abgeleitete Verteiler ohne bekannten Standort "
+            "(z.B. 'HV', 'UV2') -- ordnet ihn und alle darin montierten "
+            "Geräte dem tatsächlichen Raum zu. Bleibt bei künftigen "
+            "Re-Importen erhalten."
+        )
+        self._btn_move_to_room.setEnabled(False)
+        self._btn_move_to_room.setVisible(False)
+        self._btn_move_to_room.clicked.connect(self._move_verteiler_to_room)
+        left_layout.addWidget(self._btn_move_to_room)
+
         splitter.addWidget(left)
 
         # --- Rechte Seite: Verteiler-Liste + Editor ---
@@ -108,7 +123,10 @@ class Step03bVerteiler(QWidget):
 
     def on_enter(self):
         self._selected_room = None
+        self._selected_room_floor_code = ""
         self._selected_vt = None
+        self._btn_move_to_room.setVisible(False)
+        self._btn_move_to_room.setEnabled(False)
         self._refresh_room_tree()
         self._refresh_vt_list()
         self._update_editor()
@@ -137,17 +155,27 @@ class Step03bVerteiler(QWidget):
                     room_item = QTreeWidgetItem(apt_item, [
                         room.name + vt_hint, room.number,
                     ])
-                    room_item.setData(0, Qt.UserRole, room)
+                    room_item.setData(0, Qt.UserRole, (floor.short_code, room))
 
         fit_columns(self._room_tree)
 
+    @staticmethod
+    def _is_verteiler_pseudo_room(room: Room | None) -> bool:
+        """True für einen aus dem Einbauort abgeleiteten Verteiler-Platzhalter
+        ohne echten Standort (XlsxImportService.create_verteiler_rooms):
+        keine Raumnummer, aber mindestens ein Verteiler-Objekt."""
+        return bool(room) and not room.number and bool(room.verteiler)
+
     def _on_room_selected(self, current, _previous):
         if current:
-            self._selected_room = current.data(0, Qt.UserRole)
+            self._selected_room_floor_code, self._selected_room = current.data(0, Qt.UserRole)
         else:
-            self._selected_room = None
+            self._selected_room_floor_code, self._selected_room = "", None
         self._selected_vt = None
         self._btn_add_vt.setEnabled(self._selected_room is not None)
+        is_pseudo = self._is_verteiler_pseudo_room(self._selected_room)
+        self._btn_move_to_room.setVisible(is_pseudo)
+        self._btn_move_to_room.setEnabled(is_pseudo)
         self._refresh_vt_list()
         self._update_editor()
 
@@ -194,6 +222,82 @@ class Step03bVerteiler(QWidget):
                 self._vt_list.setCurrentRow(i)
                 break
         self._update_editor()
+
+    def _move_verteiler_to_room(self):
+        """Ordnet den ausgewählten Verteiler-Platzhalter (z.B. 'HV  HV') einem
+        echten Raum zu -- verschiebt Verteiler-Objekt(e) und alle darin
+        montierten Geräte (device.room_id / line.assigned_room_ids) dorthin
+        und speichert die Zuordnung für künftige Re-Importe (FA-521b-Folgefix,
+        siehe XlsxImportService.apply_verteiler_room_overrides)."""
+        pseudo_room = self._selected_room
+        if not self._is_verteiler_pseudo_room(pseudo_room):
+            return
+
+        key = XlsxImportService.verteiler_key(pseudo_room.name)
+        if not key:
+            QMessageBox.warning(
+                self, "Verteiler-Typ nicht erkannt",
+                "Der Name dieses Platzhalters lässt keinen Verteiler-Typ "
+                "(HV/UV/NV/TV) erkennen und kann nicht automatisch "
+                "zugeordnet werden.",
+            )
+            return
+
+        candidates: list[tuple[str, str, Room]] = []  # (label, floor_code, room)
+        for floor in self._project.all_floors:
+            for apt in floor.apartments:
+                for room in apt.rooms:
+                    if not room.number or room is pseudo_room:
+                        continue
+                    candidates.append((
+                        f"{floor.short_code} – {room.name} (Nr. {room.number})",
+                        floor.short_code, room,
+                    ))
+        if not candidates:
+            QMessageBox.information(
+                self, "Kein Zielraum verfügbar",
+                "Es sind noch keine echten Räume vorhanden, denen der "
+                "Verteiler zugeordnet werden könnte.",
+            )
+            return
+
+        labels = [c[0] for c in candidates]
+        label, ok = QInputDialog.getItem(
+            self, "Verteiler zuordnen",
+            f"In welchem Raum ist \"{pseudo_room.name.strip()}\" tatsächlich montiert?",
+            labels, 0, False,
+        )
+        if not ok:
+            return
+        _, target_floor_code, target_room = candidates[labels.index(label)]
+
+        importer = XlsxImportService()
+        merged = importer.apply_verteiler_room_overrides(
+            self._project.topology, self._project.areal,
+            {key: [target_floor_code, target_room.number]},
+        )
+        if not merged:
+            QMessageBox.warning(
+                self, "Zuordnung fehlgeschlagen",
+                "Der Verteiler konnte nicht verschoben werden.",
+            )
+            return
+
+        # Für künftige Re-Importe merken (siehe main_window._import_xlsx /
+        # _import_ga_report_xlsx: wendet dies nach create_verteiler_rooms an).
+        self._project.verteiler_room_overrides[key] = [target_floor_code, target_room.number]
+
+        self._selected_room = None
+        self._selected_room_floor_code = ""
+        self._selected_vt = None
+        self._refresh_room_tree()
+        self._refresh_vt_list()
+        self._update_editor()
+        QMessageBox.information(
+            self, "Verteiler zugeordnet",
+            f"\"{pseudo_room.name.strip()}\" wurde {target_room.name} (Nr. {target_room.number}) "
+            "zugeordnet. Diese Zuordnung bleibt bei künftigen Re-Importen erhalten.",
+        )
 
     def _remove_verteiler(self):
         if not self._selected_room or not self._selected_vt:

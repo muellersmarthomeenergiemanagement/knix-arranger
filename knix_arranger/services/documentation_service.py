@@ -656,7 +656,8 @@ class DocumentationService:
         # Pro Raum
         rooms = self.project.all_rooms
         for room in rooms:
-            if not room.gewerk_assignments and not room.bedienelemente:
+            active_bes = [be for be in room.bedienelemente if not be.suppressed]
+            if not room.gewerk_assignments and not active_bes:
                 continue
 
             pdf.add_heading(
@@ -672,9 +673,9 @@ class DocumentationService:
                 pdf.add_paragraph(f"  - {desc} ({ga.count}x)")
 
             # Sensoren / Taster
-            if room.bedienelemente:
+            if active_bes:
                 pdf.add_heading(texts["buttons"], level=3)
-                for sensor in room.bedienelemente:
+                for sensor in active_bes:
                     pn = f" [{sensor.participant_number}]" if sensor.participant_number else ""
                     pdf.add_paragraph(
                         f"  {sensor.element_type}{pn} ({sensor.channels}-Kanal): "
@@ -690,8 +691,7 @@ class DocumentationService:
             # Szenen (FA-2005)
             if include_scenes and hasattr(self.project, 'scenes'):
                 room_scenes = [s for s in self.project.scenes
-                               if s.scope == "room" and
-                               getattr(s, 'room_id', '') == room.id]
+                               if s.scope == "room" and s.scope_id == room.id]
                 if room_scenes:
                     pdf.add_heading(texts["scenes"], level=3)
                     for scene in room_scenes:

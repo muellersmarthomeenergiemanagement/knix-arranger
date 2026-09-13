@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QStackedWidget, QProgressBar, QWidget, QMessageBox,
+    QStackedWidget, QProgressBar, QWidget, QMessageBox, QFrame,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -123,6 +123,17 @@ class WizardController(QDialog):
             btn.clicked.connect(lambda checked, idx=i: self._go_to_step(idx))
             self._step_buttons.append(btn)
             nav.addWidget(btn)
+            # Phasengrenze: Schritte 1-8 (Planung & Kundenofferte) sind
+            # unabhaengig von der GA-Struktur, die erst ab Schritt 9 entsteht.
+            if i == 7:
+                separator = QFrame()
+                separator.setFrameShape(QFrame.VLine)
+                separator.setFrameShadow(QFrame.Sunken)
+                separator.setToolTip(
+                    "Ab hier: Ausführungsplanung (Szenen, Gruppenadressen, "
+                    "Funktionszuordnung, Export)"
+                )
+                nav.addWidget(separator)
 
         nav.addStretch()
 
@@ -141,6 +152,18 @@ class WizardController(QDialog):
 
         layout.addLayout(nav)
 
+        # Phasengrenze erklären (siehe Trenner oben): Schritte 1-8 liefern
+        # eine vollstaendige Geraeteliste fuer die Kundenofferte, unabhaengig
+        # von der GA-Struktur, die erst in Schritten 9-13 entsteht.
+        phase_caption = QLabel(
+            "Schritte 1–8: Planung & Kundenofferte"
+            "  |  "
+            "Schritte 9–13: Ausführung & Export"
+        )
+        phase_caption.setStyleSheet("font-size: 13px; color: #444;")
+        phase_caption.setAlignment(Qt.AlignCenter)
+        layout.addWidget(phase_caption)
+
         # Legende für die Schritt-Button-Farbcodierung (FA-3211): ohne diese
         # Zeile ist die Bedeutung von Grün/Orange/Grau nur per Tooltip
         # (Hover) erschliessbar.
@@ -150,7 +173,7 @@ class WizardController(QDialog):
             f"<span style='color:#C0C0C0;'>&#9679;</span> Leer&nbsp;&nbsp;"
             f"<span style='color:{KNX_DARK_GREEN};'>&#9679;</span> Aktueller Schritt"
         )
-        legend.setStyleSheet("font-size: 11px; color: #666;")
+        legend.setStyleSheet("font-size: 13px; color: #444;")
         legend.setAlignment(Qt.AlignCenter)
         layout.addWidget(legend)
 
@@ -288,10 +311,7 @@ class WizardController(QDialog):
                 n = len(p.all_rooms)
                 return "complete" if n >= 2 else ("partial" if n > 0 else "empty")
             elif step_index == 3:    # Verteiler
-                n = sum(
-                    len(apt.verteiler) if hasattr(apt, "verteiler") else 0
-                    for f in p.all_floors for apt in f.apartments
-                )
+                n = sum(len(r.verteiler) for r in p.all_rooms)
                 return "complete" if n >= 1 else "empty"
             elif step_index == 4:    # Gewerke
                 rooms = p.all_rooms
@@ -306,7 +326,10 @@ class WizardController(QDialog):
                 with_ga = [r for r in rooms if r.gewerk_assignments]
                 if not with_ga:
                     return "empty"
-                with_be = sum(1 for r in with_ga if r.bedienelemente)
+                with_be = sum(
+                    1 for r in with_ga
+                    if any(not be.suppressed for be in r.bedienelemente)
+                )
                 return "complete" if with_be >= len(with_ga) else (
                     "partial" if with_be > 0 else "empty"
                 )
@@ -330,6 +353,7 @@ class WizardController(QDialog):
                     len(be.funktionen)
                     for r in p.all_rooms
                     for be in r.bedienelemente
+                    if not be.suppressed
                 )
                 return "complete" if n >= 1 else "partial"  # optional
             elif step_index == 11:   # Funktionsdefinition
@@ -393,16 +417,16 @@ class WizardController(QDialog):
                 n = len(p.all_rooms)
                 return f"{n} Raum/Räume"
             elif step_index == 3:
-                n = sum(
-                    len(apt.verteiler) if hasattr(apt, "verteiler") else 0
-                    for f in p.all_floors for apt in f.apartments
-                )
+                n = sum(len(r.verteiler) for r in p.all_rooms)
                 return f"{n} Verteilung{'en' if n != 1 else ''}"
             elif step_index == 4:
                 n = sum(len(r.gewerk_assignments) for r in p.all_rooms)
                 return f"{n} Gewerk-Zuweisung{'en' if n != 1 else ''}"
             elif step_index == 5:
-                n = sum(len(r.bedienelemente) for r in p.all_rooms)
+                n = sum(
+                    1 for r in p.all_rooms
+                    for be in r.bedienelemente if not be.suppressed
+                )
                 return f"{n} Gerät{'e' if n != 1 else ''} konfiguriert"
             elif step_index == 6:
                 lines = sum(len(a.lines) for a in p.topology.areas)
@@ -425,6 +449,7 @@ class WizardController(QDialog):
                     len(be.funktionen)
                     for r in p.all_rooms
                     for be in r.bedienelemente
+                    if not be.suppressed
                 )
                 return f"{n} Funktion{'en' if n != 1 else ''} zugewiesen"
             elif step_index == 11:

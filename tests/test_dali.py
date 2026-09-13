@@ -188,6 +188,214 @@ class TestDaliService:
         assert n == 0
 
 
+# ---------------------------------------------------------------------------
+# link_gas_from_structure -- Regression: die LDA-Namenskonvention aus einem
+# ETS6-XLSX-Import ("LDA.OG.00.02_ea", Punkt-getrennt, wie vom Installateur
+# selbst vergeben) wurde nicht erkannt -- nur die KNiX-eigene NamingEngine-
+# Konvention ("LDA_E05_01 E/A", Unterstrich+Leerzeichen, nur bei in KNiX
+# Arranger selbst neu generierten Adressen). Bei importierten Projekten (der
+# haeufigere Fall) verknuepfte der Button "GAs automatisch verknuepfen"
+# dadurch ueberhaupt nichts.
+# ---------------------------------------------------------------------------
+
+def _make_ga_structure(designations: list[str]):
+    from knix_arranger.models.group_address import (
+        GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
+    )
+    structure = GroupAddressStructure()
+    mg = MiddleGroup(number=0, name="DALI")
+    hg = MainGroup(number=0, name="Zentral")
+    hg.middle_groups = [mg]
+    structure.main_groups = [hg]
+    for i, desig in enumerate(designations):
+        mg.group_addresses.append(GroupAddress(
+            main_group=0, middle_group=0, sub_group=i, designation=desig,
+        ))
+    return structure
+
+
+class TestLinkGasFromStructureImportConvention:
+    def setup_method(self):
+        self.svc = DaliService()
+        self.project = KnxProject(name="Test")
+        self.gw = DaliGateway(gateway_device_id="dev-1", name="GW")
+
+    def test_dot_convention_links_switch_and_dim(self):
+        """Realer Fall (Chalet-Projekt): 'LDA.OG.00.02+LDA.OG.00.01_ea' bzw.
+        '..._dim' muessen als E/A- bzw. DIM-Broadcast-GA erkannt werden."""
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.OG.00.02+LDA.OG.00.01_ea",
+            "LDA.OG.00.02+LDA.OG.00.01_dim",
+            "LDA.OG.00.02+LDA.OG.00.01_wert",
+        ])
+
+        n = self.svc.link_gas_from_structure(self.gw, self.project)
+
+        assert self.gw.ga_switch_broadcast == "0/0/0"
+        assert self.gw.ga_dim_broadcast == "0/0/1"
+        assert n >= 2
+
+    def test_dot_convention_links_scene_and_status(self):
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.EG.00.01_szene",
+            "LDA.EG.00.01_rmwert",
+            "LDA.EG.00.01_stoerung",
+        ])
+
+        self.svc.link_gas_from_structure(self.gw, self.project)
+
+        assert self.gw.ga_scene == "0/0/0"
+        assert self.gw.ga_status_value == "0/0/1"
+        assert self.gw.ga_status_fault == "0/0/2"
+
+    def test_dot_convention_ignores_unrelated_wert_only_suffix(self):
+        """'_wert' allein (Sollwert-Kanal, kein Feedback) ist keine der fuenf
+        DaliGateway-Zielgroessen und darf nichts faelschlich belegen."""
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.EG.00.01_wert",
+        ])
+
+        n = self.svc.link_gas_from_structure(self.gw, self.project)
+
+        assert n == 0
+        assert self.gw.ga_switch_broadcast == ""
+        assert self.gw.ga_dim_broadcast == ""
+
+    def test_naming_engine_convention_still_works(self):
+        """Regressionsschutz: die urspruengliche KNiX-eigene Konvention
+        (Unterstrich+Leerzeichen) darf durch die neue Punkt-Erkennung nicht
+        brechen."""
+        self.project.group_addresses = _make_ga_structure([
+            "LDA_E05_01 E/A",
+            "LDA_E05_01 DIM",
+        ])
+
+        self.svc.link_gas_from_structure(self.gw, self.project)
+
+        assert self.gw.ga_switch_broadcast == "0/0/0"
+        assert self.gw.ga_dim_broadcast == "0/0/1"
+
+
+# ---------------------------------------------------------------------------
+# _derive_groups_from_import / _derive_evgs_from_import -- dieselbe
+# Importkonvention ("LDA.OG.00.02_ea") muss auch bei der automatischen
+# Gruppen-/EVG-Ableitung nach Import erkannt werden, nicht nur beim manuellen
+# "GAs automatisch verknüpfen"-Button (link_gas_from_structure).
+# ---------------------------------------------------------------------------
+
+def _make_device_with_kos(phys_addr: str, ga_room_pairs: list[tuple[str, str]]):
+    """Gerät mit einem KO pro (ga_address, ga_address)-Paar, alle auf
+    dieselbe GA-Adresse verweisend (vereinfachtes Setup: die tatsächliche
+    Funktion wird über die GA-Bezeichnung in der GA-Struktur bestimmt, nicht
+    über den KO-Namen)."""
+    from knix_arranger.models.topology import Device, CommunicationObject
+    device = Device(physical_address=phys_addr, device_type="gateway", product="DALI-Gateway")
+    for i, (ga_addr, _label) in enumerate(ga_room_pairs):
+        device.communication_objects.append(CommunicationObject(
+            object_number=i, name=_label, connected_gas=[ga_addr],
+        ))
+    return device
+
+
+class TestDeriveGroupsFromImportDotConvention:
+    def setup_method(self):
+        self.svc = DaliService()
+        self.project = KnxProject(name="Test")
+        self.gw = DaliGateway(gateway_device_id="dev-1", name="GW")
+
+    def test_dot_convention_groups_are_derived(self):
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.OG.00.02_ea",
+            "LDA.OG.00.02_dim",
+            "LDA.OG.00.02_wert",
+            "LDA.EG.01.01_ea",
+            "LDA.EG.01.01_dim",
+        ])
+        device = _make_device_with_kos("1.1.1", [
+            ("0/0/0", "a"), ("0/0/1", "b"), ("0/0/2", "c"),
+            ("0/0/3", "d"), ("0/0/4", "e"),
+        ])
+
+        n = self.svc._derive_groups_from_import(self.gw, device, self.project)
+
+        assert n == 2
+        by_switch = {g.ga_switch: g for g in self.gw.groups if g.ga_switch}
+        assert by_switch["0/0/0"].ga_dim == "0/0/1"
+        assert by_switch["0/0/0"].ga_value == "0/0/2"
+        assert by_switch["0/0/3"].ga_dim == "0/0/4"
+
+    def test_dot_convention_multi_room_broadcast_gets_combined_name(self):
+        """Eine per '+' verbundene Broadcast-GA ('LDA.OG.00.02+LDA.OG.00.01')
+        muss trotzdem als eine Gruppe erkannt werden, mit einem aus beiden
+        Raumnamen zusammengesetzten Namen."""
+        from knix_arranger.models.building import (
+            Areal, Building, Wing, Floor, Apartment, Room,
+        )
+        room1 = Room(number="00", name="Wohnen")
+        room2 = Room(number="01", name="Essen")
+        apt = Apartment(name="OG", rooms=[room1, room2])
+        floor = Floor(name="Obergeschoss", short_code="OG", apartments=[apt])
+        wing = Wing(name="Haupthaus", floors=[floor])
+        building = Building(name="Haus", wings=[wing])
+        self.project.areal = Areal(buildings=[building])
+
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.OG.00.02+LDA.OG.01.01_ea",
+            "LDA.OG.00.02+LDA.OG.01.01_dim",
+        ])
+        device = _make_device_with_kos("1.1.1", [("0/0/0", "a"), ("0/0/1", "b")])
+
+        self.svc._derive_groups_from_import(self.gw, device, self.project)
+
+        assert len(self.gw.groups) == 1
+        assert self.gw.groups[0].name == "Wohnen + Essen"
+
+    def test_naming_engine_convention_groups_still_work(self):
+        """Regressionsschutz: die urspruengliche KNiX-eigene Konvention darf
+        durch die neue Punkt-Erkennung nicht brechen."""
+        self.project.group_addresses = _make_ga_structure([
+            "LDA_00_01 E/A",
+            "LDA_00_01 DIM",
+        ])
+        device = _make_device_with_kos("1.1.1", [("0/0/0", "a"), ("0/0/1", "b")])
+
+        n = self.svc._derive_groups_from_import(self.gw, device, self.project)
+
+        assert n == 1
+        assert self.gw.groups[0].ga_switch == "0/0/0"
+        assert self.gw.groups[0].ga_dim == "0/0/1"
+
+
+class TestDeriveEvgsRoomFromDotConvention:
+    def test_room_and_name_resolved_from_dot_convention(self):
+        from knix_arranger.models.topology import Device, CommunicationObject
+        from knix_arranger.models.building import (
+            Areal, Building, Wing, Floor, Apartment, Room,
+        )
+        room = Room(number="02", name="Küche")
+        apt = Apartment(name="EG", rooms=[room])
+        floor = Floor(name="Erdgeschoss", short_code="EG", apartments=[apt])
+        wing = Wing(name="Haupthaus", floors=[floor])
+        building = Building(name="Haus", wings=[wing])
+
+        svc = DaliService()
+        project = KnxProject(name="Test")
+        project.areal = Areal(buildings=[building])
+        project.group_addresses = _make_ga_structure(["LDA.EG.02.03_ea"])
+
+        device = Device(physical_address="1.1.1", device_type="gateway", product="DALI-Gateway")
+        device.communication_objects.append(CommunicationObject(
+            object_number=0, name="EVG 1 Schalten", connected_gas=["0/0/0"],
+        ))
+
+        gw = DaliGateway(gateway_device_id="dev-1", name="GW")
+        added = svc._derive_evgs_from_import(gw, device, project)
+
+        assert added == 1
+        assert gw.devices[0].room_id == room.id
+        assert gw.devices[0].name == "Küche"
+
+
 # ── Adressbereichs-Validierung ─────────────────────────────────────────────────
 
 class TestDaliAddressRanges:

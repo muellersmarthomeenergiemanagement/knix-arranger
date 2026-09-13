@@ -515,17 +515,19 @@ class BauherrFormService:
                 self._gewerk_label(ga.gewerk_code)
                 for ga in room.gewerk_assignments
             )
+            active_bes = [be for be in room.bedienelemente if not be.suppressed]
             rows.append([
                 room.number,
                 room.name,
-                str(len(room.bedienelemente)),
+                str(len(active_bes)),
                 gewerke or "–",
             ])
         excel.add_table(headers, rows, col_widths=[12, 25, 16, 60])
 
         # ── Pro Raum ein eigenes Blatt ─────────────────────────────────────
         for room in rooms:
-            if not room.bedienelemente:
+            active_bes = [be for be in room.bedienelemente if not be.suppressed]
+            if not active_bes:
                 continue
 
             raw = f"{room.number} {room.name}"
@@ -607,7 +609,7 @@ class BauherrFormService:
             # Leere Slot-Koordinaten sammeln (für DataValidation nach dem Zeichnen)
             empty_refs: list[str] = []
 
-            for be in room.bedienelemente:
+            for be in active_bes:
                 current_row = self._draw_taster_graphic(
                     ws, current_row, col=1, be=be, empty_refs=empty_refs
                 )
@@ -705,6 +707,7 @@ class BauherrFormService:
             if not room:
                 continue
 
+            active_bes = [be for be in room.bedienelemente if not be.suppressed]
             device_idx = -1
 
             for row_cells in ws.iter_rows(min_row=1, values_only=False):
@@ -721,10 +724,10 @@ class BauherrFormService:
 
                     # Taster-Zelle: "T3  Jalousie"
                     m = _T_RE.match(v)
-                    if m and 0 <= device_idx < len(room.bedienelemente):
+                    if m and 0 <= device_idx < len(active_bes):
                         sf_idx = int(m.group(1)) - 1
                         fn_val = m.group(2).strip()
-                        _apply(room.bedienelemente[device_idx], sf_idx, fn_val)
+                        _apply(active_bes[device_idx], sf_idx, fn_val)
 
         wb.close()
         logger.info(f"Bauherr-Formular importiert: {imported_count} Änderungen")

@@ -26,7 +26,7 @@ from knix_arranger.models.topology import Topology, Area, Line
 from knix_arranger.models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
-from knix_arranger.ui.views.linking_matrix_view import LinkingMatrixView
+from knix_arranger.ui.views.linking_matrix_view import LinkingMatrixView, _S_COL
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -222,3 +222,64 @@ class TestDoppelklickEditFlow:
                 mock_msg.assert_called_once()
         # funktionen unveraendert
         assert be.funktionen == [sf]
+
+
+# ---------------------------------------------------------------------------
+# Raum-Filter -- Regression: Raumnummern wiederholen sich pro Stockwerk (z.B.
+# "01" auf UG UND EG, siehe project_reconcile_service). Ein Filter, der nur
+# nach der Raumnummer vergleicht, zeigt beim Auswählen eines Raums faelschlich
+# auch die Zeilen des gleichnummerigen Raums auf einem anderen Stockwerk.
+# ---------------------------------------------------------------------------
+
+class TestRoomFilterDisambiguatesSameNumberAcrossFloors:
+    def _view_with_two_same_numbered_rooms(self) -> LinkingMatrixView:
+        from knix_arranger.services.belegungsplan_service import (
+            BelegungsplanData, SensorRow, ActorRow,
+        )
+
+        sensor_rows = [
+            SensorRow(
+                floor_name="UG", zone_name="Haus", room_number="01", room_name="Technikraum",
+                sensor_type="Sensor", physical_address="1.1.24", taste_label="Alarm",
+                function="Leckage Alarm", ga_designation="", ga_address="0/0/1", dpt="1 bit",
+                gewerk_code="AK",
+            ),
+            SensorRow(
+                floor_name="EG", zone_name="Haus", room_number="01", room_name="Carnotzet",
+                sensor_type="Tastereinheit", physical_address="1.1.41", taste_label="Taste 1",
+                function="Licht schalten", ga_designation="", ga_address="0/0/2", dpt="1 bit",
+                gewerk_code="L",
+            ),
+        ]
+        data = BelegungsplanData(project_name="Test", sensor_rows=sensor_rows, actor_rows=[])
+
+        view = LinkingMatrixView()
+        view._belegungsplan = data
+        view._fill_sensor_tab()
+        view._fill_actor_tab()
+        view._populate_room_filter()
+        return view
+
+    def test_room_filter_entries_carry_number_and_name(self):
+        view = self._view_with_two_same_numbered_rooms()
+        entries = [
+            (view._room_filter.itemText(i), view._room_filter.itemData(i))
+            for i in range(view._room_filter.count())
+        ]
+        assert ("01  Technikraum", ("01", "Technikraum")) in entries
+        assert ("01  Carnotzet", ("01", "Carnotzet")) in entries
+
+    def test_selecting_one_room_hides_the_other_same_numbered_room(self):
+        view = self._view_with_two_same_numbered_rooms()
+        idx = view._room_filter.findText("01  Carnotzet")
+        assert idx >= 0
+        view._room_filter.setCurrentIndex(idx)
+        view._apply_filter()
+
+        tbl = view._sensor_table
+        visible_rooms = [
+            tbl.item(r, _S_COL["Raumname"]).text()
+            for r in range(tbl.rowCount())
+            if not tbl.isRowHidden(r)
+        ]
+        assert visible_rooms == ["Carnotzet"]

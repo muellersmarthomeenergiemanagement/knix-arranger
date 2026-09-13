@@ -529,7 +529,9 @@ class ReportService:
                 # Fix 1: Linien ohne Geräte und ohne Bedienelemente überspringen
                 line_rooms_with_bes = [
                     room_by_id[rid] for rid in line.assigned_room_ids
-                    if rid in room_by_id and room_by_id[rid].bedienelemente
+                    if rid in room_by_id and any(
+                        not be.suppressed for be in room_by_id[rid].bedienelemente
+                    )
                 ]
                 if not line.devices and not line_rooms_with_bes:
                     continue
@@ -650,7 +652,8 @@ class ReportService:
             zone_name  = zone_by_room.get(room.id, "")
             room_label = f"{room.number} {room.name}".strip()
             location   = " / ".join(p for p in [floor_name, zone_name, room_label] if p)
-            for be in sorted(room.bedienelemente, key=_addr_key):
+            active_bes = [be for be in room.bedienelemente if not be.suppressed]
+            for be in sorted(active_bes, key=_addr_key):
                 summary_rows.append([
                     be.participant_number or "-",
                     be.element_type or "Bedienelement",
@@ -666,13 +669,14 @@ class ReportService:
 
         has_any = False
         for room in sorted_rooms:
-            if not room.bedienelemente:
+            active_bes = [be for be in room.bedienelemente if not be.suppressed]
+            if not active_bes:
                 continue
             floor_name = floor_by_room.get(room.id, "")
             zone_name = zone_by_room.get(room.id, "")
             room_label = f"{room.number} {room.name}".strip()
 
-            for be in sorted(room.bedienelemente, key=_addr_key):  # Fix 3: nach Adresse sortieren
+            for be in sorted(active_bes, key=_addr_key):  # Fix 3: nach Adresse sortieren
                 has_any = True
                 device = device_by_addr.get(be.participant_number or "")
 

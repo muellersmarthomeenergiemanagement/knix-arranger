@@ -8,7 +8,7 @@ import subprocess
 import sys
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QStackedWidget,
-    QMenuBar, QMenu, QFileDialog, QMessageBox,
+    QMenuBar, QMenu, QFileDialog, QMessageBox, QProgressDialog, QApplication,
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence
@@ -53,6 +53,7 @@ from .dialogs.project_properties_dialog import ProjectPropertiesDialog
 from .dialogs.update_dialog import UpdateDialog
 from .dialogs.onboarding_tour_dialog import OnboardingTourDialog
 from .dialogs.knxproj_password_dialog import KnxprojPasswordDialog
+from .export_worker import run_import
 
 from ..models.project import KnxProject
 from ..services.building_service import BuildingService
@@ -97,6 +98,8 @@ class MainWindow(QMainWindow):
         self._pending_undo_cmd: ObjectStateCommand | None = None
         self._ga_report_path: str = ""   # Pfad zum zuletzt importierten GA-Report
         self._topology_xlsx_path: str = ""  # Pfad zum zuletzt importierten Topologie-XLSX
+        self._building_report_path: str = ""  # Pfad zum zuletzt importierten Gebäude-Report
+        self._import_worker_ref: list = [None]  # GC-Schutz für laufenden Import-Worker (run_import)
 
         # Auto-Save: 30 Sekunden nach letzter Änderung
         self._autosave_timer = QTimer(self)
@@ -802,14 +805,23 @@ class MainWindow(QMainWindow):
 
     def _import_csv(self, filepath: str):
         """Importiert einen ETS6 GA-Export (CSV)."""
-        importer = CsvImportService()
-        structure = importer.import_csv(filepath)
-        self._project.group_addresses = structure
-        self._update_views()
-        ga_count = len(structure.all_addresses())
-        self._status_bar.set_status(f"CSV importiert: {ga_count} Gruppenadressen.")
-        self._sidebar.select("addresses")
-        self._navigate("addresses")
+        def do_import():
+            importer = CsvImportService()
+            structure = importer.import_csv(filepath)
+            self._project.group_addresses = structure
+            return structure
+
+        def on_success(structure):
+            self._update_views()
+            ga_count = len(structure.all_addresses())
+            self._status_bar.set_status(f"CSV importiert: {ga_count} Gruppenadressen.")
+            self._sidebar.select("addresses")
+            self._navigate("addresses")
+
+        run_import(
+            self, "Gruppenadressen werden importiert…", do_import, on_success,
+            self._import_worker_ref,
+        )
 
     def _warn_if_building_structure_empty(self, areal):
         """Macht sichtbar, wenn aus dem XLSX-Import keine Gebäudestruktur
@@ -835,308 +847,723 @@ class MainWindow(QMainWindow):
             "Wizard (Schritt 2/3/5) nachgetragen werden."
         )
 
+    def _collect_device_locations(self, importer) -> dict | None:
+        """Kombiniert Einbauort-Daten aus GA-Report und Gebäude-Report (je
+        nachdem, was bereits importiert wurde) zu einem gemeinsamen
+        device_locations-Dict für link_rooms_to_lines().
+
+        Der Gebäude-Report hat Vorrang: er bildet die tatsächliche ETS6-
+        Raumzuordnung ab, während die 'Gebäude'-Spalte des GA-Reports
+        dieselbe Information nur als Freitext trägt.
+        """
+        device_locations: dict = {}
+        if self._ga_report_path:
+            try:
+                device_locations.update(
+                    importer.extract_device_locations(self._ga_report_path)
+                )
+            except Exception as e:
+                logger.warning(f"Einbauort-Extraktion (GA-Report) fehlgeschlagen: {e}")
+        if self._building_report_path:
+            try:
+                device_locations.update(
+                    importer.extract_device_locations_from_building_report(
+                        self._building_report_path
+                    )
+                )
+            except Exception as e:
+                logger.warning(f"Einbauort-Extraktion (Gebäude-Report) fehlgeschlagen: {e}")
+        return device_locations or None
+
+    def _apply_button_configuration(self, importer) -> int:
+        """Reichert Device.button_configuration mit der Tastenbelegung aus
+        Topologie- und/oder Gebäude-Report an (rein informativ -- siehe
+        XlsxImportService.extract_button_configuration: keine automatische
+        Gewerk-/Funktionsableitung, nur als lesbare Referenz z.B. per
+        Tooltip). Beide Quellen liefern für dasselbe Gerät i.d.R. denselben
+        Text; falls beide vorhanden sind, hat der Gebäude-Report Vorrang.
+
+        Gibt die Anzahl aktualisierter Geräte zurück.
+        """
+        texts: dict[str, str] = {}
+        if self._topology_xlsx_path:
+            try:
+                texts.update(importer.extract_button_configuration(self._topology_xlsx_path))
+            except Exception as e:
+                logger.warning(f"Tastenbelegung-Extraktion (Topologie) fehlgeschlagen: {e}")
+        if self._building_report_path:
+            try:
+                texts.update(
+                    importer.extract_button_configuration(self._building_report_path)
+                )
+            except Exception as e:
+                logger.warning(f"Tastenbelegung-Extraktion (Gebäude-Report) fehlgeschlagen: {e}")
+        if not texts:
+            return 0
+
+        updated = 0
+        for area in self._project.topology.areas:
+            for line in area.lines:
+                for device in line.devices:
+                    text = texts.get(device.physical_address)
+                    if text and device.button_configuration != text:
+                        device.button_configuration = text
+                        updated += 1
+        return updated
+
+    def _apply_scene_values(self, importer) -> int:
+        """Reichert Device.scene_values mit den konfigurierten Szenen-
+        Schaltwerten aus Topologie- und/oder Gebäude-Report an (FA-1809,
+        siehe XlsxImportService.extract_scene_values). Falls beide Quellen
+        vorhanden sind, hat der Gebäude-Report Vorrang (analog
+        _apply_button_configuration).
+
+        Gibt die Anzahl aktualisierter Geräte zurück.
+        """
+        entries: dict[str, list] = {}
+        if self._topology_xlsx_path:
+            try:
+                entries.update(importer.extract_scene_values(self._topology_xlsx_path))
+            except Exception as e:
+                logger.warning(f"Szenen-Schaltwerte-Extraktion (Topologie) fehlgeschlagen: {e}")
+        if self._building_report_path:
+            try:
+                entries.update(importer.extract_scene_values(self._building_report_path))
+            except Exception as e:
+                logger.warning(f"Szenen-Schaltwerte-Extraktion (Gebäude-Report) fehlgeschlagen: {e}")
+        if not entries:
+            return 0
+
+        updated = 0
+        for area in self._project.topology.areas:
+            for line in area.lines:
+                for device in line.devices:
+                    values = entries.get(device.physical_address)
+                    if values and device.scene_values != values:
+                        device.scene_values = values
+                        updated += 1
+        return updated
+
+    def _apply_scene_triggers(self, importer) -> int:
+        """Reichert Device.scene_triggers mit den konfigurierten Szenen-
+        Ausloesern (Taste -> Szenennummer) aus Topologie- und/oder Gebäude-
+        Report an (FA-1810, siehe XlsxImportService.extract_scene_triggers).
+        Falls beide Quellen vorhanden sind, hat der Gebäude-Report Vorrang
+        (analog _apply_button_configuration).
+
+        Gibt die Anzahl aktualisierter Geräte zurück.
+        """
+        entries: dict[str, list] = {}
+        if self._topology_xlsx_path:
+            try:
+                entries.update(importer.extract_scene_triggers(self._topology_xlsx_path))
+            except Exception as e:
+                logger.warning(f"Szenen-Ausloeser-Extraktion (Topologie) fehlgeschlagen: {e}")
+        if self._building_report_path:
+            try:
+                entries.update(importer.extract_scene_triggers(self._building_report_path))
+            except Exception as e:
+                logger.warning(f"Szenen-Ausloeser-Extraktion (Gebäude-Report) fehlgeschlagen: {e}")
+        if not entries:
+            return 0
+
+        updated = 0
+        for area in self._project.topology.areas:
+            for line in area.lines:
+                for device in line.devices:
+                    triggers = entries.get(device.physical_address)
+                    if triggers and device.scene_triggers != triggers:
+                        device.scene_triggers = triggers
+                        updated += 1
+        return updated
+
     def _import_xlsx(self, filepath: str):
-        """Importiert einen ETS6 Topologie-Report oder GA-Report (XLSX) (FA-511, FA-519b)."""
+        """Importiert einen ETS6 Topologie-Report oder GA-Report (XLSX) (FA-511, FA-519b).
+
+        Die eigentliche Verarbeitung läuft in do_import() im Hintergrund-
+        Thread (run_import) -- deshalb darf do_import() KEINE Qt-Widgets
+        berühren, nur self._project und andere reine Python-Objekte. Alle
+        UI-Aktionen (Dialoge, Statusleiste, Navigation) laufen erst danach
+        in on_success(), zurück im UI-Thread.
+        """
         importer = XlsxImportService()
 
         report_type = importer.detect_report_type(filepath)
         if report_type == "ga_report":
             self._import_ga_report_xlsx(filepath, importer)
             return
+        if report_type == "building_report":
+            self._import_building_report_xlsx(filepath, importer)
+            return
 
-        # Snapshot fürs Re-Import-Abgleich (siehe Ende der Methode): die
-        # Objekte selbst werden unten nur ersetzt, nicht mutiert, daher bleibt
-        # diese Referenz gültig auf dem alten Stand.
-        old_snapshot = KnxProject(name="")
-        old_snapshot.topology = self._project.topology
-        old_snapshot.areal = self._project.areal
+        def do_import():
+            # Snapshot fürs Re-Import-Abgleich (siehe Ende der Methode): die
+            # Objekte selbst werden unten nur ersetzt, nicht mutiert, daher bleibt
+            # diese Referenz gültig auf dem alten Stand.
+            old_snapshot = KnxProject(name="")
+            old_snapshot.topology = self._project.topology
+            old_snapshot.areal = self._project.areal
 
-        topology = importer.import_xlsx(filepath)
-        topology.is_imported = True
-        self._project.topology = topology
-        self._topology_xlsx_path = filepath
+            topology = importer.import_xlsx(filepath)
+            topology.is_imported = True
+            self._project.topology = topology
+            self._topology_xlsx_path = filepath
 
-        # Projektname aus Metadaten uebernehmen, falls noch leer
-        meta = getattr(topology, "metadata", {})
-        if meta.get("project_name") and self._project.name == "Importiertes Projekt":
-            self._project.name = meta["project_name"]
+            # Projektname aus Metadaten uebernehmen, falls noch leer
+            meta = getattr(topology, "metadata", {})
+            if meta.get("project_name") and self._project.name == "Importiertes Projekt":
+                self._project.name = meta["project_name"]
 
-        # Gruppenadressen aus XLSX extrahieren — nur wenn noch kein GA-Report geladen (FA-519)
-        # GA-Report hat Vorrang: er liefert echte Gruppen-Namen und mehr GAs
-        if self._project.group_addresses.source != "ga_report":
-            try:
-                ga_structure = importer.extract_group_addresses(filepath)
-                self._project.group_addresses = ga_structure
-            except Exception as e:
-                logger.warning(f"Gruppenadressen konnten nicht extrahiert werden: {e}")
-
-        # Gebäudestruktur aus GA-Namen ableiten (FA-506 analog). Die bereits
-        # bekannte GA-Struktur wird mitgegeben, damit bei Projekten ohne
-        # Stockwerk-Buchstaben-Konvention die echten Hauptgruppen-Namen
-        # (z.B. "Erdgeschoss") als Stockwerksname uebernommen werden koennen.
-        try:
-            areal = importer.derive_building_structure(
-                filepath, ga_structure=self._project.group_addresses
-            )
-            if meta.get("project_name"):
-                areal.name = meta["project_name"]
-                if areal.buildings:
-                    areal.buildings[0].name = meta["project_name"]
-            self._project.areal = areal
-            self._building_service.assign_main_groups(self._project.areal)
-            self._warn_if_building_structure_empty(areal)
-        except Exception as e:
-            logger.warning(f"Gebäudestruktur konnte nicht abgeleitet werden: {e}")
-
-        # Einbauort-Daten aus GA-Report laden (falls bereits importiert)
-        device_locations = None
-        if self._ga_report_path:
-            try:
-                device_locations = importer.extract_device_locations(self._ga_report_path)
-            except Exception as e:
-                logger.warning(f"Einbauort-Extraktion fehlgeschlagen: {e}")
-
-        # Installations-Hinweise aus dem Topologie-Report laden (FA-519c)
-        device_notes = None
-        try:
-            device_notes = importer.extract_device_notes(filepath)
-        except Exception as e:
-            logger.warning(f"Installations-Hinweise-Extraktion fehlgeschlagen: {e}")
-
-        # Räume mit Topologie-Linien verknüpfen (assigned_room_ids / device.room_id)
-        try:
-            linked = importer.link_rooms_to_lines(
-                self._project.topology,
-                self._project.group_addresses,
-                self._project.areal,
-                device_locations=device_locations,
-                device_notes=device_notes,
-            )
-            logger.info(f"Raum-Linien-Verknüpfung: {linked} Paare hergestellt.")
-        except Exception as e:
-            logger.warning(f"Raum-Linien-Verknüpfung fehlgeschlagen: {e}")
-
-        # Verteiler-Räume (HV/UV/NV/TV) aus Einbauort ableiten (FA-521b) --
-        # Pendant zur DistributionBoard-Erkennung beim .knxproj-Import, für
-        # Projekte, die nur per XLSX importiert werden können (z.B. KNX Secure).
-        try:
-            importer.create_verteiler_rooms(self._project.topology, self._project.areal)
-        except Exception as e:
-            logger.warning(f"Verteiler-Raum-Ableitung fehlgeschlagen: {e}")
-
-        # Bedienelemente aus Topologie ableiten (FA-1404) – setzt participant_number
-        try:
-            KnxprojImportService._create_bedienelemente_from_topology(
-                self._project.topology, self._project.areal
-            )
-        except Exception as e:
-            logger.warning(f"Bedienelemente-Ableitung aus Topologie fehlgeschlagen: {e}")
-
-        # KO-Verbindungen aus GA-Report anreichern (falls bereits importiert)
-        if self._ga_report_path:
-            try:
-                enriched, added = importer.enrich_device_ko_connections(
-                    self._project.topology, self._ga_report_path
-                )
-                if enriched:
-                    logger.info(f"KO-Anreicherung: {enriched} Geräte, {added} neue KOs.")
-            except Exception as e:
-                logger.warning(f"KO-Anreicherung fehlgeschlagen: {e}")
-
-        # Funktionszuordnungen direkt aus KO-GA-Verknüpfungen übernehmen (FA-521c) --
-        # auto_assign_functions() allein bleibt für importierte Projekte leer, siehe
-        # XlsxImportService.backfill_function_assignments-Docstring.
-        try:
-            importer.backfill_function_assignments(
-                self._project.topology, self._project.areal, self._project.group_addresses
-            )
-        except Exception as e:
-            logger.warning(f"Funktionszuordnungs-Backfill fehlgeschlagen: {e}")
-
-        # Gewerk-Zuweisungen aus GA-Bezeichnungen ableiten (FA-519b)
-        self._derive_gewerke_from_gas()
-
-        # GA-Metadaten (Gewerk, Raum) aus Bezeichnung anreichern
-        self._enrich_ga_metadata()
-
-        # DALI-Gateways automatisch konfigurieren (GA-Verknüpfung + Gruppen)
-        self._auto_configure_dali()
-
-        # Re-Import-Abgleich (siehe _import_knxproj): alte IDs + KNiX-
-        # Zusatzdaten anhand physischer Adresse/Raumnummer übernehmen, bevor
-        # der Nutzer die Änderungen zu Gesicht bekommt.
-        reconcile_diff = reconcile_reimport(old_snapshot, self._project)
-        is_reimport = reconcile_diff.devices_matched > 0 or reconcile_diff.rooms_matched > 0
-        self._project.add_changelog_entry(
-            "Re-Import" if is_reimport else "Import",
-            f"{os.path.basename(filepath)}: {reconcile_diff.summary_line()}",
-        )
-        if is_reimport and reconcile_diff.has_removed:
-            QMessageBox.warning(
-                self, "Re-Import: Geräte/Räume nicht mehr gefunden",
-                "Beim Abgleich mit dem bisherigen Projektstand wurden folgende "
-                "Geräte/Räume nicht mehr gefunden. Falls sie in Excel nur "
-                "umbenannt statt gelöscht wurden, sind ihre KNiX-Planungsdaten "
-                "(Gewerk-Zuweisungen, Bedienelemente, Materialliste, ...) jetzt "
-                "verwaist:\n\n" + reconcile_diff.details_text(),
-            )
-        self._warn_if_channel_conflicts()
-
-        self._update_views()
-
-        total_devices = sum(
-            len(line.devices)
-            for area in topology.areas
-            for line in area.lines
-        )
-        kos = sum(
-            len(d.communication_objects)
-            for area in topology.areas
-            for line in area.lines
-            for d in line.devices
-        )
-        total_floors = len(self._project.areal.all_floors)
-        total_rooms = len(self._project.areal.all_rooms)
-        ga_count = len(self._project.group_addresses.all_addresses())
-        ga_source = self._project.group_addresses.source
-        ga_hint = " (GA-Report)" if ga_source == "ga_report" else ""
-        ga_tipp = (
-            " | Tipp: Gruppenadress-Report (XLSX) importieren fuer vollstaendige GA-Daten."
-            if not self._ga_report_path else ""
-        )
-        self._status_bar.set_status(
-            f"Topologie importiert: {len(topology.areas)} Bereiche, "
-            f"{sum(len(a.lines) for a in topology.areas)} Linien, "
-            f"{total_devices} Geraete, {kos} KOs, {ga_count} GAs{ga_hint} | "
-            f"Gebaeude: {total_floors} Stockwerke, {total_rooms} Raeume.{ga_tipp} | "
-            f"{reconcile_diff.summary_line()}."
-        )
-        self._sidebar.select("topology_report")
-        self._navigate("topology_report")
-
-    def _import_ga_report_xlsx(self, filepath: str, importer):
-        """Importiert einen ETS6 Gruppenadress-Report (XLSX) (FA-519b)."""
-        # Snapshot fürs Re-Import-Abgleich (siehe Ende der Methode). Topologie
-        # ändert sich hier nicht, nur ggf. areal (Gebäudestruktur-Re-Ableitung
-        # unten) -- alter Stand bleibt gültig, da nur ersetzt, nicht mutiert.
-        old_snapshot = KnxProject(name="")
-        old_snapshot.topology = self._project.topology
-        old_snapshot.areal = self._project.areal
-
-        self._ga_report_path = filepath
-        ga_structure = importer.import_ga_report(filepath)
-        self._project.group_addresses = ga_structure
-
-        # Falls Topologie bereits geladen: Einbauort + KO-Anreicherung nachziehen
-        if self._project.topology.areas:
-            # Gebäudestruktur erneut ableiten: war die Topologie vor diesem
-            # GA-Report importiert worden, standen die echten Hauptgruppen-
-            # Namen (z.B. "Erdgeschoss") noch nicht zur Verfügung.
-            if self._topology_xlsx_path:
+            # Gruppenadressen aus XLSX extrahieren — nur wenn noch kein GA-Report geladen (FA-519)
+            # GA-Report hat Vorrang: er liefert echte Gruppen-Namen und mehr GAs
+            if self._project.group_addresses.source != "ga_report":
                 try:
-                    areal = importer.derive_building_structure(
-                        self._topology_xlsx_path, ga_structure=ga_structure
+                    ga_structure = importer.extract_group_addresses(filepath)
+                    self._project.group_addresses = ga_structure
+                except Exception as e:
+                    logger.warning(f"Gruppenadressen konnten nicht extrahiert werden: {e}")
+
+            # Gebäudestruktur aus GA-Namen ableiten (FA-506 analog). Die bereits
+            # bekannte GA-Struktur wird mitgegeben, damit bei Projekten ohne
+            # Stockwerk-Buchstaben-Konvention die echten Hauptgruppen-Namen
+            # (z.B. "Erdgeschoss") als Stockwerksname uebernommen werden koennen.
+            warn_empty_areal = None
+            try:
+                # Gebäude-Report hat Vorrang (FA-511b): er liefert die
+                # tatsächliche ETS6-Raumzuordnung statt einer aus GA-Namen
+                # abgeleiteten Vermutung (siehe _collect_device_locations).
+                if self._building_report_path:
+                    areal = importer.derive_building_structure_from_building_report(
+                        self._building_report_path
                     )
-                    if self._project.areal and self._project.areal.name:
-                        areal.name = self._project.areal.name
-                        if areal.buildings and self._project.areal.buildings:
-                            areal.buildings[0].name = self._project.areal.buildings[0].name
-                    self._project.areal = areal
-                    self._building_service.assign_main_groups(self._project.areal)
-                    self._warn_if_building_structure_empty(areal)
-                except Exception as e:
-                    logger.warning(f"Gebäudestruktur-Ableitung nach GA-Import fehlgeschlagen: {e}")
-
-            device_locations = None
-            try:
-                device_locations = importer.extract_device_locations(filepath)
+                else:
+                    areal = importer.derive_building_structure(
+                        filepath, ga_structure=self._project.group_addresses
+                    )
+                if meta.get("project_name"):
+                    areal.name = meta["project_name"]
+                    # Gebäude-Name NICHT mit dem Projektnamen überschreiben (FA-511c):
+                    # building_view.py zeigt areal.name bereits als Wurzelknoten an;
+                    # der Gebäude-Knoten soll seinen eigenen (generischen "Gebäude"
+                    # oder aus dem Gebäude-Report abgeleiteten) Namen behalten, sonst
+                    # stünde derselbe lange Projektname redundant in beiden Zeilen --
+                    # und bei Re-Import nach einem Gebäude-Report würde dessen saubere
+                    # Darstellung dadurch wieder zerstört.
+                self._project.areal = areal
+                self._building_service.assign_main_groups(self._project.areal)
+                warn_empty_areal = areal
             except Exception as e:
-                logger.warning(f"Einbauort-Extraktion fehlgeschlagen: {e}")
+                logger.warning(f"Gebäudestruktur konnte nicht abgeleitet werden: {e}")
 
+            # Einbauort-Daten aus GA-Report und/oder Gebäude-Report laden
+            # (beide optional bereits importiert)
+            device_locations = self._collect_device_locations(importer)
+
+            # Installations-Hinweise aus dem Topologie-Report laden (FA-519c)
             device_notes = None
-            if self._topology_xlsx_path:
-                try:
-                    device_notes = importer.extract_device_notes(self._topology_xlsx_path)
-                except Exception as e:
-                    logger.warning(f"Installations-Hinweise-Extraktion fehlgeschlagen: {e}")
-
             try:
-                importer.link_rooms_to_lines(
-                    self._project.topology,
-                    ga_structure,
-                    self._project.areal,
-                    device_locations=device_locations,
-                    device_notes=device_notes,
-                )
+                device_notes = importer.extract_device_notes(filepath)
             except Exception as e:
-                logger.warning(f"Raum-Linien-Verknüpfung fehlgeschlagen: {e}")
+                logger.warning(f"Installations-Hinweise-Extraktion fehlgeschlagen: {e}")
 
+            # Tastenbelegung als lesbare Referenz laden (rein informativ)
+            self._apply_button_configuration(importer)
+
+            # Szenen-Schaltwerte aus Geräteparametern laden (FA-1809)
+            self._apply_scene_values(importer)
+
+            # Szenen-Ausloeser aus Tastenkonfiguration laden (FA-1810)
+            self._apply_scene_triggers(importer)
+
+            # Verteiler-Räume (HV/UV/NV/TV) aus Einbauort ableiten (FA-521b) --
+            # Pendant zur DistributionBoard-Erkennung beim .knxproj-Import, für
+            # Projekte, die nur per XLSX importiert werden können (z.B. KNX Secure).
+            # Muss VOR link_rooms_to_lines laufen: die dortige physische
+            # Einbauort-Zuordnung braucht die Verteiler-Räume bereits angelegt,
+            # um Geräte im Verteiler dorthin (statt in einen Funktionsraum) zu
+            # verknüpfen (FA-ImportGuard-Folgefix: Aktoren im Verteiler).
             try:
                 importer.create_verteiler_rooms(self._project.topology, self._project.areal)
             except Exception as e:
                 logger.warning(f"Verteiler-Raum-Ableitung fehlgeschlagen: {e}")
 
+            # Zuvor manuell zugeordnete Verteiler (Schritt 3b) wieder in ihren
+            # echten Raum verschieben, bevor create_verteiler_rooms' frischer
+            # Pseudo-Raum den Geräten zugeordnet wird -- sonst würde jeder
+            # Re-Import die manuelle Zuordnung rückgängig machen.
             try:
-                importer.enrich_device_ko_connections(
-                    self._project.topology, filepath
+                importer.apply_verteiler_room_overrides(
+                    self._project.topology, self._project.areal,
+                    self._project.verteiler_room_overrides,
                 )
             except Exception as e:
-                logger.warning(f"KO-Anreicherung fehlgeschlagen: {e}")
+                logger.warning(f"Verteiler-Raum-Zuordnung fehlgeschlagen: {e}")
 
-            # Bedienelemente aus neu verlinkten Devices ableiten (FA-1404)
+            # Räume mit Topologie-Linien verknüpfen (assigned_room_ids / device.room_id)
+            try:
+                linked = importer.link_rooms_to_lines(
+                    self._project.topology,
+                    self._project.group_addresses,
+                    self._project.areal,
+                    device_locations=device_locations,
+                    device_notes=device_notes,
+                )
+                logger.info(f"Raum-Linien-Verknüpfung: {linked} Paare hergestellt.")
+            except Exception as e:
+                logger.warning(f"Raum-Linien-Verknüpfung fehlgeschlagen: {e}")
+
+            # Bedienelemente aus Topologie ableiten (FA-1404) – setzt participant_number
             try:
                 KnxprojImportService._create_bedienelemente_from_topology(
                     self._project.topology, self._project.areal
                 )
             except Exception as e:
-                logger.warning(f"Bedienelemente-Ableitung nach GA-Import fehlgeschlagen: {e}")
+                logger.warning(f"Bedienelemente-Ableitung aus Topologie fehlgeschlagen: {e}")
 
-            # Funktionszuordnungen direkt aus KO-GA-Verknüpfungen übernehmen (FA-521c)
+            # KO-Verbindungen aus GA-Report anreichern (falls bereits importiert)
+            if self._ga_report_path:
+                try:
+                    enriched, added = importer.enrich_device_ko_connections(
+                        self._project.topology, self._ga_report_path
+                    )
+                    if enriched:
+                        logger.info(f"KO-Anreicherung: {enriched} Geräte, {added} neue KOs.")
+                except Exception as e:
+                    logger.warning(f"KO-Anreicherung fehlgeschlagen: {e}")
+
+            # Funktionszuordnungen direkt aus KO-GA-Verknüpfungen übernehmen (FA-521c) --
+            # auto_assign_functions() allein bleibt für importierte Projekte leer, siehe
+            # XlsxImportService.backfill_function_assignments-Docstring.
             try:
                 importer.backfill_function_assignments(
-                    self._project.topology, self._project.areal, ga_structure
+                    self._project.topology, self._project.areal, self._project.group_addresses
                 )
             except Exception as e:
                 logger.warning(f"Funktionszuordnungs-Backfill fehlgeschlagen: {e}")
 
-        # Gewerk-Zuweisungen aus GA-Bezeichnungen ableiten (FA-519b)
-        assigned = self._derive_gewerke_from_gas()
+            # Gewerk-Zuweisungen aus GA-Bezeichnungen ableiten (FA-519b)
+            self._derive_gewerke_from_gas()
 
-        # GA-Metadaten (Gewerk, Raum) aus Bezeichnung anreichern
-        self._enrich_ga_metadata()
+            # GA-Metadaten (Gewerk, Raum) aus Bezeichnung anreichern
+            self._enrich_ga_metadata()
 
-        # DALI-Gateways automatisch konfigurieren (GA-Verknüpfung + Gruppen)
-        self._auto_configure_dali()
+            # DALI-Gateways automatisch konfigurieren (GA-Verknüpfung + Gruppen)
+            self._auto_configure_dali()
 
-        # Re-Import-Abgleich (siehe _import_knxproj): alte IDs + KNiX-
-        # Zusatzdaten anhand physischer Adresse/Raumnummer übernehmen.
-        reconcile_diff = reconcile_reimport(old_snapshot, self._project)
-        is_reimport = reconcile_diff.devices_matched > 0 or reconcile_diff.rooms_matched > 0
-        self._project.add_changelog_entry(
-            "Re-Import" if is_reimport else "Import",
-            f"{os.path.basename(filepath)}: {reconcile_diff.summary_line()}",
-        )
-        if is_reimport and reconcile_diff.has_removed:
-            QMessageBox.warning(
-                self, "Re-Import: Geräte/Räume nicht mehr gefunden",
-                "Beim Abgleich mit dem bisherigen Projektstand wurden folgende "
-                "Geräte/Räume nicht mehr gefunden. Falls sie in Excel nur "
-                "umbenannt statt gelöscht wurden, sind ihre KNiX-Planungsdaten "
-                "(Gewerk-Zuweisungen, Bedienelemente, Materialliste, ...) jetzt "
-                "verwaist:\n\n" + reconcile_diff.details_text(),
+            # Re-Import-Abgleich (siehe _import_knxproj): alte IDs + KNiX-
+            # Zusatzdaten anhand physischer Adresse/Raumnummer übernehmen, bevor
+            # der Nutzer die Änderungen zu Gesicht bekommt.
+            reconcile_diff = reconcile_reimport(old_snapshot, self._project)
+            is_reimport = reconcile_diff.devices_matched > 0 or reconcile_diff.rooms_matched > 0
+            # GAs, die durch den Abgleich wieder zu einer bestehenden Gewerk-Zuweisung
+            # gehören, mit deren assignment_id verknüpfen (verhindert Duplikat-Blöcke
+            # bei der nächsten Neugenerierung, FA-521e).
+            self._relink_ga_assignment_ids()
+            self._project.add_changelog_entry(
+                "Re-Import" if is_reimport else "Import",
+                f"{os.path.basename(filepath)}: {reconcile_diff.summary_line()}",
             )
-        self._warn_if_channel_conflicts()
 
-        self._update_views()
-        ga_count = len(ga_structure.all_addresses())
-        hg_count = len(ga_structure.main_groups)
-        gewerk_hint = f", {assigned} Gewerk-Zuweisungen" if assigned else ""
-        self._status_bar.set_status(
-            f"GA-Report importiert: {hg_count} Hauptgruppen, "
-            f"{ga_count} Gruppenadressen{gewerk_hint} | {reconcile_diff.summary_line()}."
+            return {
+                "topology": topology,
+                "warn_empty_areal": warn_empty_areal,
+                "reconcile_diff": reconcile_diff,
+                "is_reimport": is_reimport,
+            }
+
+        def on_success(result: dict):
+            topology = result["topology"]
+            reconcile_diff = result["reconcile_diff"]
+            is_reimport = result["is_reimport"]
+
+            if result["warn_empty_areal"] is not None:
+                self._warn_if_building_structure_empty(result["warn_empty_areal"])
+            if is_reimport and (reconcile_diff.has_removed or reconcile_diff.has_ga_conflicts):
+                QMessageBox.warning(
+                    self, "Re-Import: Abgleich-Hinweise",
+                    "Beim Abgleich mit dem bisherigen Projektstand wurden folgende "
+                    "Geräte/Räume nicht mehr gefunden. Falls sie in Excel nur "
+                    "umbenannt statt gelöscht wurden, sind ihre KNiX-Planungsdaten "
+                    "(Gewerk-Zuweisungen, Bedienelemente, Materialliste, ...) jetzt "
+                    "verwaist:\n\n" + reconcile_diff.details_text(),
+                )
+            self._warn_if_channel_conflicts()
+
+            self._update_views()
+
+            total_devices = sum(
+                len(line.devices)
+                for area in topology.areas
+                for line in area.lines
+            )
+            kos = sum(
+                len(d.communication_objects)
+                for area in topology.areas
+                for line in area.lines
+                for d in line.devices
+            )
+            total_floors = len(self._project.areal.all_floors)
+            total_rooms = len(self._project.areal.all_rooms)
+            ga_count = len(self._project.group_addresses.all_addresses())
+            ga_source = self._project.group_addresses.source
+            ga_hint = " (GA-Report)" if ga_source == "ga_report" else ""
+            ga_tipp = (
+                " | Tipp: Gruppenadress-Report (XLSX) importieren fuer vollstaendige GA-Daten."
+                if not self._ga_report_path else ""
+            )
+            self._status_bar.set_status(
+                f"Topologie importiert: {len(topology.areas)} Bereiche, "
+                f"{sum(len(a.lines) for a in topology.areas)} Linien, "
+                f"{total_devices} Geraete, {kos} KOs, {ga_count} GAs{ga_hint} | "
+                f"Gebaeude: {total_floors} Stockwerke, {total_rooms} Raeume.{ga_tipp} | "
+                f"{reconcile_diff.summary_line()}."
+            )
+            self._sidebar.select("topology_report")
+            self._navigate("topology_report")
+
+        run_import(
+            self, "Topologie wird importiert…", do_import, on_success,
+            self._import_worker_ref,
         )
-        self._sidebar.select("addresses")
-        self._navigate("addresses")
+
+    def _import_ga_report_xlsx(self, filepath: str, importer):
+        """Importiert einen ETS6 Gruppenadress-Report (XLSX) (FA-519b).
+
+        Siehe _import_xlsx(): do_import() läuft im Hintergrund-Thread und
+        darf keine Qt-Widgets berühren, on_success() danach im UI-Thread.
+        """
+        def do_import():
+            # Snapshot fürs Re-Import-Abgleich (siehe Ende der Methode). Topologie
+            # ändert sich hier nicht, nur ggf. areal (Gebäudestruktur-Re-Ableitung
+            # unten) -- alter Stand bleibt gültig, da nur ersetzt, nicht mutiert.
+            old_snapshot = KnxProject(name="")
+            old_snapshot.topology = self._project.topology
+            old_snapshot.areal = self._project.areal
+
+            self._ga_report_path = filepath
+            ga_structure = importer.import_ga_report(filepath)
+            self._project.group_addresses = ga_structure
+
+            warn_empty_areal = None
+            # Falls Topologie bereits geladen: Einbauort + KO-Anreicherung nachziehen
+            if self._project.topology.areas:
+                # Gebäudestruktur erneut ableiten: war die Topologie vor diesem
+                # GA-Report importiert worden, standen die echten Hauptgruppen-
+                # Namen (z.B. "Erdgeschoss") noch nicht zur Verfügung. Gebäude-
+                # Report hat Vorrang (siehe _import_xlsx / _collect_device_locations).
+                if self._building_report_path or self._topology_xlsx_path:
+                    try:
+                        if self._building_report_path:
+                            areal = importer.derive_building_structure_from_building_report(
+                                self._building_report_path
+                            )
+                        else:
+                            areal = importer.derive_building_structure(
+                                self._topology_xlsx_path, ga_structure=ga_structure
+                            )
+                        if self._project.areal and self._project.areal.name:
+                            areal.name = self._project.areal.name
+                            if areal.buildings and self._project.areal.buildings:
+                                areal.buildings[0].name = self._project.areal.buildings[0].name
+                        self._project.areal = areal
+                        self._building_service.assign_main_groups(self._project.areal)
+                        warn_empty_areal = areal
+                    except Exception as e:
+                        logger.warning(f"Gebäudestruktur-Ableitung nach GA-Import fehlgeschlagen: {e}")
+
+                device_locations = self._collect_device_locations(importer)
+
+                device_notes = None
+                if self._topology_xlsx_path:
+                    try:
+                        device_notes = importer.extract_device_notes(self._topology_xlsx_path)
+                    except Exception as e:
+                        logger.warning(f"Installations-Hinweise-Extraktion fehlgeschlagen: {e}")
+
+                self._apply_button_configuration(importer)
+                self._apply_scene_values(importer)
+                self._apply_scene_triggers(importer)
+
+                try:
+                    importer.create_verteiler_rooms(self._project.topology, self._project.areal)
+                except Exception as e:
+                    logger.warning(f"Verteiler-Raum-Ableitung fehlgeschlagen: {e}")
+
+                # Zuvor manuell zugeordnete Verteiler (Schritt 3b) wieder in
+                # ihren echten Raum verschieben (siehe _import_xlsx).
+                try:
+                    importer.apply_verteiler_room_overrides(
+                        self._project.topology, self._project.areal,
+                        self._project.verteiler_room_overrides,
+                    )
+                except Exception as e:
+                    logger.warning(f"Verteiler-Raum-Zuordnung fehlgeschlagen: {e}")
+
+                try:
+                    importer.link_rooms_to_lines(
+                        self._project.topology,
+                        ga_structure,
+                        self._project.areal,
+                        device_locations=device_locations,
+                        device_notes=device_notes,
+                    )
+                except Exception as e:
+                    logger.warning(f"Raum-Linien-Verknüpfung fehlgeschlagen: {e}")
+
+                try:
+                    importer.enrich_device_ko_connections(
+                        self._project.topology, filepath
+                    )
+                except Exception as e:
+                    logger.warning(f"KO-Anreicherung fehlgeschlagen: {e}")
+
+                # Bedienelemente aus neu verlinkten Devices ableiten (FA-1404)
+                try:
+                    KnxprojImportService._create_bedienelemente_from_topology(
+                        self._project.topology, self._project.areal
+                    )
+                except Exception as e:
+                    logger.warning(f"Bedienelemente-Ableitung nach GA-Import fehlgeschlagen: {e}")
+
+                # Funktionszuordnungen direkt aus KO-GA-Verknüpfungen übernehmen (FA-521c)
+                try:
+                    importer.backfill_function_assignments(
+                        self._project.topology, self._project.areal, ga_structure
+                    )
+                except Exception as e:
+                    logger.warning(f"Funktionszuordnungs-Backfill fehlgeschlagen: {e}")
+
+            # Gewerk-Zuweisungen aus GA-Bezeichnungen ableiten (FA-519b)
+            assigned = self._derive_gewerke_from_gas()
+
+            # GA-Metadaten (Gewerk, Raum) aus Bezeichnung anreichern
+            self._enrich_ga_metadata()
+
+            # DALI-Gateways automatisch konfigurieren (GA-Verknüpfung + Gruppen)
+            self._auto_configure_dali()
+
+            # Re-Import-Abgleich (siehe _import_knxproj): alte IDs + KNiX-
+            # Zusatzdaten anhand physischer Adresse/Raumnummer übernehmen.
+            reconcile_diff = reconcile_reimport(old_snapshot, self._project)
+            is_reimport = reconcile_diff.devices_matched > 0 or reconcile_diff.rooms_matched > 0
+            # GAs, die durch den Abgleich wieder zu einer bestehenden Gewerk-Zuweisung
+            # gehören, mit deren assignment_id verknüpfen (verhindert Duplikat-Blöcke
+            # bei der nächsten Neugenerierung, FA-521e).
+            self._relink_ga_assignment_ids()
+            self._project.add_changelog_entry(
+                "Re-Import" if is_reimport else "Import",
+                f"{os.path.basename(filepath)}: {reconcile_diff.summary_line()}",
+            )
+
+            return {
+                "ga_structure": ga_structure,
+                "assigned": assigned,
+                "warn_empty_areal": warn_empty_areal,
+                "reconcile_diff": reconcile_diff,
+                "is_reimport": is_reimport,
+            }
+
+        def on_success(result: dict):
+            ga_structure = result["ga_structure"]
+            assigned = result["assigned"]
+            reconcile_diff = result["reconcile_diff"]
+            is_reimport = result["is_reimport"]
+
+            if result["warn_empty_areal"] is not None:
+                self._warn_if_building_structure_empty(result["warn_empty_areal"])
+            if is_reimport and (reconcile_diff.has_removed or reconcile_diff.has_ga_conflicts):
+                QMessageBox.warning(
+                    self, "Re-Import: Abgleich-Hinweise",
+                    "Beim Abgleich mit dem bisherigen Projektstand wurden folgende "
+                    "Geräte/Räume nicht mehr gefunden. Falls sie in Excel nur "
+                    "umbenannt statt gelöscht wurden, sind ihre KNiX-Planungsdaten "
+                    "(Gewerk-Zuweisungen, Bedienelemente, Materialliste, ...) jetzt "
+                    "verwaist:\n\n" + reconcile_diff.details_text(),
+                )
+            self._warn_if_channel_conflicts()
+
+            self._update_views()
+            ga_count = len(ga_structure.all_addresses())
+            hg_count = len(ga_structure.main_groups)
+            gewerk_hint = f", {assigned} Gewerk-Zuweisungen" if assigned else ""
+            self._status_bar.set_status(
+                f"GA-Report importiert: {hg_count} Hauptgruppen, "
+                f"{ga_count} Gruppenadressen{gewerk_hint} | {reconcile_diff.summary_line()}."
+            )
+            self._sidebar.select("addresses")
+            self._navigate("addresses")
+
+        run_import(
+            self, "Gruppenadressen werden importiert…", do_import, on_success,
+            self._import_worker_ref,
+        )
+
+    def _import_building_report_xlsx(self, filepath: str, importer):
+        """Importiert einen ETS6 'Gebäude'-Report (XLSX) (FA-511b).
+
+        Liefert die tatsächliche ETS6-Stockwerk/Raum-Zuordnung -- zuverlässiger
+        als die aus GA-Namen abgeleitete Heuristik in `derive_building_structure`,
+        da unabhängig von der GA-Benennungskonvention des Installateurs.
+        Reihenfolge relativ zu Topologie-/GA-Report-Import spielt keine Rolle:
+        jeder der drei Import-Handler leitet die Gebäudestruktur bei jedem
+        Aufruf neu ab und bevorzugt dabei stets den Gebäude-Report, falls
+        vorhanden (siehe _collect_device_locations).
+
+        Siehe _import_xlsx(): do_import() läuft im Hintergrund-Thread und
+        darf keine Qt-Widgets berühren, on_success() danach im UI-Thread.
+        """
+        def do_import():
+            old_snapshot = KnxProject(name="")
+            old_snapshot.topology = self._project.topology
+            old_snapshot.areal = self._project.areal
+
+            self._building_report_path = filepath
+            areal = importer.derive_building_structure_from_building_report(filepath)
+            if self._project.areal and self._project.areal.name:
+                areal.name = self._project.areal.name
+                if areal.buildings and self._project.areal.buildings:
+                    areal.buildings[0].name = self._project.areal.buildings[0].name
+            self._project.areal = areal
+            self._building_service.assign_main_groups(self._project.areal)
+            warn_empty_areal = areal
+
+            # Falls Topologie bereits geladen: Verteiler-Räume, Raum-Linien-
+            # Verknüpfung und abgeleitete Bedienelemente/Funktionen nachziehen
+            # (analog zu _import_ga_report_xlsx).
+            if self._project.topology.areas:
+                device_locations = self._collect_device_locations(importer)
+
+                device_notes = None
+                if self._topology_xlsx_path:
+                    try:
+                        device_notes = importer.extract_device_notes(self._topology_xlsx_path)
+                    except Exception as e:
+                        logger.warning(f"Installations-Hinweise-Extraktion fehlgeschlagen: {e}")
+
+                self._apply_button_configuration(importer)
+                self._apply_scene_values(importer)
+                self._apply_scene_triggers(importer)
+
+                try:
+                    importer.create_verteiler_rooms(self._project.topology, self._project.areal)
+                except Exception as e:
+                    logger.warning(f"Verteiler-Raum-Ableitung fehlgeschlagen: {e}")
+
+                try:
+                    importer.apply_verteiler_room_overrides(
+                        self._project.topology, self._project.areal,
+                        self._project.verteiler_room_overrides,
+                    )
+                except Exception as e:
+                    logger.warning(f"Verteiler-Raum-Zuordnung fehlgeschlagen: {e}")
+
+                try:
+                    importer.link_rooms_to_lines(
+                        self._project.topology, self._project.group_addresses,
+                        self._project.areal,
+                        device_locations=device_locations, device_notes=device_notes,
+                    )
+                except Exception as e:
+                    logger.warning(f"Raum-Linien-Verknüpfung fehlgeschlagen: {e}")
+
+                try:
+                    KnxprojImportService._create_bedienelemente_from_topology(
+                        self._project.topology, self._project.areal
+                    )
+                except Exception as e:
+                    logger.warning(f"Bedienelemente-Ableitung fehlgeschlagen: {e}")
+
+                if self._ga_report_path:
+                    try:
+                        importer.enrich_device_ko_connections(
+                            self._project.topology, self._ga_report_path
+                        )
+                    except Exception as e:
+                        logger.warning(f"KO-Anreicherung fehlgeschlagen: {e}")
+
+                try:
+                    importer.backfill_function_assignments(
+                        self._project.topology, self._project.areal, self._project.group_addresses
+                    )
+                except Exception as e:
+                    logger.warning(f"Funktionszuordnungs-Backfill fehlgeschlagen: {e}")
+
+            assigned = self._derive_gewerke_from_gas()
+            self._enrich_ga_metadata()
+            self._auto_configure_dali()
+
+            reconcile_diff = reconcile_reimport(old_snapshot, self._project)
+            is_reimport = reconcile_diff.devices_matched > 0 or reconcile_diff.rooms_matched > 0
+            self._relink_ga_assignment_ids()
+            self._project.add_changelog_entry(
+                "Re-Import" if is_reimport else "Import",
+                f"{os.path.basename(filepath)}: {reconcile_diff.summary_line()}",
+            )
+
+            return {
+                "areal": areal,
+                "assigned": assigned,
+                "warn_empty_areal": warn_empty_areal,
+                "reconcile_diff": reconcile_diff,
+                "is_reimport": is_reimport,
+            }
+
+        def on_success(result: dict):
+            areal = result["areal"]
+            assigned = result["assigned"]
+            reconcile_diff = result["reconcile_diff"]
+            is_reimport = result["is_reimport"]
+
+            if result["warn_empty_areal"] is not None:
+                self._warn_if_building_structure_empty(result["warn_empty_areal"])
+            if is_reimport and (reconcile_diff.has_removed or reconcile_diff.has_ga_conflicts):
+                QMessageBox.warning(
+                    self, "Re-Import: Abgleich-Hinweise",
+                    "Beim Abgleich mit dem bisherigen Projektstand wurden folgende "
+                    "Geräte/Räume nicht mehr gefunden. Falls sie in Excel nur "
+                    "umbenannt statt gelöscht wurden, sind ihre KNiX-Planungsdaten "
+                    "(Gewerk-Zuweisungen, Bedienelemente, Materialliste, ...) jetzt "
+                    "verwaist:\n\n" + reconcile_diff.details_text(),
+                )
+            self._warn_if_channel_conflicts()
+
+            self._update_views()
+            total_floors = len(areal.all_floors)
+            total_rooms = len(areal.all_rooms)
+            gewerk_hint = f", {assigned} Gewerk-Zuweisungen" if assigned else ""
+            self._status_bar.set_status(
+                f"Gebäude-Report importiert: {total_floors} Stockwerke, "
+                f"{total_rooms} Räume{gewerk_hint} | {reconcile_diff.summary_line()}."
+            )
+            self._sidebar.select("building")
+            self._navigate("building")
+
+        run_import(
+            self, "Gebäudestruktur wird importiert…", do_import, on_success,
+            self._import_worker_ref,
+        )
+
+    def _relink_ga_assignment_ids(self) -> int:
+        """
+        Verknüpft importierte GAs nachträglich mit ihrer GewerkAssignment
+        (FA-521e). Muss NACH reconcile_reimport() aufgerufen werden, wenn
+        room.gewerk_assignments seinen finalen (ggf. reimportierten) Stand hat --
+        sonst fehlt der stabilen Neugenerierung (AddressGenerator, existing=)
+        die Grundlage, importierte GAs statt Duplikat-Blöcken wiederzuverwenden.
+        """
+        if not self._project:
+            return 0
+        try:
+            svc = GewerkService(self._project.gewerk_catalog)
+            relinked = svc.relink_assignment_ids(
+                self._project.group_addresses, self._project.areal
+            )
+            if relinked:
+                logger.info(f"GA-Reimport: {relinked} GAs mit Gewerk-Zuweisung verknüpft.")
+            return relinked
+        except Exception as e:
+            logger.warning(f"assignment_id-Verknüpfung nach Reimport fehlgeschlagen: {e}")
+            return 0
 
     def _derive_gewerke_from_gas(self) -> int:
         """
@@ -1247,6 +1674,21 @@ class MainWindow(QMainWindow):
             logger.debug(f"GA-Metadata angereichert: {enriched} GAs.")
         return enriched
 
+    def _detect_scenes(self) -> int:
+        """Erkennt Szenen in importierten GAs und haengt sie an project.scenes (FA-1808)."""
+        if not self._project:
+            return 0
+        try:
+            from ..services.scene_detection_service import detect_scenes
+            added = detect_scenes(self._project)
+            if added:
+                self._project.scenes.extend(added)
+                logger.info(f"Szenen-Erkennung: {len(added)} Szenen aus Import übernommen.")
+            return len(added)
+        except Exception as e:
+            logger.warning(f"Szenen-Erkennung fehlgeschlagen: {e}")
+            return 0
+
     def _auto_configure_dali(self) -> int:
         """
         Konfiguriert DALI-Gateways automatisch nach einem Import.
@@ -1335,7 +1777,15 @@ class MainWindow(QMainWindow):
         )
 
     def _import_knxproj(self, filepath: str):
-        """Importiert ein natives ETS6-Projekt (.knxproj) (FA-521 bis FA-526, FA-525c)."""
+        """Importiert ein natives ETS6-Projekt (.knxproj) (FA-521 bis FA-526, FA-525c).
+
+        Die Passwort-Abfrage ist interaktiv (zeigt ggf. mehrfach einen
+        Dialog) und läuft deshalb bewusst NICHT im Hintergrund-Thread wie
+        bei XLSX/CSV (siehe run_import in _import_xlsx) -- ein modaler
+        Fortschrittsdialog macht aber sichtbar, dass das eigentliche
+        Parsen der (teils grossen) .knxproj-Datei noch läuft, statt dass
+        die Oberfläche kommentarlos einfriert.
+        """
         from ..services.project_service import ProjectService
 
         importer = KnxprojImportService()
@@ -1344,33 +1794,50 @@ class MainWindow(QMainWindow):
         project_id = None
         dialog = None
 
-        while True:
-            try:
-                project = importer.import_knxproj(filepath, password=password)
-                break
-            except KnxprojPasswordRequired as exc:
-                project_id = exc.project_id
-                stored = project_service.get_knxproj_password(project_id)
-                if stored and password != stored:
-                    password = stored
-                    continue
-                dialog = KnxprojPasswordDialog(project_id, os.path.basename(filepath), self)
-                if not dialog.exec():
-                    self._status_bar.set_status(
-                        "KNXPROJ-Import abgebrochen: Passwort erforderlich."
-                    )
-                    return
-                password = dialog.password
-            except KnxprojPasswordWrong:
-                if dialog is None:
+        progress = QProgressDialog("KNXPROJ wird importiert…", None, 0, 0, self)
+        progress.setWindowTitle("Import läuft…")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.show()
+        QApplication.processEvents()
+
+        try:
+            while True:
+                try:
+                    QApplication.processEvents()
+                    project = importer.import_knxproj(filepath, password=password)
+                    break
+                except KnxprojPasswordRequired as exc:
+                    progress.hide()
+                    project_id = exc.project_id
+                    stored = project_service.get_knxproj_password(project_id)
+                    if stored and password != stored:
+                        password = stored
+                        progress.show()
+                        continue
                     dialog = KnxprojPasswordDialog(project_id, os.path.basename(filepath), self)
-                dialog.show_wrong_password()
-                if not dialog.exec():
-                    self._status_bar.set_status(
-                        "KNXPROJ-Import abgebrochen: falsches Passwort."
-                    )
-                    return
-                password = dialog.password
+                    if not dialog.exec():
+                        self._status_bar.set_status(
+                            "KNXPROJ-Import abgebrochen: Passwort erforderlich."
+                        )
+                        return
+                    password = dialog.password
+                    progress.show()
+                except KnxprojPasswordWrong:
+                    progress.hide()
+                    if dialog is None:
+                        dialog = KnxprojPasswordDialog(project_id, os.path.basename(filepath), self)
+                    dialog.show_wrong_password()
+                    if not dialog.exec():
+                        self._status_bar.set_status(
+                            "KNXPROJ-Import abgebrochen: falsches Passwort."
+                        )
+                        return
+                    password = dialog.password
+                    progress.show()
+        finally:
+            progress.close()
 
         if dialog is not None and project_id and dialog.save_password:
             project_service.save_knxproj_password(project_id, password)
@@ -1390,6 +1857,11 @@ class MainWindow(QMainWindow):
         self._project.topology = project.topology
         self._project.areal = project.areal
 
+        # GAs, die durch den Abgleich wieder zu einer bestehenden Gewerk-Zuweisung
+        # gehören, mit deren assignment_id verknüpfen (verhindert Duplikat-Blöcke
+        # bei der nächsten Neugenerierung, FA-521e).
+        self._relink_ga_assignment_ids()
+
         # Änderungsprotokoll: Re-Import-Zusammenfassung festhalten
         self._project.add_changelog_entry(
             "Re-Import" if is_reimport else "Import",
@@ -1398,6 +1870,11 @@ class MainWindow(QMainWindow):
 
         # GA-Metadaten (Gewerk, Raum) aus Bezeichnung anreichern
         self._enrich_ga_metadata()
+
+        # Szenen aus importierten GAs erkennen (FA-1808) -- muss NACH der
+        # Metadaten-Anreicherung laufen, da die Raumcluster-Erkennung auf
+        # ga.room_number aufbaut.
+        n_scenes_detected = self._detect_scenes()
 
         # DALI-Gateways automatisch konfigurieren (GA-Verknüpfung + Gruppen)
         self._auto_configure_dali()
@@ -1409,16 +1886,27 @@ class MainWindow(QMainWindow):
         n_lines = sum(len(a.lines) for a in project.topology.areas)
         n_dev = sum(len(l.devices) for a in project.topology.areas for l in a.lines)
         n_rooms = len(project.areal.all_rooms)
+        scenes_suffix = f" | {n_scenes_detected} Szenen erkannt" if n_scenes_detected else ""
         self._status_bar.set_status(
             f"KNXPROJ importiert: {ga_count} GAs | "
             f"{n_areas} Bereiche, {n_lines} Linien, {n_dev} Geräte | "
-            f"{n_rooms} Räume | {reconcile_diff.summary_line()}."
+            f"{n_rooms} Räume | {reconcile_diff.summary_line()}{scenes_suffix}."
         )
 
         # Warnung wenn Geräte/Räume aus dem bisherigen Projekt nicht mehr
         # gefunden wurden -- deren KNiX-Planungsdaten (Gewerke, Bedienelemente,
         # Materialliste, ...) sind jetzt verwaist (Umbenennung/Löschung in ETS?).
         if is_reimport and reconcile_diff.has_removed:
+            # Das Parsen der .knxproj-Datei lief hier synchron im UI-Thread
+            # (nur per processEvents() am Leben gehalten, siehe oben) und
+            # kann bei grossen Dateien laenger dauern -- ohne explizites
+            # Aktivieren bleibt das Hauptfenster (und damit dieser modale
+            # Dialog) im Hintergrund, falls der Nutzer zwischenzeitlich in
+            # ein anderes Fenster gewechselt hat (Windows-Foreground-Lock,
+            # siehe export_worker.run_export._on_finished fuer denselben
+            # Fix beim Hintergrundthread-Pfad).
+            self.raise_()
+            self.activateWindow()
             QMessageBox.warning(
                 self, "Re-Import: Geräte/Räume nicht mehr gefunden",
                 "Beim Abgleich mit dem bisherigen Projektstand wurden folgende "
@@ -1652,7 +2140,17 @@ class MainWindow(QMainWindow):
             )
 
     def _on_update_available(self, update_info):
-        """Callback wenn Auto-Check ein Update gefunden hat (NFA-111)."""
+        """Callback wenn Auto-Check ein Update gefunden hat (NFA-111).
+
+        Läuft mehrere Sekunden nach dem Start über einen Hintergrund-Thread,
+        völlig unabhängig von einer Nutzeraktion -- ohne explizites Aktivieren
+        bleibt das Fenster (und damit der modale Dialog) unsichtbar im
+        Hintergrund, falls der Nutzer inzwischen in ein anderes Programm
+        gewechselt hat (Windows-Foreground-Lock). Wirkt dann wie ein
+        eingefrorenes Programm, da der modale Dialog die Bedienung blockiert.
+        """
+        self.raise_()
+        self.activateWindow()
         dlg = UpdateDialog(update_info, self)
         dlg.exec()
         self._apply_update_dialog_result(dlg)

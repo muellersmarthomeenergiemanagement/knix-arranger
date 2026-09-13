@@ -12,9 +12,10 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from knix_arranger.services.address_generator import AddressGenerator
+from knix_arranger.services.gewerk_service import GewerkService
 from knix_arranger.models.group_address import GroupAddressStructure
 from knix_arranger.models.building import (
-    Areal, Building, Wing, Floor, Apartment, Room, GewerkAssignment,
+    Areal, Building, Wing, Floor, Apartment, Room, GewerkAssignment, Bedienelement,
 )
 
 
@@ -720,6 +721,41 @@ class TestAddressGeneratorProductSchema:
         restored = GewerkAssignment.from_dict({"gewerk_code": "L", "count": 1})
         assert restored.linked_product is None
 
+    def test_excluded_co_numbers_removed_from_schema(
+        self, eg_room_with_weather_station, gewerk_catalog,
+    ):
+        """Ausgeschlossene ComObject-Nummern (Integrator-Auswahl) erzeugen
+        keine GA, obwohl sie needs_ga erfuellen."""
+        room = eg_room_with_weather_station.all_floors[0].apartments[0].rooms[0]
+        room.gewerk_assignments[0].linked_product["excluded_co_numbers"] = [2, 4]
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(eg_room_with_weather_station)
+
+        gewerk = gewerk_catalog.get("W")
+        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
+        mg = next(m for m in hg2.middle_groups if m.number == gewerk.middle_group)
+
+        function_names = [ga.function_name for ga in mg.group_addresses if ga.function_name]
+        assert "Helligkeit Ost" in function_names
+        assert "Regen" in function_names
+        assert "Wind Geschwindigkeit" not in function_names  # Nr. 2, ausgeschlossen
+        assert "Sperren Wind" not in function_names           # Nr. 4, ausgeschlossen
+        assert len(function_names) == 2  # 4 needs_ga minus 2 ausgeschlossene
+
+    def test_missing_excluded_co_numbers_behaves_like_before(
+        self, eg_room_with_weather_station, gewerk_catalog,
+    ):
+        """Alte Projekte ohne den neuen Schluessel verhalten sich unveraendert."""
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(eg_room_with_weather_station)
+
+        gewerk = gewerk_catalog.get("W")
+        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
+        mg = next(m for m in hg2.middle_groups if m.number == gewerk.middle_group)
+        function_names = [ga.function_name for ga in mg.group_addresses if ga.function_name]
+        assert len(function_names) == 4  # alle needs_ga-ComObjects wie bisher
+
 
 class TestGewerkServiceProductGaCount:
     """Tests fuer GA-Zaehlung mit verknuepftem Produkt (gewerk_service)."""
@@ -789,3 +825,636 @@ class TestAddressGeneratorGatewaySchemas:
         assert expected_function in function_names
         assert "WERT 1" not in function_names
         assert len(mg.group_addresses) == gewerk.block_size
+
+
+class TestAddressGeneratorStableRegeneration:
+    """Tests fuer stabile Neugenerierung mit existing=: unveraenderte
+    Zuweisungsbloecke bleiben an Position/id, geaenderte/neue werden ans
+    Ende der Mittelgruppe angehaengt statt die Struktur neu durchzunummerieren."""
+
+    @staticmethod
+    def _room_with_weather_and_energy():
+        """EG Raum mit 'W' (Wetterstation, Produkt-Schema) und 'E' (generisch),
+        beide in Mittelgruppe 4 - zum Testen von Nachbar-Isolation."""
+        areal = Areal(name="Test")
+        building = Building(name="Test")
+        wing = Wing(name="Haupt")
+        eg = Floor(name="Erdgeschoss", short_code="EG", main_group_number=2)
+        eg_apt = Apartment(name="EG")
+        room = Room(number="E01", name="Schlafzimmer")
+        room.gewerk_assignments = [
+            GewerkAssignment(
+                gewerk_code="W", count=1,
+                linked_product={
+                    "manufacturer": "Test", "order_number": "WS-100",
+                    "product_name": "Wetterstation Pro",
+                    "com_objects": list(_WEATHER_COM_OBJECTS),
+                    "material_entry_id": "entry-w",
+                },
+            ),
+            GewerkAssignment(gewerk_code="E", count=1),
+        ]
+        eg_apt.rooms.append(room)
+        eg.apartments.append(eg_apt)
+        wing.floors.append(eg)
+        building.wings.append(wing)
+        areal.buildings.append(building)
+        return areal, room
+
+    def test_unchanged_assignment_keeps_position_and_id(
+        self, eg_room_with_gewerke, gewerk_catalog,
+    ):
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure1 = gen.generate(eg_room_with_gewerke)
+
+        h_before = next(ga for ga in structure1.all_addresses() if ga.gewerk_code == "H")
+        addr_before, id_before = h_before.address, h_before.id
+
+        # Unveraendertes Modell erneut generieren, diesmal mit existing=
+        structure2 = gen.generate(eg_room_with_gewerke, existing=structure1)
+
+        h_after = next(ga for ga in structure2.all_addresses() if ga.gewerk_code == "H")
+        assert h_after.id == id_before
+        assert h_after.address == addr_before
+
+    def test_resized_product_block_appends_at_end_sibling_unchanged(self, gewerk_catalog):
+        areal, room = self._room_with_weather_and_energy()
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure1 = gen.generate(areal)
+
+        hg2 = next(hg for hg in structure1.main_groups if hg.number == 2)
+        mg4 = next(mg for mg in hg2.middle_groups if mg.number == 4)
+        e_before = next(ga for ga in mg4.group_addresses if ga.gewerk_code == "E")
+        e_id_before, e_addr_before = e_before.id, e_before.address
+        max_sub_before = max(ga.sub_group for ga in mg4.group_addresses)
+
+        # Produkt vergroessern: ein zusaetzliches GA-relevantes ComObject
+        room.gewerk_assignments[0].linked_product["com_objects"] = list(_WEATHER_COM_OBJECTS) + [{
+            "number": 99, "name": "Zusatz", "function_text": "Zusatz",
+            "datapoint_type": "DPST-1-1",
+            "communication_flag": True, "read_flag": False,
+            "write_flag": False, "transmit_flag": True, "update_flag": False,
+        }]
+
+        structure2 = gen.generate(areal, existing=structure1)
+        hg2_2 = next(hg for hg in structure2.main_groups if hg.number == 2)
+        mg4_2 = next(mg for mg in hg2_2.middle_groups if mg.number == 4)
+
+        # E (unveraendert) behaelt Position und Identitaet
+        e_after = next(ga for ga in mg4_2.group_addresses if ga.gewerk_code == "E")
+        assert e_after.id == e_id_before
+        assert e_after.address == e_addr_before
+
+        # W (vergroessert) wurde verworfen und komplett neu ans Ende angehaengt
+        w_after = [ga for ga in mg4_2.group_addresses if ga.gewerk_code == "W"]
+        assert len(w_after) == 5  # 4 vorher + 1 neu
+        assert all(ga.sub_group > max_sub_before for ga in w_after)
+
+    def test_removed_assignment_produces_no_gas_others_unaffected(
+        self, eg_room_with_gewerke, gewerk_catalog,
+    ):
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure1 = gen.generate(eg_room_with_gewerke)
+
+        ld_before = next(ga for ga in structure1.all_addresses() if ga.gewerk_code == "LD")
+        ld_id_before, ld_addr_before = ld_before.id, ld_before.address
+
+        room = eg_room_with_gewerke.all_floors[0].apartments[0].rooms[0]
+        j_assignment = next(g for g in room.gewerk_assignments if g.gewerk_code == "J")
+        room.gewerk_assignments.remove(j_assignment)
+
+        structure2 = gen.generate(eg_room_with_gewerke, existing=structure1)
+
+        # Nur die Raum-HG pruefen: HG 0 enthaelt weiterhin die zentralen
+        # Jalousie-Taster (immer vorhanden, unabhaengig von Raum-Zuweisungen).
+        hg2 = next(hg for hg in structure2.main_groups if hg.number == 2)
+        room_addresses = [ga for m in hg2.middle_groups for ga in m.group_addresses]
+        assert not any(ga.gewerk_code == "J" for ga in room_addresses)
+
+        ld_after = next(ga for ga in structure2.all_addresses() if ga.gewerk_code == "LD")
+        assert ld_after.id == ld_id_before
+        assert ld_after.address == ld_addr_before
+
+    def test_variant_switch_ignores_existing(self, eg_room_with_gewerke, gewerk_catalog):
+        gen_a = AddressGenerator(gewerk_catalog, variant="A")
+        structure_a = gen_a.generate(eg_room_with_gewerke)
+
+        gen_b = AddressGenerator(gewerk_catalog, variant="B")
+        structure_b_fresh = gen_b.generate(eg_room_with_gewerke)
+        structure_b_with_existing = gen_b.generate(eg_room_with_gewerke, existing=structure_a)
+
+        addrs_fresh = sorted(ga.address for ga in structure_b_fresh.all_addresses())
+        addrs_with_existing = sorted(ga.address for ga in structure_b_with_existing.all_addresses())
+        assert addrs_fresh == addrs_with_existing
+
+    def test_existing_gas_without_assignment_id_are_treated_as_new(
+        self, eg_room_with_gewerke, gewerk_catalog,
+    ):
+        """Migrationsfall: alte Projektdateien ohne das neue Feld duerfen
+        nicht abstuerzen und liefern dieselbe Anzahl GAs wie ein Fresh-Generate."""
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure1 = gen.generate(eg_room_with_gewerke)
+        for ga in structure1.all_addresses():
+            ga.assignment_id = ""
+
+        structure2 = gen.generate(eg_room_with_gewerke, existing=structure1)
+        fresh = gen.generate(eg_room_with_gewerke)
+        assert len(structure2.all_addresses()) == len(fresh.all_addresses())
+
+    def test_relink_assignment_ids_restores_stable_reuse_after_reimport(
+        self, eg_room_with_gewerke, gewerk_catalog,
+    ):
+        """FA-521e End-to-End: nach einem Reimport (assignment_id verloren,
+        weder .knxproj noch XLSX-GA-Report kennen dieses interne Feld)
+        verknuepft GewerkService.relink_assignment_ids() die GAs wieder mit
+        ihrer GewerkAssignment, damit die naechste Neugenerierung sie
+        in-place wiederverwendet statt sie durch einen neuen Block an
+        anderer Position zu ersetzen (siehe Kontrast:
+        test_existing_gas_without_assignment_id_are_treated_as_new)."""
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure1 = gen.generate(eg_room_with_gewerke)
+
+        h_before = next(ga for ga in structure1.all_addresses() if ga.gewerk_code == "H")
+        addr_before, id_before = h_before.address, h_before.id
+
+        for ga in structure1.all_addresses():
+            ga.assignment_id = ""
+
+        relinked = GewerkService(gewerk_catalog).relink_assignment_ids(
+            structure1, eg_room_with_gewerke,
+        )
+        # HG0 (Zentraladressen) bleibt bewusst unverknuepft -- nur die
+        # raumgebundenen GAs (HG2) werden einer GewerkAssignment zugeordnet.
+        assert relinked > 0
+        assert relinked < len(structure1.all_addresses())
+
+        structure2 = gen.generate(eg_room_with_gewerke, existing=structure1)
+
+        h_after = next(ga for ga in structure2.all_addresses() if ga.gewerk_code == "H")
+        assert h_after.id == id_before
+        assert h_after.address == addr_before
+
+
+def _synthetic_com_objects(count: int) -> list[dict]:
+    """Erzeugt `count` GA-relevante ComObject-Dicts (wie ein grosses
+    Gateway-Produkt mit vielen ComObjects, z.B. Revox mit 491)."""
+    return [
+        {
+            "number": i, "name": f"Objekt {i}", "function_text": f"Funktion {i}",
+            "datapoint_type": "DPST-1-1",
+            "communication_flag": True, "read_flag": False,
+            "write_flag": True, "transmit_flag": False, "update_flag": False,
+        }
+        for i in range(count)
+    ]
+
+
+class TestAddressGeneratorMultiMgOverflow:
+    """Tests fuer automatisches Verteilen eines Ueberlauf-Blocks auf mehrere
+    Mittelgruppen derselben Hauptgruppe (z.B. Gateway-Produkt mit >256
+    GA-relevanten ComObjects, wie das Revox-Multimedia-Gateway mit 491)."""
+
+    @staticmethod
+    def _room_with_big_gateway(count: int, gewerk_code: str = "MM"):
+        areal = Areal(name="Test")
+        building = Building(name="Test")
+        wing = Wing(name="Haupt")
+        eg = Floor(name="Erdgeschoss", short_code="EG", main_group_number=2)
+        eg_apt = Apartment(name="EG")
+        room = Room(number="E01", name="Technik")
+        room.gewerk_assignments = [
+            GewerkAssignment(
+                gewerk_code=gewerk_code, count=1,
+                linked_product={
+                    "manufacturer": "Test", "order_number": "GW-1",
+                    "product_name": "Grosses Gateway",
+                    "com_objects": _synthetic_com_objects(count),
+                    "material_entry_id": "entry-gw",
+                },
+            ),
+        ]
+        eg_apt.rooms.append(room)
+        eg.apartments.append(eg_apt)
+        wing.floors.append(eg)
+        building.wings.append(wing)
+        areal.buildings.append(building)
+        return areal, room
+
+    def test_overflow_spans_two_middle_groups_no_invalid_sub_group(self, gewerk_catalog):
+        areal, room = self._room_with_big_gateway(300)
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(areal)
+
+        assert structure.warnings == []
+        all_gas = structure.all_addresses()
+        assert not any(ga.sub_group > 255 for ga in all_gas)
+
+        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
+        assignment_id = room.gewerk_assignments[0].id
+        mgs_used = {mg.number for mg in hg2.middle_groups
+                    for ga in mg.group_addresses if ga.assignment_id == assignment_id}
+        assert len(mgs_used) == 2
+
+        total = sum(
+            1 for mg in hg2.middle_groups for ga in mg.group_addresses
+            if ga.assignment_id == assignment_id
+        )
+        assert total == 300
+
+        overflow_mg = next(mg for mg in hg2.middle_groups if mg.number in mgs_used
+                            and mg.number != gewerk_catalog.get("MM").middle_group)
+        assert "(Forts.)" in overflow_mg.name
+
+    def test_overflow_block_stable_across_regenerate(self, gewerk_catalog):
+        areal, room = self._room_with_big_gateway(300)
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure1 = gen.generate(areal)
+
+        assignment_id = room.gewerk_assignments[0].id
+        before = {
+            ga.id: ga.address for ga in structure1.all_addresses()
+            if ga.assignment_id == assignment_id
+        }
+
+        structure2 = gen.generate(areal, existing=structure1)
+        after = {
+            ga.id: ga.address for ga in structure2.all_addresses()
+            if ga.assignment_id == assignment_id
+        }
+        assert before == after
+        assert structure2.warnings == []
+
+    def test_hg_exhaustion_records_warning_and_never_emits_invalid_ga(self, gewerk_catalog):
+        """Alle 7 in der Standardkonfiguration genutzten Heimat-MGs (0-6)
+        sind durch andere Gewerke belegt, der Ueberlauf-Pool hat nur MG 7
+        frei -> das Gateway (600 ComObjects, passt nicht in home(256)+MG7(256))
+        muss zwangsweise etwas unplatziert lassen, darf dabei aber nie eine
+        ungueltige GA erzeugen."""
+        areal, room = self._room_with_big_gateway(600, gewerk_code="E")  # Heimat-MG 4
+        eg_apt = areal.all_floors[0].apartments[0]
+        filler_room = Room(number="E02", name="Nebenraum")
+        filler_room.gewerk_assignments = [
+            GewerkAssignment(gewerk_code="L", count=1),   # MG 0
+            GewerkAssignment(gewerk_code="F", count=1),   # MG 1
+            GewerkAssignment(gewerk_code="H", count=1),   # MG 2
+            GewerkAssignment(gewerk_code="A", count=1),   # MG 3
+            GewerkAssignment(gewerk_code="KL", count=1),  # MG 5
+            GewerkAssignment(gewerk_code="EV", count=1),  # MG 6
+        ]
+        eg_apt.rooms.append(filler_room)
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(areal)
+
+        assert len(structure.warnings) == 1
+        assert "Keine freie Mittelgruppe" in structure.warnings[0]
+
+        all_gas = structure.all_addresses()
+        assert not any(ga.sub_group > 255 for ga in all_gas)
+
+        assignment_id = room.gewerk_assignments[0].id
+        placed = sum(1 for ga in all_gas if ga.assignment_id == assignment_id)
+        assert placed == 512  # 256 (Heimat-MG 4) + 256 (einzige freie MG 7)
+
+    def test_no_overflow_no_warnings(self, eg_room_with_gewerke, gewerk_catalog):
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(eg_room_with_gewerke)
+        assert structure.warnings == []
+
+
+def _taster_com_objects() -> list[dict]:
+    """ComObjects einer Tastereinheit mit eingebautem Temperaturfühler
+    (Schalten = normale Funktion, bereits über Gewerke abgedeckt;
+    Temperatur = echte Zusatzsensorik)."""
+    return [
+        {
+            "number": 1, "name": "Schalten", "function_text": "Schalten",
+            "datapoint_type": "DPST-1-1",
+            "communication_flag": True, "read_flag": False,
+            "write_flag": True, "transmit_flag": False, "update_flag": False,
+        },
+        {
+            "number": 2, "name": "Temperatur", "function_text": "Temperatur",
+            "datapoint_type": "DPST-9-1",
+            "communication_flag": True, "read_flag": False,
+            "write_flag": False, "transmit_flag": True, "update_flag": False,
+        },
+    ]
+
+
+class TestAddressGeneratorBedienelementZusatzsensorik:
+    """Tests fuer echte GAs aus Taster-Zusatzsensorik (Bedienelement.linked_product)."""
+
+    @staticmethod
+    def _room_with_bedienelemente(bedienelemente: list[Bedienelement]):
+        areal = Areal(name="Test")
+        building = Building(name="Test")
+        wing = Wing(name="Haupt")
+        eg = Floor(name="Erdgeschoss", short_code="EG", main_group_number=2)
+        eg_apt = Apartment(name="EG")
+        room = Room(number="E01", name="Wohnzimmer")
+        room.bedienelemente = bedienelemente
+        eg_apt.rooms.append(room)
+        eg.apartments.append(eg_apt)
+        wing.floors.append(eg)
+        building.wings.append(wing)
+        areal.buildings.append(building)
+        return areal, room
+
+    def test_selected_extra_com_object_creates_ts_ga(self, gewerk_catalog):
+        be = Bedienelement(
+            element_type="Tastereinheit",
+            linked_product={
+                "manufacturer": "Test", "order_number": "TA-1",
+                "product_name": "Glastaster mit Temperaturfühler",
+                "com_objects": _taster_com_objects(),
+                "excluded_co_numbers": [1],  # nur "Temperatur" (Nr. 2) ausgewählt
+            },
+        )
+        areal, room = self._room_with_bedienelemente([be])
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(areal)
+
+        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
+        ts_gas = [
+            ga for mg in hg2.middle_groups for ga in mg.group_addresses
+            if ga.gewerk_code == "TS"
+        ]
+        assert len(ts_gas) == 1
+        assert ts_gas[0].function_name == "Temperatur"
+        assert ts_gas[0].assignment_id == f"be:{be.id}"
+
+    def test_no_selection_creates_no_ga(self, gewerk_catalog):
+        be = Bedienelement(
+            element_type="Tastereinheit",
+            linked_product={
+                "manufacturer": "Test", "order_number": "TA-1",
+                "product_name": "Glastaster",
+                "com_objects": _taster_com_objects(),
+                "excluded_co_numbers": [1, 2],  # nichts ausgewählt
+            },
+        )
+        areal, _room = self._room_with_bedienelemente([be])
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(areal)
+
+        assert not any(ga.gewerk_code == "TS" for ga in structure.all_addresses())
+
+    def test_suppressed_bedienelement_creates_no_ga(self, gewerk_catalog):
+        be = Bedienelement(
+            element_type="Tastereinheit",
+            suppressed=True,
+            linked_product={
+                "manufacturer": "Test", "order_number": "TA-1",
+                "product_name": "Glastaster",
+                "com_objects": _taster_com_objects(),
+                "excluded_co_numbers": [1],
+            },
+        )
+        areal, _room = self._room_with_bedienelemente([be])
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(areal)
+
+        assert not any(ga.gewerk_code == "TS" for ga in structure.all_addresses())
+
+    def test_two_bedienelemente_same_room_get_distinct_designations(self, gewerk_catalog):
+        be1 = Bedienelement(
+            element_type="Tastereinheit",
+            linked_product={
+                "manufacturer": "Test", "order_number": "TA-1",
+                "product_name": "Glastaster Süd",
+                "com_objects": _taster_com_objects(),
+                "excluded_co_numbers": [1],
+            },
+        )
+        be2 = Bedienelement(
+            element_type="Tastereinheit",
+            linked_product={
+                "manufacturer": "Test", "order_number": "TA-2",
+                "product_name": "Glastaster Nord",
+                "com_objects": _taster_com_objects(),
+                "excluded_co_numbers": [1],
+            },
+        )
+        areal, _room = self._room_with_bedienelemente([be1, be2])
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(areal)
+
+        ts_gas = [ga for ga in structure.all_addresses() if ga.gewerk_code == "TS"]
+        assert len(ts_gas) == 2
+        designations = {ga.designation for ga in ts_gas}
+        assert len(designations) == 2  # unterscheidbar
+
+    def test_stable_across_regenerate(self, gewerk_catalog):
+        be = Bedienelement(
+            element_type="Tastereinheit",
+            linked_product={
+                "manufacturer": "Test", "order_number": "TA-1",
+                "product_name": "Glastaster",
+                "com_objects": _taster_com_objects(),
+                "excluded_co_numbers": [1],
+            },
+        )
+        areal, _room = self._room_with_bedienelemente([be])
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure1 = gen.generate(areal)
+        ts_before = next(ga for ga in structure1.all_addresses() if ga.gewerk_code == "TS")
+
+        structure2 = gen.generate(areal, existing=structure1)
+        ts_after = next(ga for ga in structure2.all_addresses() if ga.gewerk_code == "TS")
+
+        assert ts_after.id == ts_before.id
+        assert ts_after.address == ts_before.address
+
+
+class TestSceneAddressGeneration:
+    """Szenen-GAs (MG 4 'Szenen', FA-441): eine gemeinsame Szenenaufruf-GA
+    pro Geltungsbereich statt einer eigenen GA pro Szene (KNX-Konvention
+    DPT 17/18: eine GA traegt bis zu 64 Szenen als 1-Byte-Wert 0-63)."""
+
+    def _szenen_gas(self, structure):
+        hg0 = structure.main_groups[0]
+        mg_szenen = next(mg for mg in hg0.middle_groups if mg.number == 4)
+        return mg_szenen.group_addresses
+
+    def test_scenes_in_same_scope_share_one_ga(self, simple_efh, gewerk_catalog):
+        from knix_arranger.models.scene import Scene
+
+        scenes = [
+            Scene(name="Kino", scene_number=1, scope="central"),
+            Scene(name="Lesen", scene_number=2, scope="central"),
+        ]
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(simple_efh, scenes=scenes)
+
+        gas = self._szenen_gas(structure)
+        # Feste Abwesenheits-GA + genau EINE gemeinsame Szenenaufruf-GA
+        # (nicht eine pro Szene).
+        assert len(gas) == 2
+        assert gas[0].designation == "ZENTRAL Szene Abwesenheit"
+        assert gas[1].designation == "ZENTRAL Szenenaufruf"
+        assert gas[1].datapoint_type == "DPST-17-1"
+
+    def test_room_scoped_scenes_get_named_channel(self, simple_efh, gewerk_catalog):
+        from knix_arranger.models.scene import Scene
+
+        room = next(r for r in simple_efh.all_rooms if r.name == "Schlafzimmer")
+        scenes = [Scene(name="Aufwachen", scene_number=1, scope="room", scope_id=room.id)]
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(simple_efh, scenes=scenes)
+
+        gas = self._szenen_gas(structure)
+        designations = {ga.designation for ga in gas}
+        assert "Szenenaufruf Schlafzimmer" in designations
+
+    def test_detected_scenes_are_not_regenerated(self, simple_efh, gewerk_catalog):
+        from knix_arranger.models.scene import Scene
+
+        scenes = [Scene(name="Importiert", scene_number=1, scope="central",
+                         is_detected=True, source_ga_addresses=["0/4/1"])]
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(simple_efh, scenes=scenes)
+
+        gas = self._szenen_gas(structure)
+        # Nur die feste Abwesenheits-GA -- keine zweite GA fuer die bereits
+        # importierte Szene.
+        assert len(gas) == 1
+
+    def test_duplicate_scene_number_in_same_scope_warns(self, simple_efh, gewerk_catalog):
+        from knix_arranger.models.scene import Scene
+
+        scenes = [
+            Scene(name="Kino", scene_number=3, scope="central"),
+            Scene(name="Lesen", scene_number=3, scope="central"),
+        ]
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(simple_efh, scenes=scenes)
+
+        assert any("3" in w and "ZENTRAL Szenenaufruf" in w for w in structure.warnings)
+
+
+class TestManualGaLinking:
+    """FA-521f: bereits importierte GAs manuell mit einer GewerkAssignment
+    verknuepfen (services/gewerk_channel_matching.py + step05_gewerke.py
+    ._assign_channel) statt bei der Generierung zu duplizieren."""
+
+    def _light_gas(self, structure, hg_number: int):
+        hg = next(h for h in structure.main_groups if h.number == hg_number)
+        mg = next(m for m in hg.middle_groups if m.number == 0)
+        return mg.group_addresses
+
+    def test_linked_slot_is_skipped_not_duplicated(self, simple_efh, gewerk_catalog):
+        from knix_arranger.models.building import GewerkAssignment
+        from knix_arranger.models.group_address import (
+            GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
+        )
+
+        room = next(r for r in simple_efh.all_rooms if r.name == "Schlafzimmer")
+        imported_ga = GroupAddress(
+            main_group=2, middle_group=0, sub_group=50,
+            designation="L.E01.01_ea  ( Schlafzimmer, aus ETS )",
+            datapoint_type="DPST-1-1", is_manual=True,
+        )
+        existing = GroupAddressStructure()
+        hg = MainGroup(number=2, name="EG")
+        mg = MiddleGroup(number=0, name="Licht")
+        mg.group_addresses.append(imported_ga)
+        hg.middle_groups.append(mg)
+        existing.main_groups.append(hg)
+
+        assignment = GewerkAssignment(
+            gewerk_code="L", count=1,
+            linked_ga_ids={"E/A": imported_ga.id},
+        )
+        room.gewerk_assignments.append(assignment)
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(simple_efh, existing=existing)
+
+        light_gas = self._light_gas(structure, hg_number=2)
+        # Keine neue GA fuer E/A -- nur die 4 uebrigen Slots (DIM/WERT/RM/RM WERT)
+        assert len(light_gas) == 4
+        assert {ga.function_name for ga in light_gas} == {"DIM", "WERT", "RM", "RM WERT"}
+        # Die manuell verknuepfte GA bleibt komplett unangetastet (nicht in
+        # der neuen Struktur -- Erhalt ist Aufgabe des Aufrufers ueber
+        # is_manual, siehe step05_gewerke._regenerate_gas/_insert_manual_ga)
+        assert imported_ga.designation == "L.E01.01_ea  ( Schlafzimmer, aus ETS )"
+        assert imported_ga.function_name == ""
+
+    def test_fully_linked_assignment_generates_nothing_new(self, simple_efh, gewerk_catalog):
+        from knix_arranger.models.building import GewerkAssignment
+        from knix_arranger.models.group_address import (
+            GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
+        )
+
+        room = next(r for r in simple_efh.all_rooms if r.name == "Schlafzimmer")
+        existing = GroupAddressStructure()
+        hg = MainGroup(number=2, name="EG")
+        mg = MiddleGroup(number=0, name="Licht")
+        linked_ids = {}
+        for i, fn in enumerate(["E/A", "DIM", "WERT", "RM", "RM WERT"]):
+            ga = GroupAddress(main_group=2, middle_group=0, sub_group=50 + i,
+                               designation=f"L.E01.01_{fn}", is_manual=True)
+            mg.group_addresses.append(ga)
+            linked_ids[fn] = ga.id
+        hg.middle_groups.append(mg)
+        existing.main_groups.append(hg)
+
+        assignment = GewerkAssignment(gewerk_code="L", count=1, linked_ga_ids=linked_ids)
+        room.gewerk_assignments.append(assignment)
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(simple_efh, existing=existing)
+
+        assert self._light_gas(structure, hg_number=2) == []
+
+    def test_stale_link_falls_back_to_auto_generation_with_warning(
+        self, simple_efh, gewerk_catalog,
+    ):
+        """Verweist linked_ga_ids auf eine nicht mehr existierende GA (vom
+        Nutzer geloescht), wird der Eintrag bereinigt und der Slot normal
+        generiert statt die Zuweisung stillschweigend unvollstaendig zu
+        lassen."""
+        from knix_arranger.models.building import GewerkAssignment
+        from knix_arranger.models.group_address import GroupAddressStructure
+
+        room = next(r for r in simple_efh.all_rooms if r.name == "Schlafzimmer")
+        assignment = GewerkAssignment(
+            gewerk_code="L", count=1,
+            linked_ga_ids={"E/A": "geloeschte-ga-id"},
+        )
+        room.gewerk_assignments.append(assignment)
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(simple_efh, existing=GroupAddressStructure())
+
+        light_gas = self._light_gas(structure, hg_number=2)
+        assert {ga.function_name for ga in light_gas} == {"E/A", "DIM", "WERT", "RM", "RM WERT"}
+        assert "E/A" not in assignment.linked_ga_ids
+        assert any("E/A" in w for w in structure.warnings)
+
+    def test_multi_count_assignment_ignores_linked_ga_ids(self, simple_efh, gewerk_catalog):
+        """v1-Einschraenkung: manuelle Verknuepfung ist nur fuer count==1
+        vorgesehen (siehe step05_gewerke.py -- der Button ist fuer
+        Mehrfach-Zuweisungen deaktiviert). Der Generator ignoriert
+        linked_ga_ids bei count>1 defensiv, statt falsch zuzuordnen."""
+        from knix_arranger.models.building import GewerkAssignment
+        from knix_arranger.models.group_address import GroupAddressStructure
+
+        room = next(r for r in simple_efh.all_rooms if r.name == "Schlafzimmer")
+        assignment = GewerkAssignment(
+            gewerk_code="L", count=2,
+            linked_ga_ids={"E/A": "irrelevant-id"},
+        )
+        room.gewerk_assignments.append(assignment)
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(simple_efh, existing=GroupAddressStructure())
+
+        light_gas = self._light_gas(structure, hg_number=2)
+        assert len(light_gas) == 10  # 2 Elemente x 5 Slots, alles frisch generiert

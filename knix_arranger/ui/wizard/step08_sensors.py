@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget,
     QTreeWidgetItem, QPushButton, QAbstractItemView, QGroupBox,
     QDialog, QDialogButtonBox, QComboBox, QFormLayout,
-    QLineEdit, QListWidget, QListWidgetItem, QMenu,
+    QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
 )
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QFont, QColor, QBrush
@@ -37,6 +37,9 @@ _SENSOR_TYPE_CHOICES = [
     "Magnetkontakt",
     "Wetterstation",
     "Energiezähler",
+    "Wassermelder",
+    "Rauchmelder",
+    "Sensor",
 ]
 
 _TASTER_CHANNEL_OPTIONS = ["1", "2", "4", "6"]
@@ -396,6 +399,25 @@ class Step08Sensors(QWidget):
         info.setWordWrap(True)
         layout.addWidget(info)
 
+        self._import_banner = QLabel(
+            "Dieses Projekt wurde aus einem ETS-Projekt importiert. Funktionszuordnungen\n"
+            "werden NICHT automatisch neu berechnet. 'Funktionen automatisch zuordnen'\n"
+            "bleibt bei Bedarf manuell verfügbar (mit Warnhinweis)."
+        )
+        self._import_banner.setWordWrap(True)
+        self._import_banner.setStyleSheet(
+            "background-color: #FFF3CD; color: #856404; padding: 8px; border-radius: 4px;"
+        )
+        self._import_banner.hide()
+        layout.addWidget(self._import_banner)
+
+        btn_layout = QHBoxLayout()
+        self._btn_auto = QPushButton("Funktionen automatisch zuordnen")
+        self._btn_auto.clicked.connect(self._manual_auto_assign)
+        btn_layout.addWidget(self._btn_auto)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
         self._no_topology_hint = QLabel(
             "Hinweis: Keine Topologie vorhanden. "
             "Bitte zuerst in Schritt 7 die Topologie berechnen."
@@ -452,9 +474,31 @@ class Step08Sensors(QWidget):
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
     def on_enter(self):
+        is_imported = self._project.topology.is_imported
+        self._import_banner.setVisible(is_imported)
+
         rooms = self._project.all_rooms
         if any(r.gewerk_assignments for r in rooms):
-            self._refresh_from_project()
+            # Importierte Verknüpfungen (XLSX/knxproj) bleiben unverändert
+            # (FA-ImportGuard) – nur anzeigen, keine automatische Neuzuordnung.
+            self._refresh_from_project(run_auto_assign=not is_imported)
+
+    def _manual_auto_assign(self):
+        if self._project.topology.is_imported:
+            reply = QMessageBox.question(
+                self,
+                "Importierte Verknüpfungen überschreiben?",
+                "Dieses Projekt wurde aus einem ETS-Projekt importiert.\n"
+                "Die automatische Zuordnung erstellt Funktionszuordnungen anhand von\n"
+                "Heuristiken (Raum/Gewerk) und kann bestehende, manuell geprüfte\n"
+                "Verknüpfungen überschreiben.\n\n"
+                "Trotzdem fortfahren?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+        self._refresh_from_project(run_auto_assign=True)
 
     # ── Baum-Aufbau ────────────────────────────────────────────────────────────
 

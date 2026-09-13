@@ -23,6 +23,8 @@ from ...models.project import KnxProject
 from ...models.building import Bedienelement
 from ...services.sensor_service import SensorService
 from ..column_utils import fit_columns
+from ..dialogs.product_select_dialog import ProductSelectDialog
+from ..dialogs.com_object_select_dialog import ComObjectSelectDialog
 
 
 _SENSOR_TYPE_CHOICES = [
@@ -36,6 +38,9 @@ _SENSOR_TYPE_CHOICES = [
     "Magnetkontakt",
     "Wetterstation",
     "Energiezähler",
+    "Wassermelder",
+    "Rauchmelder",
+    "Sensor",
 ]
 
 _TASTER_CHANNEL_OPTIONS = ["1", "2", "4", "6"]
@@ -92,6 +97,19 @@ class _DeviceConfigDialog(QDialog):
         hint.setStyleSheet("color: #808080; font-style: italic;")
         main.addWidget(hint)
 
+        extra_layout = QHBoxLayout()
+        self._btn_extra_product = QPushButton()
+        self._update_extra_product_button()
+        self._btn_extra_product.setToolTip(
+            "Reales Produkt verknüpfen, um Gruppenadressen für dessen "
+            "eingebaute Zusatzsensorik zu erzeugen (z.B. Temperaturfühler) – "
+            "unabhängig von den Standard-Schalt-/Dimm-Funktionen."
+        )
+        self._btn_extra_product.clicked.connect(self._select_extra_sensor_product)
+        extra_layout.addWidget(self._btn_extra_product)
+        extra_layout.addStretch()
+        main.addLayout(extra_layout)
+
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(self._apply)
         btns.rejected.connect(self.reject)
@@ -112,6 +130,86 @@ class _DeviceConfigDialog(QDialog):
         if self._be.element_type == "Tastereinheit":
             self._be.channels = int(self._channel_combo.currentText())
         self.accept()
+
+    # ── Zusatzsensorik-Produkt ──
+
+    def _update_extra_product_button(self):
+        if self._be.linked_product:
+            self._btn_extra_product.setText("✓ Zusatzsensorik-Produkt")
+        else:
+            self._btn_extra_product.setText("Zusatzsensorik-Produkt…")
+
+    def _select_extra_sensor_product(self):
+        """Verwaltet die Produktverknüpfung für Zusatzsensorik dieses Geräts.
+
+        Ist bereits ein Produkt verknüpft, öffnet sich direkt die
+        ComObject-Auswahl dafür (kein erneutes Suchen nötig) – nur über
+        deren "Anderes Produkt wählen…" gelangt man zur Produktsuche.
+        """
+        if self._be.linked_product and self._be.linked_product.get("com_objects"):
+            lp = self._be.linked_product
+            label = f"{lp.get('manufacturer', '')} {lp.get('order_number', '')} – {lp.get('product_name', '')}"
+            co_dlg = ComObjectSelectDialog(
+                label, lp["com_objects"],
+                excluded_numbers=set(lp.get("excluded_co_numbers", [])),
+                header_note=(
+                    "Nur bewusst ausgewählte Zusatzfunktionen (z.B. "
+                    "Temperatur) erhalten eine Gruppenadresse – die "
+                    "normalen Schalt-/Dimm-Funktionen sind bereits über "
+                    "die Gewerke abgedeckt."
+                ),
+                parent=self,
+            )
+            if co_dlg.exec() != QDialog.Accepted:
+                return
+            if co_dlg.wants_different_product():
+                self._pick_new_extra_sensor_product()
+                return
+            lp["excluded_co_numbers"] = sorted(co_dlg.excluded_numbers())
+            self._update_extra_product_button()
+            return
+
+        self._pick_new_extra_sensor_product()
+
+    def _pick_new_extra_sensor_product(self):
+        dlg = ProductSelectDialog(parent=self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        prod = dlg.selected_product
+        if not prod:
+            return
+
+        if not prod.com_objects:
+            QMessageBox.information(
+                self, "Keine ComObject-Daten",
+                "Dieses Produkt enthält keine ComObject-Daten (kein "
+                "KNXPROD-Import) – es können keine zusätzlichen "
+                "Gruppenadressen daraus erzeugt werden.",
+            )
+            return
+
+        label = f"{prod.manufacturer} {prod.order_number} – {prod.product_name}"
+        co_dlg = ComObjectSelectDialog(
+            label, prod.com_objects, default_all_selected=False,
+            header_note=(
+                "Nur bewusst ausgewählte Zusatzfunktionen (z.B. Temperatur) "
+                "erhalten eine Gruppenadresse – die normalen Schalt-/"
+                "Dimm-Funktionen sind bereits über die Gewerke abgedeckt."
+            ),
+            parent=self,
+        )
+        if co_dlg.exec() != QDialog.Accepted:
+            return
+
+        self._be.linked_product = {
+            "manufacturer": prod.manufacturer,
+            "order_number": prod.order_number,
+            "product_name": prod.product_name,
+            "com_objects": prod.com_objects,
+            "excluded_co_numbers": sorted(co_dlg.excluded_numbers()),
+        }
+        self._update_extra_product_button()
 
 
 class Step05cDevices(QWidget):

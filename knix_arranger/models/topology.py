@@ -44,6 +44,52 @@ class CommunicationObject:
 
 
 @dataclass
+class SceneValueEntry:
+    """Szenen-Schaltwert eines Aktor-Kanals aus dem ETS-Geräteparameter-
+    Abschnitt (FA-1809), z.B. 'Kanal A schaltet bei Szene 2 auf AUS'.
+    Reine Rohdaten aus dem Topologie-Report -- die Verknüpfung zu einer
+    konkreten Gruppenadresse macht services/scene_value_linking.py."""
+    channel: str = ""       # z.B. "A" (ABB) oder "Ausgang 1" (Hager)
+    scene_number: int = 0   # 1-64
+    value: str = ""         # z.B. "AUS", "Ein" -- Rohtext, herstellerabhängig
+
+    def to_dict(self) -> dict:
+        return {
+            "channel": self.channel,
+            "scene_number": self.scene_number,
+            "value": self.value,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SceneValueEntry:
+        return cls(
+            channel=data.get("channel", ""),
+            scene_number=data.get("scene_number", 0),
+            value=data.get("value", ""),
+        )
+
+
+@dataclass
+class SceneTriggerEntry:
+    """Taster-Bedienelement, das laut Geräteparametern eine bestimmte
+    Szenennummer sendet (FA-1810), z.B. 'Taste 1, links sendet Szene 1'.
+    Reine Rohdaten aus dem Topologie-Report -- die Verknüpfung zur
+    passenden Scene macht services/scene_value_linking.py."""
+    button: str = ""        # z.B. "Taste 1, links", "Taste 1, rechts (langer Tastendruck)"
+    scene_number: int = 0   # 1-64 (aus dem konfigurierten Byte-Wert 0-255 + 1)
+
+    def to_dict(self) -> dict:
+        return {"button": self.button, "scene_number": self.scene_number}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SceneTriggerEntry:
+        return cls(
+            button=data.get("button", ""),
+            scene_number=data.get("scene_number", 0),
+        )
+
+
+@dataclass
 class Device:
     """KNX-Busteilnehmer/Gerät auf einer Linie (FA-514)."""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -54,9 +100,21 @@ class Device:
     product_name: str = ""        # Hersteller-Produktbezeichnung (nach manueller Zuweisung)
     application_program: str = ""
     installation_location: str = ""  # Einbauort, z.B. "UV2 (Steigzone)"
+    # Tastenbelegung/Parameterkonfiguration aus dem ETS-Report (nur Anzeige,
+    # keine automatische Auswertung -- Format ist je Hersteller/Applikation
+    # unterschiedlich, siehe XlsxImportService.extract_button_configuration).
+    button_configuration: str = ""
     serial_number: str = ""
     datasheets: list[str] = field(default_factory=list)
     communication_objects: list[CommunicationObject] = field(default_factory=list)
+    # Szenen-Schaltwerte aus dem Geräteparameter-Abschnitt (FA-1809), siehe
+    # XlsxImportService.extract_scene_values -- ebenfalls herstellerabhängig,
+    # nur für erkannte Formate (aktuell ABB, Hager) befüllt.
+    scene_values: list[SceneValueEntry] = field(default_factory=list)
+    # Szenen-Auslöser aus dem Geräteparameter-Abschnitt (FA-1810), siehe
+    # XlsxImportService.extract_scene_triggers -- welche Taste sendet welche
+    # Szenennummer (Sensor-Gegenstück zu scene_values).
+    scene_triggers: list[SceneTriggerEntry] = field(default_factory=list)
     # Typ: "actor", "sensor", "coupler", "power_supply", "gateway", "other"
     # "gateway" = Fremdsystem-Schnittstelle (DALI-Gateway, Modbus-KNX-Gateway, IP-KNX-Gateway)
     #             fuer Gewerke mit interface_type="gateway" (FA-1307)
@@ -84,9 +142,12 @@ class Device:
             "product_name": self.product_name,
             "application_program": self.application_program,
             "installation_location": self.installation_location,
+            "button_configuration": self.button_configuration,
             "serial_number": self.serial_number,
             "datasheets": self.datasheets,
             "communication_objects": [co.to_dict() for co in self.communication_objects],
+            "scene_values": [sv.to_dict() for sv in self.scene_values],
+            "scene_triggers": [st.to_dict() for st in self.scene_triggers],
             "device_type": self.device_type,
             "room_id": self.room_id,
             "manually_split": self.manually_split,
@@ -106,6 +167,7 @@ class Device:
             product_name=data.get("product_name", ""),
             application_program=data.get("application_program", ""),
             installation_location=data.get("installation_location", ""),
+            button_configuration=data.get("button_configuration", ""),
             serial_number=data.get("serial_number", ""),
             datasheets=data.get("datasheets", []),
             device_type=data.get("device_type", "other"),
@@ -118,6 +180,12 @@ class Device:
         d.communication_objects = [
             CommunicationObject.from_dict(co)
             for co in data.get("communication_objects", [])
+        ]
+        d.scene_values = [
+            SceneValueEntry.from_dict(sv) for sv in data.get("scene_values", [])
+        ]
+        d.scene_triggers = [
+            SceneTriggerEntry.from_dict(st) for st in data.get("scene_triggers", [])
         ]
         return d
 

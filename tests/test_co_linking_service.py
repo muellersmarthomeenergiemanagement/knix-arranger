@@ -168,6 +168,182 @@ class TestGenerateProposals:
         assert proposals == []
 
 
+# ── Gateway-Geraete (FA-1307): muessen wie Aktoren behandelt werden ──────────
+
+def _make_gateway_project(rooms: list, gateway_product: str, gas: list) -> KnxProject:
+    """Wie _make_project, aber mit device_type='gateway' statt 'actor'."""
+    project = _make_project(rooms, gateway_product, gas)
+    device = project.topology.areas[0].lines[0].devices[0]
+    device.device_type = "gateway"
+    return project
+
+
+class TestGatewayDevices:
+    """Regression: Gateway-Geraete (DALI, Modbus, KNX-Schnittstelle/MM, ...)
+    wurden bisher nirgends beruecksichtigt, da _collect_actor_rows strikt
+    auf device_type == 'actor' filterte -- CO-Verknuepfung generierte fuer
+    sie deshalb nie Vorschlaege, unabhaengig vom KNXPROD-Import."""
+
+    def test_mm_gateway_ein_aus_erzeugt_vorschlag(self):
+        room = Room(number="M01", name="Musikzimmer")
+        gas = [_ga(room, "MM", 1, "EIN/AUS", 0, "DPST-1-1")]
+        project = _make_gateway_project(rooms=[room], gateway_product="KNX-Schnittstelle 1-fach", gas=gas)
+
+        proposals = CoLinkingService().generate_proposals(project)
+        p = next((p for p in proposals if p.function_name == "EIN/AUS"), None)
+        assert p is not None, "Kein Vorschlag fuer Gateway-Geraet generiert"
+        assert p.co_name == "Ein/Aus"
+        assert p.direction == "empfangen"
+        assert p.confidence == "sicher"
+
+    def test_mm_gateway_all_five_functions(self):
+        room = Room(number="M01", name="Musikzimmer")
+        gas = [
+            _ga(room, "MM", 1, "EIN/AUS", 0, "DPST-1-1"),
+            _ga(room, "MM", 1, "LAUTSTAERKE", 1, "DPST-5-1"),
+            _ga(room, "MM", 1, "QUELLE", 2, "DPST-5-1"),
+            _ga(room, "MM", 1, "PLAY/PAUSE", 3, "DPST-1-1"),
+            _ga(room, "MM", 1, "STATUS", 4, "DPST-1-1"),
+        ]
+        project = _make_gateway_project(rooms=[room], gateway_product="KNX-Schnittstelle 1-fach", gas=gas)
+
+        proposals = CoLinkingService().generate_proposals(project)
+        function_names = {p.function_name for p in proposals}
+        assert function_names == {"EIN/AUS", "LAUTSTAERKE", "QUELLE", "PLAY/PAUSE", "STATUS"}
+        status = next(p for p in proposals if p.function_name == "STATUS")
+        assert status.direction == "senden"
+
+    def test_dali_gateway_without_matching_function_map_entry(self):
+        """DALI-Gateway-GAs ohne passenden _FUNCTION_MAP-Eintrag erzeugen (noch)
+        keine Vorschlaege -- aber duerfen auch nicht crashen."""
+        room = Room(number="E01", name="Zimmer")
+        gas = [_ga(room, "LDA", 1, "IRGENDWAS", 0, "DPST-1-1")]
+        project = _make_gateway_project(rooms=[room], gateway_product="DALI-Gateway 16-fach", gas=gas)
+
+        proposals = CoLinkingService().generate_proposals(project)
+        assert proposals == []
+
+    def test_gateway_proposal_can_be_applied(self):
+        """Ein Gateway-Vorschlag laesst sich wie ein Aktor-Vorschlag uebernehmen."""
+        room = Room(number="M01", name="Musikzimmer")
+        gas = [_ga(room, "MM", 1, "EIN/AUS", 0, "DPST-1-1")]
+        project = _make_gateway_project(rooms=[room], gateway_product="KNX-Schnittstelle 1-fach", gas=gas)
+        svc = CoLinkingService()
+
+        proposals = svc.generate_proposals(project)
+        for p in proposals:
+            p.selected = True
+        count = svc.apply_proposals(project, proposals)
+
+        assert count > 0
+        device = project.topology.areas[0].lines[0].devices[0]
+        all_gas = [ga for co in device.communication_objects for ga in co.connected_gas]
+        assert "1/0/0" in all_gas
+
+
+# ── Reale KNXPROD-ComObjects bevorzugt (FA-3006) ──────────────────────────────
+
+class TestRealComObjectPreferred:
+    """Ist am Geraet ein reales (aus KNXPROD importiertes) CommunicationObject
+    vorhanden, dessen Funktionsname exakt zur GA-Funktion passt, wird dieses
+    reale CO (mit seinem tatsaechlichen Namen/DPT/Flags) statt des
+    generischen _FUNCTION_MAP-Eintrags verwendet."""
+
+    def test_real_co_name_and_dpt_override_generic_template(self):
+        room = Room(number="M01", name="Musikzimmer")
+        gas = [_ga(room, "MM", 1, "EIN/AUS", 0, "DPST-1-1")]
+        project = _make_gateway_project(
+            rooms=[room], gateway_product="KNX-Schnittstelle 1-fach", gas=gas,
+        )
+        device = project.topology.areas[0].lines[0].devices[0]
+        device.communication_objects = [CommunicationObject(
+            object_number=0, name="System Ein/Aus",
+            object_function="EIN/AUS", data_type="DPST-1-1", flags="KÜU",
+        )]
+
+        proposals = CoLinkingService().generate_proposals(project)
+        p = next(p for p in proposals if p.function_name == "EIN/AUS")
+        # Realer Produktname statt generischem "Ein/Aus"
+        assert p.co_name == "System Ein/Aus"
+        assert p.confidence == "sicher"
+
+    def test_real_co_covers_function_name_unknown_to_function_map(self):
+        """Wurde die GA bereits aus dem echten Produkt-Schema generiert
+        (AddressGenerator._build_product_schema), traegt sie einen
+        beliebigen Funktionsnamen aus der KNXPROD, der nicht im generischen
+        _FUNCTION_MAP steht. Vorher: kein Vorschlag. Jetzt: das passende
+        reale CO wird gefunden und verwendet."""
+        room = Room(number="M01", name="Musikzimmer")
+        gas = [_ga(room, "MM", 1, "BASS", 0, "DPST-6-1")]
+        project = _make_gateway_project(
+            rooms=[room], gateway_product="KNX-Schnittstelle 1-fach", gas=gas,
+        )
+        device = project.topology.areas[0].lines[0].devices[0]
+        device.communication_objects = [CommunicationObject(
+            object_number=0, name="Bass anpassen",
+            object_function="BASS", data_type="DPST-6-1", flags="KÜU",
+        )]
+
+        proposals = CoLinkingService().generate_proposals(project)
+        p = next((p for p in proposals if p.function_name == "BASS"), None)
+        assert p is not None, "Reales CO ohne _FUNCTION_MAP-Eintrag wurde nicht gefunden"
+        assert p.co_name == "Bass anpassen"
+        assert p.co_dpt == "DPST-6-1"
+
+    def test_direction_derived_from_real_co_transmit_flag(self):
+        room = Room(number="M01", name="Musikzimmer")
+        gas = [_ga(room, "MM", 1, "STATUSTEXT", 0, "DPST-16-1")]
+        project = _make_gateway_project(
+            rooms=[room], gateway_product="KNX-Schnittstelle 1-fach", gas=gas,
+        )
+        device = project.topology.areas[0].lines[0].devices[0]
+        device.communication_objects = [CommunicationObject(
+            object_number=0, name="Statustext",
+            object_function="STATUSTEXT", data_type="DPST-16-1", flags="KLSU",
+        )]
+
+        proposals = CoLinkingService().generate_proposals(project)
+        p = next(p for p in proposals if p.function_name == "STATUSTEXT")
+        assert p.direction == "senden"
+
+    def test_already_linked_detected_via_real_co(self):
+        room = Room(number="M01", name="Musikzimmer")
+        gas = [_ga(room, "MM", 1, "EIN/AUS", 0, "DPST-1-1")]
+        project = _make_gateway_project(
+            rooms=[room], gateway_product="KNX-Schnittstelle 1-fach", gas=gas,
+        )
+        device = project.topology.areas[0].lines[0].devices[0]
+        device.communication_objects = [CommunicationObject(
+            object_number=0, name="System Ein/Aus",
+            object_function="EIN/AUS", data_type="DPST-1-1", flags="KÜU",
+            connected_gas=["1/0/0"],
+        )]
+
+        proposals = CoLinkingService().generate_proposals(project)
+        p = next(p for p in proposals if p.function_name == "EIN/AUS")
+        assert p.already_linked is True
+        assert p.selected is False
+
+    def test_falls_back_to_function_map_when_no_real_co_matches(self):
+        """Reale COs mit anderen Funktionsnamen duerfen den generischen
+        Fallback nicht verhindern (z.B. Produkt erst nachtraeglich an ein
+        Geraet mit bereits generisch geplanten GAs zugewiesen)."""
+        room = Room(number="M01", name="Musikzimmer")
+        gas = [_ga(room, "MM", 1, "EIN/AUS", 0, "DPST-1-1")]
+        project = _make_gateway_project(
+            rooms=[room], gateway_product="KNX-Schnittstelle 1-fach", gas=gas,
+        )
+        device = project.topology.areas[0].lines[0].devices[0]
+        device.communication_objects = [CommunicationObject(
+            object_number=0, name="Zone A Mute",
+            object_function="MUTE ZONE A", data_type="DPST-1-1", flags="KÜU",
+        )]
+
+        proposals = CoLinkingService().generate_proposals(project)
+        p = next(p for p in proposals if p.function_name == "EIN/AUS")
+        assert p.co_name == "Ein/Aus"  # generischer _FUNCTION_MAP-Name
+
+
 # ── DPT-Kompatibilitaetspruefung (FA-3004) ────────────────────────────────────
 
 class TestDptKompatibilitaet:

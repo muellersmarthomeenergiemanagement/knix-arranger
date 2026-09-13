@@ -185,7 +185,9 @@ class KnxprodCatalogService:
 
             # Hardware.xml, Catalog.xml lesen
             hardware_entries = self._parse_hardware_xml(zf, folder, namelist)
-            catalog_names, catalog_hw2prog = self._parse_catalog_xml(zf, folder, namelist)
+            catalog_names, catalog_hw2prog, catalog_sections = self._parse_catalog_xml(
+                zf, folder, namelist,
+            )
 
             # Applikationsprogramm-XMLs und Hardware2Program-Mapping lesen
             hw2prog_map = self._parse_hw2prog_map(zf, folder, namelist)
@@ -194,10 +196,17 @@ class KnxprodCatalogService:
             for hw in hardware_entries:
                 # Produktname aus Catalog.xml ergänzen
                 full_name = catalog_names.get(hw["id"], hw.get("name", ""))
+                section_path = catalog_sections.get(hw["id"], "")
                 order_number = hw.get("order_number", "")
                 channels = hw.get("channels", 0)
-                category = hw.get("category", "actor")
-                device_type = self._infer_device_type(full_name, category)
+                # Fehlt ApplicationArea in Hardware.xml (z.B. Theben), wird die
+                # Kategorie ersatzweise aus dem ETS-Katalogbaum abgeleitet.
+                category = (
+                    hw.get("category")
+                    or self._infer_category_from_section(section_path)
+                    or "actor"
+                )
+                device_type = self._infer_device_type(full_name, category, section_path)
 
                 # ComObjects über Hardware2Program → ApplikationsprogrammID auflösen.
                 # Hardware2ProgramRefId steht je nach Hersteller entweder am Product-
@@ -235,21 +244,36 @@ class KnxprodCatalogService:
     def _resolve_manufacturer_name(
         self, zf: zipfile.ZipFile, folder: str, namelist: list[str]
     ) -> str:
-        """Versucht den Herstellernamen aus Catalog.xml zu lesen."""
+        """Versucht den Herstellernamen zu lesen: zuerst aus dem eigenen
+        Catalog.xml, sonst aus der ZIP-weiten knx_master.xml (dem
+        KNX-Standard-Herstellerregister, Element <Manufacturer Id="M-XXXX"
+        Name="..."/>). Manche Hersteller (z.B. Theben) tragen ihren eigenen
+        Namen nicht redundant in Catalog.xml ein – dort steht dann nur die
+        ID (<Manufacturer RefId="M-0048"/>)."""
         catalog_path = f"{folder}/Catalog.xml"
-        if catalog_path not in namelist:
-            return folder
+        if catalog_path in namelist:
+            try:
+                xml_bytes = zf.read(catalog_path)
+                root = self._parse_xml(xml_bytes)
+                for mfr in root.iter():
+                    if mfr.tag.endswith("Manufacturer"):
+                        name = mfr.get("Name") or mfr.get("name", "")
+                        if name:
+                            return name
+            except Exception as e:
+                logger.debug(f"Herstellername aus {catalog_path} nicht lesbar: {e}")
 
-        try:
-            xml_bytes = zf.read(catalog_path)
-            root = self._parse_xml(xml_bytes)
-            for mfr in root.iter():
-                if mfr.tag.endswith("Manufacturer"):
-                    name = mfr.get("Name") or mfr.get("name", "")
-                    if name:
-                        return name
-        except Exception as e:
-            logger.debug(f"Herstellername aus {catalog_path} nicht lesbar: {e}")
+        if "knx_master.xml" in namelist:
+            try:
+                xml_bytes = zf.read("knx_master.xml")
+                root = self._parse_xml(xml_bytes)
+                for mfr in root.iter():
+                    if mfr.tag.endswith("Manufacturer") and mfr.get("Id") == folder:
+                        name = mfr.get("Name", "")
+                        if name:
+                            return name
+            except Exception as e:
+                logger.debug(f"Herstellername aus knx_master.xml nicht lesbar: {e}")
 
         return folder  # Fallback: Ordnername
 
@@ -290,8 +314,12 @@ class KnxprodCatalogService:
                         or 0
                     )
 
+                    # Manche Hersteller (z.B. Theben) führen ApplicationArea gar
+                    # nicht in Hardware.xml – dann bleibt category leer und wird
+                    # in _parse_zip() über den ETS-Katalogbaum (CatalogSection)
+                    # nachtraeglich bestimmt, statt blind auf "actor" zu fallen.
                     app_area = hw.get("ApplicationArea", "")
-                    category = _AREA_TO_CATEGORY.get(app_area, "actor")
+                    category = _AREA_TO_CATEGORY.get(app_area, "")
 
                     # KNX Secure-Unterstützung (FA-2705)
                     secure_supported = (
@@ -315,38 +343,54 @@ class KnxprodCatalogService:
 
     def _parse_catalog_xml(
         self, zf: zipfile.ZipFile, folder: str, namelist: list[str]
-    ) -> tuple[dict[str, str], dict[str, str]]:
+    ) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
         """
         Liest Catalog.xml.
-        Returns (name_map, hw2prog_map): je ProductRefId → Name bzw. Hardware2ProgramRefId.
-        Manche Hersteller tragen Hardware2ProgramRefId nur hier ein (nicht am
-        Product-Element in Hardware.xml), z.B. bei Sammel-Produktdatenbanken.
+        Returns (name_map, hw2prog_map, section_map): je ProductRefId → Name,
+        Hardware2ProgramRefId bzw. (kleingeschriebener) Pfad der
+        CatalogSection-Hierarchie, in der das Produkt einsortiert ist
+        (z.B. "physikalische sensoren weather stations"). Manche Hersteller
+        tragen Hardware2ProgramRefId nur hier ein (nicht am Product-Element
+        in Hardware.xml), z.B. bei Sammel-Produktdatenbanken. Der
+        Katalogbaum-Pfad dient als Fallback-Signal für die Kategorie-
+        Erkennung, wenn Hardware.xml kein ApplicationArea führt (z.B. Theben).
         """
         cat_path = f"{folder}/Catalog.xml"
         if cat_path not in namelist:
-            return {}, {}
+            return {}, {}, {}
 
         try:
             xml_bytes = zf.read(cat_path)
             root = self._parse_xml(xml_bytes)
         except Exception as e:
             logger.warning(f"Catalog.xml in {folder} nicht lesbar: {e}")
-            return {}, {}
+            return {}, {}, {}
 
         name_map: dict[str, str] = {}
         hw2prog_map: dict[str, str] = {}
-        for elem in root.iter():
-            if not elem.tag.endswith("CatalogItem"):
-                continue
-            ref_id = elem.get("ProductRefId", "")
-            name = elem.get("Name", "")
-            if ref_id and name:
-                name_map[ref_id] = name
-            h2p_id = elem.get("Hardware2ProgramRefId", "")
-            if ref_id and h2p_id:
-                hw2prog_map[ref_id] = h2p_id
+        section_map: dict[str, str] = {}
 
-        return name_map, hw2prog_map
+        def _walk(elem: ET.Element, section_path: str) -> None:
+            tag = elem.tag.rsplit("}", 1)[-1]
+            if tag == "CatalogSection":
+                name = elem.get("Name", "")
+                if name:
+                    section_path = f"{section_path} {name}".strip()
+            elif tag == "CatalogItem":
+                ref_id = elem.get("ProductRefId", "")
+                name = elem.get("Name", "")
+                if ref_id and name:
+                    name_map[ref_id] = name
+                h2p_id = elem.get("Hardware2ProgramRefId", "")
+                if ref_id and h2p_id:
+                    hw2prog_map[ref_id] = h2p_id
+                if ref_id:
+                    section_map[ref_id] = section_path.lower()
+            for child in elem:
+                _walk(child, section_path)
+
+        _walk(root, "")
+        return name_map, hw2prog_map, section_map
 
     def _parse_hw2prog_map(
         self, zf: zipfile.ZipFile, folder: str, namelist: list[str]
@@ -432,34 +476,60 @@ class KnxprodCatalogService:
         return result
 
     def _extract_com_objects(self, root: ET.Element) -> list[ComObjectInfo]:
-        """Extrahiert alle ComObject-Elemente aus einem Applikationsprogramm-XML."""
-        com_objects: list[ComObjectInfo] = []
+        """Extrahiert ComObjects aus einem Applikationsprogramm-XML.
 
-        def _flag(elem: ET.Element, attr: str) -> bool:
-            return elem.get(attr, "Disabled").lower() == "enabled"
+        KNXPROD trennt die Basisdefinition (<ComObject>, im ComObjectTable) von
+        der pro Applikation/Kanal konkretisierten <ComObjectRef> (RefId ->
+        ComObject.Id). Viele Hersteller setzen DatapointType und/oder
+        Flag-Overrides nur auf dem Ref, nicht auf dem Basisobjekt - deshalb
+        werden beide gelesen und je Ref mit den Basiswerten als Fallback
+        gemergt (Ref-Attribute haben Vorrang). Basisobjekte ohne zugehörigen
+        Ref (Hersteller, die ganz ohne Refs arbeiten) werden ebenfalls als
+        eigenständiges ComObject übernommen.
+        """
+        def _flag(attrs: dict, attr: str) -> bool:
+            return attrs.get(attr, "Disabled").lower() == "enabled"
 
-        for co in root.iter():
-            if not co.tag.endswith("ComObject"):
-                continue
-
-            # Objektnummer: Number oder ParentObjectId
+        def _build(attrs: dict) -> ComObjectInfo:
             try:
-                number = int(co.get("Number", 0))
+                number = int(attrs.get("Number", 0))
             except (ValueError, TypeError):
                 number = 0
-
-            info = ComObjectInfo(
+            return ComObjectInfo(
                 number=number,
-                name=co.get("Name", ""),
-                function_text=co.get("Text", co.get("FunctionText", "")),
-                datapoint_type=co.get("DatapointType", ""),
-                communication_flag=_flag(co, "CommunicationFlag"),
-                read_flag=_flag(co, "ReadFlag"),
-                write_flag=_flag(co, "WriteFlag"),
-                transmit_flag=_flag(co, "TransmitFlag"),
-                update_flag=_flag(co, "UpdateFlag"),
+                name=attrs.get("Name", ""),
+                function_text=attrs.get("Text", attrs.get("FunctionText", "")),
+                datapoint_type=attrs.get("DatapointType", ""),
+                communication_flag=_flag(attrs, "CommunicationFlag"),
+                read_flag=_flag(attrs, "ReadFlag"),
+                write_flag=_flag(attrs, "WriteFlag"),
+                transmit_flag=_flag(attrs, "TransmitFlag"),
+                update_flag=_flag(attrs, "UpdateFlag"),
             )
-            com_objects.append(info)
+
+        base_by_id: dict[str, dict] = {}
+        refs: list[dict] = []
+        for elem in root.iter():
+            if elem.tag.endswith("ComObjectRef"):
+                refs.append(dict(elem.attrib))
+            elif elem.tag.endswith("ComObject"):
+                eid = elem.get("Id", "")
+                if eid:
+                    base_by_id[eid] = dict(elem.attrib)
+
+        com_objects: list[ComObjectInfo] = []
+        consumed_base_ids: set[str] = set()
+
+        for ref in refs:
+            ref_id = ref.get("RefId", "")
+            base = base_by_id.get(ref_id, {})
+            consumed_base_ids.add(ref_id)
+            merged = {**base, **ref}
+            com_objects.append(_build(merged))
+
+        for base_id, base in base_by_id.items():
+            if base_id not in consumed_base_ids:
+                com_objects.append(_build(base))
 
         return com_objects
 
@@ -471,9 +541,32 @@ class KnxprodCatalogService:
             cleaned = data.lstrip(b"\xef\xbb\xbf")
             return ET.fromstring(cleaned)
 
-    def _infer_device_type(self, product_name: str, category: str) -> str:
-        """Leitet den Gerätetyp aus dem Produktnamen ab (Best-Effort)."""
-        name_lower = product_name.lower()
+    # Katalogbaum-Stichworte -> Kategorie (Fallback wenn Hardware.xml kein
+    # ApplicationArea führt, z.B. Theben-Exporte). Deutsch/Englisch gemischt,
+    # da Hersteller-Kataloge je Sprache unterschiedlich benannt sind.
+    _SECTION_TO_CATEGORY: tuple[tuple[tuple[str, ...], str], ...] = (
+        (("sensor", "fühler", "fuehler", "melder", "wetterstation", "weather"), "sensor"),
+        (("koppler", "coupler", "netzteil", "power supply", "schnittstelle",
+          "interface", "router", "gateway"), "infrastructure"),
+    )
+
+    def _infer_category_from_section(self, section_path: str) -> str:
+        """Best-Effort Kategorie-Erkennung anhand des ETS-Katalogbaums
+        (CatalogSection-Pfad), falls Hardware.xml kein ApplicationArea führt."""
+        if not section_path:
+            return ""
+        for keywords, cat in self._SECTION_TO_CATEGORY:
+            if any(k in section_path for k in keywords):
+                return cat
+        return ""
+
+    def _infer_device_type(self, product_name: str, category: str,
+                           section_path: str = "") -> str:
+        """Leitet den Gerätetyp aus Produktname und Katalogbaum-Pfad ab
+        (Best-Effort). `section_path` hilft bei Herstellern, deren
+        Produktnamen selbst keine erkennbaren Stichworte enthalten
+        (z.B. "Meteodata 140" statt "Wetterstation")."""
+        name_lower = f"{product_name.lower()} {section_path}"
 
         if category == "infrastructure":
             if "linienkoppler" in name_lower or "line coupler" in name_lower:

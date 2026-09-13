@@ -20,6 +20,10 @@ from ...services.address_generator import AddressGenerator
 from ..dialogs.gewerk_template_dialog import GewerkTemplateDialog
 from ..dialogs.extra_ga_dialog import ExtraGaDialog
 from ..dialogs.product_select_dialog import ProductSelectDialog
+from ..dialogs.com_object_select_dialog import ComObjectSelectDialog
+from ..dialogs.gewerk_channel_assign_dialog import GewerkChannelAssignDialog
+from ..dialogs.gewerk_suggestion_review_dialog import GewerkSuggestionReviewDialog
+from ...services.gewerk_suggestion_service import suggest_gewerk_assignments
 from ..column_utils import fit_columns
 
 # Spalten-Indizes
@@ -76,6 +80,21 @@ class Step05Gewerke(QWidget):
         )
         self._import_banner.hide()
         layout.addWidget(self._import_banner)
+
+        # ── Automatische Erkennung (nur bei importierter Topologie) ──
+        self._auto_detect_group = QGroupBox("Automatische Erkennung")
+        auto_detect_layout = QHBoxLayout()
+        auto_detect_layout.addWidget(QLabel(
+            "Scannt die importierte Topologie nach Aktor-Kanälen und "
+            "schlägt passende Raum/Gewerk-Zuordnungen zur Prüfung vor."
+        ))
+        auto_detect_layout.addStretch()
+        self._btn_suggest_gewerke = QPushButton("Gewerke aus Topologie vorschlagen…")
+        self._btn_suggest_gewerke.clicked.connect(self._suggest_gewerke)
+        auto_detect_layout.addWidget(self._btn_suggest_gewerke)
+        self._auto_detect_group.setLayout(auto_detect_layout)
+        self._auto_detect_group.hide()
+        layout.addWidget(self._auto_detect_group)
 
         # ── Vorlagen-Bereich ──
         template_group = QGroupBox("Vorlagen")
@@ -269,17 +288,35 @@ class Step05Gewerke(QWidget):
         Stellt sicher, dass Schritt 11 (Funktionszuordnung) und Schritt 12 (Funktionsdefinition)
         aktuelle GAs vorfinden – auch wenn der User Schritt 10 überspringt.
         Manuelle GAs (is_manual=True) bleiben erhalten.
+
+        Bei importierten Projekten (topology.is_imported) NICHT automatisch
+        regenerieren: eine neu hinzugefügte Zuweisung würde sonst schon beim
+        Verlassen dieses Schritts kommentarlos eine GA erzeugen, bevor der
+        Nutzer die Chance hatte, sie stattdessen manuell mit einer bereits
+        importierten GA zu verknüpfen (FA-521f). Für importierte Projekte
+        läuft die Generierung nur noch explizit über Schritt 7 (mit dessen
+        Bestätigungsdialog) oder über die manuelle Kanal-Zuweisung.
         """
+        if self._project.topology.is_imported:
+            return
         has_gewerke = any(r.gewerk_assignments for r in self._project.all_rooms)
         if not has_gewerke:
             return
+        self._regenerate_gas()
+
+    def _regenerate_gas(self):
+        """Generiert die GA-Struktur neu (stabil: unveränderte Zuweisungsblöcke
+        bleiben an ihrer Position, geänderte/neue werden angehängt)."""
         catalog = self._project.gewerk_catalog
         manual_gas = [
             ga for ga in self._project.group_addresses.all_addresses()
             if ga.is_manual
         ]
+        existing = self._project.group_addresses
         gen = AddressGenerator(catalog, variant=self._project.config.mg_variant)
-        structure = gen.generate(self._project.areal)
+        structure = gen.generate(
+            self._project.areal, scenes=self._project.scenes, existing=existing,
+        )
         self._project.group_addresses = structure
         for ga in manual_gas:
             self._insert_manual_ga(ga)
@@ -314,6 +351,8 @@ class Step05Gewerke(QWidget):
             self._import_banner.show()
         else:
             self._import_banner.hide()
+
+        self._auto_detect_group.setVisible(self._project.topology.is_imported)
 
     # ── Kontext-Lookup ──
 
@@ -478,6 +517,31 @@ class Step05Gewerke(QWidget):
                 )
                 action_layout.addWidget(btn_product)
 
+                if self._project.topology.is_imported:
+                    n_linked = len(ga.linked_ga_ids)
+                    btn_channel = QPushButton(
+                        f"✓ Kanal ({n_linked})" if n_linked else "Kanal…"
+                    )
+                    btn_channel.setFixedWidth(80)
+                    if ga.count == 1:
+                        btn_channel.setToolTip(
+                            "Diese Zuweisung mit einem bestehenden Aktor-Kanal "
+                            "verknüpfen (importierte GAs wiederverwenden statt "
+                            "neue zu generieren)."
+                            + (f"\n{n_linked} Funktion(en) bereits verknüpft." if n_linked else "")
+                        )
+                        btn_channel.clicked.connect(
+                            lambda checked, r=room, g=ga: self._assign_channel(r, g)
+                        )
+                    else:
+                        btn_channel.setEnabled(False)
+                        btn_channel.setToolTip(
+                            "Manuelle Kanal-Zuweisung ist nur für Zuweisungen mit "
+                            "Anzahl 1 möglich (Mehrfach-Zuweisungen lassen sich "
+                            "nicht eindeutig einem Aktor-Kanal zuordnen)."
+                        )
+                    action_layout.addWidget(btn_channel)
+
                 btn_del = QPushButton("X")
                 btn_del.setFixedWidth(26)
                 btn_del.setObjectName("danger")
@@ -514,23 +578,10 @@ class Step05Gewerke(QWidget):
         if item.column() == _COL_COUNT:
             if 1 <= val <= 20:
                 ga.count = val
-                self._sync_material_quantity(ga)
             else:
                 self._refreshing = True
                 item.setText(str(ga.count))
                 self._refreshing = False
-
-    def _sync_material_quantity(self, ga: GewerkAssignment):
-        """Hält die Menge des verknüpften Materialliste-Eintrags synchron mit ga.count."""
-        if not ga.linked_product:
-            return
-        entry_id = ga.linked_product.get("material_entry_id")
-        if not entry_id:
-            return
-        for entry in self._project.material_list.entries:
-            if entry.id == entry_id:
-                entry.quantity = ga.count
-                break
 
     # ── Filter ──
 
@@ -786,20 +837,53 @@ class Step05Gewerke(QWidget):
             self._refresh_table()
 
     def _remove_gewerk(self, room, ga):
-        if ga.linked_product:
-            entry_id = ga.linked_product.get("material_entry_id")
-            if entry_id:
-                self._project.material_list.remove(entry_id)
         if ga in room.gewerk_assignments:
             room.gewerk_assignments.remove(ga)
         self._refresh_table()
 
     def _select_product(self, room, ga: GewerkAssignment):
-        """Öffnet die Produktauswahl und verknüpft das gewählte Produkt mit der Zuweisung.
+        """Verwaltet die Produktverknüpfung samt GA-Auswahl dieser Zuweisung.
 
-        Der GA-Block dieser Zuweisung wird danach aus den ComObjects des
-        Produkts generiert (siehe AddressGenerator._build_product_schema)
-        und das Produkt wird der Materialliste hinzugefügt.
+        Ist bereits ein Produkt verknüpft, öffnet sich direkt die
+        ComObject-Auswahl für dieses Produkt (kein erneutes Suchen nötig) –
+        nur über deren "Anderes Produkt wählen…" gelangt man zur
+        Produktsuche. Ohne bestehende Verknüpfung öffnet sich die
+        Produktsuche direkt.
+        """
+        if ga.linked_product and ga.linked_product.get("com_objects"):
+            lp = ga.linked_product
+            label = f"{lp.get('manufacturer', '')} {lp.get('order_number', '')} – {lp.get('product_name', '')}"
+            co_dlg = ComObjectSelectDialog(
+                label, lp["com_objects"],
+                excluded_numbers=set(lp.get("excluded_co_numbers", [])),
+                parent=self,
+            )
+            if co_dlg.exec() != QDialog.Accepted:
+                return
+            if co_dlg.wants_different_product():
+                self._pick_new_product(room, ga)
+                return
+            lp["excluded_co_numbers"] = sorted(co_dlg.excluded_numbers())
+            self._regenerate_gas()
+            self._refresh_table()
+            return
+
+        self._pick_new_product(room, ga)
+
+    def _pick_new_product(self, room, ga: GewerkAssignment):
+        """Öffnet die Produktsuche und verknüpft das gewählte Produkt mit der Zuweisung.
+
+        Dient ausschliesslich der GA-Generierung aus echten ComObjects
+        (siehe AddressGenerator._build_product_schema) – legt bewusst
+        KEINEN Materialliste-Eintrag an, da dieser mangels physischem
+        Topologie-Gerät nie mit einem echten Einbauort/einer Adresse
+        verknüpft werden könnte. Die eigentliche Geräte-Zuordnung erfolgt
+        weiterhin ausschliesslich über die Materialliste ("Produkt
+        zuweisen…"), die dort auf Basis dieser Verknüpfung einen Vorschlag
+        macht (siehe MaterialListView._assign_product_to_entry).
+
+        Hat das Produkt ComObject-Daten, wird direkt im Anschluss die
+        GA-Auswahl gezeigt (siehe ComObjectSelectDialog).
         """
         dlg = ProductSelectDialog(parent=self)
         if dlg.exec() != QDialog.Accepted:
@@ -809,35 +893,93 @@ class Step05Gewerke(QWidget):
         if not prod:
             return
 
-        if not prod.com_objects:
+        excluded_co_numbers: set[int] = set()
+        if prod.com_objects:
+            label = f"{prod.manufacturer} {prod.order_number} – {prod.product_name}"
+            co_dlg = ComObjectSelectDialog(label, prod.com_objects, parent=self)
+            if co_dlg.exec() != QDialog.Accepted:
+                return
+            excluded_co_numbers = co_dlg.excluded_numbers()
+        else:
             QMessageBox.information(
                 self, "Keine ComObject-Daten",
                 "Dieses Produkt enthält keine ComObject-Daten (kein KNXPROD-Import).\n"
-                "Das GA-Schema dieser Zuweisung bleibt unverändert – das Produkt "
-                "wird nur der Materialliste hinzugefügt.",
+                "Das GA-Schema dieser Zuweisung bleibt unverändert.",
             )
-
-        entry = dlg.get_material_entry()
-        if entry is None:
-            return
-        entry.quantity = ga.count
-
-        # Alten Materialliste-Eintrag entfernen, falls bereits ein Produkt verknüpft war
-        if ga.linked_product:
-            old_entry_id = ga.linked_product.get("material_entry_id")
-            if old_entry_id:
-                self._project.material_list.remove(old_entry_id)
-
-        self._project.material_list.add_or_update(entry)
 
         ga.linked_product = {
             "manufacturer": prod.manufacturer,
             "order_number": prod.order_number,
             "product_name": prod.product_name,
             "com_objects": prod.com_objects,
-            "material_entry_id": entry.id,
+            "excluded_co_numbers": sorted(excluded_co_numbers),
         }
+        self._regenerate_gas()
         self._refresh_table()
+
+    def _assign_channel(self, room, ga: GewerkAssignment):
+        """Verknüpft eine Zuweisung mit einem bestehenden Aktor-Kanal (FA-521f).
+
+        Markiert jede verknüpfte GA als is_manual (schützt sie vor der
+        Neuplatzierung/Löschung bei der nächsten Regenerierung, siehe
+        address_generator.place_block_with_manual_links) und befüllt ihre
+        Metadatenfelder – Bezeichnung/Datenpunkttyp bleiben unangetastet.
+        """
+        gewerk = self._project.gewerk_catalog.get(ga.gewerk_code)
+        if not gewerk:
+            return
+        dlg = GewerkChannelAssignDialog(self._project, room, ga, gewerk, parent=self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        if not dlg.linked_ga_ids:
+            return
+
+        ga_by_id = {
+            g.id: g for g in self._project.group_addresses.all_addresses()
+        }
+        for function, ga_id in dlg.linked_ga_ids.items():
+            linked = ga_by_id.get(ga_id)
+            if not linked:
+                continue
+            linked.is_manual = True
+            linked.assignment_id = ""  # bewusst leer, siehe Plan-Begründung
+            linked.gewerk_code = ga.gewerk_code
+            linked.room_number = room.number
+            linked.room_id = room.id
+            linked.element_number = 1
+            linked.function_name = function
+        ga.linked_ga_ids.update(dlg.linked_ga_ids)
+        self._refresh_table()
+        QMessageBox.information(
+            self, "Kanal zugewiesen",
+            f"{len(dlg.linked_ga_ids)} Funktion(en) mit bestehenden Gruppenadressen "
+            f"verknüpft. Fehlende Funktionen werden beim nächsten Generieren "
+            f"automatisch ergänzt.",
+        )
+
+    def _suggest_gewerke(self):
+        """Scannt die importierte Topologie nach Aktor-Kanälen und
+        schlägt Raum/Gewerk-Zuordnungen zur Prüfung vor (FA-521g).
+
+        Legt nichts blind an -- der Nutzer prüft/korrigiert im
+        `GewerkSuggestionReviewDialog`, erst danach werden
+        `GewerkAssignment`s angelegt und die GAs verknüpft."""
+        suggestions, warnings = suggest_gewerk_assignments(self._project)
+        if not suggestions:
+            text = "Keine neuen Vorschläge gefunden."
+            if warnings:
+                text += "\n\n" + "\n".join(warnings)
+            QMessageBox.information(self, "Keine Vorschläge", text)
+            return
+
+        dlg = GewerkSuggestionReviewDialog(self._project, suggestions, parent=self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self._refresh_table()
+        text = f"{dlg.applied_count} Gewerk(e) aus der Topologie übernommen."
+        if warnings:
+            text += "\n\n" + "\n".join(warnings)
+        QMessageBox.information(self, "Gewerke übernommen", text)
 
     # ── Vorlage anwenden ──
 

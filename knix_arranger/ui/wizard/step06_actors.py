@@ -56,6 +56,16 @@ class Step06Actors(QWidget):
         self._no_topology_hint.setVisible(False)
         layout.addWidget(self._no_topology_hint)
 
+        self._offer_ready_hint = QLabel(
+            "Tipp: Ab hier ist die Geräteliste vollständig genug für eine "
+            "Kundenofferte. Materialliste und Kundenofferte finden Sie nach "
+            "„Fertig“ im Hauptfenster (Seitenleiste)."
+        )
+        self._offer_ready_hint.setStyleSheet("color: #2E7D32; font-weight: bold;")
+        self._offer_ready_hint.setWordWrap(True)
+        self._offer_ready_hint.setVisible(False)
+        layout.addWidget(self._offer_ready_hint)
+
         # Baum: Linien > Aktoren
         self._tree = QTreeWidget()
         self._tree.itemExpanded.connect(lambda _: fit_columns(self._tree))
@@ -109,6 +119,7 @@ class Step06Actors(QWidget):
 
         if not topology.areas:
             self._no_topology_hint.setVisible(True)
+            self._offer_ready_hint.setVisible(False)
             self._summary.setText("")
             return
 
@@ -228,6 +239,7 @@ class Step06Actors(QWidget):
             f"{total_lines} Linien, "
             f"{total_actors} Aktoren insgesamt vorgeschlagen"
         )
+        self._offer_ready_hint.setVisible(total_actors > 0)
 
         # Aktoren und Sensoren in die Topologie persistieren (für Views/Berichte).
         # Importierte Topologien (XLSX/knxproj) bleiben unverändert (FA-ImportGuard).

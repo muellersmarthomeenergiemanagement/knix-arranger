@@ -205,12 +205,14 @@ class LinkingMatrixView(QWidget):
         table.setEditTriggers(QTableWidget.NoEditTriggers)
         table.verticalHeader().setVisible(False)
         table.setAlternatingRowColors(True)
-        # GA-Bezeichnung-Spalte bekommt Stretch
-        for i, h in enumerate(headers):
-            if "Bezeichnung" in h or "Raumname" in h or "Funktion" in h:
-                table.horizontalHeader().setSectionResizeMode(i, QHeaderView.Stretch)
-            else:
-                table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        # Inhaltsbasierte Breite für alle Spalten (überschrieben vom expliziten
+        # Resize-Durchlauf in _fill_sensor_tab()/_fill_actor_tab(), sobald Daten
+        # vorliegen -- hier nur der Zustand vor dem ersten Füllen). Kein Stretch
+        # mehr: bei vielen Spalten (v.a. die dynamischen Gewerk-Spalten im
+        # Sensor-Tab) zwingt Stretch alle auf dieselbe schmale Breite,
+        # unabhängig vom Inhalt -- die Tabelle scrollt stattdessen horizontal.
+        for i in range(len(headers)):
+            table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
         return table
 
     # ------------------------------------------------------------------
@@ -328,15 +330,22 @@ class LinkingMatrixView(QWidget):
                         item.setToolTip("Doppelklick: Gruppenadresse zuweisen")
                 self._sensor_table.setItem(r_idx, n_fixed + col_offset, item)
 
-        # Single resize pass after all data is in place
+        # Single resize pass after all data is in place -- inhaltsbasiert für
+        # ALLE Spalten (auch die dynamischen Gewerk-Spalten), kein Stretch
+        # mehr: bei vielen Gewerken zwang Stretch jede Spalte auf dieselbe
+        # schmale Breite unabhängig vom Zellinhalt. Die Tabelle scrollt
+        # stattdessen horizontal, wenn die Gesamtbreite die Ansicht übersteigt.
+        # Jede Spalte wird zusätzlich nach oben begrenzt -- ein einzelner
+        # ungewöhnlich langer Zellwert (z.B. ein Installateur-Freitext in
+        # "Taste" bei einem importierten Sensor ohne echte Tastenbezeichnung)
+        # soll nicht die ganze Tabelle dominieren.
         self._sensor_table.resizeColumnsToContents()
         _MAX_COL_WIDTH = 220
-        for _cap_col in ("Sensor-Typ", "Stockwerk", "Zone", "Raumname"):
-            _idx = _S_COL.get(_cap_col)
-            if _idx is not None and self._sensor_table.columnWidth(_idx) > _MAX_COL_WIDTH:
+        for _idx in range(len(headers)):
+            if self._sensor_table.columnWidth(_idx) > _MAX_COL_WIDTH:
                 self._sensor_table.setColumnWidth(_idx, _MAX_COL_WIDTH)
-        for i in range(n_fixed, len(headers)):
-            hdr.setSectionResizeMode(i, QHeaderView.Stretch)
+        for i in range(len(headers)):
+            hdr.setSectionResizeMode(i, QHeaderView.Interactive)
 
     # ── FA-2503: Zell-Bearbeitung ──────────────────────────────────────────────
 
@@ -458,16 +467,17 @@ class LinkingMatrixView(QWidget):
             for c_idx, text in enumerate(data):
                 self._actor_table.setItem(r_idx, c_idx, _make_item(text, color))
         self._actor_table.resizeColumnsToContents()
-        # Breite bestimmter Spalten nach oben begrenzen (verhindert dass
-        # lange Einbauort-/Liniennamen die übrigen Spalten verdrängen)
+        # Breite jeder Spalte nach oben begrenzen (verhindert dass ein
+        # einzelner ungewöhnlich langer Zellwert -- z.B. Einbauort-/Linien-/
+        # GA-Bezeichnungs-/Funktionsname -- die übrigen Spalten verdrängt).
+        # Kein Stretch mehr -- inhaltsbasierte Breite für alle Spalten, die
+        # Tabelle scrollt stattdessen horizontal, wenn nötig.
         _MAX_COL_WIDTH = 220
-        for _cap_col in ("UV / Einbauort", "Linie", "Aktor-Typ"):
-            _idx = _A_COL.get(_cap_col)
-            if _idx is not None and self._actor_table.columnWidth(_idx) > _MAX_COL_WIDTH:
+        for _idx in range(len(_A_HEADERS)):
+            if self._actor_table.columnWidth(_idx) > _MAX_COL_WIDTH:
                 self._actor_table.setColumnWidth(_idx, _MAX_COL_WIDTH)
-        for i, h in enumerate(_A_HEADERS):
-            if "Bezeichnung" in h or "Raumname" in h or "Funktion" in h:
-                hdr.setSectionResizeMode(i, QHeaderView.Stretch)
+        for i in range(len(_A_HEADERS)):
+            hdr.setSectionResizeMode(i, QHeaderView.Interactive)
 
     def _update_status(self):
         if not self._belegungsplan:
@@ -493,7 +503,13 @@ class LinkingMatrixView(QWidget):
                 key = f"{row.room_number}  {row.room_name}"
                 if key not in seen_rooms:
                     seen_rooms.add(key)
-                    self._room_filter.addItem(key, userData=row.room_number)
+                    # Raumnummer allein ist kein eindeutiger Filter-Schlüssel --
+                    # sie wird pro Stockwerk neu vergeben und wiederholt sich
+                    # (z.B. "01" auf UG UND EG, siehe project_reconcile_service).
+                    # (Nummer, Name) zusammen identifiziert den Raum eindeutig.
+                    self._room_filter.addItem(
+                        key, userData=(row.room_number, row.room_name)
+                    )
                 if row.floor_name and row.floor_name not in seen_floors:
                     seen_floors.add(row.floor_name)
                     self._floor_filter.addItem(row.floor_name, userData=row.floor_name)
@@ -506,17 +522,26 @@ class LinkingMatrixView(QWidget):
         Die Matrix ist damit wahlweise pro Raum, pro Stockwerk oder für das
         gesamte Projekt anzeigbar (beide Filter kombinierbar, UND-verknüpft).
         """
-        room_num = self._room_filter.currentData()    # None wenn "Alle Räume"
+        room_key = self._room_filter.currentData()      # None wenn "Alle Räume";
+                                                          # sonst (Raumnummer, Raumname)
         floor_name = self._floor_filter.currentData()  # None wenn "Alle Stockwerke"
-        for table, room_col, floor_col in (
-            (self._sensor_table, _S_COL["Raum-Nr."], _S_COL["Stockwerk"]),
-            (self._actor_table,  _A_COL["Raum-Nr."], _A_COL["Stockwerk"]),
+        for table, room_col, name_col, floor_col in (
+            (self._sensor_table, _S_COL["Raum-Nr."], _S_COL["Raumname"], _S_COL["Stockwerk"]),
+            (self._actor_table,  _A_COL["Raum-Nr."], _A_COL["Raumname"], _A_COL["Stockwerk"]),
         ):
             for row in range(table.rowCount()):
                 visible = True
-                if room_num is not None:
-                    item = table.item(row, room_col)
-                    visible = visible and item is not None and item.text() == room_num
+                if room_key is not None:
+                    # Raumnummer allein ist mehrdeutig (wiederholt sich pro
+                    # Stockwerk, z.B. "01" auf UG UND EG) -- Nummer UND Name
+                    # müssen übereinstimmen, sonst zeigt der Filter Zeilen aus
+                    # einem anderen, gleichnummerigen Raum mit an.
+                    num_item = table.item(row, room_col)
+                    name_item = table.item(row, name_col)
+                    visible = (
+                        visible and num_item is not None and name_item is not None
+                        and (num_item.text(), name_item.text()) == room_key
+                    )
                 if floor_name is not None:
                     item = table.item(row, floor_col)
                     visible = visible and item is not None and item.text() == floor_name

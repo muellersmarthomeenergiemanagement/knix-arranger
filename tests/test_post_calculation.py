@@ -18,12 +18,15 @@ class TestPostCalculation:
             hourly_rate_programming=145.0,
             labor_commissioning_hours=16.0,
             hourly_rate_commissioning=145.0,
+            labor_documentation_hours=6.0,
+            hourly_rate_documentation=110.0,
             overhead_costs=500.0,
             # Ist-Werte
             actual_material_cost=11000.0,
             actual_mounting_hours=45.0,
             actual_programming_hours=18.0,
             actual_commissioning_hours=20.0,
+            actual_documentation_hours=7.0,
             actual_overhead_costs=600.0,
         )
 
@@ -32,7 +35,8 @@ class TestPostCalculation:
         expected = (
             45.0 * 125.0 +   # Montage
             18.0 * 145.0 +   # Programmierung
-            20.0 * 145.0     # Inbetriebnahme
+            20.0 * 145.0 +   # Inbetriebnahme
+            7.0 * 110.0       # Dokumentation
         )
         assert self.quote.actual_labor_total == expected
 
@@ -64,3 +68,17 @@ class TestPostCalculation:
         restored = CustomerQuote.from_dict(d)
         assert restored.actual_material_cost == 11000.0
         assert restored.actual_mounting_hours == 45.0
+
+    def test_generate_report_includes_documentation_row(self, tmp_path):
+        """Der Stundenvergleich im Nachkalkulations-Bericht enthaelt eine
+        eigene Zeile fuer die Dokumentation (FA-1707)."""
+        filepath = str(tmp_path / "nachkalk.pdf")
+        self.svc.generate_report(self.quote, filepath)
+
+        import fitz
+        doc = fitz.open(filepath)
+        text = "\n".join(page.get_text() for page in doc)
+        doc.close()
+        assert "Dokumentation" in text
+        assert "6.0" in text  # Soll-Stunden Dokumentation
+        assert "7.0" in text  # Ist-Stunden Dokumentation

@@ -81,32 +81,40 @@ class RecalcService:
         )
         logger.info(f"RecalcService: Aktoren/Sensoren neu berechnet → {actor_count} Geräte total.")
 
-        # ── Schritt 2: GAs neu generieren (manuelle GAs sichern und wiederherstellen) ──
-        manual_gas: list[GroupAddress] = [
-            ga for ga in project.group_addresses.all_addresses()
-            if ga.is_manual
-        ]
+        # ── Schritt 2+3: GAs und function_assignments neu generieren ───────────
+        # Importierte GAs/Verknüpfungen (XLSX/knxproj) bleiben unverändert
+        # (FA-ImportGuard) – sonst würde jede Gebäudestrukturänderung die aus
+        # ETS importierten Gruppenadressen und Bedienelement-Verknüpfungen
+        # durch heuristisch generierte ersetzen.
+        if not topology.is_imported:
+            # Schritt 2: GAs neu generieren (manuelle GAs sichern und wiederherstellen)
+            manual_gas: list[GroupAddress] = [
+                ga for ga in project.group_addresses.all_addresses()
+                if ga.is_manual
+            ]
 
-        gen = AddressGenerator(catalog, variant=project.config.mg_variant)
-        project.group_addresses = gen.generate(project.areal)
+            gen = AddressGenerator(catalog, variant=project.config.mg_variant)
+            project.group_addresses = gen.generate(
+                project.areal, scenes=project.scenes, existing=project.group_addresses,
+            )
 
-        for ga in manual_gas:
-            _insert_ga(project.group_addresses, ga)
+            for ga in manual_gas:
+                _insert_ga(project.group_addresses, ga)
+
+            logger.info(
+                f"RecalcService: GAs neu generiert → {len(project.group_addresses.all_addresses())} GAs"
+                + (f" ({len(manual_gas)} manuelle beibehalten)" if manual_gas else "")
+            )
+
+            # Schritt 3: function_assignments aktualisieren
+            # Nach GA-Neugenerierung müssen die GA-Verknüpfungen an den Bedienelementen
+            # neu berechnet werden, damit Gebäudeansicht, Verknüpfungsmatrix und
+            # Berichte sofort konsistente Daten zeigen (ohne dass Schritt 8 besucht
+            # werden muss).
+            SensorService().auto_assign_functions(all_rooms, project.group_addresses)
+            logger.info("RecalcService: function_assignments aktualisiert.")
 
         ga_count = len(project.group_addresses.all_addresses())
-        logger.info(
-            f"RecalcService: GAs neu generiert → {ga_count} GAs"
-            + (f" ({len(manual_gas)} manuelle beibehalten)" if manual_gas else "")
-        )
-
-        # ── Schritt 3: function_assignments aktualisieren ──────────────────────
-        # Nach GA-Neugenerierung müssen die GA-Verknüpfungen an den Bedienelementen
-        # neu berechnet werden, damit Gebäudeansicht, Verknüpfungsmatrix und
-        # Berichte sofort konsistente Daten zeigen (ohne dass Schritt 8 besucht
-        # werden muss).
-        SensorService().auto_assign_functions(all_rooms, project.group_addresses)
-        logger.info("RecalcService: function_assignments aktualisiert.")
-
         return {"ok": True, "actor_count": actor_count, "ga_count": ga_count}
 
     def recalc_full_topology(self, project: KnxProject) -> dict:

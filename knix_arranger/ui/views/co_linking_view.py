@@ -66,6 +66,20 @@ class CoLinkingView(QWidget):
         self._project = project
         self._refresh()
 
+    def showEvent(self, event):
+        """Spaltenbreiten neu berechnen, wenn diese Ansicht sichtbar wird.
+
+        set_project()/_refresh() laufen oft, während dieser Tab noch gar
+        nicht sichtbar ist -- main_window.py hält alle Ansichten dauerhaft in
+        einem QStackedWidget vor, statt sie neu zu erzeugen.
+        resizeColumnsToContents() liefert auf einem verborgenen Widget teils
+        falsche (zu schmale) Breiten. Beim ersten Einblenden hier korrekt
+        nachziehen.
+        """
+        super().showEvent(event)
+        self._table.resizeColumnsToContents()
+        self._table.setColumnWidth(_COL_SEL, 36)
+
     # ------------------------------------------------------------------
     # UI-Setup
     # ------------------------------------------------------------------
@@ -104,16 +118,13 @@ class CoLinkingView(QWidget):
         self._status_label.setStyleSheet("font-size: 11px; color: #555;")
         layout.addWidget(self._status_label)
 
-        # Tabelle
+        # Tabelle -- inhaltsbasierte Breite für alle Spalten (kein Stretch
+        # für "GA-Bezeichnung": zwang die Spalte sonst unabhängig vom Inhalt
+        # auf die volle Restbreite, analog zum Verknüpfungsmatrix-/Topologie-
+        # /Gruppenadressen-Fix). _fill_table() ruft resizeColumnsToContents()
+        # nach jedem Befüllen erneut auf.
         self._table = QTableWidget(0, _NUM_COLS)
         self._table.setHorizontalHeaderLabels(_HEADERS)
-        self._table.horizontalHeader().setSectionResizeMode(
-            _COL_GA_NAME, QHeaderView.Stretch
-        )
-        for col in (_COL_CO_NAME, _COL_DPT, _COL_GA_DPT):
-            self._table.horizontalHeader().setSectionResizeMode(
-                col, QHeaderView.ResizeToContents
-            )
         self._table.horizontalHeader().setSectionResizeMode(
             _COL_SEL, QHeaderView.Fixed
         )
@@ -249,10 +260,6 @@ class CoLinkingView(QWidget):
 
         self._table.resizeColumnsToContents()
         self._table.setColumnWidth(_COL_SEL, 36)
-        # GA-Bezeichnung darf breiter sein (Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(
-            _COL_GA_NAME, QHeaderView.Stretch
-        )
 
     def _update_status(self):
         total = len(self._proposals)
