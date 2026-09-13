@@ -16,13 +16,24 @@ def main() -> int:
 
     try:
         from PySide6.QtWidgets import QApplication
-        from PySide6.QtCore import Qt
+        from PySide6.QtCore import Qt, QTranslator, QLibraryInfo
         from .app import KnixApplication
 
         app = QApplication(sys.argv)
         app.setApplicationName(APP_NAME)
         app.setApplicationVersion(__version__)
         app.setOrganizationName("Michael Mueller SmartHome&EnergieManagement")
+
+        # Qt-Standarddialoge (QMessageBox Ja/Nein/Speichern/Abbrechen etc.)
+        # sind ohne geladene Uebersetzung immer Englisch, obwohl der Rest der
+        # Anwendung durchgehend Deutsch ist. qtbase_de deckt genau diese
+        # Standard-Button-Texte ab.
+        qt_translator = QTranslator(app)
+        translations_path = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+        if qt_translator.load("qtbase_de", translations_path):
+            app.installTranslator(qt_translator)
+        else:
+            logger.warning("Qt-Uebersetzung 'qtbase_de' nicht gefunden -- Standard-Dialoge bleiben Englisch.")
 
         from PySide6.QtGui import QFont
         font = QFont("Segoe UI", 10)

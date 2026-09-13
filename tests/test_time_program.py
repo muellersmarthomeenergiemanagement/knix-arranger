@@ -82,7 +82,7 @@ class TestSwitchPoint:
 
     def test_display_time_astro_no_offset(self):
         sp = SwitchPoint(time_type="ASTRO", astro_event="SUNRISE", astro_offset_min=0)
-        assert "Sunrise" in sp.display_time or "SUNRISE" in sp.display_time.upper()
+        assert sp.display_time == "Sonnenaufgang"
 
     def test_display_time_astro_with_offset(self):
         sp = SwitchPoint(time_type="ASTRO", astro_event="SUNSET", astro_offset_min=30)

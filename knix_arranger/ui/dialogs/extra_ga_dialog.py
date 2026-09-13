@@ -130,6 +130,10 @@ class ExtraGaDialog(QDialog):
             del_btn = QPushButton("X")
             del_btn.setFixedWidth(28)
             del_btn.setObjectName("danger")
+            # Globales QPushButton-Padding (8px 16px) ist breiter als
+            # dieser schmale Button -- ohne Override verschwindet der
+            # Text spurlos, weil kein Platz dafuer bleibt.
+            del_btn.setStyleSheet("padding: 2px;")
             del_btn.clicked.connect(lambda checked, r=row: self._remove_entry(r))
             self._table.setCellWidget(row, _COL_DELETE, del_btn)
 

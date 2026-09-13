@@ -74,6 +74,15 @@ class WizardController(QDialog):
         self._step_info = QLabel("")
         self._step_info.setStyleSheet("color: #808080;")
         header.addWidget(self._step_info)
+
+        self._btn_close = QPushButton("Schliessen")
+        self._btn_close.setObjectName("secondary")
+        self._btn_close.setToolTip(
+            "Wizard schliessen und zur bisherigen Ansicht zurückkehren.\n"
+            "Der bisherige Fortschritt bleibt erhalten (Escape schliesst ebenfalls)."
+        )
+        self._btn_close.clicked.connect(self.reject)
+        header.addWidget(self._btn_close)
         layout.addLayout(header)
 
         # Progress

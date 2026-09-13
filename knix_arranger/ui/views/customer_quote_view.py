@@ -188,14 +188,19 @@ class CustomerQuoteView(QWidget):
         self._item_price.setPrefix("CHF ")
         add_layout.addWidget(self._item_price)
 
+        # Padding-Override: das globale QPushButton-Padding (8px 16px) ist
+        # breiter als diese schmalen Buttons -- ohne Override verschwindet
+        # das "+"/"-" spurlos, weil kein Platz dafuer bleibt.
         self._btn_add_item = QPushButton("+")
         self._btn_add_item.setFixedWidth(30)
+        self._btn_add_item.setStyleSheet("padding: 2px;")
         self._btn_add_item.clicked.connect(self._add_item)
         add_layout.addWidget(self._btn_add_item)
 
         self._btn_remove_item = QPushButton("-")
         self._btn_remove_item.setFixedWidth(30)
         self._btn_remove_item.setObjectName("danger")
+        self._btn_remove_item.setStyleSheet("padding: 2px;")
         self._btn_remove_item.clicked.connect(self._remove_item)
         add_layout.addWidget(self._btn_remove_item)
 

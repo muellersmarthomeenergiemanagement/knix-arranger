@@ -229,7 +229,9 @@ class Step05Gewerke(QWidget):
         ])
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self._table.horizontalHeader().setStretchLastSection(True)
+        # KEIN setStretchLastSection: quetscht sonst bei vielen Spalten die
+        # uebrigen Spaltenkoepfe unlesbar schmal, siehe fit_columns()-Aufruf
+        # unten (stretch_to_fit=False) und address_table_view.py.
         self._table.itemChanged.connect(self._on_count_changed)
         layout.addWidget(self._table)
 
@@ -545,6 +547,10 @@ class Step05Gewerke(QWidget):
                 btn_del = QPushButton("X")
                 btn_del.setFixedWidth(26)
                 btn_del.setObjectName("danger")
+                # Globales QPushButton-Padding (8px 16px) ist breiter als
+                # dieser schmale Button -- ohne Override verschwindet der
+                # Text spurlos, weil kein Platz dafuer bleibt.
+                btn_del.setStyleSheet("padding: 2px;")
                 btn_del.clicked.connect(lambda checked, r=room, g=ga: self._remove_gewerk(r, g))
                 action_layout.addWidget(btn_del)
 
@@ -560,7 +566,7 @@ class Step05Gewerke(QWidget):
                     it.setFlags(_ro)
                     self._table.setItem(i, col, it)
 
-        fit_columns(self._table)
+        fit_columns(self._table, stretch_to_fit=False)
         self._apply_filter()
 
     def _on_count_changed(self, item: QTableWidgetItem):

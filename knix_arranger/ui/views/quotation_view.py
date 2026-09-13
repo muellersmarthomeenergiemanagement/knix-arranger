@@ -250,14 +250,17 @@ class QuotationView(QWidget):
         self._item_qty.setRange(1, 999)
         bottom_layout.addWidget(self._item_qty)
 
+        # Padding-Override: siehe customer_quote_view.py.
         self._btn_add_item = QPushButton("+")
         self._btn_add_item.setFixedWidth(30)
+        self._btn_add_item.setStyleSheet("padding: 2px;")
         self._btn_add_item.clicked.connect(self._add_item)
         bottom_layout.addWidget(self._btn_add_item)
 
         self._btn_remove_item = QPushButton("-")
         self._btn_remove_item.setFixedWidth(30)
         self._btn_remove_item.setObjectName("danger")
+        self._btn_remove_item.setStyleSheet("padding: 2px;")
         self._btn_remove_item.clicked.connect(self._remove_item)
         bottom_layout.addWidget(self._btn_remove_item)
 

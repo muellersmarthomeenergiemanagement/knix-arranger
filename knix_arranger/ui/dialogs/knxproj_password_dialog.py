@@ -44,6 +44,10 @@ class KnxprojPasswordDialog(QDialog):
 
         self._show_pw_btn = QPushButton("👁")
         self._show_pw_btn.setFixedWidth(32)
+        # Padding-Override: das globale QPushButton-Padding (8px 16px) ist
+        # breiter als dieser schmale Button -- ohne Override verschwindet
+        # das Icon spurlos, weil kein Platz dafuer bleibt.
+        self._show_pw_btn.setStyleSheet("padding: 2px;")
         self._show_pw_btn.setCheckable(True)
         self._show_pw_btn.setToolTip("Passwort anzeigen")
         self._show_pw_btn.toggled.connect(self._toggle_visibility)

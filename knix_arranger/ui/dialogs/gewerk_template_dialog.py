@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QTableWidget, QTableWidgetItem, QComboBox,
-    QSpinBox, QGroupBox, QFormLayout, QAbstractItemView,
+    QSpinBox, QGroupBox, QFormLayout, QAbstractItemView, QWidget,
 )
 from PySide6.QtCore import Qt
 from ..styles import KNX_GREEN
@@ -52,7 +52,9 @@ class GewerkTemplateDialog(QDialog):
         ])
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self._table.horizontalHeader().setStretchLastSection(True)
+        # KEIN setStretchLastSection: erzwingt sonst eine volle Breite der
+        # Aktion-Spalte und streckt den kleinen Entfernen-Button trotz
+        # setFixedWidth() auf die ganze Zeile (siehe gewerk_view.py).
         self._table.setAlternatingRowColors(True)
         gewerk_layout.addWidget(self._table)
 
@@ -110,13 +112,21 @@ class GewerkTemplateDialog(QDialog):
             self._table.setItem(i, 1, QTableWidgetItem(gewerk_name))
             self._table.setItem(i, 2, QTableWidgetItem(str(count)))
 
+            action_widget = QWidget()
+            action_layout = QHBoxLayout(action_widget)
+            action_layout.setContentsMargins(2, 1, 2, 1)
+
             btn = QPushButton("X")
             btn.setFixedWidth(30)
             btn.setObjectName("danger")
+            # Padding-Override: siehe gewerk_view.py.
+            btn.setStyleSheet("padding: 2px;")
             btn.clicked.connect(lambda checked, idx=i: self._remove_gewerk(idx))
-            self._table.setCellWidget(i, 3, btn)
+            action_layout.addWidget(btn)
+            action_layout.addStretch()
+            self._table.setCellWidget(i, 3, action_widget)
 
-        fit_columns(self._table)
+        fit_columns(self._table, stretch_to_fit=False)
 
     def _add_gewerk(self):
         code = self._gewerk_combo.currentData()

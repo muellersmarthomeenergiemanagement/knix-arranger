@@ -52,7 +52,11 @@ class SwitchPoint:
         if self.time_type == "FIXED":
             return self.fixed_time
         off = f"{self.astro_offset_min:+d} min" if self.astro_offset_min else ""
-        return f"{self.astro_event.capitalize()}{off}"
+        astro_label = {
+            "SUNRISE": "Sonnenaufgang",
+            "SUNSET": "Sonnenuntergang",
+        }.get(self.astro_event, self.astro_event)
+        return f"{astro_label}{off}"
 
     def to_dict(self) -> dict:
         return {

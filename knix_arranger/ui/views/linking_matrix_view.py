@@ -1,5 +1,5 @@
 """
-Sensor-Aktor-Verknuepfungsmatrix (FA-2500 bis FA-2505)
+Sensor-Aktor-Verknüpfungsmatrix (FA-2500 bis FA-2505)
 
 Sensor-Tab: echte Kreuztabelle (FA-2502) -- Zeile = Sensor-Bedienstelle
 (Gerät + Taste), Spalte = ausgelöste Funktionskategorie (Gewerk), Zelle =
@@ -69,7 +69,7 @@ def _make_item(text: str, color: QColor | None = None, bold: bool = False) -> QT
 
 
 class LinkingMatrixView(QWidget):
-    """Verknuepfungsmatrix: Sensoren und Aktoren mit GA-Zuordnung (FA-2500)."""
+    """Verknüpfungsmatrix: Sensoren und Aktoren mit GA-Zuordnung (FA-2500)."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -105,7 +105,7 @@ class LinkingMatrixView(QWidget):
         layout.setSpacing(8)
 
         # Titel
-        title = QLabel("Verknuepfungsmatrix (FA-2500)")
+        title = QLabel("Verknüpfungsmatrix (FA-2500)")
         font = QFont()
         font.setPointSize(14)
         font.setBold(True)
@@ -228,7 +228,7 @@ class LinkingMatrixView(QWidget):
         except Exception as exc:
             logger.exception("Fehler bei Belegungsplan-Generierung")
             QMessageBox.warning(self, "Fehler",
-                f"Verknuepfungsmatrix konnte nicht berechnet werden:\n{exc}")
+                f"Verknüpfungsmatrix konnte nicht berechnet werden:\n{exc}")
             return
 
         self._fill_sensor_tab()
@@ -573,7 +573,9 @@ class LinkingMatrixView(QWidget):
         if not self._belegungsplan:
             return
         path, _ = QFileDialog.getSaveFileName(
-            self, "Verknuepfungsmatrix exportieren",
+            self, "Verknüpfungsmatrix exportieren",
+            # Umlautfreie Vorgabe fuer den Dateinamen (Windows-Kompatibilitaet),
+            # siehe gleiche Konvention in documentation_service.py.
             f"{self._project.name or 'Verknuepfungsmatrix'}_Matrix.xlsx",
             "Excel-Dateien (*.xlsx)",
         )
@@ -583,7 +585,7 @@ class LinkingMatrixView(QWidget):
             from ...services.belegungsplan_export_service import BelegungsplanExportService
             BelegungsplanExportService().export_xlsx(self._belegungsplan, path)
             QMessageBox.information(self, "Export erfolgreich",
-                f"Verknuepfungsmatrix exportiert:\n{path}")
+                f"Verknüpfungsmatrix exportiert:\n{path}")
         except Exception as exc:
             logger.exception("XLSX-Export Fehler")
             QMessageBox.critical(self, "Export-Fehler", str(exc))

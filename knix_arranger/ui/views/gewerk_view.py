@@ -91,7 +91,11 @@ class GewerkView(QWidget):
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setAlternatingRowColors(True)
-        self._table.horizontalHeader().setStretchLastSection(True)
+        # KEIN setStretchLastSection: erzwingt sonst eine volle Breite der
+        # Aktion-Spalte (der kleine Entfernen-Button wuerde ueber die ganze
+        # Zeile gestreckt) und quetscht die uebrigen Spaltenkoepfe unlesbar
+        # schmal. Stattdessen inhaltsbasierte Breite aus
+        # fit_columns(..., stretch_to_fit=False), siehe address_table_view.py.
         layout.addWidget(self._table)
 
         # ── Gewerk hinzufügen ──
@@ -216,20 +220,34 @@ class GewerkView(QWidget):
                 )
                 self._table.setCellWidget(i, _COL_COUNT, spin)
 
-                # Aktion: Entfernen-Button
+                # Aktion: Entfernen-Button. In ein Container-Widget mit
+                # Layout einbetten statt den Button direkt als Cell-Widget
+                # zu setzen -- sonst streckt QTableWidget den Button trotz
+                # setFixedWidth() auf die volle Zellenbreite/-hoehe (siehe
+                # gleiches Muster in step05_gewerke.py).
+                action_widget = QWidget()
+                action_layout = QHBoxLayout(action_widget)
+                action_layout.setContentsMargins(2, 1, 2, 1)
+
                 btn_del = QPushButton("✕")
                 btn_del.setFixedWidth(30)
                 btn_del.setObjectName("danger")
+                # Globales QPushButton-Padding (8px 16px) ist breiter als
+                # dieser schmale Button -- ohne Override verschwindet das "✕"
+                # spurlos, weil kein Platz fuer den Text bleibt.
+                btn_del.setStyleSheet("padding: 2px;")
                 btn_del.setToolTip(f"Gewerk {ga.gewerk_code} aus Raum entfernen")
                 btn_del.clicked.connect(
                     lambda checked, r=room, g=ga: self._remove_gewerk(r, g)
                 )
-                self._table.setCellWidget(i, _COL_ACTION, btn_del)
+                action_layout.addWidget(btn_del)
+                action_layout.addStretch()
+                self._table.setCellWidget(i, _COL_ACTION, action_widget)
             else:
                 self._table.setItem(i, _COL_GCODE, QTableWidgetItem(""))
                 self._table.setItem(i, _COL_GNAME, QTableWidgetItem("(keine Gewerke)"))
 
-        fit_columns(self._table)
+        fit_columns(self._table, stretch_to_fit=False)
 
         assignments = sum(1 for _, _, _, ga, _ in rows if ga)
         total_ga = sum(

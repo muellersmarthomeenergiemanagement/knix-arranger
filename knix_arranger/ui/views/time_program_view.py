@@ -47,9 +47,14 @@ class _SwitchPointDialog(QDialog):
 
         # Zeitart
         self._cb_type = QComboBox()
-        self._cb_type.addItems(["FIXED", "ASTRO"])
-        self._cb_type.setCurrentText(sp.time_type)
-        self._cb_type.currentTextChanged.connect(self._on_type_changed)
+        self._cb_type.addItem("Feste Uhrzeit", "FIXED")
+        self._cb_type.addItem("Astro (Sonnenauf-/-untergang)", "ASTRO")
+        idx = self._cb_type.findData(sp.time_type)
+        if idx >= 0:
+            self._cb_type.setCurrentIndex(idx)
+        self._cb_type.currentIndexChanged.connect(
+            lambda _: self._on_type_changed(self._cb_type.currentData())
+        )
         layout.addRow("Zeitart:", self._cb_type)
 
         # Uhrzeit
@@ -57,12 +62,15 @@ class _SwitchPointDialog(QDialog):
         self._te_time.setDisplayFormat("HH:mm")
         h, m = (int(x) for x in sp.fixed_time.split(":"))
         self._te_time.setTime(QTime(h, m))
-        layout.addRow("Uhrzeit (FIXED):", self._te_time)
+        layout.addRow("Uhrzeit (bei fester Zeit):", self._te_time)
 
         # Astro-Event
         self._cb_astro = QComboBox()
-        self._cb_astro.addItems(["SUNRISE", "SUNSET"])
-        self._cb_astro.setCurrentText(sp.astro_event)
+        self._cb_astro.addItem("Sonnenaufgang", "SUNRISE")
+        self._cb_astro.addItem("Sonnenuntergang", "SUNSET")
+        idx = self._cb_astro.findData(sp.astro_event)
+        if idx >= 0:
+            self._cb_astro.setCurrentIndex(idx)
         layout.addRow("Astro-Ereignis:", self._cb_astro)
 
         # Offset
@@ -109,10 +117,10 @@ class _SwitchPointDialog(QDialog):
         self._sb_offset.setEnabled(not fixed)
 
     def apply_to(self, sp: SwitchPoint):
-        sp.time_type = self._cb_type.currentText()
+        sp.time_type = self._cb_type.currentData()
         t = self._te_time.time()
         sp.fixed_time = f"{t.hour():02d}:{t.minute():02d}"
-        sp.astro_event = self._cb_astro.currentText()
+        sp.astro_event = self._cb_astro.currentData()
         sp.astro_offset_min = self._sb_offset.value()
         sp.action_value = self._le_value.text().strip() or "1"
         sp.priority = self._cb_prio.currentText()

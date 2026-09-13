@@ -17,6 +17,14 @@ from ...services.scene_detection_service import detect_scenes
 from ...services.scene_value_linking import link_scene_values, link_scene_triggers
 from ..column_utils import fit_columns
 
+# Interne Scope-Codes (im Datenmodell gespeichert) -> Anzeigetext.
+_SCOPE_LABELS = {
+    "room": "Raum",
+    "apartment": "Wohnung/Zone",
+    "zone": "Zone",
+    "central": "Zentral",
+}
+
 
 class SceneView(QWidget):
     """Szenen-Verwaltung: Erstellen, Bearbeiten, Vorlagen anwenden."""
@@ -124,7 +132,8 @@ class SceneView(QWidget):
         detail_form.addRow("Szenen-Nr. (1-64):", self._scene_number)
 
         self._scene_scope = QComboBox()
-        self._scene_scope.addItems(["room", "apartment", "zone", "central"])
+        for code, label in _SCOPE_LABELS.items():
+            self._scene_scope.addItem(label, code)
         self._scene_scope.setToolTip(
             "Szenen mit gleichem Geltungsbereich (+ Raum/Zone) teilen sich beim "
             "Generieren der Adressen (Schritt 7) eine gemeinsame Szenenaufruf-GA."
@@ -175,14 +184,17 @@ class SceneView(QWidget):
         self._action_delay.setSuffix(" s")
         add_action_layout.addWidget(self._action_delay)
 
+        # Padding-Override: siehe customer_quote_view.py.
         self._btn_add_action = QPushButton("+")
         self._btn_add_action.setFixedWidth(30)
+        self._btn_add_action.setStyleSheet("padding: 2px;")
         self._btn_add_action.clicked.connect(self._add_action)
         add_action_layout.addWidget(self._btn_add_action)
 
         self._btn_remove_action = QPushButton("-")
         self._btn_remove_action.setFixedWidth(30)
         self._btn_remove_action.setObjectName("danger")
+        self._btn_remove_action.setStyleSheet("padding: 2px;")
         self._btn_remove_action.clicked.connect(self._remove_action)
         add_action_layout.addWidget(self._btn_remove_action)
 
@@ -235,12 +247,6 @@ class SceneView(QWidget):
         scenes = self._project.scenes
         self._table.setRowCount(len(scenes))
 
-        scope_labels = {
-            "room": "Raum",
-            "apartment": "Wohnung/Zone",
-            "zone": "Zone",
-            "central": "Zentral",
-        }
         source_labels = {
             "dpt": "Import (DPT)",
             "folder": "Import (Ordner)",
@@ -252,7 +258,7 @@ class SceneView(QWidget):
             self._table.setItem(i, 1, QTableWidgetItem(str(scene.scene_number or "")))
             self._table.setItem(
                 i, 2,
-                QTableWidgetItem(scope_labels.get(scene.scope, scene.scope))
+                QTableWidgetItem(_SCOPE_LABELS.get(scene.scope, scene.scope))
             )
             self._table.setItem(i, 3, QTableWidgetItem(scene.trigger))
             self._table.setItem(
@@ -275,7 +281,7 @@ class SceneView(QWidget):
         self._scene_name.setText(scene.name)
         self._scene_number.setValue(scene.scene_number)
 
-        idx = self._scene_scope.findText(scene.scope)
+        idx = self._scene_scope.findData(scene.scope)
         if idx >= 0:
             self._scene_scope.setCurrentIndex(idx)
 
@@ -467,7 +473,7 @@ class SceneView(QWidget):
 
         scene.name = self._scene_name.text()
         scene.scene_number = self._scene_number.value()
-        scene.scope = self._scene_scope.currentText()
+        scene.scope = self._scene_scope.currentData()
         scene.scope_id = self._scene_scope_id.currentData() or ""
         scene.trigger = self._scene_trigger.text()
 
