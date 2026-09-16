@@ -48,11 +48,15 @@ STEP_TITLES = [
 
 NUM_STEPS = len(STEP_TITLES)
 
+# Schritt-Index fuer Deep-Links aus anderen Ansichten (siehe start_step),
+# z.B. der "Jetzt generieren"-Hinweis in scene_view.py.
+STEP_INDEX_ADDRESSES = 9  # "10. Gruppenadressen" (Step07Addresses)
+
 
 class WizardController(QDialog):
     """Steuert den 13-Schritt-Wizard."""
 
-    def __init__(self, project: KnxProject, parent=None):
+    def __init__(self, project: KnxProject, parent=None, start_step: int = 0):
         super().__init__(parent)
         self.setWindowTitle("KNiX Arranger - Projektassistent")
         self.setMinimumSize(900, 650)
@@ -191,6 +195,11 @@ class WizardController(QDialog):
         # Ersten Schritt initialisieren (vorhandene Projektdaten laden)
         if hasattr(self._steps[0], "on_enter"):
             self._steps[0].on_enter()
+
+        # Direkteinstieg in einen bestimmten Schritt (z.B. Deep-Link aus
+        # einer anderen Ansicht heraus, siehe main_window._start_wizard).
+        if 0 < start_step < NUM_STEPS:
+            self._go_to_step(start_step)
 
     def _go_to_step(self, index: int):
         current = self._steps[self._current_step]

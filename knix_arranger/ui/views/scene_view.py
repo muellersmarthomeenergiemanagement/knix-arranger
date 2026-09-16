@@ -10,11 +10,12 @@ from PySide6.QtWidgets import (
     QLineEdit, QGroupBox, QFormLayout, QAbstractItemView,
     QMessageBox, QDoubleSpinBox,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from ...models.project import KnxProject
 from ...models.scene import Scene, SceneAction
 from ...services.scene_detection_service import detect_scenes
 from ...services.scene_value_linking import link_scene_values, link_scene_triggers
+from ...services.scene_addressing import group_named_scenes
 from ..column_utils import fit_columns
 
 # Interne Scope-Codes (im Datenmodell gespeichert) -> Anzeigetext.
@@ -28,6 +29,11 @@ _SCOPE_LABELS = {
 
 class SceneView(QWidget):
     """Szenen-Verwaltung: Erstellen, Bearbeiten, Vorlagen anwenden."""
+
+    # Wird ausgeloest, wenn der Nutzer im Veraltet-Hinweisbanner auf
+    # "Jetzt generieren" klickt -- main_window verbindet dies mit dem
+    # Oeffnen des Wizards direkt bei Schritt 10 (Gruppenadressen).
+    request_generate_addresses = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -45,6 +51,27 @@ class SceneView(QWidget):
         self._info = QLabel("")
         self._info.setObjectName("subtitle")
         layout.addWidget(self._info)
+
+        # Hinweisbanner: Szenen ohne (aktuelle) Gruppenadresse. Szenen sind
+        # zunaechst nur Datensaetze -- die eigentliche Szenenaufruf-GA
+        # entsteht erst durch "Gruppenadressen generieren" in Schritt 10
+        # des Wizards, nicht automatisch beim Anlegen/Aendern einer Szene.
+        self._stale_banner = QWidget()
+        stale_layout = QHBoxLayout(self._stale_banner)
+        stale_layout.setContentsMargins(8, 6, 8, 6)
+        self._stale_label = QLabel("")
+        self._stale_label.setWordWrap(True)
+        stale_layout.addWidget(self._stale_label, 1)
+        self._btn_generate_addresses = QPushButton("Jetzt generieren")
+        self._btn_generate_addresses.clicked.connect(
+            self.request_generate_addresses.emit
+        )
+        stale_layout.addWidget(self._btn_generate_addresses)
+        self._stale_banner.setStyleSheet(
+            "background-color: #FFF3CD; color: #856404; border-radius: 4px;"
+        )
+        self._stale_banner.hide()
+        layout.addWidget(self._stale_banner)
 
         # Hauptbereich: Szenen-Tabelle links, Details rechts
         content = QHBoxLayout()
@@ -165,8 +192,11 @@ class SceneView(QWidget):
         self._actions_table.setHorizontalHeaderLabels([
             "Gruppenadresse / Gewerk", "Adresse", "Wert", "Verzögerung (s)",
         ])
-        self._actions_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._actions_table.setEditTriggers(
+            QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
+        )
         self._actions_table.horizontalHeader().setStretchLastSection(True)
+        self._actions_table.itemChanged.connect(self._on_action_item_changed)
         actions_layout.addWidget(self._actions_table)
 
         # Aktion hinzufügen
@@ -271,6 +301,44 @@ class SceneView(QWidget):
 
         fit_columns(self._table)
         self._info.setText(f"{len(scenes)} Szenen definiert")
+        self._update_stale_banner()
+
+    def _update_stale_banner(self):
+        """
+        Zeigt einen Hinweis, wenn fuer benannte, nicht-erkannte Szenen noch
+        keine passende Szenenaufruf-GA existiert (weil "Gruppenadressen
+        generieren" in Schritt 10 noch nie oder seit der letzten Aenderung
+        nicht mehr gelaufen ist). Nutzt dieselbe Gruppierung/Benennung wie
+        die tatsaechliche Generierung (services/scene_addressing.py), damit
+        der Vergleich exakt zum spaeter erzeugten Ergebnis passt.
+        """
+        if not self._project:
+            self._stale_banner.hide()
+            return
+
+        groups = group_named_scenes(self._project.scenes, self._project.areal)
+        if not groups:
+            self._stale_banner.hide()
+            return
+
+        existing_designations = {
+            ga.designation for ga in self._project.group_addresses.all_addresses()
+            if ga.function_name == "SZENE" and not ga.is_placeholder
+        }
+        missing = [
+            designation for designation, _scenes in groups.values()
+            if designation not in existing_designations
+        ]
+        if not missing:
+            self._stale_banner.hide()
+            return
+
+        self._stale_label.setText(
+            "Für folgende Szenen-Geltungsbereiche fehlt noch die Gruppenadresse "
+            "(wird erst durch \"Gruppenadressen generieren\" in Schritt 10 des "
+            f"Wizards erzeugt): {', '.join(sorted(missing))}."
+        )
+        self._stale_banner.show()
 
     def _on_selection(self, row, col, prev_row, prev_col):
         """Zeigt Details der ausgewählten Szene."""
@@ -294,6 +362,10 @@ class SceneView(QWidget):
 
     def _refresh_actions(self, scene: Scene):
         """Zeigt die Aktionen einer Szene."""
+        # Signale waehrend des Befuellens blockieren, sonst loest jedes
+        # setItem() _on_action_item_changed() aus und schreibt die gerade
+        # erst angezeigten Werte unnoetig (aber harmlos) zurueck in die Szene.
+        self._actions_table.blockSignals(True)
         self._actions_table.setRowCount(len(scene.actions))
         for i, action in enumerate(scene.actions):
             self._actions_table.setItem(
@@ -308,7 +380,36 @@ class SceneView(QWidget):
             self._actions_table.setItem(
                 i, 3, QTableWidgetItem(str(action.delay_seconds))
             )
+        self._actions_table.blockSignals(False)
         fit_columns(self._actions_table)
+
+    def _on_action_item_changed(self, item: QTableWidgetItem):
+        """Schreibt eine per Doppelklick bearbeitete Aktions-Zelle zurueck in
+        die Szene (Nachbearbeiten bestehender Aktionen, ohne sie loeschen und
+        neu anlegen zu muessen)."""
+        scene = self._get_selected_scene()
+        if not scene:
+            return
+        row, col = item.row(), item.column()
+        if row >= len(scene.actions):
+            return
+        action = scene.actions[row]
+        text = item.text().strip()
+        if col == 0:
+            action.group_address = text
+        elif col == 1:
+            action.ga_address = text
+        elif col == 2:
+            action.value = text
+        elif col == 3:
+            try:
+                action.delay_seconds = float(text.replace(",", "."))
+            except ValueError:
+                # Ungueltige Eingabe: Zelle auf den bisherigen Wert zuruecksetzen,
+                # statt einen kaputten Zustand in der Szene zu speichern.
+                self._actions_table.blockSignals(True)
+                item.setText(str(action.delay_seconds))
+                self._actions_table.blockSignals(False)
 
     def _get_selected_scene(self) -> Scene | None:
         """Gibt die aktuell ausgewählte Szene zurück."""
@@ -333,7 +434,11 @@ class SceneView(QWidget):
         scene = Scene(
             name=f"Neue Szene {len(self._project.scenes) + 1}",
             scene_number=next_num,
-            scope="room",
+            # "central" passt zum ebenfalls leeren scope_id (siehe
+            # scene_addressing.scene_group_key: scope_id or "central") --
+            # "room" ohne gewaehlten Raum waere ein inkonsistenter Zustand,
+            # der die Szene unbemerkt als zentrale Szene behandelt haette.
+            scope="central",
         )
         self._project.scenes.append(scene)
         self._refresh_table()
@@ -371,7 +476,7 @@ class SceneView(QWidget):
         scene = Scene(
             name=template["name"],
             scene_number=next_num,
-            scope="room",
+            scope="central",  # siehe Begruendung in _add_scene()
             actions=actions,
         )
         self._project.scenes.append(scene)
@@ -471,10 +576,28 @@ class SceneView(QWidget):
         if not scene:
             return
 
+        new_scope = self._scene_scope.currentData()
+        new_scope_id = self._scene_scope_id.currentData() or ""
+
+        # Ein Geltungsbereich "Raum"/"Wohnung/Zone"/"Zone" ohne konkretes Ziel
+        # ist ein inkonsistenter Zustand: scene_addressing.scene_group_key()
+        # wertet ausschliesslich scope_id aus (scope_id or "central") -- die
+        # Szene wuerde unbemerkt als zentrale Szene behandelt und taucht in
+        # der Bedienungsanleitung in keinem Raum-Abschnitt auf
+        # (documentation_service.py: scope=="room" and scope_id==room.id).
+        if new_scope != "central" and not new_scope_id:
+            QMessageBox.warning(
+                self, "Geltungsbereich unvollständig",
+                "Bitte wählen Sie unter 'Raum/Zone' ein konkretes Ziel aus, "
+                "wenn der Geltungsbereich nicht 'Zentral' ist -- sonst kann "
+                "die Szene später nicht korrekt zugeordnet werden."
+            )
+            return
+
         scene.name = self._scene_name.text()
         scene.scene_number = self._scene_number.value()
-        scene.scope = self._scene_scope.currentData()
-        scene.scope_id = self._scene_scope_id.currentData() or ""
+        scene.scope = new_scope
+        scene.scope_id = new_scope_id
         scene.trigger = self._scene_trigger.text()
 
         self._refresh_table()
