@@ -108,6 +108,128 @@ class KnxprojImportService:
         )
         return project
 
+    # ------------------------------------------------------------------
+    # Produktbibliothek: eingebettete Herstellerdaten als .knxprod extrahieren
+    # ------------------------------------------------------------------
+
+    def extract_product_libraries(self, filepath: str, dest_folder: str) -> list[str]:
+        """
+        Extrahiert die im KNXPROJ eingebetteten Hersteller-Produktdaten
+        (M-XXXX/Hardware.xml, Catalog.xml, Applikationsprogramm-XMLs) als
+        eigenstaendige .knxprod-Dateien nach dest_folder -- eine Datei pro
+        Hersteller, damit der Integrator seine gesammelte KNXPROD-Bibliothek
+        nicht mehr manuell von Herstellerseiten nachpflegen muss.
+
+        Die Herstellerdaten liegen unverschluesselt im AEUSSEREN ZIP (auch
+        beim neueren, ggf. passwortgeschuetzten ETS6-Format mit verschachtelter
+        P-XXXX.zip) -- deshalb genuegt ein einfacher erneuter Oeffnungsvorgang
+        ohne Passwort, unabhaengig vom Ergebnis von import_knxproj().
+
+        Bewusst NUR Hardware.xml/Catalog.xml/App-Programm-XMLs uebernommen,
+        nicht die "Baggages"-Unterordner (Sprachdateien, ETS-PlugIn-Installer
+        etc.) -- die macht ein Projekt mit vielen Herstellern sonst um
+        Groessenordnungen groesser, ohne dass KnxprodCatalogService sie liest.
+
+        Returns:
+            Liste der geschriebenen Dateipfade (leer wenn dest_folder nicht
+            existiert oder keine Herstellerdaten im Archiv gefunden wurden).
+        """
+        if not dest_folder or not os.path.isdir(dest_folder):
+            return []
+
+        try:
+            zf = zipfile.ZipFile(filepath, "r")
+        except (zipfile.BadZipFile, OSError):
+            return []
+
+        written: list[str] = []
+        with zf:
+            namelist = zf.namelist()
+            mfr_folders = sorted({
+                name.split("/")[0] for name in namelist
+                if name.startswith("M-") and "/" in name
+            })
+            for folder in mfr_folders:
+                data = self._build_knxprod_bytes(zf, folder, namelist)
+                if data is None:
+                    continue
+                dest_path = self._product_filename(
+                    dest_folder, self._resolve_mfr_display_name(zf, folder, namelist), folder
+                )
+                try:
+                    with open(dest_path, "wb") as out:
+                        out.write(data)
+                except OSError as exc:
+                    logger.warning(f"Konnte {dest_path} nicht schreiben: {exc}")
+                    continue
+                written.append(dest_path)
+
+        if written:
+            logger.info(
+                f"KNXPROJ-Produktextraktion: {len(written)} Hersteller-"
+                f"Bibliothek(en) nach {dest_folder} geschrieben."
+            )
+        return written
+
+    def _build_knxprod_bytes(
+        self, zf: zipfile.ZipFile, folder: str, namelist: list[str],
+    ) -> bytes | None:
+        """Baut ein .knxprod-kompatibles ZIP-Archiv fuer einen Hersteller-
+        Ordner. None wenn nicht mal Hardware.xml vorhanden ist (dann gibt es
+        nichts sinnvoll zu extrahieren -- z.B. bei Herstellern, von denen im
+        Projekt nur Baggages ohne Hardware-Definition vorliegen)."""
+        hw_path = f"{folder}/Hardware.xml"
+        if hw_path not in namelist:
+            return None
+
+        app_prefix = f"{folder}/{folder}_A-"
+        keep = [hw_path]
+        cat_path = f"{folder}/Catalog.xml"
+        if cat_path in namelist:
+            keep.append(cat_path)
+        keep.extend(
+            n for n in namelist
+            if n.startswith(app_prefix) and n.endswith(".xml")
+        )
+        # knx_master.xml (Hersteller-ID -> Klartextname, KNX-Standardregister):
+        # manche Hersteller tragen ihren eigenen Namen nicht redundant in
+        # Catalog.xml ein (siehe KnxprodCatalogService._resolve_manufacturer_
+        # name) -- ohne diese Datei wuerde die extrahierte .knxprod beim
+        # spaeteren Wieder-Einlesen nur die rohe M-XXXX-ID statt des Klarnamens
+        # liefern, obwohl der hier beim Extrahieren bereits bekannt ist.
+        if "knx_master.xml" in namelist:
+            keep.append("knx_master.xml")
+
+        import io
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as out_zf:
+            for name in keep:
+                out_zf.writestr(name, zf.read(name))
+        return buf.getvalue()
+
+    def _resolve_mfr_display_name(
+        self, zf: zipfile.ZipFile, folder: str, namelist: list[str],
+    ) -> str:
+        """Herstellername fuer den Dateinamen, ueber dieselbe Catalog.xml/
+        knx_master.xml-Aufloesung wie beim regulaeren KNXPROD-Import."""
+        from .knxprod_catalog_service import KnxprodCatalogService
+        try:
+            return KnxprodCatalogService()._resolve_manufacturer_name(zf, folder, namelist)
+        except Exception:
+            return ""
+
+    def _product_filename(
+        self, dest_folder: str, mfr_name: str, folder: str,
+    ) -> str:
+        """Dateiname 'Hersteller (M-XXXX).knxprod', ohne Hersteller nur
+        'M-XXXX.knxprod'. Vorhandene Datei desselben Herstellers wird bewusst
+        ueberschrieben (Re-Import derselben/aehnlichen Projekte soll die
+        Bibliothek auffrischen, nicht Dubletten anhaeufen) -- analog zum
+        Verhalten von ProductSearchService._upsert beim Ordner-Import."""
+        safe_name = re.sub(r'[<>:"/\\|?*]', "_", mfr_name).strip()
+        base = f"{safe_name} ({folder})" if safe_name else folder
+        return os.path.join(dest_folder, f"{base}.knxprod")
+
     def _import_classic(self, zf: zipfile.ZipFile) -> KnxProject:
         """Importiert das klassische KNXPROJ-Format (P-XXXX/-Ordner im ZIP)."""
         project_folder = self._find_project_folder(zf)

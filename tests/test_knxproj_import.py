@@ -341,3 +341,115 @@ class TestInferDeviceTypeGateway:
 
     def test_taster_still_sensor(self):
         assert KnxprojImportService._infer_device_type("Taster EDIZIOdue 1-8fach", []) == "sensor"
+
+
+# ------------------------------------------------------------------
+# extract_product_libraries -- im KNXPROJ eingebettete Hersteller-
+# Produktdaten (M-XXXX/Hardware.xml, Catalog.xml, App-Programme) als
+# eigenstaendige .knxprod-Dateien in die "Produkte KNX"-Bibliothek des
+# Integrators extrahieren, statt sie manuell von Herstellerseiten
+# nachzupflegen.
+# ------------------------------------------------------------------
+
+class TestExtractProductLibraries:
+    def test_writes_one_knxprod_per_manufacturer(self, tmp_path):
+        svc = KnxprojImportService()
+        written = svc.extract_product_libraries(CHALET, str(tmp_path))
+
+        assert len(written) > 0
+        assert all(p.endswith(".knxprod") for p in written)
+        assert all(os.path.exists(p) for p in written)
+
+    def test_extracted_files_are_readable_by_catalog_service(self, tmp_path):
+        from knix_arranger.services.knxprod_catalog_service import KnxprodCatalogService
+
+        svc = KnxprojImportService()
+        written = svc.extract_product_libraries(CHALET, str(tmp_path))
+        assert written
+
+        cat = KnxprodCatalogService()
+        total_products = 0
+        for path in written:
+            total_products += len(cat.import_file(path))
+        assert total_products > 0
+
+    def test_manufacturer_name_resolves_after_reimport(self, tmp_path):
+        """Regression: die extrahierte Datei muss knx_master.xml (Hersteller-
+        ID -> Klartextname) mitbringen. Ohne sie loest KnxprodCatalogService
+        beim spaeteren Wieder-Einlesen manche Hersteller (die ihren Namen
+        nicht redundant in der eigenen Catalog.xml fuehren) nur auf die rohe
+        M-XXXX-ID auf statt auf den Klarnamen, den die extrahierte Datei im
+        Dateinamen bereits korrekt zeigt (z.B. "Siemens (M-0001).knxprod")."""
+        from knix_arranger.services.knxprod_catalog_service import KnxprodCatalogService
+
+        svc = KnxprojImportService()
+        written = svc.extract_product_libraries(CHALET, str(tmp_path))
+        siemens_file = next(p for p in written if p.startswith(
+            os.path.join(str(tmp_path), "Siemens")
+        ))
+
+        products = KnxprodCatalogService().import_file(siemens_file)
+        assert products
+        assert all(p.manufacturer == "Siemens" for p in products)
+
+    def test_extracted_products_persist_via_product_search_service(self, tmp_path):
+        """End-to-End der Auto-Katalogisierung: extrahierte Dateien -> geparste
+        Produkte -> ProductSearchService.add_products() -> ueberleben eine
+        neue Service-Instanz (== persistiert in der nutzereigenen Katalog-
+        Erweiterung, nicht nur im Prozessspeicher). isolate_appdata (conftest)
+        sorgt dafuer, dass dabei NICHT die echte %APPDATA% beschrieben wird."""
+        from knix_arranger.services.knxprod_catalog_service import KnxprodCatalogService
+        from knix_arranger.services.product_search_service import ProductSearchService
+
+        svc = KnxprojImportService()
+        written = svc.extract_product_libraries(CHALET, str(tmp_path))
+        cat = KnxprodCatalogService()
+        all_products = []
+        for path in written:
+            all_products.extend(cat.import_file(path))
+        assert all_products
+
+        ProductSearchService().add_products([p.to_catalog_dict() for p in all_products])
+
+        # Frische Instanz laedt den persistierten nutzereigenen Katalog neu.
+        reloaded = ProductSearchService()
+        siemens_products = [
+            p for p in reloaded._catalog if p.get("manufacturer") == "Siemens"
+        ]
+        assert siemens_products
+        assert any(p["product_name"] == "Load Switch UP 511" for p in siemens_products)
+
+    def test_excludes_baggages_stays_small(self, tmp_path):
+        """Baggages (Sprachdateien, ETS-PlugIn-Installer) machen ein Projekt
+        mit vielen Herstellern um Groessenordnungen groesser, ohne dass
+        KnxprodCatalogService sie je liest -- muessen ausgeschlossen bleiben."""
+        svc = KnxprojImportService()
+        written = svc.extract_product_libraries(CHALET, str(tmp_path))
+        total_size = sum(os.path.getsize(p) for p in written)
+        assert total_size < 20 * 1024 * 1024  # < 20 MB, Baggages allein waeren > 160 MB
+
+    def test_missing_dest_folder_returns_empty(self, tmp_path):
+        svc = KnxprojImportService()
+        missing = str(tmp_path / "does_not_exist")
+        assert svc.extract_product_libraries(CHALET, missing) == []
+
+    def test_empty_dest_folder_arg_returns_empty(self):
+        svc = KnxprojImportService()
+        assert svc.extract_product_libraries(CHALET, "") == []
+
+    def test_invalid_knxproj_returns_empty_not_raises(self, tmp_path):
+        bad = tmp_path / "bad.knxproj"
+        bad.write_bytes(b"not a zip")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        svc = KnxprojImportService()
+        assert svc.extract_product_libraries(str(bad), str(dest)) == []
+
+    def test_reimport_overwrites_not_duplicates(self, tmp_path):
+        """Erneuter Import desselben (oder eines aehnlichen) Projekts soll die
+        Herstellerdatei auffrischen, nicht Dubletten anhaeufen (analog zum
+        Ueberschreiben-Verhalten des manuellen KNXPROD-Ordner-Imports)."""
+        svc = KnxprojImportService()
+        first = svc.extract_product_libraries(CHALET, str(tmp_path))
+        second = svc.extract_product_libraries(CHALET, str(tmp_path))
+        assert sorted(first) == sorted(second)
