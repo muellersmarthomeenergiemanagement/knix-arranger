@@ -22,6 +22,9 @@ from ...models.device import GEWERK_TO_SENSOR_TYPE
 from ...services.sensor_service import (
     SensorService, GEWERK_PRIMARY_FUNCTIONS, GEWERK_FEEDBACK_FUNCTIONS,
 )
+from ...services.scene_addressing import (
+    scene_group_key, scene_channel_designation, build_scope_label_lookup,
+)
 from ...services.topology_engine import TopologyEngine
 from ..column_utils import fit_columns
 
@@ -42,6 +45,13 @@ _SENSOR_TYPE_CHOICES = [
     "Sensor",
 ]
 
+# Bedienart-Auswahl für direkte GAs (FA-1502b): was der Tastendruck sendet.
+# Leer = unspezifisch/unbekannt.
+_BEDIENART_CHOICES = [
+    "", "Ein", "Aus", "Umschalten", "Auf", "Ab", "Stopp",
+    "Wert senden", "Szene abrufen", "Betriebsart wechseln",
+]
+
 _TASTER_CHANNEL_OPTIONS = ["1", "2", "4", "6"]
 
 _COLOR_AUTO   = QColor("#1B5E20")
@@ -60,13 +70,15 @@ class _SensorFunktionDialog(QDialog):
     """
 
     def __init__(self, be: Bedienelement, room, all_rooms: list,
-                 group_addresses, all_scenes: list | None = None, parent=None):
+                 group_addresses, all_scenes: list | None = None, areal=None,
+                 parent=None):
         super().__init__(parent)
         self._be = be
         self._room = room
         self._all_rooms = all_rooms
         self._gas = group_addresses
         self._all_scenes = all_scenes or []
+        self._scene_label_lookup = build_scope_label_lookup(areal) if areal else {}
 
         self.setWindowTitle(
             f"Funktionszuordnung – {room.number} {room.name}"
@@ -185,6 +197,10 @@ class _SensorFunktionDialog(QDialog):
         self._ga_label = QLineEdit()
         self._ga_label.setPlaceholderText("Bezeichnung (optional)")
         ga_layout.addWidget(self._ga_label)
+        ga_layout.addWidget(QLabel("Bedienart (für Bauherr-Formular, optional):"))
+        self._ga_bedienart_combo = QComboBox()
+        self._ga_bedienart_combo.addItems(_BEDIENART_CHOICES)
+        ga_layout.addWidget(self._ga_bedienart_combo)
         btn_add_ga = QPushButton("Hinzufügen")
         btn_add_ga.clicked.connect(self._add_ga)
         ga_layout.addWidget(btn_add_ga)
@@ -194,16 +210,18 @@ class _SensorFunktionDialog(QDialog):
         # Tab 4: Szene
         scene_tab = _QWidget()
         scene_layout = QVBoxLayout(scene_tab)
-        self._scene_gas = sorted(
-            [ga for ga in self._gas.all_addresses()
-             if ga.function_name == "SZENE" and not ga.is_placeholder],
-            key=lambda g: g.designation,
-        )
-        if self._scene_gas:
+        self._selectable_scenes = [
+            s for s in self._all_scenes if s.name and not s.is_detected
+        ]
+        if self._selectable_scenes:
             scene_layout.addWidget(QLabel("Szene auswählen:"))
             self._scene_combo = QComboBox()
-            for ga in self._scene_gas:
-                self._scene_combo.addItem(ga.designation, ga)
+            for scene in sorted(
+                self._selectable_scenes,
+                key=lambda s: (s.scope, s.scope_id, s.scene_number),
+            ):
+                display = f"{scene.name} (Nr. {scene.scene_number or '–'})"
+                self._scene_combo.addItem(display, scene)
             scene_layout.addWidget(self._scene_combo)
             self._scene_label = QLineEdit()
             self._scene_label.setPlaceholderText("Taste-Bezeichnung (optional, z.B. «Kino»)")
@@ -213,9 +231,8 @@ class _SensorFunktionDialog(QDialog):
             scene_layout.addWidget(btn_add_scene)
         else:
             hint = QLabel(
-                "Keine Szenen-GAs vorhanden.\n"
-                "Bitte zuerst Szenen definieren und Gruppenadressen\n"
-                "in Schritt 10 neu generieren."
+                "Keine benannten Szenen vorhanden.\n"
+                "Bitte zuerst in der Szenen-Ansicht (Schritt 9) Szenen definieren."
             )
             hint.setStyleSheet("color: #E67E22; font-style: italic;")
             hint.setWordWrap(True)
@@ -244,6 +261,15 @@ class _SensorFunktionDialog(QDialog):
     # ── Hilfsmethoden ──────────────────────────────────────────────────────────
 
     def _sf_label(self, sf: SensorFunktion) -> str:
+        if sf.scene_id:
+            return f"Szene: {sf.label or sf.ga_designation}"
+        if sf.bedienart == "Szene abrufen":
+            # Vor Einfuehrung von scene_id angelegte Zuweisung -- welche
+            # konkrete Szene gemeint ist, laesst sich aus ga_designation
+            # allein nicht mehr sicher bestimmen (mehrere Szenen koennen sich
+            # denselben Kanal teilen). Bitte entfernen und im "Szene"-Tab neu
+            # hinzufuegen, damit der Szenenreport den Taster wieder anzeigt.
+            return f"⚠ Szene (alte Zuordnung, bitte neu setzen): {sf.label or sf.ga_designation}"
         if sf.ga_designation:
             return f"GA: {sf.label or sf.ga_designation}"
         room_lbl = ""
@@ -337,20 +363,27 @@ class _SensorFunktionDialog(QDialog):
             label=self._ga_label.text().strip() or ga_text,
             ga_designation=ga_text,
             action_type="",
+            bedienart=self._ga_bedienart_combo.currentText(),
         )
         self._fn_list.addItem(self._sf_label(sf))
         self._fn_list.item(self._fn_list.count() - 1).setData(Qt.UserRole, sf)
         self._ga_label.clear()
+        self._ga_bedienart_combo.setCurrentIndex(0)
 
     def _add_scene(self):
-        ga = self._scene_combo.currentData()
-        if ga is None:
+        scene = self._scene_combo.currentData()
+        if scene is None:
             return
-        label = self._scene_label.text().strip() or ga.designation
+        designation = scene_channel_designation(
+            scene_group_key(scene), self._scene_label_lookup
+        )
+        label = self._scene_label.text().strip() or scene.name
         sf = SensorFunktion(
             label=label,
-            ga_designation=ga.designation,
+            ga_designation=designation,
             action_type="kurz",
+            bedienart="Szene abrufen",
+            scene_id=scene.id,
         )
         self._fn_list.addItem(self._sf_label(sf))
         self._fn_list.item(self._fn_list.count() - 1).setData(Qt.UserRole, sf)
@@ -655,7 +688,8 @@ class Step08Sensors(QWidget):
         dlg = _SensorFunktionDialog(
             be, room, self._project.all_rooms,
             self._project.group_addresses,
-            all_scenes=self._project.scenes, parent=self,
+            all_scenes=self._project.scenes, areal=self._project.areal,
+            parent=self,
         )
         if dlg.exec() == QDialog.Accepted:
             # BE wurde von _apply() bereits direkt modifiziert (is_auto=False, funktionen gesetzt).
