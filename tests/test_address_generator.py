@@ -1300,6 +1300,21 @@ class TestSceneAddressGeneration:
         assert gas[1].designation == "ZENTRAL Szenenaufruf"
         assert gas[1].datapoint_type == "DPST-17-1"
 
+    def test_shared_scene_ga_description_maps_byte_values(self, simple_efh, gewerk_catalog):
+        from knix_arranger.models.scene import Scene
+
+        scenes = [
+            Scene(name="Abwesenheit", scene_number=1, scope="central"),
+            Scene(name="Abwesenheit", scene_number=2, scope="central"),
+            Scene(name="Dinner", scene_number=3, scope="central"),
+        ]
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(simple_efh, scenes=scenes)
+
+        gas = self._szenen_gas(structure)
+        szenenaufruf = next(g for g in gas if g.designation == "ZENTRAL Szenenaufruf")
+        assert szenenaufruf.description == "0=Abwesenheit, 1=Abwesenheit, 2=Dinner"
+
     def test_room_scoped_scenes_get_named_channel(self, simple_efh, gewerk_catalog):
         from knix_arranger.models.scene import Scene
 

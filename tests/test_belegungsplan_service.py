@@ -20,6 +20,7 @@ from knix_arranger.models.topology import Topology, Area, Line, Device, Communic
 from knix_arranger.models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
+from knix_arranger.models.scene import Scene
 from knix_arranger.services.belegungsplan_service import BelegungsplanService
 
 
@@ -379,3 +380,84 @@ class TestVerknuepfungsmatrixFelder:
 
         rows = BelegungsplanService().generate(project).sensor_rows
         assert rows == []
+
+
+def _central_ga(gewerk: str, fn: str, designation: str, sub: int, dpt: str = "DPST-1-1") -> GroupAddress:
+    """Erstellt eine Zentral-GA (central='true'), z.B. 'ZENTRAL Alle Lichter AUS'."""
+    return GroupAddress(
+        main_group=0, middle_group=0, sub_group=sub,
+        designation=designation, gewerk_code=gewerk, function_name=fn,
+        datapoint_type=dpt, central="true",
+    )
+
+
+class TestZentralUndSzenenZeilen:
+    """FA: Zentral-/Szenen-GAs (HG 0) muessen in den Belegungsplan aufgenommen
+    werden, obwohl sie weder room_id noch room_number tragen."""
+
+    def test_zentral_licht_ga_geht_an_alle_lichtaktoren(self):
+        room1 = Room(number="E01", name="Wohnzimmer")
+        room2 = Room(number="E02", name="Kueche")
+        gas = [
+            _ga(room1, "L", 1, "E/A", 1),
+            _ga(room2, "L", 1, "E/A", 2),
+            _central_ga("L", "E/A", "ZENTRAL Alle Lichter AUS", 0),
+        ]
+        project = _make_project([room1, room2], "Schaltaktor 4-fach", gas)
+        # Zweiter Lichtaktor in derselben Linie
+        actor2 = Device(device_type="actor", product="Schaltaktor 4-fach", physical_address="1.1.2")
+        project.topology.areas[0].lines[0].devices.append(actor2)
+
+        rows = BelegungsplanService().generate(project).actor_rows
+        central_rows = [r for r in rows if r.ga_designation == "ZENTRAL Alle Lichter AUS"]
+        addrs = {r.physical_address for r in central_rows}
+        assert addrs == {"1.1.1", "1.1.2"}, (
+            "Zentral-Licht-GA muss an JEDEN Lichtaktor gehen, unabhaengig vom Raum"
+        )
+        assert all(r.room_number == "" for r in central_rows)
+
+    def test_szenen_ga_nur_an_aktoren_im_geltungsbereich(self):
+        room1 = Room(number="E01", name="Wohnzimmer")
+        room2 = Room(number="E02", name="Kueche")
+        gas = [
+            _ga(room1, "L", 1, "E/A", 1),
+            _ga(room2, "L", 1, "E/A", 2),
+            _central_ga("", "SZENE", "Szenenaufruf Wohnzimmer", 0, dpt="DPST-17-1"),
+        ]
+        # "1-fach" (Kapazitaet 1) erzwingt, dass Stromkreis 1 (Wohnzimmer) an
+        # Aktor 1 geht und erst Stromkreis 2 (Kueche) an Aktor 2 wechselt --
+        # damit bedient jeder Aktor eindeutig genau einen Raum.
+        project = _make_project([room1, room2], "Schaltaktor 1-fach", gas)
+        actor2 = Device(device_type="actor", product="Schaltaktor 1-fach", physical_address="1.1.2")
+        project.topology.areas[0].lines[0].devices.append(actor2)
+
+        scene = Scene(name="Kino", scene_number=1, scope="room", scope_id=room1.id)
+        project.scenes.append(scene)
+
+        rows = BelegungsplanService().generate(project).actor_rows
+        szenen_rows = [r for r in rows if r.ga_designation == "Szenenaufruf Wohnzimmer"]
+        assert len(szenen_rows) == 1, szenen_rows
+        assert szenen_rows[0].physical_address == "1.1.1", (
+            "Nur der Wohnzimmer-Aktor darf die 'Szenenaufruf Wohnzimmer'-Zeile "
+            "bekommen, nicht der Kueche-Aktor"
+        )
+        assert szenen_rows[0].gewerk_code == ""
+        assert szenen_rows[0].function_name == "SZENE"
+
+    def test_zentrale_szene_ohne_scope_geht_an_alle(self):
+        """Eine Szenen-GA, deren Bezeichnung zu keiner Scene-Gruppe passt
+        (z.B. die fest eingebaute 'ZENTRAL Szene Abwesenheit'), gilt als
+        projektweit -- keine Raum-Einschraenkung."""
+        room = Room(number="E01", name="Wohnzimmer")
+        gas = [
+            _ga(room, "L", 1, "E/A", 1),
+            _central_ga("", "SZENE", "ZENTRAL Szene Abwesenheit", 0, dpt="DPST-17-1"),
+        ]
+        project = _make_project([room], "Schaltaktor 4-fach", gas)
+        actor2 = Device(device_type="actor", product="Schaltaktor 4-fach", physical_address="1.1.2")
+        project.topology.areas[0].lines[0].devices.append(actor2)
+
+        rows = BelegungsplanService().generate(project).actor_rows
+        szenen_rows = [r for r in rows if r.ga_designation == "ZENTRAL Szene Abwesenheit"]
+        addrs = {r.physical_address for r in szenen_rows}
+        assert addrs == {"1.1.1", "1.1.2"}

@@ -20,50 +20,62 @@ logger = logging.getLogger("knix_arranger.sensor_service")
 SYSTEM_SENSOR_GEWERKE: frozenset[str] = frozenset({"W"})
 
 # Primaere GA-Funktionen die einem Sensor automatisch zugeordnet werden.
-# Format: list[(Button-Label, GA-Funktionsname, Beschreibung, Aktionstyp)]
+# Format: list[(Button-Label, GA-Funktionsname, Beschreibung, Aktionstyp, Bedienart)]
 # Aktionstyp: "kurz" = kurz druecken, "lang" = lang druecken,
 #             "loslassen" = beim Loslassen, "" = unspezifisch (Kontakt/Sensor)
-GEWERK_PRIMARY_FUNCTIONS: dict[str, list[tuple[str, str, str, str]]] = {
+# Bedienart (FA-1502b): was der Tastendruck/Dreher konkret sendet, fuer die
+# Bauherrenberatung (Bauherr-Formular, Bedienungsanleitung). "" = kein
+# manueller Taster (Kontakt/Sensor), daher keine Bedienart-Angabe.
+_UMSCHALTEN = "Umschalten (Ein/Aus wechselnd)"
+_DIMMEN = "Dimmen (Richtung wechselnd)"
+_FAHREN = "Fahren (Richtung wechselnd)"
+_STOPP = "Stopp / Lamellenverstellung"
+
+GEWERK_PRIMARY_FUNCTIONS: dict[str, list[tuple[str, str, str, str, str]]] = {
     # Licht
-    "L":   [("Taste", "E/A",  "Licht schalten",    "kurz")],
-    "LD":  [("Taste", "E/A",  "Licht schalten",    "kurz"),
-            ("Taste", "DIM",  "Licht dimmen",       "lang")],
-    "LDA": [("Taste", "E/A",  "Licht schalten",    "kurz"),
-            ("Taste", "DIM",  "Licht dimmen",       "lang")],
-    "LC":  [("Taste", "E/A",  "Licht schalten",    "kurz"),
-            ("Taste", "DIM",  "Licht dimmen",       "lang")],
-    "LCT": [("Taste", "E/A",  "Licht schalten",    "kurz"),
-            ("Taste", "DIM",  "Licht dimmen",       "lang")],
-    "LCW": [("Taste", "E/A",  "Licht schalten",    "kurz"),
-            ("Taste", "DIM",  "Licht dimmen",       "lang")],
-    "DMX": [("Taste", "E/A",  "DMX schalten",      "kurz"),
-            ("Taste", "DIM",  "DMX dimmen",         "lang")],
-    "S":   [("Taste", "E/A",  "Steckdose schalten", "kurz")],
-    "SD":  [("Taste", "E/A",  "Steckdose schalten", "kurz"),
-            ("Taste", "DIM",  "Steckdose dimmen",   "lang")],
+    "L":   [("Taste", "E/A",  "Licht schalten",    "kurz", _UMSCHALTEN)],
+    "LD":  [("Taste", "E/A",  "Licht schalten",    "kurz", _UMSCHALTEN),
+            ("Taste", "DIM",  "Licht dimmen",       "lang", _DIMMEN)],
+    "LDA": [("Taste", "E/A",  "Licht schalten",    "kurz", _UMSCHALTEN),
+            ("Taste", "DIM",  "Licht dimmen",       "lang", _DIMMEN)],
+    "LC":  [("Taste", "E/A",  "Licht schalten",    "kurz", _UMSCHALTEN),
+            ("Taste", "DIM",  "Licht dimmen",       "lang", _DIMMEN)],
+    "LCT": [("Taste", "E/A",  "Licht schalten",    "kurz", _UMSCHALTEN),
+            ("Taste", "DIM",  "Licht dimmen",       "lang", _DIMMEN)],
+    "LCW": [("Taste", "E/A",  "Licht schalten",    "kurz", _UMSCHALTEN),
+            ("Taste", "DIM",  "Licht dimmen",       "lang", _DIMMEN)],
+    "DMX": [("Taste", "E/A",  "DMX schalten",      "kurz", _UMSCHALTEN),
+            ("Taste", "DIM",  "DMX dimmen",         "lang", _DIMMEN)],
+    "S":   [("Taste", "E/A",  "Steckdose schalten", "kurz", _UMSCHALTEN)],
+    "SD":  [("Taste", "E/A",  "Steckdose schalten", "kurz", _UMSCHALTEN),
+            ("Taste", "DIM",  "Steckdose dimmen",   "lang", _DIMMEN)],
     # Jalousie: lang druecken = fahren, kurz druecken = stoppen
-    "J":   [("Taste", "AUF/AB", "Jalousie fahren", "lang"),
-            ("Taste", "STOPP",  "Jalousie stopp",   "kurz")],
-    "R":   [("Taste", "AUF/AB", "Rollladen fahren", "lang"),
-            ("Taste", "STOPP",  "Rollladen stopp",  "kurz")],
-    "M":   [("Taste", "AUF/AB", "Markise fahren",  "lang"),
-            ("Taste", "STOPP",  "Markise stopp",    "kurz")],
-    "T":   [("Taste", "AUF/AB", "Vorhang fahren",  "lang"),
-            ("Taste", "STOPP",  "Vorhang stopp",    "kurz")],
+    "J":   [("Taste", "AUF/AB", "Jalousie fahren", "lang", _FAHREN),
+            ("Taste", "STOPP",  "Jalousie stopp",   "kurz", _STOPP)],
+    "R":   [("Taste", "AUF/AB", "Rollladen fahren", "lang", _FAHREN),
+            ("Taste", "STOPP",  "Rollladen stopp",  "kurz", _STOPP)],
+    "M":   [("Taste", "AUF/AB", "Markise fahren",  "lang", _FAHREN),
+            ("Taste", "STOPP",  "Markise stopp",    "kurz", _STOPP)],
+    "T":   [("Taste", "AUF/AB", "Vorhang fahren",  "lang", _FAHREN),
+            ("Taste", "STOPP",  "Vorhang stopp",    "kurz", _STOPP)],
     # Heizung/Klima: Sollwert = Drehregler (kein Tastendruck), Betriebsart = Kurzbefehl
-    "H":   [("Sollwert",   "BASIS-SOLL",             "Heizung Sollwert",   ""),
-            ("Betriebsart", "UMSCHALTEN BETRIEBSART", "Heizung Betriebsart", "kurz")],
-    "KL":  [("Sollwert",   "SOLLWERT",               "Klima Sollwert",     ""),
-            ("Betriebsart", "BETRIEBSART",            "Klima Betriebsart",  "kurz")],
+    "H":   [("Sollwert",   "BASIS-SOLL",             "Heizung Sollwert",   "",
+             "Wert senden (Temperatur-Sollwert)"),
+            ("Betriebsart", "UMSCHALTEN BETRIEBSART", "Heizung Betriebsart", "kurz",
+             "Umschalten (Betriebsart wechselnd)")],
+    "KL":  [("Sollwert",   "SOLLWERT",               "Klima Sollwert",     "",
+             "Wert senden (Temperatur-Sollwert)"),
+            ("Betriebsart", "BETRIEBSART",            "Klima Betriebsart",  "kurz",
+             "Umschalten (Betriebsart wechselnd)")],
     # Lueftung
-    "LU":  [("Taste", "STUFE", "Lueftung Stufe", "kurz")],
+    "LU":  [("Taste", "STUFE", "Lueftung Stufe", "kurz", "Wert senden (Lüftungsstufe)")],
     # Allgemein
-    "V":   [("Taste", "E/A",  "Ventilator schalten", "kurz")],
+    "V":   [("Taste", "E/A",  "Ventilator schalten", "kurz", _UMSCHALTEN)],
     # Alarm/Kontakte: kein manueller Tastendruck
-    "FK":  [("Kontakt", "E/A", "Fenster offen/geschlossen", "")],
-    "TK":  [("Kontakt", "E/A", "Tuer offen/geschlossen",    "")],
-    "RK":  [("Kontakt", "E/A", "Riegel offen/geschlossen",  "")],
-    "A":   [("Ausgang", "E/A", "Bewegung erkannt",          "")],
+    "FK":  [("Kontakt", "E/A", "Fenster offen/geschlossen", "", "")],
+    "TK":  [("Kontakt", "E/A", "Tuer offen/geschlossen",    "", "")],
+    "RK":  [("Kontakt", "E/A", "Riegel offen/geschlossen",  "", "")],
+    "A":   [("Ausgang", "E/A", "Bewegung erkannt",          "", "")],
 }
 
 # Rueckmelde-GAs die dem Sensor zusaetzlich zugeordnet werden, damit er den
@@ -536,6 +548,7 @@ class SensorService:
                     action_type=sf.action_type,   # z.B. "kurz" für Szene-Aufruf
                     is_feedback=False,
                     sf_id=sf.id,
+                    bedienart=sf.bedienart,
                 ))
                 total += 1
                 continue
@@ -551,7 +564,7 @@ class SensorService:
             primary_fns = GEWERK_PRIMARY_FUNCTIONS.get(sf.gewerk_code, [])
             feedback_fns = GEWERK_FEEDBACK_FUNCTIONS.get(sf.gewerk_code, [])
 
-            for btn_label, fn_name, desc, action_type in primary_fns:
+            for btn_label, fn_name, desc, action_type, bedienart in primary_fns:
                 key = (sf.gewerk_code, src_room_id, sf.element_number, fn_name)
                 ga_designation = ga_lookup.get(key)
                 if ga_designation is None:
@@ -567,6 +580,7 @@ class SensorService:
                     action_type=action_type,
                     is_feedback=False,
                     sf_id=sf.id,
+                    bedienart=bedienart,
                 ))
                 total += 1
 

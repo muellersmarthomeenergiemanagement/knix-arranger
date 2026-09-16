@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 import logging
 import re
 
+from .scene_addressing import group_named_scenes
+
 logger = logging.getLogger("knix_arranger.belegungsplan")
 
 # Aktortyp-Bezeichnung (device.product prefix) → zugehörige Gewerk-Codes
@@ -518,6 +520,9 @@ class BelegungsplanService:
 
         rows: list[ActorRow] = []
         covered_device_addrs: set[str] = set()  # Adressen mit GA-Treffer (kein CO-Fallback nötig)
+        # phys. Adresse -> Menge bedienter room_ids (fuer Szenen-Geltungsbereichs-
+        # Filterung weiter unten -- welcher Aktor bedient welchen Raum).
+        rooms_by_device_addr: dict[str, set[str]] = {}
 
         for area in project.topology.areas:
             for line in area.lines:
@@ -588,6 +593,9 @@ class BelegungsplanService:
                         zone_name = zone_index.get(room_id, "")
                         for ga in sorted(elem_gas, key=lambda g: g.function_name):
                             covered_device_addrs.add(device.physical_address)
+                            rooms_by_device_addr.setdefault(
+                                device.physical_address, set()
+                            ).add(room_id)
                             rows.append(ActorRow(
                                 line_name=line.name,
                                 area_number=area.area_number,
@@ -700,6 +708,13 @@ class BelegungsplanService:
             rows.extend(fallback_rows)
             logger.debug(f"CO-Fallback: {len(fallback_rows)} Aktor-Zeilen aus ETS6-COs ergänzt.")
 
+        # Zentral-/Szenen-GAs (HG 0) ergänzen: haben weder room_id noch room_number,
+        # tauchen daher in obigem raumbasiertem Matching nie auf. Bewusst OHNE
+        # Kanal-/Kapazitätslogik (channel_number bleibt "") -- diese Zeilen dienen
+        # nur der CO-Verknuepfung, nicht der raumweisen Stromkreis-Nummerierung.
+        central_rows = self._collect_central_actor_rows(project, rooms_by_device_addr)
+        rows.extend(central_rows)
+
         # Anzeigesortierung: Phys. Adresse ↑ → Kanal ↑ → GA-Adresse ↑
         rows.sort(key=lambda r: (
             _parse_phys_addr(r.physical_address),
@@ -709,6 +724,120 @@ class BelegungsplanService:
 
         logger.info(f"Belegungsplan: {len(rows)} Aktor-Zeilen generiert.")
         return rows
+
+    def _collect_central_actor_rows(
+        self, project, rooms_by_device_addr: dict[str, set[str]],
+    ) -> list[ActorRow]:
+        """
+        Baut Aktor-Zeilen fuer Zentral-/Szenen-GAs (HG 0, `central=="true"`).
+
+        Diese GAs haben weder room_id noch room_number und werden daher vom
+        raumbasierten Matching in `_collect_actor_rows` nie erfasst.
+
+        Zwei Faelle, siehe Konversation/Plan:
+        - Zentral-Gewerk-GAs (Licht/Jalousie, `gewerk_code` gesetzt): eindeutig
+          und projektweit gueltig -- werden an JEDES Aktor-/Gateway-Geraet
+          angehaengt, dessen Gewerke (`_gewerke_for_device`) passen, unabhaengig
+          vom Raum.
+        - Szenen-GAs (`function_name=="SZENE"`, `gewerk_code==""`): nur an
+          Geraete, die (laut `rooms_by_device_addr`) mindestens einen Raum im
+          Geltungsbereich der Szene bedienen -- "central"/unbekannte Zuordnung
+          bedeutet keine Einschraenkung.
+        """
+        central_gas = [
+            ga for ga in project.group_addresses.all_addresses()
+            if ga.central == "true" and not ga.is_placeholder
+        ]
+        if not central_gas:
+            return []
+
+        light_jalousie_gas = [
+            ga for ga in central_gas if ga.gewerk_code and ga.function_name != "SZENE"
+        ]
+        scene_gas = [ga for ga in central_gas if ga.function_name == "SZENE"]
+
+        designation_to_scope: dict[str, str] = {}
+        if scene_gas:
+            groups = group_named_scenes(project.scenes, project.areal)
+            designation_to_scope = {
+                designation: key for key, (designation, _scenes) in groups.items()
+            }
+
+        rows: list[ActorRow] = []
+        for area in project.topology.areas:
+            for line in area.lines:
+                for device in line.devices:
+                    if device.device_type not in ("actor", "gateway"):
+                        continue
+
+                    if light_jalousie_gas:
+                        gewerke = self._gewerke_for_device(device.product)
+                        for ga in light_jalousie_gas:
+                            if ga.gewerk_code not in gewerke:
+                                continue
+                            rows.append(self._make_central_row(
+                                area, line, device, ga, gewerk_code=ga.gewerk_code,
+                            ))
+
+                    for ga in scene_gas:
+                        scope_key = designation_to_scope.get(ga.designation, "central")
+                        eligible = self._rooms_for_scope(scope_key, project)
+                        if eligible is not None:
+                            served = rooms_by_device_addr.get(
+                                device.physical_address, set()
+                            )
+                            if not (served & eligible):
+                                continue
+                        rows.append(self._make_central_row(
+                            area, line, device, ga, gewerk_code="",
+                        ))
+
+        return rows
+
+    @staticmethod
+    def _make_central_row(area, line, device, ga, gewerk_code: str) -> ActorRow:
+        """Baut eine raumlose ActorRow fuer eine Zentral-/Szenen-GA."""
+        return ActorRow(
+            line_name=line.name,
+            area_number=area.area_number,
+            line_number=line.line_number,
+            floor_name="",
+            uv_location=device.installation_location or getattr(line, "uv_location", "") or "",
+            actor_type=device.product,
+            physical_address=device.physical_address,
+            channel_number="",
+            element_number=0,
+            room_number="",
+            zone_name="",
+            room_name="",
+            gewerk_code=gewerk_code,
+            function_name=ga.function_name,
+            ga_designation=ga.designation,
+            ga_address=ga.address,
+            dpt=ga.datapoint_type,
+        )
+
+    @staticmethod
+    def _rooms_for_scope(scope_key: str, project) -> set[str] | None:
+        """
+        Loest einen Szenen-Geltungsbereichs-Schluessel (siehe
+        scene_addressing.scene_group_key) in eine Menge erlaubter room_ids auf.
+
+        None = keine Einschraenkung (projektweit, "central" oder unbekannter
+        Schluessel wird NICHT hierher geleitet -- siehe Aufrufer). Ein leeres
+        Set bedeutet: Schluessel ist weder Raum- noch Zonen-Id -- sicherheits-
+        halber keine Vorschlaege statt falscher.
+        """
+        if scope_key == "central":
+            return None
+        for room in project.all_rooms:
+            if room.id == scope_key:
+                return {room.id}
+        for floor in project.all_floors:
+            for apt in floor.apartments:
+                if apt.id == scope_key:
+                    return {r.id for r in apt.rooms}
+        return set()
 
     @staticmethod
     def _gewerke_for_device(product: str) -> set[str]:

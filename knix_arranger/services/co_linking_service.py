@@ -70,6 +70,11 @@ _FUNCTION_MAP: dict[str, list[tuple[str, str, str, str]]] = {
     "UMSCHALTEN BETRIEBSART": [("Betriebsart",          "DPST-20-102", "KSUA", "empfangen")],
     "STATUS BETRIEBSART":   [("Status Betriebsart",     "DPST-20-102", "KLU",  "senden")],
     "STOERUNG":             [("Stoerung",               "DPST-1-1",    "KLU",  "senden")],
+    # Zentral-/Szenen-GAs (HG 0, siehe belegungsplan_service._collect_central_actor_rows).
+    # Generischer Fallback ohne reales CO -- generate_proposals() setzt die
+    # Konfidenz fuer diesen Fall bewusst auf "manuell pruefen", da nicht jeder
+    # Aktor ein Szenen-Objekt besitzt (anders als bei Zentral-Licht/Jalousie).
+    "SZENE":                [("Szene",                  "DPST-17-1",   "KSUA", "empfangen")],
     # Fremdsystem-Gateway "MM" (z.B. Multiroom-Audio wie Revox)
     "EIN/AUS":              [("Ein/Aus",                "DPST-1-1",    "KSUA", "empfangen")],
     "LAUTSTAERKE":          [("Lautstaerke",             "DPST-5-1",    "KSUA", "empfangen")],
@@ -165,6 +170,14 @@ class CoLinkingService:
                 ga_dpt = row.dpt or ""
                 if ga_dpt and not _dpt_compatible(co_dpt, ga_dpt):
                     confidence = "manuell pruefen"
+                elif row.function_name == "SZENE" and real_co is None:
+                    # Kein reales Szenen-CO gefunden -- anders als bei Zentral-
+                    # Licht/Jalousie kann ohne Produktdaten nicht sicher davon
+                    # ausgegangen werden, dass dieser Aktor ueberhaupt ein
+                    # Szenen-Objekt besitzt (nicht jeder Aktortyp unterstuetzt
+                    # Szenen). Der generische Vorschlag bleibt sichtbar, aber
+                    # als pruefungsbeduerftig markiert.
+                    confidence = "manuell pruefen"
                 else:
                     confidence = "sicher"
                 proposals.append(CoLinkingProposal(
@@ -259,6 +272,17 @@ class CoLinkingService:
         Nur ein exakter Treffer zaehlt -- eine unscharfe Zuordnung wuerde
         bei generischen Vorlagen-Funktionsnamen (z.B. "EIN/AUS") faelschlich
         auf voellig andere Produktfunktionen matchen.
+
+        Ausnahme "SZENE": Hersteller benennen das Szenen-Objekt selten
+        woertlich "Szene", meist z.B. "8-Bit-Szene" oder "Szenensteuerung"
+        (siehe gewerk_channel_matching._FUNCTION_KEYWORDS, dort fuer die
+        Kanal-Zuordnung bereits genutzt). Ohne diesen Zusatz wuerde so gut
+        wie nie ein reales Szenen-CO gefunden, und generate_proposals()
+        koennte nie zwischen "Geraet hat nachweislich ein Szenen-Objekt"
+        (Konfidenz "sicher") und "reine Vermutung" (Konfidenz "manuell
+        pruefen") unterscheiden. Bewusst NUR fuer "SZENE" aktiviert, um das
+        oben beschriebene Fehltreffer-Risiko fuer alle anderen, generischeren
+        Funktionsnamen nicht wieder einzufuehren.
         """
         if device is None:
             return None
@@ -270,6 +294,13 @@ class CoLinkingService:
                 return co
             if co.name.strip().lower() == target:
                 return co
+        if target == "szene":
+            from .gewerk_channel_matching import _FUNCTION_KEYWORDS
+            keywords = _FUNCTION_KEYWORDS.get("SZENE", ())
+            for co in device.communication_objects:
+                text = f"{co.object_function} {co.name}".strip().lower()
+                if text and any(kw in text for kw in keywords):
+                    return co
         return None
 
     def _direction_from_flags(self, flags: str) -> str:

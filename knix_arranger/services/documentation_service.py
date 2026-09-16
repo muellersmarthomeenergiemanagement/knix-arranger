@@ -683,9 +683,12 @@ class DocumentationService:
                     )
                     if sensor.function_assignments:
                         for fa in sensor.function_assignments:
+                            detail = fa.description
+                            if fa.bedienart:
+                                detail += f", {fa.bedienart}"
                             pdf.add_paragraph(
                                 f"    {fa.button_channel}: {fa.function_ga} "
-                                f"({fa.description})"
+                                f"({detail})"
                             )
 
             # Szenen (FA-2005)
@@ -760,6 +763,12 @@ class DocumentationService:
                 belegungsplan, path, self._company_profile, self.project.project_info
             )
             generated_files.append(("Verknüpfungsmatrix", path))
+
+        # 4e. Szenenreport (FA-1811) -- nur wenn Szenen definiert sind
+        if any(s.name for s in self.project.scenes):
+            path = os.path.join(output_dir, f"{prefix}_Szenenreport.pdf")
+            report_svc.generate_szenen_report(path)
+            generated_files.append(("Szenenreport", path))
 
         # 5. Validierungsbericht
         path = os.path.join(output_dir, f"{prefix}_Validierung.pdf")

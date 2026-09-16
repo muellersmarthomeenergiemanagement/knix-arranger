@@ -266,6 +266,22 @@ class BauherrFormService:
             return _BTN_FILL_FOREIGN    # Fremdraum → blau
         return _BTN_FILL_ASSIGNED       # eigener Raum → grün
 
+    def _bedienart_summary(self, sf: SensorFunktion, be: Bedienelement) -> str:
+        """
+        Fasst die Bedienart(en) einer SensorFunktion zusammen (FA-1502b),
+        z.B. "kurz: Umschalten (Ein/Aus wechselnd) · lang: Dimmen (Richtung
+        wechselnd)". Leer, wenn keine Bedienart bekannt ist (z.B. Kontakte).
+        """
+        parts = []
+        for fa in be.function_assignments:
+            if fa.sf_id != sf.id or fa.is_feedback or not fa.bedienart:
+                continue
+            if fa.action_type:
+                parts.append(f"{fa.action_type}: {fa.bedienart}")
+            else:
+                parts.append(fa.bedienart)
+        return " · ".join(parts)
+
     def _button_label(self, sf: SensorFunktion) -> str:
         """
         Bauherren-lesbarer Label für einen einzelnen Taster-Slot.
@@ -317,7 +333,7 @@ class BauherrFormService:
 
         NCOLS      = 2
         COL_W      = 20
-        ROW_H      = 30
+        ROW_H      = 40  # Platz für zweite Zeile mit Bedienart-Hinweis
         device_end = col + NCOLS - 1
 
         for i in range(NCOLS):
@@ -365,7 +381,10 @@ class BauherrFormService:
             t_num = f"T{slot_idx + 1}"
 
             if fn_text:
+                bedienart_text = self._bedienart_summary(sf, be) if sf else ""
                 cell_val  = f"{t_num}  {fn_text}"
+                if bedienart_text:
+                    cell_val += f"\n{bedienart_text}"
                 cell_font = Font(name="Arial", bold=True, size=9,
                                  color=_BTN_FONT_FN)
             else:

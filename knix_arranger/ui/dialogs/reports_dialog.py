@@ -72,6 +72,8 @@ class ReportsDialog(QDialog):
              self._gen_aktoren_gateways),
             ("Räume nach Gewerken", "Gewerke und GAs je Raum als PDF",
              self._gen_room_gewerk),
+            ("Szenenreport", "Bedienung, Gewerke und Aktoren je Szene als PDF",
+             self._gen_szenen),
         ]
 
         for i, (title_text, desc, callback) in enumerate(buttons):
@@ -473,6 +475,22 @@ class ReportsDialog(QDialog):
 
         self._run("Aktoren-und-Gateways-Bericht wird erstellt…", do,
                   f"Aktoren-und-Gateways-Bericht erstellt: {path}")
+
+    def _gen_szenen(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Szenenreport speichern",
+            self._default_export_path(f"{self._project.name}_Szenenreport.pdf"),
+            "PDF-Dateien (*.pdf)",
+        )
+        if not path:
+            return
+        project, company = self._project, self._company_profile
+
+        def do():
+            from ...services.report_service import ReportService
+            ReportService(project, company_profile=company).generate_szenen_report(path)
+
+        self._run("Szenenreport wird erstellt…", do, f"Szenenreport erstellt: {path}")
 
     def _gen_room_gewerk(self):
         path, _ = QFileDialog.getSaveFileName(

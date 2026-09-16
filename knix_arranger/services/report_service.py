@@ -9,12 +9,17 @@ from collections import defaultdict
 from datetime import datetime
 
 from ..models.project import KnxProject
+from ..models.scene import Scene, SceneAction
 from ..models.group_address import GroupAddressStructure, MIDDLE_GROUP_NAMES_A, MIDDLE_GROUP_NAMES_B
 from ..services.validation_engine import ValidationEngine, ValidationIssue
 from ..services.belegungsplan_service import (
     _split_button_channel, _extract_channel_label, group_actor_rows_by_channel,
     BelegungsplanService,
 )
+from ..services.scene_addressing import (
+    scene_group_key, scene_channel_designation, build_scope_label_lookup,
+)
+from ..services.co_linking_service import CoLinkingService
 from ..services.naming_engine import NamingEngine
 from ..utils.pdf_generator import PdfGenerator
 
@@ -738,12 +743,14 @@ class ReportService:
                             taste or "-",
                             kanal,
                             fa.description or "-",
+                            fa.bedienart or "-",
                             fa.function_ga or "-",
                             ga_obj.address if ga_obj else "",
                             ga_obj.datapoint_type if ga_obj else "",
                         ])
                     pdf.add_table(
-                        ["Taste", "Kanal", "Funktion", "GA-Bezeichnung", "GA-Adresse", "DPT"],
+                        ["Taste", "Kanal", "Funktion", "Bedienart",
+                         "GA-Bezeichnung", "GA-Adresse", "DPT"],
                         fa_rows,
                     )
                 elif device and any(co.connected_gas for co in device.communication_objects):
@@ -951,3 +958,264 @@ class ReportService:
 
         pdf.save(filepath)
         logger.info(f"Aktoren-und-Gateways-Bericht erstellt: {filepath}")
+
+    # Geltungsbereichs-Code (Scene.scope) -> Anzeigetext (siehe ui/views/scene_view.py
+    # _SCOPE_LABELS -- hier bewusst dupliziert statt importiert, damit dieser
+    # Service-Layer nicht von der UI-Schicht abhaengt).
+    _SCENE_SCOPE_LABELS = {
+        "room": "Raum",
+        "apartment": "Wohnung/Zone",
+        "zone": "Zone",
+        "central": "Zentral",
+    }
+
+    def _scene_action_label(self, action: SceneAction) -> str:
+        """Bauherren-lesbarer Text einer Szenen-Aktion, z.B. 'Wohnzimmer Licht E/A → Aus'."""
+        raw = action.group_address.strip()
+        parts = raw.split()
+        text = " ".join(parts[1:]) if (parts and "/" in parts[0] and len(parts) > 1) else raw
+        if action.value:
+            text += f"  →  {action.value}"
+        return text
+
+    def _scene_action_categories(self, scene: Scene) -> set[str]:
+        """Gewerk-Kategorien, die laut den Aktionen der Szene betroffen sind
+        (unabhaengig davon, ob bereits ein Aktor real mit der Szenenaufruf-GA
+        verknuepft ist) -- action.group_address ist entweder ein Kategorie-
+        Schluessel aus einer Vorlage ("licht", "jalousie", ...) oder eine
+        GA-Bezeichnung, aus der sich per NamingEngine der Gewerk-Code und
+        darueber die Kategorie ableiten laesst."""
+        categories: set[str] = set()
+        for action in scene.actions:
+            raw = action.group_address.strip()
+            if not raw:
+                continue
+            key = raw.lower()
+            if key in GEWERK_CATEGORY_LABELS:
+                categories.add(key)
+                continue
+            code = NamingEngine.parse_designation(raw).get("gewerk_code", "")
+            gewerk = self.project.gewerk_catalog.get(code) if code else None
+            if gewerk and gewerk.category:
+                categories.add(gewerk.category)
+        return categories
+
+    @staticmethod
+    def _resolve_legacy_scene_id(sf, candidates: list) -> str:
+        """Fallback fuer SensorFunktionen aus der Zeit vor scene_id (siehe
+        _scene_trigger_buttons_index): 'candidates' sind alle Szenen, die sich
+        denselben Szenenaufruf-Kanal (sf.ga_designation) teilen. Nur bei genau
+        einer Szene auf dem Kanal ist die Zuordnung sicher eindeutig. Bewusst
+        KEIN Text-Abgleich auf sf.label als Fallback bei mehreren Kandidaten:
+        die Szenen eines Kanals teilen sich oft aehnlich klingende Namen
+        (z.B. "Anwesend"/"Abwesend") -- ein falscher Treffer waere im
+        Bauherren-Report eine stille, schwer bemerkbare Falschaussage, was
+        schlimmer ist als eine fehlende Zeile. Mehrdeutige Faelle bleiben
+        unaufgeloest; die Schritt-8-UI markiert sie zum manuellen Neusetzen."""
+        if len(candidates) == 1:
+            return candidates[0].id
+        return ""
+
+    def _scene_trigger_buttons_index(self) -> dict[str, list[str]]:
+        """scene.id -> Liste Klartext-Bezeichnungen aller Taster/Bedienelemente,
+        die diese Szene per SensorFunktion (bedienart='Szene abrufen', Schritt 8)
+        aufrufen. Im Unterschied zu Scene.trigger (freies Notizfeld) ist das die
+        tatsaechlich im Projekt konfigurierte Zuordnung -- erlaubt insbesondere
+        mehrere Taster pro Szene, was ein einzelnes Freitextfeld nicht robust
+        abbilden kann."""
+        label_lookup = build_scope_label_lookup(self.project.areal)
+        scenes_by_channel: dict[str, list] = {}
+        for s in self.project.scenes:
+            if not s.name or s.is_detected:
+                continue
+            designation = scene_channel_designation(scene_group_key(s), label_lookup)
+            scenes_by_channel.setdefault(designation, []).append(s)
+
+        index: dict[str, list[str]] = {}
+        for room in self.project.all_rooms:
+            for be in room.bedienelemente:
+                if be.suppressed:
+                    continue
+                for sf in be.funktionen:
+                    scene_id = sf.scene_id
+                    if not scene_id and sf.bedienart == "Szene abrufen" and sf.ga_designation:
+                        # Vor Einfuehrung von scene_id angelegte Zuweisung --
+                        # bestmoeglich nachtraeglich aufloesen (siehe oben).
+                        scene_id = self._resolve_legacy_scene_id(
+                            sf, scenes_by_channel.get(sf.ga_designation, [])
+                        )
+                    if not scene_id:
+                        continue
+                    button = next(
+                        (fa.button_channel for fa in be.function_assignments
+                         if fa.sf_id == sf.id and fa.button_channel),
+                        "",
+                    )
+                    addr = be.participant_number or "(keine Adresse)"
+                    parts = [f"Raum {room.number} {room.name}", f"Taster {addr}"]
+                    if button:
+                        parts.append(button)
+                    index.setdefault(scene_id, []).append(", ".join(parts))
+        return index
+
+    def _scene_target_ga(self, scene: Scene, label_lookup: dict):
+        """Ermittelt die tatsaechlich generierte Szenenaufruf-GA einer Szene
+        (None wenn Schritt 10 'Gruppenadressen generieren' noch nicht bzw.
+        nicht erneut nach dieser Szenen-Aenderung gelaufen ist)."""
+        all_gas = self.project.group_addresses.all_addresses()
+        if scene.is_detected:
+            for addr in scene.source_ga_addresses:
+                ga = next((g for g in all_gas if g.address == addr), None)
+                if ga:
+                    return ga
+            return None
+        scope_key = scene_group_key(scene)
+        designation = scene_channel_designation(scope_key, label_lookup)
+        return next(
+            (g for g in all_gas if g.function_name == "SZENE" and g.designation == designation),
+            None,
+        )
+
+    def generate_szenen_report(self, filepath: str):
+        """
+        Erzeugt einen Szenenreport als PDF (FA-1811): pro Szene ein
+        bauherren-lesbarer Bedienungs-Abschnitt (Auslöser, Aktionen) und ein
+        technischer Abschnitt (Geltungsbereich, Szenenaufruf-GA, betroffene
+        Gewerke/Aktoren inkl. CO-Verknüpfungsstatus aus co_linking_service).
+        """
+        pdf = self._make_pdf("Szenenreport")
+
+        pdf.add_heading("Szenenreport", level=1)
+        pdf.add_paragraph(
+            f"Projekt: {self.project.name} | "
+            f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        )
+        pdf.add_separator()
+
+        scenes = [s for s in self.project.scenes if s.name]
+        if not scenes:
+            pdf.add_paragraph("Keine Szenen im Projekt definiert.")
+            pdf.save(filepath)
+            logger.info(f"Szenenreport erstellt: {filepath}")
+            return
+
+        label_lookup = build_scope_label_lookup(self.project.areal)
+        device_by_addr = {
+            d.physical_address: d
+            for area in self.project.topology.areas
+            for line in area.lines
+            for d in line.devices
+        }
+        proposals = CoLinkingService().generate_proposals(self.project)
+        trigger_buttons_index = self._scene_trigger_buttons_index()
+
+        # Tatsaechlich zugewiesene Gewerke je Geraet (NICHT die generische
+        # Typ-Fähigkeitsmenge aus _gewerke_for_device -- ein "Schaltaktor"
+        # deckt z.B. L/S/V/G/DF/BW/BL/P ab, wovon im Projekt meist nur eines
+        # tatsaechlich genutzt wird). Quelle: die realen, raumbasierten
+        # Belegungsplan-Zeilen dieses Geraets.
+        belegungsplan = BelegungsplanService().generate(self.project)
+        gewerke_by_device_addr: dict[str, set[str]] = {}
+        for row in belegungsplan.actor_rows:
+            if row.gewerk_code:
+                gewerke_by_device_addr.setdefault(row.physical_address, set()).add(row.gewerk_code)
+
+        for scene in sorted(scenes, key=lambda s: (s.scope, s.scope_id, s.scene_number)):
+            pdf.add_conditional_break(min_height=150)
+            pdf.add_heading(f"{scene.name}  (Szene Nr. {scene.scene_number or '–'})", level=2)
+
+            # ── Bedienung (Bauherr) ──────────────────────────────────────
+            pdf.add_heading("Bedienung", level=3)
+            assigned_buttons = trigger_buttons_index.get(scene.id, [])
+            if assigned_buttons:
+                pdf.add_paragraph(
+                    "Ausgelöst durch (Taster-Zuweisung): " + ", ".join(assigned_buttons)
+                )
+            if scene.trigger:
+                pdf.add_paragraph(f"Notiz: {scene.trigger}")
+            if not assigned_buttons and not scene.trigger:
+                pdf.add_paragraph("Ausgelöst durch: (kein Taster hinterlegt)")
+            if scene.actions:
+                for action in scene.actions:
+                    pdf.add_paragraph(f"  •  {self._scene_action_label(action)}")
+            else:
+                pdf.add_paragraph("  (keine Aktionen definiert)")
+
+            # ── Technische Details (Integrator) ─────────────────────────
+            pdf.add_heading("Technische Details", level=3)
+            scope_label = self._SCENE_SCOPE_LABELS.get(scene.scope, scene.scope or "Zentral")
+            if scene.scope_id:
+                scope_label += f": {label_lookup.get(scene.scope_id, scene.scope_id)}"
+            pdf.add_paragraph(f"Geltungsbereich: {scope_label}")
+
+            ga = self._scene_target_ga(scene, label_lookup)
+            if ga is None:
+                pdf.add_paragraph(
+                    "Noch keine Gruppenadresse generiert – bitte in Schritt 10 des "
+                    "Wizards ('Gruppenadressen generieren') aktualisieren."
+                )
+                pdf.add_separator()
+                continue
+
+            pdf.add_paragraph(
+                f"Szenenaufruf-GA: {ga.designation}   [{ga.address}]   ({ga.datapoint_type})"
+            )
+
+            gewerke_codes: set[str] = set()
+            actor_rows: list[list[str]] = []
+            confirmed_addrs: set[str] = set()
+            for area in self.project.topology.areas:
+                for line in area.lines:
+                    for device in line.devices:
+                        if device.device_type not in ("actor", "gateway"):
+                            continue
+                        if any(ga.address in co.connected_gas for co in device.communication_objects):
+                            confirmed_addrs.add(device.physical_address)
+                            gewerke_codes |= gewerke_by_device_addr.get(device.physical_address, set())
+                            actor_rows.append([device.physical_address, device.product, "verknüpft"])
+
+            for p in proposals:
+                if p.ga_address != ga.address or p.function_name != "SZENE":
+                    continue
+                if p.physical_address in confirmed_addrs:
+                    continue
+                device = device_by_addr.get(p.physical_address)
+                gewerke_codes |= gewerke_by_device_addr.get(p.physical_address, set())
+                actor_rows.append([
+                    p.physical_address,
+                    device.product if device else "",
+                    f"Vorschlag ({p.confidence})",
+                ])
+
+            action_categories = self._scene_action_categories(scene)
+            if action_categories:
+                pdf.add_paragraph(
+                    "Betroffene Gewerke (laut Aktionsdefinition): "
+                    + ", ".join(
+                        GEWERK_CATEGORY_LABELS.get(c, c)
+                        for c in sorted(action_categories, key=_gewerk_category_sort_key)
+                    )
+                )
+
+            if gewerke_codes:
+                pdf.add_paragraph(
+                    "Betroffene Gewerke (bestätigt durch Aktor-Verknüpfung): "
+                    + ", ".join(self._gewerk_label(c) for c in sorted(gewerke_codes))
+                )
+            else:
+                pdf.add_paragraph(
+                    "Betroffene Gewerke (bestätigt durch Aktor-Verknüpfung): "
+                    "(noch keine Aktoren verknüpft)"
+                )
+
+            if actor_rows:
+                pdf.add_table(["Phys. Adresse", "Produkt", "Status"], actor_rows)
+            else:
+                pdf.add_paragraph(
+                    "Betroffene Aktoren: noch keine verknüpft (siehe CO-Verknüpfung)."
+                )
+
+            pdf.add_separator()
+
+        pdf.save(filepath)
+        logger.info(f"Szenenreport erstellt: {filepath}")

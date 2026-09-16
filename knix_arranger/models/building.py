@@ -505,6 +505,17 @@ class SensorFunktion:
     ga_designation: str = ""     # z.B. "3/0/15 Flur Licht E/A"
     # Aktionstyp für direkte GAs (Variante 2): "kurz", "lang", "" = unspezifisch
     action_type: str = ""
+    # Bedienart für direkte GAs (Variante 2), z.B. "Ein", "Aus", "Umschalten",
+    # "Wert senden", "Szene abrufen" (FA-1502b). Bei Gewerk-basierten SFs (Variante 1)
+    # bleibt dies leer -- die Bedienart wird dort immer aus dem Gewerk abgeleitet
+    # (siehe sensor_service.GEWERK_PRIMARY_FUNCTIONS).
+    bedienart: str = ""
+    # Bei bedienart == "Szene abrufen": Scene.id der konkreten Szene, die dieser
+    # Taster aufruft (ga_designation zeigt nur auf die GETEILTE Szenenaufruf-GA
+    # des Geltungsbereichs, siehe scene_addressing.py -- ohne scene_id waere nicht
+    # feststellbar, welche der ggf. mehreren Szenen auf diesem Kanal gemeint ist).
+    # Ermoeglicht dem Szenenreport, alle Taster einer Szene automatisch aufzulisten.
+    scene_id: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -515,6 +526,8 @@ class SensorFunktion:
             "source_room_id": self.source_room_id,
             "ga_designation": self.ga_designation,
             "action_type": self.action_type,
+            "bedienart": self.bedienart,
+            "scene_id": self.scene_id,
         }
 
     @classmethod
@@ -527,6 +540,8 @@ class SensorFunktion:
             source_room_id=data.get("source_room_id", ""),
             ga_designation=data.get("ga_designation", ""),
             action_type=data.get("action_type", ""),
+            bedienart=data.get("bedienart", ""),
+            scene_id=data.get("scene_id", ""),
         )
 
 
@@ -585,6 +600,12 @@ class FunctionAssignment:
     # Gewerk-basiert (Variante 1): mehrere FunctionAssignment teilen sich eine
     # sf_id (Primär+Rückmeldung) -- nicht einzeln editierbar, siehe Schritt 5 Gewerke.
     sf_id: str = ""
+    # Bedienart (FA-1502b): was der Tastendruck/Dreher auslöst, z.B. "Umschalten
+    # (Ein/Aus wechselnd)", "Dimmen (Richtung wechselnd)", "Wert senden (...)".
+    # Für Gewerk-basierte Einträge aus sensor_service.GEWERK_PRIMARY_FUNCTIONS
+    # übernommen, für direkte GAs aus SensorFunktion.bedienart. Leer bei
+    # Rückmelde-Einträgen (is_feedback=True).
+    bedienart: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -594,6 +615,7 @@ class FunctionAssignment:
             "action_type": self.action_type,
             "is_feedback": self.is_feedback,
             "sf_id": self.sf_id,
+            "bedienart": self.bedienart,
         }
 
     @classmethod
@@ -605,6 +627,7 @@ class FunctionAssignment:
             action_type=data.get("action_type", ""),
             is_feedback=data.get("is_feedback", False),
             sf_id=data.get("sf_id", ""),
+            bedienart=data.get("bedienart", ""),
         )
 
 

@@ -44,6 +44,19 @@ def scene_channel_designation(group_key: str, label_lookup: dict[str, str]) -> s
     return f"Szenenaufruf {label}"
 
 
+def scene_value_mapping_text(group_scenes) -> str:
+    """Klartext-Zuordnung Bytewert -> Szenenname fuer die description der
+    gemeinsamen Szenenaufruf-GA, z.B. '0=Abwesenheit, 1=Dinner' -- macht in
+    der GA-Liste sichtbar, welche Szenen sich die generische GA teilen, ohne
+    dass man das erst in der Szenen-Ansicht nachschlagen muss."""
+    parts = [
+        f"{scene.scene_number - 1}={scene.name}"
+        for scene in sorted(group_scenes, key=lambda s: s.scene_number)
+        if scene.scene_number > 0
+    ]
+    return ", ".join(parts)
+
+
 def group_named_scenes(scenes, areal) -> dict[str, tuple[str, list]]:
     """Gruppiert benannte, nicht-erkannte Szenen nach gemeinsamer Ziel-GA.
 

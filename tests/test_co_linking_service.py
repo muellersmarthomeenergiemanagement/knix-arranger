@@ -484,3 +484,55 @@ class TestApplyProposals:
         proposals2 = svc.generate_proposals(project)
         ea_proposals = [p for p in proposals2 if p.function_name == "E/A"]
         assert all(p.already_linked for p in ea_proposals)
+
+
+def _central_ga(gewerk: str, fn: str, designation: str, sub: int, dpt: str = "DPST-1-1") -> GroupAddress:
+    return GroupAddress(
+        main_group=0, middle_group=0, sub_group=sub,
+        designation=designation, gewerk_code=gewerk, function_name=fn,
+        datapoint_type=dpt, central="true",
+    )
+
+
+class TestSzenenLinking:
+    """Szenen-GAs (central=='true', function_name=='SZENE') werden ueber
+    belegungsplan_service._collect_central_actor_rows in den Belegungsplan
+    aufgenommen -- diese Tests decken die davon abhaengige Konfidenz-Regel
+    in generate_proposals() ab (siehe co_linking_service.py)."""
+
+    def test_szene_ohne_echtes_co_ist_manuell_pruefen(self):
+        """Kein reales Szenen-CO am Geraet -> generischer _FUNCTION_MAP-
+        Fallback, aber bewusst als 'manuell pruefen' markiert (nicht jeder
+        Aktor unterstuetzt ueberhaupt Szenen)."""
+        room = Room(number="E01", name="Wohnzimmer")
+        gas = [
+            _ga(room, "L", 1, "E/A", 0),
+            _central_ga("", "SZENE", "ZENTRAL Szene Abwesenheit", 1, dpt="DPST-17-1"),
+        ]
+        project = _make_project([room], "Schaltaktor 4-fach", gas)
+
+        proposals = CoLinkingService().generate_proposals(project)
+        p = next(p for p in proposals if p.function_name == "SZENE")
+        assert p.co_name == "Szene"
+        assert p.confidence == "manuell pruefen"
+
+    def test_szene_mit_echtem_co_ist_sicher(self):
+        """Ein reales CO, dessen Name/Funktion die SZENE-Stichworte enthaelt
+        (z.B. '8-Bit-Szene', typischer Herstellername statt woertlich
+        'Szene'), wird gefunden -> Konfidenz 'sicher', reales CO verwendet."""
+        room = Room(number="E01", name="Wohnzimmer")
+        gas = [
+            _ga(room, "L", 1, "E/A", 0),
+            _central_ga("", "SZENE", "ZENTRAL Szene Abwesenheit", 1, dpt="DPST-17-1"),
+        ]
+        project = _make_project([room], "Schaltaktor 4-fach", gas)
+        device = project.topology.areas[0].lines[0].devices[0]
+        device.communication_objects = [CommunicationObject(
+            object_number=5, name="8-Bit-Szene",
+            object_function="", data_type="DPST-17-1", flags="KSUA",
+        )]
+
+        proposals = CoLinkingService().generate_proposals(project)
+        p = next(p for p in proposals if p.function_name == "SZENE")
+        assert p.co_name == "8-Bit-Szene"
+        assert p.confidence == "sicher"

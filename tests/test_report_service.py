@@ -175,6 +175,200 @@ class TestReportService:
                 if os.path.exists(p):
                     os.unlink(p)
 
+    def test_szenen_report_ohne_szenen(self, sample_project, tmp_path):
+        """Ohne definierte Szenen darf der Bericht nicht abstuerzen."""
+        path = str(tmp_path / "szenen.pdf")
+        ReportService(sample_project).generate_szenen_report(path)
+        txt_path = path.rsplit(".", 1)[0] + ".txt"
+        assert os.path.exists(path) or os.path.exists(txt_path)
+
+
+class TestSzenenReport:
+    """Regressionstests fuer generate_szenen_report (FA-1811).
+
+    Deckt insbesondere den Fehler ab, dass 'Betroffene Gewerke' urspruenglich
+    ueber BelegungsplanService._gewerke_for_device(device.product) ermittelt
+    wurde -- das liefert die volle Typ-Faehigkeitsmenge eines 'Schaltaktor'
+    (L/S/V/G/DF/BW/BL/P), nicht das im Projekt tatsaechlich zugewiesene
+    Gewerk. Korrekt ist die Ableitung aus den echten Belegungsplan-Zeilen
+    des Geraets.
+    """
+
+    def test_betroffene_gewerke_zeigt_nur_tatsaechlich_zugewiesenes_gewerk(
+        self, sample_project, tmp_path
+    ):
+        fitz = pytest.importorskip("fitz")
+        from knix_arranger.models.scene import Scene
+        from knix_arranger.models.topology import Area, Line, Device, CommunicationObject
+
+        project = sample_project
+        room2 = next(r for r in project.all_rooms if r.number == "E02")  # Gewerk "L"
+        project.scenes.append(
+            Scene(name="Kueche An", scene_number=1, scope="room", scope_id=room2.id)
+        )
+
+        gen = AddressGenerator(project.gewerk_catalog, variant="A")
+        project.group_addresses = gen.generate(
+            project.areal, scenes=project.scenes, project=project
+        )
+        for ga in project.group_addresses.all_addresses():
+            if ga.gewerk_code == "L" and ga.central != "true" and ga.room_number == "E02":
+                ga.room_id = room2.id
+        szenen_ga = next(
+            ga for ga in project.group_addresses.all_addresses()
+            if ga.designation == "Szenenaufruf Kueche"
+        )
+
+        device = Device(
+            physical_address="1.1.1", device_type="actor", product="Schaltaktor 4-fach",
+            communication_objects=[
+                CommunicationObject(object_number=1, name="8-Bit-Szene",
+                                     data_type="DPST-17-1", connected_gas=[szenen_ga.address]),
+            ],
+        )
+        line = Line(line_number=1, name="Linie 1", assigned_room_ids=[room2.id], devices=[device])
+        area = Area(area_number=1, name="Bereich 1", lines=[line])
+        project.topology.areas = [area]
+
+        path = str(tmp_path / "szenen.pdf")
+        ReportService(project).generate_szenen_report(path)
+
+        doc = fitz.open(path)
+        text = "\n".join(p.get_text() for p in doc)
+        doc.close()
+
+        gewerke_line = next(l for l in text.splitlines() if l.startswith("Betroffene Gewerke"))
+        assert "Beamer-Lift" not in gewerke_line
+        assert "Bewaesserung" not in gewerke_line
+        assert "Dachfenster" not in gewerke_line
+
+    def test_ausgeloest_durch_zeigt_alle_taster_einer_szene(
+        self, sample_project, tmp_path
+    ):
+        """Zwei Taster in unterschiedlichen Raeumen rufen dieselbe Szene auf
+        (SensorFunktion.scene_id, Schritt 8) -- der Report muss beide auflisten,
+        nicht nur den zuletzt gefundenen (Ausgangspunkt dieses Fixes: Scene.trigger
+        ist ein einzelnes Freitextfeld und kann mehrere Taster nicht abbilden)."""
+        fitz = pytest.importorskip("fitz")
+        from knix_arranger.models.scene import Scene
+        from knix_arranger.models.building import Bedienelement, SensorFunktion
+
+        project = sample_project
+        room1 = next(r for r in project.all_rooms if r.number == "E01")
+        room2 = next(r for r in project.all_rooms if r.number == "E02")
+
+        scene = Scene(name="Kino", scene_number=1, scope="central")
+        project.scenes.append(scene)
+        gen = AddressGenerator(project.gewerk_catalog, variant="A")
+        project.group_addresses = gen.generate(
+            project.areal, scenes=project.scenes, project=project
+        )
+        szenen_ga = next(
+            ga for ga in project.group_addresses.all_addresses()
+            if ga.designation == "ZENTRAL Szenenaufruf"
+        )
+
+        # button_channel ("Taste N") wird nicht hier vorgegeben, sondern von
+        # generate_szenen_report ueber BelegungsplanService -> auto_assign_functions
+        # aus den Sensorfunktionen der BE neu berechnet (siehe sensor_service.
+        # _expand_funktionen) -- deshalb je BE zwei Funktionen, sonst faellt die
+        # Nummerierung auf das Freitext-Label zurueck (nur bei genau einer
+        # Funktion je BE).
+        sf1 = SensorFunktion(
+            label="Kino", ga_designation=szenen_ga.designation,
+            bedienart="Szene abrufen", scene_id=scene.id,
+        )
+        room1.bedienelemente.append(Bedienelement(
+            element_type="Tastereinheit", product_name="Taster Sofa", is_auto=False,
+            participant_number="1.1.5",
+            funktionen=[
+                SensorFunktion(ga_designation="Dummy GA 1", label="Dummy 1"),
+                SensorFunktion(ga_designation="Dummy GA 2", label="Dummy 2"),
+                sf1,
+            ],
+        ))
+        sf2 = SensorFunktion(
+            label="Kino", ga_designation=szenen_ga.designation,
+            bedienart="Szene abrufen", scene_id=scene.id,
+        )
+        room2.bedienelemente.append(Bedienelement(
+            element_type="Tastereinheit", product_name="Taster Tuer", is_auto=False,
+            participant_number="1.1.9",
+            funktionen=[
+                sf2,
+                SensorFunktion(ga_designation="Dummy GA 3", label="Dummy 3"),
+            ],
+        ))
+
+        # generate_szenen_report expandiert be.funktionen -> function_assignments
+        # als Seiteneffekt (ueber BelegungsplanService -> auto_assign_functions);
+        # erst danach ist button_channel ("Taste N") auf den BEs verfuegbar.
+        path = str(tmp_path / "szenen.pdf")
+        rs = ReportService(project)
+        rs.generate_szenen_report(path)
+
+        # Kernlogik deterministisch pruefen (unabhaengig vom PDF-Zeilenumbruch,
+        # der eine lange Adresse wie "1.1.9" mitten im Wort umbrechen kann --
+        # normale Formatierung, aber ungeeignet fuer einen Text-Zeilen-Vergleich).
+        buttons = rs._scene_trigger_buttons_index()[scene.id]
+        assert len(buttons) == 2
+        assert any(
+            b.startswith("Raum E01 Wohnzimmer") and "Taster 1.1.5" in b and "Taste 3" in b
+            for b in buttons
+        )
+        assert any(
+            b.startswith("Raum E02 Kueche") and "Taster 1.1.9" in b and "Taste 1" in b
+            for b in buttons
+        )
+
+        # Smoke-Test: sicherstellen, dass die berechneten Zuweisungen auch
+        # tatsaechlich im PDF landen (nicht nur im Hilfsmethoden-Ergebnis).
+        doc = fitz.open(path)
+        text = "\n".join(p.get_text() for p in doc)
+        doc.close()
+        assert "Ausgelöst durch (Taster-Zuweisung)" in text
+
+    def test_legacy_zuordnung_ohne_scene_id_wird_nur_bei_eindeutigem_kanal_aufgeloest(
+        self, sample_project,
+    ):
+        """Vor Einfuehrung von SensorFunktion.scene_id angelegte 'Szene abrufen'-
+        Zuweisungen kennen nur den geteilten Kanal (ga_designation), nicht die
+        konkrete Szene. Teilen sich mehrere Szenen denselben Kanal, darf der
+        Report NICHT raten (Gefahr einer stillen Falschzuordnung im Bauherren-
+        Dokument) -- nur bei genau einer Szene auf dem Kanal ist es sicher."""
+        from knix_arranger.models.scene import Scene
+        from knix_arranger.models.building import Bedienelement, SensorFunktion
+
+        project = sample_project
+        room1 = next(r for r in project.all_rooms if r.number == "E01")
+
+        scene_a = Scene(name="Anwesend", scene_number=1, scope="central")
+        scene_b = Scene(name="Abwesend", scene_number=2, scope="central")
+        project.scenes += [scene_a, scene_b]
+        gen = AddressGenerator(project.gewerk_catalog, variant="A")
+        project.group_addresses = gen.generate(
+            project.areal, scenes=project.scenes, project=project
+        )
+        szenen_ga = next(
+            ga for ga in project.group_addresses.all_addresses()
+            if ga.designation == "ZENTRAL Szenenaufruf"
+        )
+
+        # Alte Zuweisung ohne scene_id -- mehrdeutig, da beide Szenen denselben
+        # Kanal teilen.
+        room1.bedienelemente.append(Bedienelement(
+            element_type="Tastereinheit", product_name="Taster Sofa", is_auto=False,
+            participant_number="1.1.5",
+            funktionen=[SensorFunktion(
+                label="Anwesenheit", ga_designation=szenen_ga.designation,
+                bedienart="Szene abrufen",
+            )],
+        ))
+
+        idx = ReportService(project)._scene_trigger_buttons_index()
+        assert idx.get(scene_a.id, []) == []
+        assert idx.get(scene_b.id, []) == []
+
 
 class TestDocumentationService:
     def test_create_checklists(self, sample_project):

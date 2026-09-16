@@ -30,7 +30,7 @@ from ..models.address_block import (
     create_generic_5_block_schema, create_generic_10_block_schema,
 )
 from .naming_engine import NamingEngine
-from .scene_addressing import group_named_scenes
+from .scene_addressing import group_named_scenes, scene_value_mapping_text
 import re
 
 logger = logging.getLogger("knix_arranger.address_generator")
@@ -570,6 +570,7 @@ class AddressGenerator:
                 designation=designation,
                 datapoint_type="DPST-17-1", central="true",
                 function_name="SZENE",
+                description=scene_value_mapping_text(group_scenes),
             ))
             sub += 1
             if sub > 255:
