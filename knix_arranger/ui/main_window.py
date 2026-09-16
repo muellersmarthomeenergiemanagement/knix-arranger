@@ -305,6 +305,9 @@ class MainWindow(QMainWindow):
         self._validation_view.revalidate_requested.connect(self._validate)
         self._gewerk_view = GewerkView()
         self._scene_view = SceneView()
+        self._scene_view.request_generate_addresses.connect(
+            self._open_wizard_at_addresses_step
+        )
         self._quotation_view = QuotationView()
         self._customer_quote_view = CustomerQuoteView()
         self._datasheet_view = DatasheetView()
@@ -1776,6 +1779,27 @@ class MainWindow(QMainWindow):
             f"KNXPROD-Import: {total_products} Produkte aus {ok_count} von {len(filepaths)} Datei(en)."
         )
 
+    def _sync_knxprod_files_to_catalog(self, filepaths: list[str]) -> int:
+        """Liest eine Liste von .knxprod-Dateien ein und übernimmt alle
+        gefundenen Produkte in einem Rutsch in den persistenten Produkt-
+        katalog (%APPDATA%) -- Kern von _import_knxprod_catalog(), hier
+        ohne Dialoge, da es als stiller Folgeschritt nach dem KNXPROJ-Import
+        laeuft (fehlerhafte Einzeldateien werden geloggt, nicht gemeldet).
+        Gibt die Anzahl uebernommener Produkte zurueck."""
+        from ..services.knxprod_catalog_service import KnxprodCatalogService
+        from ..services.product_search_service import ProductSearchService
+
+        svc = KnxprodCatalogService()
+        all_products = []
+        for path in filepaths:
+            try:
+                all_products.extend(svc.import_file(path))
+            except ValueError as e:
+                logger.warning(f"KNXPROD-Auto-Katalogisierung: {path} übersprungen ({e}).")
+        if all_products:
+            ProductSearchService().add_products([p.to_catalog_dict() for p in all_products])
+        return len(all_products)
+
     def _import_knxproj(self, filepath: str):
         """Importiert ein natives ETS6-Projekt (.knxproj) (FA-521 bis FA-526, FA-525c).
 
@@ -1881,16 +1905,38 @@ class MainWindow(QMainWindow):
 
         self._update_views()
 
+        # Im KNXPROJ eingebettete Hersteller-Produktdaten als .knxprod in die
+        # workspace-weite "Produkte KNX"-Bibliothek extrahieren und direkt in
+        # den Produktkatalog übernehmen (FA-...) -- nur wenn ein Workspace
+        # konfiguriert ist (kein Setup-Dialog erzwingen, rein lesender Check
+        # wie _default_products_folder()).
+        n_products_extracted = 0
+        n_products_cataloged = 0
+        workspace = self._load_app_setting("workspace_root_path", "")
+        if workspace:
+            products_folder = os.path.join(workspace, "Produkte KNX")
+            if os.path.isdir(products_folder):
+                written = importer.extract_product_libraries(filepath, products_folder)
+                n_products_extracted = len(written)
+                if written:
+                    n_products_cataloged = self._sync_knxprod_files_to_catalog(written)
+
         ga_count = len(project.group_addresses.all_addresses())
         n_areas = len(project.topology.areas)
         n_lines = sum(len(a.lines) for a in project.topology.areas)
         n_dev = sum(len(l.devices) for a in project.topology.areas for l in a.lines)
         n_rooms = len(project.areal.all_rooms)
         scenes_suffix = f" | {n_scenes_detected} Szenen erkannt" if n_scenes_detected else ""
+        products_suffix = (
+            f" | {n_products_extracted} Produktbibliothek(en) ergänzt, "
+            f"{n_products_cataloged} Produkte im Katalog aktualisiert"
+            if n_products_extracted else ""
+        )
         self._status_bar.set_status(
             f"KNXPROJ importiert: {ga_count} GAs | "
             f"{n_areas} Bereiche, {n_lines} Linien, {n_dev} Geräte | "
-            f"{n_rooms} Räume | {reconcile_diff.summary_line()}{scenes_suffix}."
+            f"{n_rooms} Räume | {reconcile_diff.summary_line()}"
+            f"{scenes_suffix}{products_suffix}."
         )
 
         # Warnung wenn Geräte/Räume aus dem bisherigen Projekt nicht mehr
@@ -1973,14 +2019,14 @@ class MainWindow(QMainWindow):
         self._navigate("validation")
         self._status_bar.set_status(f"Validierung: {len(issues)} Probleme gefunden.")
 
-    def _start_wizard(self):
+    def _start_wizard(self, start_step: int = 0):
         if not self._project:
             self._new_project()
             if not self._project:
                 return
 
         from .wizard.wizard_controller import WizardController
-        wizard = WizardController(self._project, self)
+        wizard = WizardController(self._project, self, start_step=start_step)
         completed = wizard.exec()
         # Immer alle Views aktualisieren: der Wizard schreibt Aenderungen
         # Schritt fuer Schritt direkt in das Projektobjekt, auch bei Abbruch.
@@ -1989,6 +2035,12 @@ class MainWindow(QMainWindow):
             self._status_bar.set_status("Wizard abgeschlossen.")
             self._sidebar.select("overview")
             self._navigate("overview")
+
+    def _open_wizard_at_addresses_step(self):
+        """Deep-Link aus der Szenen-Ansicht (Veraltet-Banner) direkt zu
+        Wizard-Schritt 10 "Gruppenadressen generieren"."""
+        from .wizard.wizard_controller import STEP_INDEX_ADDRESSES
+        self._start_wizard(start_step=STEP_INDEX_ADDRESSES)
 
     def _undo(self):
         if self._undo_manager.undo():
