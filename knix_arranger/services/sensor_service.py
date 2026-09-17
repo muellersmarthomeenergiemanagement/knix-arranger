@@ -7,7 +7,7 @@ import json
 import os
 import logging
 from dataclasses import dataclass, field
-from ..models.building import Room, Bedienelement, FunctionAssignment, SensorFunktion
+from ..models.building import Room, Bedienelement, FunctionAssignment, SensorFunktion, SensorFunktionGa
 from ..models.topology import Topology
 from ..models.device import Sensor, ProductInfo, GEWERK_TO_SENSOR_TYPE
 from ..models.group_address import GroupAddressStructure
@@ -505,6 +505,43 @@ class SensorService:
 
         return total
 
+    @staticmethod
+    def _expand_direct_ga(sf: SensorFunktion, button_channel: str) -> list[FunctionAssignment]:
+        """Expandiert eine Direkte-GA-SensorFunktion zu FunctionAssignment-
+        Einträgen -- die primäre GA (sf.ga_designation, Rolle sf.primary_role)
+        plus alle sf.extra_gas (FA-1410d), alle mit derselben sf_id (teilen
+        sich dieselbe Taste).
+
+        Gemeinsam genutzt von _expand_funktionen (Wizard-/Matrix-Flow, hier
+        IMMER die massgebliche Quelle -- jeder Aufruf von
+        SensorService.auto_assign_functions, u.a. via BelegungsplanService.generate()
+        für Topologie/Verknüpfungsmatrix/Belegungsplan, leitet function_assignments
+        aus funktionen neu ab) und XlsxImportService.backfill_function_assignments
+        (Import-Flow). Ohne extra_gas identisch zum bisherigen Verhalten (ein
+        einzelner FunctionAssignment) -- stellt aber sicher, dass zusätzliche
+        GAs (z.B. Rückmeldung, Dimmen-Befehl) UND die Rolle der primären GA
+        (z.B. "fremdsteuerung" statt "befehl") eine Neuableitung aus funktionen
+        überleben, statt beim nächsten Refresh verloren zu gehen.
+        """
+        fas = [FunctionAssignment(
+            button_channel=button_channel,
+            function_ga=sf.ga_designation,
+            description=sf.label or sf.ga_designation,
+            action_type=sf.action_type,   # z.B. "kurz" für Szene-Aufruf
+            role=sf.primary_role,
+            sf_id=sf.id,
+            bedienart=sf.bedienart,
+        )]
+        for extra in sf.extra_gas:
+            fas.append(FunctionAssignment(
+                button_channel=button_channel,
+                function_ga=extra.ga_designation,
+                description=extra.description or sf.label or extra.ga_designation,
+                role=extra.role,
+                sf_id=sf.id,
+            ))
+        return fas
+
     def _expand_funktionen(
         self,
         funktionen: list[SensorFunktion],
@@ -541,16 +578,9 @@ class SensorService:
                 button_ch = (
                     f"Taste {global_channel}" if use_numbers else (sf.label or "GA")
                 )
-                fas.append(FunctionAssignment(
-                    button_channel=button_ch,
-                    function_ga=sf.ga_designation,
-                    description=sf.label or sf.ga_designation,
-                    action_type=sf.action_type,   # z.B. "kurz" für Szene-Aufruf
-                    is_feedback=False,
-                    sf_id=sf.id,
-                    bedienart=sf.bedienart,
-                ))
-                total += 1
+                new_fas = self._expand_direct_ga(sf, button_ch)
+                fas.extend(new_fas)
+                total += len(new_fas)
                 continue
 
             if not sf.gewerk_code:
@@ -578,7 +608,7 @@ class SensorService:
                     function_ga=ga_designation,
                     description=desc,
                     action_type=action_type,
-                    is_feedback=False,
+                    role="befehl",
                     sf_id=sf.id,
                     bedienart=bedienart,
                 ))
@@ -598,7 +628,7 @@ class SensorService:
                     function_ga=ga_designation,
                     description=fb_desc,
                     action_type="",
-                    is_feedback=True,
+                    role="rueckmeldung",
                     sf_id=sf.id,
                 ))
                 total += 1

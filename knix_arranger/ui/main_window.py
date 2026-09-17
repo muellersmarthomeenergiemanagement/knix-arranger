@@ -471,6 +471,7 @@ class MainWindow(QMainWindow):
         self._overview.update_from_project(self._project)
         self._building_view.set_areal(self._project.areal)
         self._building_view.set_topology(self._project.topology)
+        self._building_view.set_group_addresses(self._project.group_addresses)
         self._topology_view.set_project(self._project)
         self._address_tree.set_structure(self._project.group_addresses)
         self._address_table.set_structure(self._project.group_addresses)
@@ -540,6 +541,7 @@ class MainWindow(QMainWindow):
         self._topology_report_view.set_project(self._project)
         self._overview.update_from_project(self._project)
         self._building_view.set_topology(self._project.topology)
+        self._building_view.set_group_addresses(self._project.group_addresses)
         self._co_linking_view.set_project(self._project)
         self._linking_matrix_view.set_project(self._project)
 
@@ -565,6 +567,7 @@ class MainWindow(QMainWindow):
         # Gebäudeansicht: Bedienelement-Zeilen mit aktualisierten function_assignments neu bauen
         self._building_view.set_areal(self._project.areal)
         self._building_view.set_topology(self._project.topology)
+        self._building_view.set_group_addresses(self._project.group_addresses)
         # GA-Bezeichnungen werden in Verknüpfungsmatrix, CO-Linking und den
         # Aktor-Kanalknoten der Topologie-Ansicht angezeigt
         self._co_linking_view.set_project(self._project)

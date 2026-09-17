@@ -14,6 +14,12 @@ from ...services.sensor_service import SensorService
 from ...services.belegungsplan_service import _split_button_channel
 from ..column_utils import fit_columns
 
+_ROLE_LABELS = {
+    "befehl": "Befehl",
+    "rueckmeldung": "Rückmeld.",
+    "fremdsteuerung": "Fremdsteuerung",
+}
+
 
 class Step09Functions(QWidget):
     """Funktionszuordnung Sensortasten -> GA (FA-1500)."""
@@ -189,19 +195,41 @@ class Step09Functions(QWidget):
                 ])
                 sensor_item.setFont(0, bold_font)
 
+                # Physischer Kanal (Taste bzw. geräteweite Fremdsteuerung):
+                # alle FunctionAssignments derselben SensorFunktion (sf_id)
+                # gehören zusammen (Befehl + Rückmeldung, oder eine
+                # Fremdsteuerungs-GA) -- siehe SensorFunktion-Docstring.
+                channel_groups: dict[str, list] = {}
                 for fa in be.function_assignments:
-                    taste, kanal = _split_button_channel(fa.button_channel)
-                    action_label = "Rückmeld." if fa.is_feedback else fa.action_type
-                    addr = ga_address.get(fa.function_ga, "–")
-                    QTreeWidgetItem(sensor_item, [
-                        "",
-                        taste,
-                        kanal,
-                        action_label,
-                        addr,
-                        fa.function_ga,
-                        fa.description,
+                    channel_groups.setdefault(fa.sf_id or fa.button_channel, []).append(fa)
+
+                for group_fas in channel_groups.values():
+                    is_fremdsteuerung = all(fa.role == "fremdsteuerung" for fa in group_fas)
+                    if is_fremdsteuerung:
+                        taste, kanal = "Fremdsteuerung", group_fas[0].button_channel
+                    else:
+                        taste, kanal = _split_button_channel(group_fas[0].button_channel)
+
+                    channel_item = QTreeWidgetItem(sensor_item, [
+                        "", taste, kanal, "", "", "", "",
                     ])
+
+                    for fa in group_fas:
+                        action_label = _ROLE_LABELS.get(fa.role, fa.action_type)
+                        if fa.role == "befehl" and fa.action_type:
+                            action_label = fa.action_type
+                        addr = ga_address.get(fa.function_ga, "–")
+                        QTreeWidgetItem(channel_item, [
+                            "",
+                            "",
+                            "",
+                            action_label,
+                            addr,
+                            fa.function_ga,
+                            fa.description,
+                        ])
+
+                    channel_item.setExpanded(True)
 
                 sensor_item.setExpanded(True)
 

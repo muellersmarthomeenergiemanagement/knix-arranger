@@ -204,6 +204,108 @@ def test_leak_sensor_not_shown_twice_and_labeled_as_sensor():
     assert device_item.text(2) == "1.1.24"
 
 
+def test_device_in_different_room_than_its_bedienelement_not_shown_twice():
+    """Regression Chalet Franziska 2005, Taster 1.1.30: das importierte
+    Topologie-Geraet zeigt via device.room_id auf einen anderen Raum als das
+    daraus abgeleitete Bedienelement (link_rooms_to_lines und die KO-basierte
+    Bedienelement-Erzeugung koennen zu unterschiedlichen Raum-Ergebnissen
+    kommen). Die Dedup-Pruefung muss projektweit greifen, nicht nur
+    raumintern -- sonst erscheint das Geraet zusaetzlich als leere, eigene
+    Sensor-Zeile in SEINEM Raum, obwohl es im ANDEREN Raum bereits als
+    vollstaendig befuelltes Bedienelement dargestellt wird."""
+    be_room = Room(number="00", name="Haupteingang")
+    be_room.bedienelemente.append(Bedienelement(
+        element_type="Tastereinheit", channels=4, participant_number="1.1.30",
+    ))
+    device_room = Room(number="01", name="Eingang / Studio")
+    device = Device(
+        physical_address="1.1.30", device_type="sensor", product="Taster EDIZIOdue 1-8fach",
+        room_id=device_room.id,
+    )
+
+    line = Line(line_number=1, name="HL")
+    line.devices = [device]
+    line.assigned_room_ids = [be_room.id, device_room.id]
+    area = Area(area_number=1, name="Bereich 1")
+    area.lines.append(line)
+    topology = Topology(areas=[area])
+
+    apt = Apartment(name="EG", rooms=[be_room, device_room])
+    floor = Floor(name="Erdgeschoss", short_code="EG", apartments=[apt])
+    wing = Wing(name="Haupthaus", floors=[floor])
+    building = Building(name="Haus", wings=[wing])
+    areal = Areal(buildings=[building])
+
+    bv = BuildingView()
+    bv.set_areal(areal)
+    bv.set_topology(topology)
+
+    be_room_item = _room_tree_item(bv, be_room)
+    assert be_room_item.childCount() == 1
+    assert be_room_item.child(0).text(1) == "Bedienelement"
+
+    device_room_item = _room_tree_item(bv, device_room)
+    assert device_room_item.childCount() == 0  # kein leeres Sensor-Duplikat
+
+
+def test_actor_gets_channel_children_in_building_view():
+    """Symmetrie-Fix (FA-1007): Aktoren zeigten in der Topologie-Ansicht schon
+    Kanal-Details, in der Gebaeude-Ansicht blieben sie immer flache Blaetter.
+    Jetzt gruppiert building_view.py Device.communication_objects genauso
+    nach physischem Kanal wie topology_view.py."""
+    from knix_arranger.models.topology import CommunicationObject
+    from knix_arranger.models.group_address import GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress
+
+    room = Room(number="01", name="Technikraum")
+    room.verteiler.append(Verteiler(name="HV  HV", verteiler_type="HV"))
+    device = Device(
+        physical_address="1.1.1", device_type="actor", product="Schaltaktor 8fach",
+        installation_location="HV  HV", room_id=room.id,
+    )
+    device.communication_objects = [
+        CommunicationObject(object_number=0, name="Ausgang A, Schalten", connected_gas=["3/0/1"]),
+        CommunicationObject(object_number=1, name="Ausgang A, Status", connected_gas=["3/7/1"]),
+    ]
+
+    line = Line(line_number=1, name="HL")
+    line.devices = [device]
+    line.assigned_room_ids = [room.id]
+    area = Area(area_number=1, name="Bereich 1")
+    area.lines.append(line)
+    topology = Topology(areas=[area])
+
+    apt = Apartment(name="EG", rooms=[room])
+    floor = Floor(name="Erdgeschoss", short_code="EG", apartments=[apt])
+    wing = Wing(name="Haupthaus", floors=[floor])
+    building = Building(name="Haus", wings=[wing])
+    areal = Areal(buildings=[building])
+
+    ga_structure = GroupAddressStructure()
+    hg = MainGroup(number=3, name="Licht")
+    mg = MiddleGroup(number=0, name="EG")
+    hg.middle_groups.append(mg)
+    ga_structure.main_groups.append(hg)
+    mg.group_addresses.append(GroupAddress(main_group=3, middle_group=0, sub_group=1,
+                                            designation="L.EG.01.1_ea"))
+
+    bv = BuildingView()
+    bv.set_areal(areal)
+    bv.set_topology(topology)
+    bv.set_group_addresses(ga_structure)
+
+    room_item = _room_tree_item(bv, room)
+    vt_item = room_item.child(0)
+    dev_item = vt_item.child(0)
+    assert dev_item.text(0) == "Schaltaktor 8fach"
+    assert dev_item.childCount() == 1  # ein Kanal "Ausgang A"
+
+    ch_item = dev_item.child(0)
+    assert ch_item.text(0) == "Ausgang A"
+    assert ch_item.childCount() == 2
+    ga_texts = {ch_item.child(i).text(2) for i in range(2)}
+    assert ga_texts == {"3/0/1", "3/7/1"}
+
+
 def test_taster_bedienelement_still_labeled_as_bedienelement():
     room = Room(number="00", name="Galerie")
     device = Device(
@@ -280,3 +382,87 @@ def test_room_device_count_not_doubled_for_nested_verteiler():
     room_item = _room_tree_item(bv, room)
     assert "12 Geräte" in room_item.text(3)
     assert "21 Geräte" not in room_item.text(3)
+
+
+# ---------------------------------------------------------------------------
+# "Adresse"-Spalte einer Funktionszeile (FA-1502c): wizard-geplante (Gewerk-
+# basierte) function_assignments speichern in function_ga nur die GA-
+# Bezeichnung, keine Adressnummer (SensorService._expand_funktionen uebernimmt
+# GroupAddress.designation direkt) -- ohne Aufloesung ueber
+# build_ga_by_designation/resolve_ga_display fehlte die Gruppenadressnummer in
+# der Gebaeude-Ansicht bei Projekten ohne ETS-Import (anders als importierte
+# Direkte-GA-Zuordnungen, die schon "Adresse  Bezeichnung" kombiniert
+# speichern).
+# ---------------------------------------------------------------------------
+
+def test_function_row_shows_address_for_wizard_planned_ga():
+    from knix_arranger.models.building import Bedienelement, FunctionAssignment
+    from knix_arranger.models.group_address import (
+        GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
+    )
+
+    room = Room(number="E01", name="Wohnzimmer")
+    be = Bedienelement(element_type="Tastereinheit", channels=1, participant_number="1.1.5")
+    be.function_assignments = [
+        FunctionAssignment(button_channel="Taste", function_ga="LD_E01_01 E/A",
+                            description="Licht schalten", role="befehl"),
+    ]
+    room.bedienelemente.append(be)
+    apt = Apartment(name="EG", rooms=[room])
+    floor = Floor(name="EG", short_code="EG", apartments=[apt])
+    wing = Wing(name="Haupt", floors=[floor])
+    building = Building(name="Haus", wings=[wing])
+    areal = Areal(buildings=[building])
+
+    ga_structure = GroupAddressStructure()
+    hg = MainGroup(number=2, name="Licht")
+    mg = MiddleGroup(number=0, name="EG")
+    hg.middle_groups.append(mg)
+    ga_structure.main_groups.append(hg)
+    mg.group_addresses.append(GroupAddress(
+        main_group=2, middle_group=0, sub_group=0, designation="LD_E01_01 E/A",
+    ))
+
+    bv = BuildingView()
+    bv.set_areal(areal)
+    bv.set_topology(Topology())
+    bv.set_group_addresses(ga_structure)
+
+    room_item = _room_tree_item(bv, room)
+    be_item = room_item.child(0)
+    fa_item = be_item.child(0)
+    assert fa_item.text(2) == "2/0/0  LD_E01_01 E/A"
+
+
+def test_function_row_keeps_already_combined_import_ga_unchanged():
+    """Importierte Direkte-GA-Zuordnungen (XlsxImportService.backfill_
+    function_assignments) speichern function_ga schon als "Adresse
+    Bezeichnung" -- resolve_ga_display darf das nicht doppelt voranstellen,
+    selbst wenn die GA-Struktur zufaellig eine passende Bezeichnung kennt."""
+    from knix_arranger.models.building import Bedienelement, FunctionAssignment
+    from knix_arranger.models.group_address import (
+        GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
+    )
+
+    room = Room(number="02", name="Waschkeller")
+    be = Bedienelement(element_type="Tastereinheit", channels=1, participant_number="1.1.28")
+    be.function_assignments = [
+        FunctionAssignment(button_channel="Taste 1, links",
+                            function_ga="1/0/0  L.UG.01.1_ea  ( Technikraum )",
+                            description="Taste 1, links", role="befehl"),
+    ]
+    room.bedienelemente.append(be)
+    apt = Apartment(name="UG", rooms=[room])
+    floor = Floor(name="UG", short_code="UG", apartments=[apt])
+    wing = Wing(name="Haupt", floors=[floor])
+    building = Building(name="Haus", wings=[wing])
+    areal = Areal(buildings=[building])
+
+    bv = BuildingView()
+    bv.set_areal(areal)
+    bv.set_topology(Topology())
+    bv.set_group_addresses(GroupAddressStructure())  # keine getaggten GAs
+
+    room_item = _room_tree_item(bv, room)
+    fa_item = room_item.child(0).child(0)
+    assert fa_item.text(2) == "1/0/0  L.UG.01.1_ea  ( Technikraum )"

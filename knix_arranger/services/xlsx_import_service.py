@@ -36,7 +36,7 @@ from ..models.topology import (
 )
 from ..models.building import (
     Areal, Building, Wing, Floor, Apartment, Room, Verteiler,
-    SensorFunktion, FunctionAssignment,
+    SensorFunktion, SensorFunktionGa, FunctionAssignment,
     STANDARD_FLOOR_NAMES, FLOOR_TO_MAIN_GROUP,
 )
 from ..models.group_address import (
@@ -2517,6 +2517,31 @@ class XlsxImportService:
 
     _FEEDBACK_KO_HINTS = ("led", "signal", "status", "rückmeldung", "rueckmeldung", " rm ", "_rm")
 
+    # Erkennt KO-Namen wie "Taste 1, links" -- identisch zu
+    # KnxprojImportService._TASTE_KO_RE. Dient hier dazu, bei Tasterkombi-
+    # nationen geräteinterne Neben-KOs ohne physische Taste (z.B. "Nachtab-
+    # senkung LED's") von den echten Tasten-KOs zu unterscheiden.
+    _TASTE_KO_RE = re.compile(r"\btaste\s*\d+", re.IGNORECASE)
+
+    def _button_key(self, label: str) -> str:
+        """Normalisiert einen KO-Namen auf die physische Taste, der er angehört.
+
+        ETS modelliert eine physische Taste teils als MEHRERE separate KOs mit
+        gemeinsamem Basis-Namen, die sich nur durch einen Rückmelde-Zusatz
+        unterscheiden -- z.B. "Taste 4, links" (Schalten), "Taste 4, links"
+        (Dimmen) und "Taste 4, links, Signal-LED" (Status) sind drei KOs
+        derselben Taste. Schneidet daher alle kommagetrennten Segmente ab
+        Segment 1 ab, sobald eines einen Rückmelde-Hinweis enthält -- das
+        erste Segment ("Taste N") bleibt immer erhalten.
+        """
+        segments = [s.strip() for s in label.split(",")]
+        key_segments = segments[:1]
+        for seg in segments[1:]:
+            if any(hint in seg.lower() for hint in self._FEEDBACK_KO_HINTS):
+                break
+            key_segments.append(seg)
+        return ", ".join(key_segments)
+
     def backfill_function_assignments(
         self,
         topology: Topology,
@@ -2543,8 +2568,36 @@ class XlsxImportService:
         Wizard-Gewerkeplanung (auto_assign_functions bleibt für neu geplante
         Projekte unverändert die massgebliche Quelle).
 
+        Eine physische Taste kann mehrere GAs tragen (eigene Schalt-GA +
+        zusätzlich verknüpfte Status-GA, damit die Taste den von anderen
+        Sensoren beeinflussten Gewerkzustand kennt) -- und ETS verteilt diese
+        teils auf mehrere KOs mit gemeinsamem Basis-Namen statt auf ein
+        einziges KO mit mehreren GAs (z.B. "Taste 4, links" für Schalten UND
+        für Dimmen als zwei KOs, plus "Taste 4, links, Signal-LED" als
+        drittes). Bei erkannten Tastereinheiten werden daher alle KOs mit
+        gleichem Basis-Namen (siehe `_button_key`) zu EINER SensorFunktion
+        gebündelt; innerhalb eines KOs gilt die erste GA als Befehl, alle
+        weiteren als Rückmeldung, zusätzlich markiert jeder KO-Name mit
+        Rückmelde-Hinweis (siehe `_FEEDBACK_KO_HINTS`) seine GA(s) als
+        Rückmeldung. Vorher wurde pro GA bzw. pro KO eine eigene SensorFunktion
+        erzeugt, wodurch z.B. 4 physische Tasten mit je einer Rückmelde-GA als
+        8 "Tasten", oder eine dimmbare Taste mit Schalten+Dimmen+Status-LED
+        als 3 "Tasten" im Bauherr-Formular erschienen.
+
+        Geräteinterne Neben-KOs ohne "Taste N" im Namen (z.B. "Nachtabsenkung
+        LED's") sind bei Tastereinheiten keiner physischen Taste zugeordnet,
+        beeinflussen aber dennoch das Gerät -- sie werden als eigene
+        SensorFunktion mit role="fremdsteuerung" übernommen (nicht als Taste
+        gezählt, be.channels zählt nur echte "Taste N"-Gruppen). Für andere
+        Bedienelement-Typen (Fensterkontakt, Melder, Raumthermostat, ...),
+        deren KOs nie "Taste N" heissen, greifen weder dieser Filter noch die
+        Bündelung nach Basis-Namen (dort bleibt es bei einer SensorFunktion
+        pro KO, role stets "befehl"/"rueckmeldung").
+
         Gibt die Anzahl neu erstellter FunctionAssignment-Einträge zurück.
         """
+        from .sensor_service import SensorService
+
         device_by_addr: dict[str, Device] = {
             d.physical_address: d
             for area in topology.areas
@@ -2558,6 +2611,33 @@ class XlsxImportService:
             if ga.designation
         }
 
+        def ga_text(addr: str) -> str:
+            designation = ga_designation.get(addr, "")
+            return f"{addr}  {designation}".strip() if designation else addr
+
+        def make_sf(label: str, gas: list[tuple[str, str, bool]],
+                    default_role: str) -> SensorFunktion:
+            """Baut eine SensorFunktion aus (ga_addr, description, is_feedback)-
+            Tupeln: die erste GA wird primär (SensorFunktion.ga_designation/
+            primary_role), alle weiteren landen in extra_gas (FA-1410d) -- so
+            überlebt die volle Taste jede spätere Neuableitung von
+            function_assignments aus funktionen (z.B. durch
+            SensorService.auto_assign_functions, das BelegungsplanService.
+            generate() bei jedem Öffnen von Topologie/Verknüpfungsmatrix
+            aufruft)."""
+            primary_addr, _, primary_is_fb = gas[0]
+            sf = SensorFunktion(
+                label=label, ga_designation=ga_text(primary_addr),
+                primary_role="rueckmeldung" if primary_is_fb else default_role,
+            )
+            for ga_addr, desc, is_fb in gas[1:]:
+                sf.extra_gas.append(SensorFunktionGa(
+                    ga_designation=ga_text(ga_addr),
+                    role="rueckmeldung" if is_fb else default_role,
+                    description=desc,
+                ))
+            return sf
+
         added = 0
         for room in areal.all_rooms:
             for be in room.bedienelemente:
@@ -2567,34 +2647,70 @@ class XlsxImportService:
                 if not device:
                     continue
 
+                kos = [ko for ko in device.communication_objects if ko.connected_gas]
+                is_taster = be.element_type == "Tastereinheit" and any(
+                    self._TASTE_KO_RE.search(ko.name or "") for ko in kos
+                )
+
                 funktionen: list[SensorFunktion] = []
-                for ko in device.communication_objects:
-                    label = ko.name or ko.object_function
-                    for ga_addr in ko.connected_gas:
-                        designation = ga_designation.get(ga_addr, "")
-                        ga_text = f"{ga_addr}  {designation}".strip() if designation else ga_addr
-                        funktionen.append(SensorFunktion(
-                            label=label or ga_addr,
-                            ga_designation=ga_text,
-                        ))
+                assignments: list[FunctionAssignment] = []
+
+                if is_taster:
+                    taste_kos = [ko for ko in kos if self._TASTE_KO_RE.search(ko.name or "")]
+                    other_kos = [ko for ko in kos if not self._TASTE_KO_RE.search(ko.name or "")]
+
+                    groups: dict[str, list] = {}
+                    for ko in taste_kos:
+                        groups.setdefault(self._button_key(ko.name or ""), []).append(ko)
+
+                    for key, group_kos in groups.items():
+                        gas: list[tuple[str, str, bool]] = []
+                        for ko in group_kos:
+                            ko_is_feedback = any(
+                                hint in (ko.name or "").lower() for hint in self._FEEDBACK_KO_HINTS
+                            )
+                            desc = ko.name or ko.object_function or key
+                            for idx, ga_addr in enumerate(ko.connected_gas):
+                                gas.append((ga_addr, desc, ko_is_feedback or idx > 0))
+                        if not gas:
+                            continue
+                        sf = make_sf(key, gas, default_role="befehl")
+                        funktionen.append(sf)
+                        assignments.extend(SensorService._expand_direct_ga(sf, sf.label))
+                    be.channels = len(groups)
+
+                    # Geräteinterne Neben-KOs ohne "Taste N" im Namen (z.B.
+                    # "Nachtabsenkung LED's") sind keine physische Taste, aber
+                    # dennoch eine GA-Verknüpfung, die den Taster beeinflusst --
+                    # als Fremdsteuerung erfassen statt zu verwerfen.
+                    for ko in other_kos:
+                        if not ko.connected_gas:
+                            continue
+                        label = ko.name or ko.object_function or ko.connected_gas[0]
+                        gas = [(addr, label, False) for addr in ko.connected_gas]
+                        sf = make_sf(label, gas, default_role="fremdsteuerung")
+                        funktionen.append(sf)
+                        assignments.extend(SensorService._expand_direct_ga(sf, sf.label))
+                else:
+                    for ko in kos:
+                        label = ko.name or ko.object_function or ko.connected_gas[0]
+                        ko_is_feedback = any(
+                            hint in (label or "").lower() for hint in self._FEEDBACK_KO_HINTS
+                        )
+                        gas = [
+                            (addr, label, ko_is_feedback or idx > 0)
+                            for idx, addr in enumerate(ko.connected_gas)
+                        ]
+                        sf = make_sf(label, gas, default_role="befehl")
+                        funktionen.append(sf)
+                        assignments.extend(SensorService._expand_direct_ga(sf, sf.label or "GA"))
                 if not funktionen:
                     continue
 
                 be.funktionen = funktionen
                 be.is_auto = False
-                be.function_assignments = [
-                    FunctionAssignment(
-                        button_channel=sf.label or "GA",
-                        function_ga=sf.ga_designation,
-                        description=sf.label,
-                        is_feedback=any(
-                            hint in sf.label.lower() for hint in self._FEEDBACK_KO_HINTS
-                        ),
-                        sf_id=sf.id,
-                    )
-                    for sf in funktionen
-                ]
-                added += len(funktionen)
+                be.function_assignments = assignments
+                added += len(assignments)
 
         logger.info(f"backfill_function_assignments: {added} Funktionszuordnungen aus KOs übernommen.")
         return added

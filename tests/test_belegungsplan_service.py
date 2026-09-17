@@ -21,7 +21,9 @@ from knix_arranger.models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
 from knix_arranger.models.scene import Scene
-from knix_arranger.services.belegungsplan_service import BelegungsplanService
+from knix_arranger.services.belegungsplan_service import (
+    BelegungsplanService, build_ga_by_designation, resolve_ga_display,
+)
 
 
 # ── Hilfsfunktionen ────────────────────────────────────────────────────────────
@@ -461,3 +463,55 @@ class TestZentralUndSzenenZeilen:
         szenen_rows = [r for r in rows if r.ga_designation == "ZENTRAL Szene Abwesenheit"]
         addrs = {r.physical_address for r in szenen_rows}
         assert addrs == {"1.1.1", "1.1.2"}
+
+
+# ---------------------------------------------------------------------------
+# build_ga_by_designation / resolve_ga_display (FA-1502c): wizard-geplante
+# (Gewerk-basierte) function_assignments speichern in function_ga nur die
+# GA-Bezeichnung, keine Adressnummer (SensorService._expand_funktionen
+# uebernimmt GroupAddress.designation direkt) -- Views wie building_view.py
+# und topology_view.py loesen die Adresse darueber nach, statt eine
+# GA-Zeile ohne Adressnummer anzuzeigen.
+# ---------------------------------------------------------------------------
+
+class TestResolveGaDisplay:
+    def _ga_structure_with(self, designation: str, address=(2, 0, 0)) -> GroupAddressStructure:
+        gas = GroupAddressStructure()
+        hg = MainGroup(number=address[0], name="Test")
+        mg = MiddleGroup(number=address[1], name="Test")
+        hg.middle_groups.append(mg)
+        gas.main_groups.append(hg)
+        mg.group_addresses.append(GroupAddress(
+            main_group=address[0], middle_group=address[1], sub_group=address[2],
+            designation=designation,
+        ))
+        return gas
+
+    def test_pure_designation_gets_address_prefixed(self):
+        gas = self._ga_structure_with("LD_E01_01 E/A")
+        lookup = build_ga_by_designation(gas)
+        assert resolve_ga_display("LD_E01_01 E/A", lookup) == "2/0/0  LD_E01_01 E/A"
+
+    def test_matches_designation_without_parenthetical_suffix(self):
+        """GA-Bezeichnung mit Raum-Zusatz in Klammern ('... (Schlafzimmer)')
+        -- function_ga traegt manchmal nur den Teil ohne Klammer."""
+        gas = self._ga_structure_with("LD_E01_01 E/A (Schlafzimmer)")
+        lookup = build_ga_by_designation(gas)
+        assert resolve_ga_display("LD_E01_01 E/A", lookup) == "2/0/0  LD_E01_01 E/A"
+
+    def test_already_combined_import_text_stays_unchanged(self):
+        """Importierte Direkte-GA-Zuordnungen speichern function_ga schon als
+        "Adresse  Bezeichnung" -- darf nicht nochmal praefixiert werden, auch
+        wenn die GA-Struktur zufaellig eine passende Bezeichnung kennt."""
+        gas = self._ga_structure_with("L.UG.01.1_ea")
+        lookup = build_ga_by_designation(gas)
+        combined = "1/0/0  L.UG.01.1_ea  ( Technikraum )"
+        assert resolve_ga_display(combined, lookup) == combined
+
+    def test_unknown_designation_returned_unchanged(self):
+        lookup = build_ga_by_designation(GroupAddressStructure())
+        assert resolve_ga_display("Unbekannt", lookup) == "Unbekannt"
+
+    def test_empty_function_ga_stays_empty(self):
+        lookup = build_ga_by_designation(GroupAddressStructure())
+        assert resolve_ga_display("", lookup) == ""

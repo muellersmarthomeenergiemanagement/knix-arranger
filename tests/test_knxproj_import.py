@@ -316,6 +316,86 @@ class TestCreateBedienelementeFromTopology:
         assert be.element_type == "Wassermelder"
         assert be.channels == 1
 
+    def test_existing_bedienelement_moved_when_device_room_changes(self):
+        """Regression Chalet Franziska 2005, Taster 1.1.30: ein Re-Import kann
+        link_rooms_to_lines() dazu bringen, einem Geraet einen anderen Raum
+        zuzuweisen als beim ersten Import -- das bereits angelegte
+        Bedienelement muss mitziehen, statt verwaist im alten Raum zu bleiben
+        (bei gleichzeitig KEINEM zweiten Bedienelement im neuen Raum)."""
+        from knix_arranger.models.topology import Topology, Area, Line, Device
+        from knix_arranger.models.building import Areal, Building, Wing, Floor, Apartment, Room, Bedienelement
+
+        old_room = Room(number="00", name="Haupteingang")
+        new_room = Room(number="01", name="Eingang / Studio")
+        apartment = Apartment(name="EG")
+        apartment.rooms.extend([old_room, new_room])
+        floor = Floor(name="Erdgeschoss", short_code="EG")
+        floor.apartments.append(apartment)
+        wing = Wing(name="Hauptgebäude")
+        wing.floors.append(floor)
+        building = Building(name="Gebäude")
+        building.wings.append(wing)
+        areal = Areal(name="Test")
+        areal.buildings.append(building)
+
+        # Bedienelement existiert bereits im ALTEN Raum (Stand vor Re-Import).
+        stale_be = Bedienelement(element_type="Tastereinheit", channels=4,
+                                  participant_number="1.1.30")
+        old_room.bedienelemente.append(stale_be)
+
+        # Das Geraet zeigt nach dem Re-Import (link_rooms_to_lines) auf den NEUEN Raum.
+        device = Device(
+            physical_address="1.1.30", device_type="sensor", product="Taster EDIZIOdue 1-8fach",
+            room_id=new_room.id,
+        )
+        line = Line(line_number=1, name="L1")
+        line.devices.append(device)
+        area = Area(area_number=1, name="Bereich 1")
+        area.lines.append(line)
+        topology = Topology(areas=[area])
+
+        KnxprojImportService._create_bedienelemente_from_topology(topology, areal)
+
+        assert old_room.bedienelemente == []
+        assert len(new_room.bedienelemente) == 1
+        assert new_room.bedienelemente[0] is stale_be  # dasselbe Objekt, nur verschoben
+
+    def test_no_move_when_device_room_unchanged(self):
+        """Kein Verschieben/keine Nebenwirkung, wenn Geraet und Bedienelement
+        bereits im selben Raum sind (Normalfall bei jedem erneuten Aufruf,
+        z.B. via BelegungsplanService.generate())."""
+        from knix_arranger.models.topology import Topology, Area, Line, Device
+        from knix_arranger.models.building import Areal, Building, Wing, Floor, Apartment, Room, Bedienelement
+
+        room = Room(number="00", name="Haupteingang")
+        apartment = Apartment(name="EG")
+        apartment.rooms.append(room)
+        floor = Floor(name="Erdgeschoss", short_code="EG")
+        floor.apartments.append(apartment)
+        wing = Wing(name="Hauptgebäude")
+        wing.floors.append(floor)
+        building = Building(name="Gebäude")
+        building.wings.append(wing)
+        areal = Areal(name="Test")
+        areal.buildings.append(building)
+
+        be = Bedienelement(element_type="Tastereinheit", channels=4, participant_number="1.1.30")
+        room.bedienelemente.append(be)
+
+        device = Device(
+            physical_address="1.1.30", device_type="sensor", product="Taster EDIZIOdue 1-8fach",
+            room_id=room.id,
+        )
+        line = Line(line_number=1, name="L1")
+        line.devices.append(device)
+        area = Area(area_number=1, name="Bereich 1")
+        area.lines.append(line)
+        topology = Topology(areas=[area])
+
+        KnxprojImportService._create_bedienelemente_from_topology(topology, areal)
+
+        assert room.bedienelemente == [be]
+
 
 # ------------------------------------------------------------------
 # _infer_device_type -- Gateway-Klassifizierung (FA-1307/1308-analog fuer

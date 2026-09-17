@@ -9,7 +9,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QCheckBox,
     QTableWidget, QTableWidgetItem, QPushButton, QHeaderView,
-    QAbstractItemView, QDialogButtonBox,
+    QAbstractItemView, QDialogButtonBox, QMessageBox,
 )
 from PySide6.QtCore import Qt
 
@@ -123,7 +123,16 @@ class GaPickerDialog(QDialog):
     def _on_accept(self):
         selected = self._table.selectionModel().selectedRows()
         if not selected:
-            self.reject()
+            # Vorher schloss sich der Dialog hier lautlos per reject() --
+            # von aussen ununterscheidbar von "Abbrechen" gedrückt, obwohl
+            # der Nutzer eigentlich eine Auswahl treffen wollte. Regression:
+            # eine Gewerk-Auswahl im Bauherr-Formular wirkte dadurch, als
+            # würde die GA "einfach gelöscht" (siehe BauherrFormView).
+            QMessageBox.information(
+                self, "Keine Zeile ausgewählt",
+                "Bitte zuerst eine Gruppenadresse in der Liste anklicken, "
+                "dann OK.",
+            )
             return
         self.selected_ga = self._filtered[selected[0].row()]
         self.accept()

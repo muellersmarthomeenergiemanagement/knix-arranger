@@ -482,6 +482,39 @@ SensorAssignment = Bedienelement
 
 
 @dataclass
+class SensorFunktionGa:
+    """Zusätzliche GA an einer Direkte-GA-SensorFunktion (FA-1410d).
+
+    Eine physische Taste kann mehrere GAs haben, die nicht als Primär+
+    Rückmeldung eines einzigen Gewerks modelliert sind (Variante 1 deckt das
+    schon ab), sondern z.B. aus mehreren ETS-Kommunikationsobjekten derselben
+    Taste stammen (Schalten- UND Dimmen-Befehl, oder eine zusätzliche Status-
+    GA). SensorFunktion.ga_designation bleibt die PRIMÄRE (erste Befehls-)GA,
+    alle weiteren GAs werden hier gelistet, damit sie beim Ableiten von
+    function_assignments (siehe SensorService._expand_direct_ga) nicht
+    verloren gehen.
+    """
+    ga_designation: str = ""
+    role: str = "rueckmeldung"   # "befehl" | "rueckmeldung" | "fremdsteuerung"
+    description: str = ""        # z.B. "Taste 1, links, Signal-LED"
+
+    def to_dict(self) -> dict:
+        return {
+            "ga_designation": self.ga_designation,
+            "role": self.role,
+            "description": self.description,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SensorFunktionGa:
+        return cls(
+            ga_designation=data.get("ga_designation", ""),
+            role=data.get("role", "rueckmeldung"),
+            description=data.get("description", ""),
+        )
+
+
+@dataclass
 class SensorFunktion:
     """
     Sensorfunktion an einem Bedienelement (FA-1410).
@@ -493,7 +526,10 @@ class SensorFunktion:
     1. Gewerk-basiert  (gewerk_code gesetzt, source_room_id optional)
        → alle Primär- und Rückmelde-GAs werden automatisch abgeleitet
     2. Direkte GA      (ga_designation gesetzt, gewerk_code leer)
-       → degenerierter Sonderfall mit genau einer GA
+       → ga_designation ist die primäre (erste Befehls-)GA; weitere GAs
+         (zusätzliche Befehle, Rückmeldung, Fremdsteuerung) stehen in
+         extra_gas (FA-1410d) -- ohne extra_gas ein degenerierter
+         Sonderfall mit genau einer GA, wie ursprünglich vorgesehen
     """
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     label: str = ""              # Optionale Freibezeichnung
@@ -503,6 +539,12 @@ class SensorFunktion:
     source_room_id: str = ""     # Leer = eigener Raum, sonst UUID des Fremdraums
     # Variante 2: Direkte GA
     ga_designation: str = ""     # z.B. "3/0/15 Flur Licht E/A"
+    # Rolle der primären GA (ga_designation) -- normalerweise "befehl", aber
+    # z.B. "fremdsteuerung" für geräteinterne Neben-GAs ohne eigene physische
+    # Taste (FA-1410d, siehe XlsxImportService.backfill_function_assignments).
+    primary_role: str = "befehl"
+    # Weitere GAs derselben physischen Taste (FA-1410d), siehe SensorFunktionGa.
+    extra_gas: list[SensorFunktionGa] = field(default_factory=list)
     # Aktionstyp für direkte GAs (Variante 2): "kurz", "lang", "" = unspezifisch
     action_type: str = ""
     # Bedienart für direkte GAs (Variante 2), z.B. "Ein", "Aus", "Umschalten",
@@ -525,6 +567,8 @@ class SensorFunktion:
             "element_number": self.element_number,
             "source_room_id": self.source_room_id,
             "ga_designation": self.ga_designation,
+            "primary_role": self.primary_role,
+            "extra_gas": [g.to_dict() for g in self.extra_gas],
             "action_type": self.action_type,
             "bedienart": self.bedienart,
             "scene_id": self.scene_id,
@@ -539,6 +583,8 @@ class SensorFunktion:
             element_number=data.get("element_number", 1),
             source_room_id=data.get("source_room_id", ""),
             ga_designation=data.get("ga_designation", ""),
+            primary_role=data.get("primary_role", "befehl"),
+            extra_gas=[SensorFunktionGa.from_dict(g) for g in data.get("extra_gas", [])],
             action_type=data.get("action_type", ""),
             bedienart=data.get("bedienart", ""),
             scene_id=data.get("scene_id", ""),
@@ -583,6 +629,17 @@ class ControlFunction:
         )
 
 
+#: Erlaubte Werte für FunctionAssignment.role:
+#: "befehl"        -- Taste sendet an Aktor/Szene (Taster -> GA -> Aktor)
+#: "rueckmeldung"  -- Aktor meldet Gewerkzustand zurück (Aktor -> GA -> Taste,
+#:                     z.B. LED-Status; noetig, da auch andere Sensoren den
+#:                     Gewerkzustand beeinflussen koennen)
+#: "fremdsteuerung" -- Taste wird durch eine geräteinterne/-fremde GA aus der
+#:                     KNX-Welt beeinflusst, ohne einer physischen Taste
+#:                     zugeordnet zu sein (z.B. Nachtabsenkung LED-Helligkeit)
+_FA_ROLES = ("befehl", "rueckmeldung", "fremdsteuerung")
+
+
 @dataclass
 class FunctionAssignment:
     """Funktionszuordnung Taste/Kanal -> GA (FA-1502)."""
@@ -592,9 +649,8 @@ class FunctionAssignment:
     # Aktionstyp: "kurz" = kurz drücken, "lang" = lang drücken,
     # "loslassen" = beim Loslassen, "" = unspezifisch (Kontakt, Sensor)
     action_type: str = ""
-    # True = Rückmelde-GA (LED-Ansteuerung, nur empfangen),
-    # False = Steuer-GA (Taster sendet)
-    is_feedback: bool = False
+    # Rolle dieser GA gegenüber der Taste, siehe _FA_ROLES oben.
+    role: str = "befehl"
     # Id der SensorFunktion, aus der dieser Eintrag abgeleitet wurde (FA-2503).
     # Direkte GA (Variante 2): eindeutig 1:1 -- per Matrix-Doppelklick editierbar.
     # Gewerk-basiert (Variante 1): mehrere FunctionAssignment teilen sich eine
@@ -604,8 +660,13 @@ class FunctionAssignment:
     # (Ein/Aus wechselnd)", "Dimmen (Richtung wechselnd)", "Wert senden (...)".
     # Für Gewerk-basierte Einträge aus sensor_service.GEWERK_PRIMARY_FUNCTIONS
     # übernommen, für direkte GAs aus SensorFunktion.bedienart. Leer bei
-    # Rückmelde-Einträgen (is_feedback=True).
+    # Rückmelde-/Fremdsteuerungs-Einträgen (role != "befehl").
     bedienart: str = ""
+
+    @property
+    def is_feedback(self) -> bool:
+        """Kompatibilitäts-Alias: True bei role == 'rueckmeldung'."""
+        return self.role == "rueckmeldung"
 
     def to_dict(self) -> dict:
         return {
@@ -613,6 +674,9 @@ class FunctionAssignment:
             "function_ga": self.function_ga,
             "description": self.description,
             "action_type": self.action_type,
+            "role": self.role,
+            # is_feedback zusätzlich geschrieben, damit ältere KNiX-Versionen
+            # (< Rollenfeld) importierte/gespeicherte Projekte noch lesen können.
             "is_feedback": self.is_feedback,
             "sf_id": self.sf_id,
             "bedienart": self.bedienart,
@@ -620,12 +684,16 @@ class FunctionAssignment:
 
     @classmethod
     def from_dict(cls, data: dict) -> FunctionAssignment:
+        role = data.get("role")
+        if role not in _FA_ROLES:
+            # Alte Projekte (vor dem Rollenfeld) kennen nur is_feedback.
+            role = "rueckmeldung" if data.get("is_feedback") else "befehl"
         return cls(
             button_channel=data.get("button_channel", ""),
             function_ga=data.get("function_ga", ""),
             description=data.get("description", ""),
             action_type=data.get("action_type", ""),
-            is_feedback=data.get("is_feedback", False),
+            role=role,
             sf_id=data.get("sf_id", ""),
             bedienart=data.get("bedienart", ""),
         )

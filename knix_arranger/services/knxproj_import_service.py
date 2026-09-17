@@ -1067,10 +1067,31 @@ class KnxprojImportService:
         Iteriert über alle Devices mit device_type='sensor' und einem gesetzten
         room_id und legt je ein Bedienelement im zugehörigen Raum an – sofern
         dort noch kein Bedienelement mit derselben physikalischen Adresse existiert.
-        Wird sowohl nach KNXproj- als auch nach XLSX-Import aufgerufen.
+        Wird sowohl nach KNXproj- als auch nach XLSX-Import aufgerufen -- und bei
+        jedem Öffnen von Topologie/Verknüpfungsmatrix/Belegungsplan erneut über
+        BelegungsplanService.generate().
+
+        Ein Re-Import kann link_rooms_to_lines() dazu bringen, einem Gerät einen
+        ANDEREN Raum zuzuweisen als beim ersten Import (z.B. weil mehr GA-Kontext
+        vorliegt und die Mehrheitsregel neu entscheidet). Die vorherige Dedup-
+        Prüfung war nur raumintern (kein Bedienelement mit derselben Teilnehmer-
+        nummer IM ZIELRAUM) -- ein bereits woanders existierendes Bedienelement
+        blieb dadurch verwaist im alten Raum stehen, obwohl das Gerät selbst
+        (Device.room_id) korrekt umgezogen war (Regression: Chalet Franziska
+        2005, Taster 1.1.30 blieb in "Haupteingang", obwohl die Topologie ihn
+        "Eingang / Studio" zuordnet). Ein projektweiter Index nach
+        participant_number erkennt das und verschiebt das Bedienelement mit,
+        statt ein zweites anzulegen.
         """
         room_by_id: dict[str, Room] = {r.id: r for r in areal.all_rooms}
+        be_by_participant: dict[str, tuple[Room, Bedienelement]] = {
+            be.participant_number: (room, be)
+            for room in areal.all_rooms
+            for be in room.bedienelemente
+            if be.participant_number
+        }
         count = 0
+        moved = 0
         for area in topology.areas:
             for line in area.lines:
                 for device in line.devices:
@@ -1079,10 +1100,17 @@ class KnxprojImportService:
                     room = room_by_id.get(device.room_id)
                     if room is None:
                         continue
-                    # Keine Duplikate anlegen (z.B. bei erneutem Aufruf)
-                    if any(be.participant_number == device.physical_address
-                           for be in room.bedienelemente):
+
+                    existing = be_by_participant.get(device.physical_address)
+                    if existing is not None:
+                        existing_room, existing_be = existing
+                        if existing_room.id != room.id:
+                            existing_room.bedienelemente.remove(existing_be)
+                            room.bedienelemente.append(existing_be)
+                            be_by_participant[device.physical_address] = (room, existing_be)
+                            moved += 1
                         continue
+
                     product_label = device.product_name or device.product
                     be = Bedienelement(
                         element_type=KnxprojImportService._infer_element_type(
@@ -1097,8 +1125,12 @@ class KnxprojImportService:
                         product_name=product_label,
                     )
                     room.bedienelemente.append(be)
+                    be_by_participant[device.physical_address] = (room, be)
                     count += 1
-        logger.debug(f"FA-1404: {count} Bedienelemente aus Topologie-Import erzeugt.")
+        logger.debug(
+            f"FA-1404: {count} Bedienelemente aus Topologie-Import erzeugt, "
+            f"{moved} in den aktuellen Geräte-Raum verschoben."
+        )
 
     def _link_rooms_to_lines(
         self,

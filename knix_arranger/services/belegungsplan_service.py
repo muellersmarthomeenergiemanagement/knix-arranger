@@ -198,6 +198,38 @@ def _parse_ga_addr(addr: str) -> tuple[int, ...]:
         return (0, 0, 0)
 
 
+def build_ga_by_designation(group_addresses) -> dict:
+    """{Bezeichnung -> GroupAddress}, inkl. Variante ohne Klammerzusatz
+    (dieselbe Normalisierung wie ReportService). Ermöglicht Views, zu einer
+    reinen GA-Bezeichnung die zugehörige Adresse nachzuschlagen -- wizard-
+    geplante (Gewerk-basierte) function_assignments speichern in function_ga
+    nur die Bezeichnung, nicht die Adresse (SensorService._expand_funktionen
+    übernimmt GroupAddress.designation direkt), anders als importierte
+    Direkte-GA-Zuordnungen, die schon "Adresse  Bezeichnung" kombiniert
+    speichern (XlsxImportService.backfill_function_assignments)."""
+    result: dict = {}
+    for ga in group_addresses.all_addresses():
+        if ga.designation:
+            key = ga.designation.split(" (")[0].strip()
+            result.setdefault(key, ga)
+            result.setdefault(ga.designation.strip(), ga)
+    return result
+
+
+def resolve_ga_display(function_ga: str, ga_by_designation: dict) -> str:
+    """Ergänzt "Adresse  " vor einer reinen GA-Bezeichnung, falls sie noch
+    keine Adresse enthält (siehe build_ga_by_designation) -- sonst bleibt
+    function_ga unverändert (bereits importierte "Adresse  Bezeichnung"-
+    Kombination, oder unbekannte/leere GA)."""
+    text = (function_ga or "").strip()
+    if not text:
+        return text
+    ga = ga_by_designation.get(text)
+    if ga is not None:
+        return f"{ga.address}  {text}"
+    return text
+
+
 class BelegungsplanService:
     """Erstellt den ETS-Belegungsplan aus einem KnxProject."""
 

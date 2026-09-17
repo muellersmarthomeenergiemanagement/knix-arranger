@@ -16,7 +16,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from ...models.topology import Topology, Area, Line, Device
-from ...services.belegungsplan_service import _extract_channel_label, group_actor_rows_by_channel
+from ...services.belegungsplan_service import (
+    _extract_channel_label, group_actor_rows_by_channel,
+    build_ga_by_designation, resolve_ga_display,
+)
 from ..column_utils import fit_columns
 
 # Farben für Infrastruktur-Knoten
@@ -24,6 +27,13 @@ _COLOR_COUPLER     = QColor("#1565C0")  # Dunkelblau: Koppler
 _COLOR_POWER       = QColor("#2E7D32")  # Dunkelgrün: Speisegerät
 _COLOR_PROGRAMMED  = QColor("#4527A0")  # Violett: physikalisch programmiert (Adresse fixiert)
 _COLOR_SECURE_MISSING = QColor("#C62828")  # Rot: Gerät unterstützt kein KNX Secure (FA-2704)
+
+# Rollen-Label für FunctionAssignment.role, siehe step09_functions.py.
+_ROLE_LABELS = {
+    "befehl": "Befehl",
+    "rueckmeldung": "Rückmeld.",
+    "fremdsteuerung": "Fremdsteuerung",
+}
 
 # UserRole-Schlüssel für Baumdaten
 _ROLE_DATA = Qt.UserRole
@@ -41,6 +51,7 @@ class TopologyView(QWidget):
         self._knx_secure = None  # KnxSecureConfig, siehe set_knx_secure() (FA-2704)
         self._ga_structure = None  # GroupAddressStructure, siehe set_group_addresses()
         self._belegungsplan = None  # BelegungsplanData, siehe set_project() -- Kanalanzeige Aktoren
+        self._areal = None  # Areal, siehe set_project() -- Funktionsanzeige Sensoren/Taster
 
         layout = QVBoxLayout(self)
 
@@ -129,6 +140,7 @@ class TopologyView(QWidget):
         self._knx_secure = project.knx_secure
         self._ga_structure = project.group_addresses
         self._belegungsplan = BelegungsplanService().generate(project)
+        self._areal = project.areal
         self._update_legend()
         self._refresh()
 
@@ -416,6 +428,8 @@ class TopologyView(QWidget):
                     # Status desselben Ausgangs A zusammen erscheinen.
                     if device.device_type == "actor":
                         self._add_channel_items(dev_item, device, ga_by_address)
+                    elif device.device_type == "sensor":
+                        self._add_sensor_function_items(dev_item, device)
 
         fit_columns(self._tree)
 
@@ -505,6 +519,57 @@ class TopologyView(QWidget):
                         "",
                         ga_obj.datapoint_type if ga_obj else "",
                     ])
+
+    def _add_sensor_function_items(self, dev_item: QTreeWidgetItem, device: Device) -> None:
+        """Fügt Funktions-Kindknoten unter einem Sensor/Taster ein, analog zu
+        _add_channel_items für Aktoren (bisher fehlte diese Ebene für Sensoren
+        komplett, während Aktoren schon Kanal-Details zeigten -- siehe FA-1007).
+
+        Gruppiert Bedienelement.function_assignments nach sf_id, damit Befehl
+        und Rückmeldung derselben physischen Taste zusammen erscheinen statt
+        als lauter flache Geschwister-Zeilen (dieselbe Gruppierung wie in
+        Schritt 9, siehe step09_functions.py:_refresh).
+        """
+        if not self._areal:
+            return
+        be = next(
+            (b for room in self._areal.all_rooms for b in room.bedienelemente
+             if b.participant_number == device.physical_address and not b.suppressed),
+            None,
+        )
+        if not be or not be.function_assignments:
+            return
+
+        # Wizard-geplante (Gewerk-basierte) function_assignments speichern in
+        # function_ga nur die GA-Bezeichnung, keine Adresse (siehe
+        # resolve_ga_display) -- ohne diese Auflösung fehlte die
+        # Gruppenadressnummer bei Projekten ohne ETS-Import.
+        ga_by_designation = (
+            build_ga_by_designation(self._ga_structure) if self._ga_structure else {}
+        )
+
+        channel_groups: dict[str, list] = {}
+        for fa in be.function_assignments:
+            channel_groups.setdefault(fa.sf_id or fa.button_channel, []).append(fa)
+
+        for group_fas in channel_groups.values():
+            is_fremdsteuerung = all(fa.role == "fremdsteuerung" for fa in group_fas)
+            label = group_fas[0].button_channel
+            if is_fremdsteuerung:
+                label = f"Fremdsteuerung: {label}"
+            ch_item = QTreeWidgetItem(dev_item, [
+                label, "", "", "", f"{len(group_fas)} GA(s)",
+            ])
+            ch_item.setForeground(0, QColor("#616161"))
+            for fa in group_fas:
+                role_label = _ROLE_LABELS.get(fa.role, fa.action_type or "Befehl")
+                QTreeWidgetItem(ch_item, [
+                    f"{role_label}: {fa.description}",
+                    resolve_ga_display(fa.function_ga, ga_by_designation),
+                    "",
+                    "",
+                    "",
+                ])
 
     # ── Toolbar-Aktionen ──
 

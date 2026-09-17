@@ -2026,3 +2026,329 @@ class TestExtractSceneTriggers:
         ]
         # "Taste 2, links" (Funktion Taste: Schalten) hat keinen Szenen-Wert
         assert all("Taste 2" not in e.button for e in entries)
+
+
+# ---------------------------------------------------------------------------
+# backfill_function_assignments -- physische Taste = 1 SensorFunktion,
+# nicht 1 SensorFunktion pro angeschlossener GA (Regression fuer Chalet
+# Franziska 2005, Taster 1.1.28: 4 physische Tasten mit je einer eigenen
+# Status-Rueckmelde-GA erschienen vorher als 8 "Tasten"; ein zusaetzliches,
+# nicht bedienbares geraeteinternes KO ("Nachtabsenkung LED's") als 9.)
+# ---------------------------------------------------------------------------
+
+def _make_taster_1_1_28():
+    """Baut das reale Feller-EDIZIOdue-Geraet 1.1.28 aus Chalet Franziska 2005
+    nach: 4 Taste-KOs (je Befehls-GA + zusaetzlich verknuepfter Status-GA)
+    plus ein 5. KO ohne 'Taste N' im Namen (geraeteinterne LED-Nachtabsenkung,
+    keine vom Bauherrn bedienbare Funktion)."""
+    from knix_arranger.models.topology import Device, CommunicationObject
+    device = Device(
+        physical_address="1.1.28", device_type="sensor",
+        product="Taster EDIZIOdue 1-8fach",
+    )
+    device.communication_objects = [
+        CommunicationObject(object_number=0, name="Taste 1, links",
+                             connected_gas=["1/0/0", "1/7/0"]),
+        CommunicationObject(object_number=3, name="Taste 1, rechts",
+                             connected_gas=["1/0/0", "1/7/0"]),
+        CommunicationObject(object_number=6, name="Taste 2, links",
+                             connected_gas=["1/0/10", "1/7/10"]),
+        CommunicationObject(object_number=9, name="Taste 2, rechts",
+                             connected_gas=["1/0/20", "1/7/20"]),
+        CommunicationObject(object_number=25, name="Nachtabsenkung LED's",
+                             connected_gas=["0/4/250"]),
+    ]
+    return device
+
+
+class TestBackfillFunctionAssignmentsTasterGrouping:
+    def setup_method(self):
+        self.svc = XlsxImportService()
+
+    def _run(self, element_type="Tastereinheit"):
+        from knix_arranger.models.topology import Topology, Area, Line
+        from knix_arranger.models.building import Bedienelement
+
+        room = _make_room("02", "Waschkeller")
+        be = Bedienelement(element_type=element_type,
+                            participant_number="1.1.28", channels=2)
+        room.bedienelemente.append(be)
+        areal = _make_areal_with_rooms("UG", [room])
+
+        device = _make_taster_1_1_28()
+        line = Line(line_number=1, name="L1")
+        line.devices.append(device)
+        area = Area(area_number=1, name="Bereich 1")
+        area.lines.append(line)
+        topology = Topology(areas=[area])
+
+        ga_structure = _make_ga_structure([])
+        added = self.svc.backfill_function_assignments(topology, areal, ga_structure)
+        return be, added
+
+    def test_one_sensorfunktion_per_physical_button(self):
+        """4 physische Tasten -> 4 Tasten-SensorFunktionen, nicht 9 (die 5.,
+        'Nachtabsenkung LED's', ist Fremdsteuerung, siehe eigener Test)."""
+        be, _ = self._run()
+        taste_labels = [sf.label for sf in be.funktionen if sf.label != "Nachtabsenkung LED's"]
+        assert taste_labels == [
+            "Taste 1, links", "Taste 1, rechts", "Taste 2, links", "Taste 2, rechts",
+        ]
+
+    def test_channels_corrected_to_real_button_count(self):
+        """channels wurde beim Import faelschlich auf 2 gesetzt (Taste-1/Taste-2-
+        Nummern ohne links/rechts) -- backfill korrigiert auf die echten 4."""
+        be, _ = self._run()
+        assert be.channels == 4
+
+    def test_night_dimming_ko_is_fremdsteuerung_not_a_button(self):
+        """'Nachtabsenkung LED's' hat kein 'Taste N' im Namen -- erscheint als
+        Fremdsteuerung, zaehlt aber nicht als Taste/Kanal."""
+        be, _ = self._run()
+        assert "Nachtabsenkung LED's" in [sf.label for sf in be.funktionen]
+        night = [fa for fa in be.function_assignments if "0/4/250" in fa.function_ga]
+        assert len(night) == 1
+        assert night[0].role == "fremdsteuerung"
+        assert be.channels == 4  # weiterhin nur die 4 echten Tasten
+
+    def test_command_and_feedback_share_one_sf_id(self):
+        """Befehls- und Rueckmelde-GA eines KO haengen an derselben
+        SensorFunktion (sf_id), nicht an zwei getrennten."""
+        be, _ = self._run()
+        taste1_links = [fa for fa in be.function_assignments
+                        if fa.description == "Taste 1, links"]
+        assert len(taste1_links) == 2
+        assert taste1_links[0].sf_id == taste1_links[1].sf_id
+        assert [fa.role for fa in taste1_links] == ["befehl", "rueckmeldung"]
+        assert [fa.is_feedback for fa in taste1_links] == [False, True]
+        assert taste1_links[0].function_ga.startswith("1/0/0")
+        assert taste1_links[1].function_ga.startswith("1/7/0")
+
+    def test_added_count_includes_night_dimming_as_fremdsteuerung(self):
+        """4 Tasten x 2 GAs + 1 Fremdsteuerungs-GA (Nachtabsenkung) = 9."""
+        _, added = self._run()
+        assert added == 9
+
+    def test_non_taster_element_type_keeps_all_kos(self):
+        """Der 'Taste N'-Filter greift nur bei erkannten Tastereinheiten --
+        andere Bedienelement-Typen (z.B. Fensterkontakt) behalten alle KOs,
+        auch wenn keines 'Taste N' heisst."""
+        be, added = self._run(element_type="Fensterkontakt")
+        assert len(be.funktionen) == 5
+        assert "Nachtabsenkung LED's" in [sf.label for sf in be.funktionen]
+        assert added == 9
+        # channels wird bei Nicht-Tastereinheiten nicht angetastet
+        assert be.channels == 2
+
+
+class TestBackfillFunctionAssignmentsMultiKoButton:
+    """Regression fuer Chalet Franziska 2005, Taster 1.1.35 (Studio): ETS
+    verteilt eine dimmbare Taste auf MEHRERE separate KOs mit gleichem
+    Basis-Namen (Schalten-KO + Dimmen-KO + Signal-LED-KO fuer 'Taste 4,
+    links') statt auf ein KO mit mehreren GAs -- eine Gruppierung pro KO
+    (statt pro physischer Taste) zerlegt eine Taste faelschlich in 3."""
+
+    def setup_method(self):
+        self.svc = XlsxImportService()
+
+    def _run(self):
+        from knix_arranger.models.topology import Device, CommunicationObject, Topology, Area, Line
+        from knix_arranger.models.building import Bedienelement
+
+        device = Device(physical_address="1.1.35", device_type="sensor",
+                         product="Taster EDIZIOdue 1-8fach")
+        device.communication_objects = [
+            # Taste 3: 1 KO mit 2 GAs (Schalten + Status) -- alte Bauform
+            CommunicationObject(object_number=12, name="Taste 3, links",
+                                 connected_gas=["2/0/60", "2/7/60"]),
+            # Taste 4: 2 separate Befehls-KOs (Schalten, Dimmen) + 1 Status-KO
+            CommunicationObject(object_number=18, name="Taste 4, links",
+                                 connected_gas=["2/0/75"]),
+            CommunicationObject(object_number=19, name="Taste 4, links",
+                                 connected_gas=["2/0/76"]),
+            CommunicationObject(object_number=20, name="Taste 4, links, Signal-LED",
+                                 connected_gas=["2/7/75"]),
+        ]
+
+        room = _make_room("06", "Studio")
+        be = Bedienelement(element_type="Tastereinheit",
+                            participant_number="1.1.35", channels=8)
+        room.bedienelemente.append(be)
+        areal = _make_areal_with_rooms("EG", [room])
+
+        line = Line(line_number=1, name="L1")
+        line.devices.append(device)
+        area = Area(area_number=1, name="Bereich 1")
+        area.lines.append(line)
+        topology = Topology(areas=[area])
+
+        ga_structure = _make_ga_structure([])
+        added = self.svc.backfill_function_assignments(topology, areal, ga_structure)
+        return be, added
+
+    def test_multi_ko_button_bundled_into_one_sensorfunktion(self):
+        """Taste 4 (3 KOs: Schalten, Dimmen, Signal-LED) wird zu EINER Taste,
+        nicht zu drei."""
+        be, _ = self._run()
+        assert len(be.funktionen) == 2  # Taste 3, links + Taste 4, links
+        assert [sf.label for sf in be.funktionen] == ["Taste 3, links", "Taste 4, links"]
+        assert be.channels == 2
+
+    def test_multi_ko_button_keeps_per_ko_detail_and_feedback_flags(self):
+        """Alle 3 GAs von Taste 4 haengen an derselben SensorFunktion, mit
+        korrekten is_feedback-Flags und dem konkreten KO-Namen als Detail."""
+        be, _ = self._run()
+        taste4 = [fa for fa in be.function_assignments if fa.button_channel == "Taste 4, links"]
+        assert len(taste4) == 3
+        assert len({fa.sf_id for fa in taste4}) == 1
+        by_ga = {fa.function_ga: fa for fa in taste4}
+        assert by_ga["2/0/75"].is_feedback is False
+        assert by_ga["2/0/75"].description == "Taste 4, links"
+        assert by_ga["2/0/76"].is_feedback is False
+        assert by_ga["2/0/76"].description == "Taste 4, links"
+        assert by_ga["2/7/75"].is_feedback is True
+        assert by_ga["2/7/75"].description == "Taste 4, links, Signal-LED"
+
+    def test_single_ko_two_ga_button_unaffected(self):
+        """Taste 3 (1 KO mit 2 GAs, altes Muster) verhaelt sich weiterhin wie
+        zuvor: Befehl + Rueckmeldung an derselben SensorFunktion."""
+        be, _ = self._run()
+        taste3 = [fa for fa in be.function_assignments if fa.button_channel == "Taste 3, links"]
+        assert [fa.is_feedback for fa in taste3] == [False, True]
+        assert len({fa.sf_id for fa in taste3}) == 1
+
+
+class TestFunctionAssignmentRole:
+    """FunctionAssignment.role ersetzt das reine is_feedback-Bool um eine
+    dritte Rolle 'fremdsteuerung' (Taste wird durch geraeteinterne/-fremde
+    GA beeinflusst, z.B. LED-Nachtabsenkung, ohne einer physischen Taste
+    zugeordnet zu sein)."""
+
+    def test_is_feedback_derived_from_role(self):
+        from knix_arranger.models.building import FunctionAssignment
+        assert FunctionAssignment(role="befehl").is_feedback is False
+        assert FunctionAssignment(role="rueckmeldung").is_feedback is True
+        assert FunctionAssignment(role="fremdsteuerung").is_feedback is False
+
+    def test_round_trip_preserves_role(self):
+        from knix_arranger.models.building import FunctionAssignment
+        fa = FunctionAssignment(role="fremdsteuerung", function_ga="0/4/250")
+        restored = FunctionAssignment.from_dict(fa.to_dict())
+        assert restored.role == "fremdsteuerung"
+
+    def test_old_project_without_role_field_migrates_from_is_feedback(self):
+        """Aeltere .knxarr-Projekte kennen nur is_feedback (kein role-Feld) --
+        from_dict muss das nachbilden, damit alte Projekte weiterhin korrekt
+        geladen werden."""
+        from knix_arranger.models.building import FunctionAssignment
+        old_command = FunctionAssignment.from_dict({"function_ga": "1/0/0", "is_feedback": False})
+        old_feedback = FunctionAssignment.from_dict({"function_ga": "1/7/0", "is_feedback": True})
+        assert old_command.role == "befehl"
+        assert old_feedback.role == "rueckmeldung"
+
+
+class TestBackfilledDataSurvivesAutoAssignFunctions:
+    """Kritische Regression: BelegungsplanService.generate() (aufgerufen von
+    Topologie-Ansicht, Verknuepfungsmatrix, Belegungsplan-Export) ruft IMMER
+    SensorService.auto_assign_functions() auf, das function_assignments neu
+    aus funktionen ableitet (Bedienelement.funktionen ist die massgebliche
+    Quelle, function_assignments wird bei jedem Refresh verworfen und neu
+    berechnet -- siehe linking_matrix_view.py Modul-Docstring). Vor dem
+    extra_gas-Feld auf SensorFunktion ging dabei jede zusaetzliche GA einer
+    Taste (Rueckmeldung, zweiter Befehl) unwiderruflich verloren, weil die
+    Direkte-GA-SensorFunktion nur eine einzige GA speichern konnte. Diese
+    Tests stellen sicher, dass ein einmal korrekt gebackfillter Taster eine
+    solche Neuableitung unveraendert uebersteht."""
+
+    def setup_method(self):
+        self.svc = XlsxImportService()
+
+    def _backfilled_room(self):
+        from knix_arranger.models.topology import Topology, Area, Line
+        from knix_arranger.models.building import Bedienelement
+
+        room = _make_room("02", "Waschkeller")
+        be = Bedienelement(element_type="Tastereinheit",
+                            participant_number="1.1.28", channels=2)
+        room.bedienelemente.append(be)
+        areal = _make_areal_with_rooms("UG", [room])
+
+        device = _make_taster_1_1_28()
+        line = Line(line_number=1, name="L1")
+        line.devices.append(device)
+        area = Area(area_number=1, name="Bereich 1")
+        area.lines.append(line)
+        topology = Topology(areas=[area])
+
+        ga_structure = _make_ga_structure([])
+        self.svc.backfill_function_assignments(topology, areal, ga_structure)
+        return room, be, ga_structure
+
+    def test_reexpansion_keeps_all_gas_per_button(self):
+        room, be, ga_structure = self._backfilled_room()
+        before = len(be.function_assignments)
+        assert before == 9  # 4 Tasten x 2 GAs + 1 Fremdsteuerung
+
+        from knix_arranger.services.sensor_service import SensorService
+        SensorService().auto_assign_functions([room], ga_structure)
+
+        # Nach der Neuableitung dasselbe Bedienelement (evtl. neues Objekt,
+        # aber gleiche participant_number) mit weiterhin allen 9 Eintraegen.
+        be_after = next(b for b in room.bedienelemente if b.participant_number == "1.1.28")
+        assert len(be_after.function_assignments) == 9
+
+    def test_reexpansion_keeps_feedback_and_fremdsteuerung_roles(self):
+        room, be, ga_structure = self._backfilled_room()
+
+        from knix_arranger.services.sensor_service import SensorService
+        SensorService().auto_assign_functions([room], ga_structure)
+
+        be_after = next(b for b in room.bedienelemente if b.participant_number == "1.1.28")
+        roles = sorted(fa.role for fa in be_after.function_assignments)
+        assert roles == sorted(
+            ["befehl"] * 4 + ["rueckmeldung"] * 4 + ["fremdsteuerung"]
+        )
+
+    def test_reexpansion_keeps_command_and_feedback_paired_by_sf_id(self):
+        room, be, ga_structure = self._backfilled_room()
+
+        from knix_arranger.services.sensor_service import SensorService
+        SensorService().auto_assign_functions([room], ga_structure)
+
+        be_after = next(b for b in room.bedienelemente if b.participant_number == "1.1.28")
+        taste1_links = [
+            fa for fa in be_after.function_assignments
+            if fa.description == "Taste 1, links"
+        ]
+        assert len(taste1_links) == 2
+        assert taste1_links[0].sf_id == taste1_links[1].sf_id
+        assert sorted(fa.role for fa in taste1_links) == ["befehl", "rueckmeldung"]
+
+
+class TestSensorFunktionExtraGas:
+    """SensorFunktion.extra_gas/primary_role (FA-1410d) -- Serialisierung und
+    Defaults fuer alte Projekte ohne dieses Feld."""
+
+    def test_round_trip_preserves_extra_gas_and_primary_role(self):
+        from knix_arranger.models.building import SensorFunktion, SensorFunktionGa
+        sf = SensorFunktion(
+            label="Taste 4, links", ga_designation="2/0/75", primary_role="befehl",
+            extra_gas=[
+                SensorFunktionGa(ga_designation="2/0/76", role="befehl", description="Taste 4, links"),
+                SensorFunktionGa(ga_designation="2/7/75", role="rueckmeldung",
+                                  description="Taste 4, links, Signal-LED"),
+            ],
+        )
+        restored = SensorFunktion.from_dict(sf.to_dict())
+        assert restored.primary_role == "befehl"
+        assert len(restored.extra_gas) == 2
+        assert restored.extra_gas[0].ga_designation == "2/0/76"
+        assert restored.extra_gas[1].role == "rueckmeldung"
+        assert restored.extra_gas[1].description == "Taste 4, links, Signal-LED"
+
+    def test_old_project_without_extra_gas_field_defaults_empty(self):
+        from knix_arranger.models.building import SensorFunktion
+        old_data = {"id": "x", "label": "Szene 1", "ga_designation": "1/2/3"}
+        restored = SensorFunktion.from_dict(old_data)
+        assert restored.extra_gas == []
+        assert restored.primary_role == "befehl"

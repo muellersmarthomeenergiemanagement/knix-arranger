@@ -11,6 +11,9 @@ from PySide6.QtCore import Signal, Qt
 from ...models.building import Areal, Building, Wing, Floor, Apartment, Room, Verteiler, STANDARD_FLOOR_NAMES
 from ...models.topology import Topology
 from ...services.building_service import BuildingService
+from ...services.belegungsplan_service import (
+    _extract_channel_label, build_ga_by_designation, resolve_ga_display,
+)
 from ..column_utils import fit_columns
 
 _DEVICE_TYPE_LABELS: dict[str, str] = {
@@ -42,6 +45,7 @@ class BuildingView(QWidget):
         super().__init__(parent)
         self._areal: Areal | None = None
         self._topology: Topology | None = None
+        self._ga_structure = None  # GroupAddressStructure, siehe set_group_addresses() -- Kanalanzeige Aktoren
 
         layout = QVBoxLayout(self)
 
@@ -119,6 +123,12 @@ class BuildingView(QWidget):
     def set_topology(self, topology: Topology):
         """Setzt die Topologie für die Gerätezahl-Anzeige."""
         self._topology = topology
+        self._refresh_tree()
+
+    def set_group_addresses(self, ga_structure) -> None:
+        """Verbindet die View mit der GA-Struktur, um Kanal-Gruppenadressen
+        unter Aktoren anzuzeigen (analog zu TopologyView, FA-1007)."""
+        self._ga_structure = ga_structure
         self._refresh_tree()
 
     # ------------------------------------------------------------------
@@ -202,6 +212,29 @@ class BuildingView(QWidget):
         if not self._areal:
             return
 
+        # Projektweite Teilnehmernummern aller Bedienelemente (nicht nur
+        # raumintern): ein importiertes Topologie-Gerät kann einer anderen
+        # room_id zugeordnet sein als das daraus abgeleitete Bedienelement
+        # (z.B. wenn link_rooms_to_lines und die KO-basierte Bedienelement-
+        # Erzeugung unterschiedliche Räume ermitteln) -- eine nur raumlokale
+        # Prüfung übersieht das und zeigt das Gerät dann ein zweites Mal als
+        # leere Geräte-Zeile ohne Details (Regression: Taster 1.1.30 erschien
+        # so doppelt -- einmal korrekt befüllt, einmal leer in "Eingang").
+        all_be_participant_numbers = {
+            be.participant_number
+            for room in self._areal.all_rooms
+            for be in room.bedienelemente
+            if be.participant_number and not be.suppressed
+        }
+
+        # Wizard-geplante (Gewerk-basierte) function_assignments speichern in
+        # function_ga nur die GA-Bezeichnung, keine Adresse (siehe
+        # resolve_ga_display) -- ohne diese Auflösung fehlte die Gruppen-
+        # adressnummer in der "Adresse"-Spalte bei Projekten ohne ETS-Import.
+        ga_by_designation = (
+            build_ga_by_designation(self._ga_structure) if self._ga_structure else {}
+        )
+
         areal_item = QTreeWidgetItem(self._tree, [self._areal.name or "Areal", "Areal", "", ""])
         areal_item.setData(0, Qt.UserRole, ("areal", self._areal))
         areal_item.setExpanded(True)
@@ -268,11 +301,11 @@ class BuildingView(QWidget):
                             # Teilnehmernummer verknüpft), nicht zusätzlich als
                             # eigene Geräte-Zeile zeigen -- sonst erscheint z.B. ein
                             # Sensor doppelt: einmal roh, einmal als Bedienelement.
-                            be_participant_numbers = {
-                                be.participant_number for be in active_bes if be.participant_number
-                            }
+                            # Projektweit geprüft (all_be_participant_numbers), nicht nur
+                            # raumintern, da Gerät und Bedienelement unterschiedlichen
+                            # Räumen zugeordnet sein können (siehe Kommentar oben).
                             for device in room_devices:
-                                if device.physical_address in be_participant_numbers:
+                                if device.physical_address in all_be_participant_numbers:
                                     shown_ids.add(device.id)
 
                             interactive_bes = [
@@ -317,7 +350,9 @@ class BuildingView(QWidget):
                                     label = device.product_name or device.product or device.device_type
                                     addr  = device.physical_address or "–"
                                     dtype = _DEVICE_TYPE_LABELS.get(device.device_type, device.device_type)
-                                    QTreeWidgetItem(vt_item, [label, dtype, addr, ""])
+                                    dev_item = QTreeWidgetItem(vt_item, [label, dtype, addr, ""])
+                                    if device.device_type == "actor":
+                                        self._add_actor_channel_items(dev_item, device)
 
                             # Bedienelemente aus Wizard-Funktionsdefinition
                             for be in active_bes:
@@ -335,7 +370,9 @@ class BuildingView(QWidget):
                                 for fa in be.function_assignments:
                                     QTreeWidgetItem(
                                         be_item,
-                                        [fa.button_channel, "Funktion", fa.function_ga, fa.description],
+                                        [fa.button_channel, "Funktion",
+                                         resolve_ga_display(fa.function_ga, ga_by_designation),
+                                         fa.description],
                                     )
 
                             # Raumgebundene Topologie-Geräte (Sensoren, manuell, Import)
@@ -345,9 +382,55 @@ class BuildingView(QWidget):
                                 label = device.product_name or device.product or device.device_type
                                 addr  = device.physical_address or "–"
                                 dtype = _DEVICE_TYPE_LABELS.get(device.device_type, device.device_type)
-                                QTreeWidgetItem(room_item, [label, dtype, addr, ""])
+                                dev_item = QTreeWidgetItem(room_item, [label, dtype, addr, ""])
+                                if device.device_type == "actor":
+                                    self._add_actor_channel_items(dev_item, device)
 
         fit_columns(self._tree)
+
+    def _add_actor_channel_items(self, dev_item: QTreeWidgetItem, device) -> None:
+        """Fügt Kanal-Kindknoten mit ihren Gruppenadressen unter einem Aktor
+        ein -- analog zu den Funktions-Kindknoten, die Bedienelemente hier
+        schon zeigen (siehe FA-1007). Vorher fehlte diese Ebene für Aktoren
+        in der Gebäude-Ansicht komplett, waehrend die Topologie-Ansicht sie
+        schon hatte (dort wiederum umgekehrt fuer Sensoren, siehe
+        TopologyView._add_sensor_function_items).
+
+        Gruppiert Device.communication_objects nach physischem Kanal (siehe
+        _extract_channel_label), identisch zum CO-Fallback in
+        TopologyView._add_channel_items_from_cos. Zeigt nur, wenn echte COs
+        vorliegen (ETS6-Import) -- für rein wizard-geplante Aktoren ohne COs
+        bleibt der Aktor ein flaches Blatt, wie zuvor.
+        """
+        cos_with_ga = [
+            co for co in sorted(device.communication_objects, key=lambda c: c.object_number)
+            if co.connected_gas
+        ]
+        if not cos_with_ga:
+            return
+
+        ga_by_address = {}
+        if self._ga_structure is not None:
+            ga_by_address = {ga.address: ga for ga in self._ga_structure.all_addresses()}
+
+        channel_groups: dict[str, list] = {}
+        for co in cos_with_ga:
+            label = _extract_channel_label(co.name) or f"CO {co.object_number}"
+            channel_groups.setdefault(label, []).append(co)
+
+        for label, cos in channel_groups.items():
+            ga_count = sum(len(co.connected_gas) for co in cos)
+            ch_item = QTreeWidgetItem(dev_item, [label, "Kanal", "", f"{ga_count} GA(s)"])
+            for co in cos:
+                for ga_addr in co.connected_gas:
+                    ga_obj = ga_by_address.get(ga_addr)
+                    label_text = ga_obj.designation if ga_obj else ga_addr
+                    QTreeWidgetItem(ch_item, [
+                        f"{co.name or co.object_function}: {label_text}",
+                        "GA",
+                        ga_addr,
+                        ga_obj.datapoint_type if ga_obj else "",
+                    ])
 
     # ------------------------------------------------------------------
     # Selektion

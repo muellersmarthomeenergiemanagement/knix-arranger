@@ -14,7 +14,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from ...models.project import KnxProject
 from ...models.topology import Topology
-from ...services.belegungsplan_service import _split_button_channel
+from ...services.belegungsplan_service import (
+    _split_button_channel, build_ga_by_designation, resolve_ga_display,
+)
 from ..column_utils import fit_columns
 
 
@@ -583,6 +585,12 @@ class TopologyReportView(QWidget):
             fl.id: fl.short_code for fl in self._project.all_floors
         }
 
+        # Wizard-geplante (Gewerk-basierte) function_assignments speichern in
+        # function_ga nur die GA-Bezeichnung, keine Adresse (siehe
+        # resolve_ga_display) -- ohne diese Auflösung fehlte die Gruppen-
+        # adressnummer bei Projekten ohne ETS-Import.
+        ga_by_designation = build_ga_by_designation(self._project.group_addresses)
+
         # GA-Lookup für XLSX-Importe: (gewerk_code, "FLOOR.NR") → [designation, ...]
         # Deckt Fälle ab, wo room_number aus GA-Bezeichnung als "OG.05" gespeichert ist.
         ga_by_gewerk_room: dict[tuple, list[str]] = defaultdict(list)
@@ -612,7 +620,8 @@ class TopologyReportView(QWidget):
                                 taste, kanal = _split_button_channel(fa.button_channel)
                                 rows.append((
                                     room_cell, be_cell,
-                                    taste, kanal, fa.description, fa.function_ga,
+                                    taste, kanal, fa.description,
+                                    resolve_ga_display(fa.function_ga, ga_by_designation),
                                     False,
                                 ))
                         elif be.funktionen:

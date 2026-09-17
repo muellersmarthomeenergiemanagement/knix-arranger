@@ -131,6 +131,23 @@ class BauherrFormService:
     def __init__(self, project: KnxProject):
         self.project = project
 
+    def gewerk_lookup_available(self) -> bool:
+        """True wenn mindestens eine GA im Projekt ein function_name-Tag
+        trägt -- Voraussetzung dafür, dass SensorService._expand_funktionen
+        eine Gewerk-basierte SensorFunktion (gewerk_code) überhaupt zu einer
+        echten GA auflösen kann (siehe GEWERK_PRIMARY_FUNCTIONS-Lookup in
+        sensor_service.py). function_name wird nur von KNiX' eigener
+        Adress-Generierung (Schritt 7) gesetzt, nie von einem Import -- ein
+        rein importiertes Projekt (Schritt 7 nie gelaufen) hat überall
+        function_name=="" und eine Gewerk-Auswahl im Bauherr-Formular würde
+        sonst kommentarlos ins Leere laufen: die SensorFunktion bekäme
+        gewerk_code gesetzt, aber nie eine passende GA -- bei der nächsten
+        Neuableitung (z.B. Topologie/Matrix öffnen) verschwindet die
+        Verknüpfung dann spurlos."""
+        return any(
+            ga.function_name for ga in self.project.group_addresses.all_addresses()
+        )
+
     def _gewerk_label(self, code: str) -> str:
         """Gibt 'Code – Name' zurück, z.B. 'LD – Licht dimmbar'."""
         gewerk = self.project.gewerk_catalog.get(code)
@@ -306,6 +323,28 @@ class BauherrFormService:
 
     # ── Grafische Taster-Darstellung (Einzel-Taster) ──────────────────────────
 
+    @staticmethod
+    def _estimate_row_height(texts: list[str], col_width: float,
+                             line_height: int = 13, min_height: int = 30) -> int:
+        """Schätzt die nötige Zeilenhöhe (px) anhand des längsten Zelltexts.
+
+        Excel berechnet die Zeilenhöhe bei aktiviertem Zeilenumbruch NICHT
+        automatisch -- lange Taster-Bezeichnungen (z.B. ausführliche
+        Freitext-Labels aus einem Import) wurden vorher bei fester Zeilenhöhe
+        abgeschnitten dargestellt, obwohl der Zellinhalt vollständig war.
+        """
+        import math
+        chars_per_line = max(int(col_width * 1.7), 10)
+        max_lines = 1
+        for text in texts:
+            if not text:
+                continue
+            lines = 0
+            for line in text.split("\n"):
+                lines += max(1, math.ceil(len(line) / chars_per_line))
+            max_lines = max(max_lines, lines)
+        return max(min_height, max_lines * line_height + 12)
+
     def _draw_taster_graphic(self, ws, row: int, col: int,
                              be: Bedienelement,
                              empty_refs: list[str] | None = None) -> int:
@@ -332,8 +371,11 @@ class BauherrFormService:
         outer = Side(style="medium", color="263238")
 
         NCOLS      = 2
-        COL_W      = 20
-        ROW_H      = 40  # Platz für zweite Zeile mit Bedienart-Hinweis
+        # Vorher 20 -- bei laengeren Taster-Bezeichnungen (z.B. importierte
+        # Freitext-Labels mit Klammerzusatz) wirkte die Spalte deutlich zu
+        # schmal, viel Text wurde ueber viele Zeilen umgebrochen bzw. bei
+        # fester Zeilenhoehe abgeschnitten dargestellt.
+        COL_W      = 34
         device_end = col + NCOLS - 1
 
         for i in range(NCOLS):
@@ -371,8 +413,6 @@ class BauherrFormService:
             if n_slots == 1:
                 is_right_col = True
 
-            ws.row_dimensions[grid_row].height = ROW_H
-
             sf       = be.funktionen[slot_idx] if slot_idx < len(be.funktionen) else None
             fn_text  = self._button_label(sf) if sf else ""
             bg_color = self._fill_for(fn_text, sf)
@@ -391,6 +431,14 @@ class BauherrFormService:
                 cell_val  = f"{t_num}  → Ihr Wunsch"
                 cell_font = Font(name="Arial", bold=False, size=9,
                                  italic=True, color=_BTN_FONT_WISH)
+
+            # Zeilenhoehe an den laengeren der beiden Slot-Texte dieser
+            # Grid-Zeile anpassen (siehe _estimate_row_height) -- Slots
+            # werden nacheinander verarbeitet, daher hier mit dem bereits
+            # gesetzten Wert der Zeile maximieren statt zu überschreiben.
+            needed_h = self._estimate_row_height([cell_val], COL_W)
+            current_h = ws.row_dimensions[grid_row].height or 0
+            ws.row_dimensions[grid_row].height = max(current_h, needed_h)
 
             cell = ws.cell(row=grid_row, column=grid_col, value=cell_val)
             cell.font      = cell_font
@@ -499,6 +547,51 @@ class BauherrFormService:
             )
         return row + 2
 
+    def _draw_signature_block(self, ws, row: int, col: int, end_col: int) -> int:
+        """Zeichnet Datum + Unterschriftsfeld auf dem Titelblatt als
+        Auftragsbestätigung: die formelle Erklärung, mit der der Bauherr dem
+        Integrator die in diesem Formular festgelegte Tastenbelegung als
+        verbindliche Planungsgrundlage bestätigt (FA-1501)."""
+        medium = Side(style="medium", color="263238")
+
+        ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=end_col)
+        title = ws.cell(row=row, column=col, value="Auftragsbestätigung")
+        title.font = Font(name="Arial", bold=True, size=12, color="FFFFFF")
+        title.fill = PatternFill(start_color=_BTN_FILL_HEADER, end_color=_BTN_FILL_HEADER,
+                                 fill_type="solid")
+        title.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+        ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=end_col)
+        info = ws.cell(row=row, column=col, value=(
+            "Mit meiner Unterschrift bestätige ich die in diesem Formular festgelegte "
+            "Tastenbelegung als verbindliche Grundlage für die Elektroinstallation. "
+            "Änderungswünsche nach der Unterschrift können zu Mehrkosten und "
+            "Terminverschiebungen führen."
+        ))
+        info.font = Font(name="Arial", size=9, italic=True, color="555555")
+        info.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        ws.row_dimensions[row].height = 32
+        row += 2  # Abstand vor den Unterschriftsfeldern
+
+        half = col + max(1, (end_col - col) // 2)
+
+        lbl_date = ws.cell(row=row, column=col, value="Ort, Datum:")
+        lbl_date.font = Font(name="Arial", size=9, color="546E7A")
+        lbl_sig = ws.cell(row=row, column=half, value="Unterschrift Bauherr:")
+        lbl_sig.font = Font(name="Arial", size=9, color="546E7A")
+        ws.row_dimensions[row].height = 14
+        row += 1
+
+        ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=half - 1)
+        ws.cell(row=row, column=col, value="").border = Border(bottom=medium)
+        ws.merge_cells(start_row=row, start_column=half, end_row=row, end_column=end_col)
+        ws.cell(row=row, column=half, value="").border = Border(bottom=medium)
+        ws.row_dimensions[row].height = 28
+
+        return row + 2
+
     # ── Formular generieren ────────────────────────────────────────────────────
 
     def generate_form(self, filepath: str):
@@ -542,6 +635,11 @@ class BauherrFormService:
                 gewerke or "–",
             ])
         excel.add_table(headers, rows, col_widths=[12, 25, 16, 60])
+
+        # ── Auftragsbestätigung (Datum + Unterschrift Bauherr) ──────────────
+        self._draw_signature_block(
+            excel._current_sheet, excel._row, col=1, end_col=excel._num_cols,
+        )
 
         # ── Pro Raum ein eigenes Blatt ─────────────────────────────────────
         for room in rooms:
