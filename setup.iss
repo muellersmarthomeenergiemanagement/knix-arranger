@@ -8,7 +8,7 @@
 ; Ergebnis:    installer\KNiX_Arranger_Setup_v1.0.0.exe
 
 #define AppName      "KNiX Arranger"
-#define AppVersion   "1.1.14"   ; <- hier bei jedem Release anpassen
+#define AppVersion   "1.1.15"   ; <- hier bei jedem Release anpassen
 #define AppPublisher "Mueller SmartHome & EnergieManagement"
 #define AppURL       "https://www.muellersmarthomeenergiemanagement.ch"
 #define AppExeName   "KNiX_Arranger.exe"
@@ -38,6 +38,17 @@ PrivilegesRequiredOverridesAllowed=dialog
 MinVersion=10.0
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#AppExeName}
+; Laesst Setup ueber den Windows Restart Manager erkennen, ob KNiX Arranger
+; noch laeuft (die zu ueberschreibenden Dateien sind dann gesperrt) -- vorher
+; gab es dafuer keine Direktive, wodurch ein Update bei offener App fehl-
+; schlagen oder einen inkonsistenten Zustand hinterlassen konnte. "yes" statt
+; "force" fragt vor dem Schliessen nach (statt es stillschweigend zu
+; erzwingen), damit der bestehende closeEvent-Speichern-Dialog in
+; main_window.py nicht durch einen Zwangs-Kill uebergangen wird, falls
+; ein Projekt mit ungesicherten Aenderungen offen ist.
+CloseApplications=yes
+CloseApplicationsFilter=*.exe,*.dll,*.pyd
+RestartApplications=yes
 
 [Languages]
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
