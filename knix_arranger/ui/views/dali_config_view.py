@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from ...models.project import KnxProject
 from ...models.dali_config import DaliGateway, DaliDevice, DaliGroup, DaliScene, EMERGENCY_MODES
-from ...services.dali_service import DaliService
+from ...services.dali_service import DaliService, _GA_RE
 from ..column_utils import fit_columns
 
 # Spalten EVG-Tabelle
@@ -45,6 +45,10 @@ class DaliConfigView(QWidget):
         self._project = project
         self._service = DaliService()
         self._current_gw: DaliGateway | None = None
+        # Schutz vor Rueckkopplung: setItem() in den _populate_*-Methoden loest
+        # selbst itemChanged aus. Waehrend des Neu-Befuellens sollen diese
+        # Signale nicht als Benutzer-Edits interpretiert werden.
+        self._populating = False
 
         layout = QVBoxLayout(self)
 
@@ -169,6 +173,11 @@ class DaliConfigView(QWidget):
             "Adr.", "Name", "EVG-Typ", "Raum", "Gruppen", "Notlicht", "Notlicht-Modus"
         ])
         self._evg_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        # Bearbeitung nur ueber den "Bearbeiten..."-Dialog (_edit_evg) -- eine
+        # Inline-Zellbearbeitung wuerde nichts speichern (kein itemChanged-
+        # Handler schreibt hier in DaliDevice zurueck) und taeuschte dem
+        # Benutzer eine funktionierende Bearbeitung nur vor.
+        self._evg_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._evg_table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self._evg_table)
 
@@ -270,6 +279,7 @@ class DaliConfigView(QWidget):
         self._groups_table.horizontalHeader().setSectionResizeMode(
             _CG_NAME, QHeaderView.Stretch
         )
+        self._groups_table.itemChanged.connect(self._on_group_item_changed)
         layout.addWidget(self._groups_table)
 
         btn_row = QHBoxLayout()
@@ -278,28 +288,78 @@ class DaliConfigView(QWidget):
         self._btn_remove_grp = QPushButton("Entfernen")
         self._btn_remove_grp.setObjectName("danger")
         self._btn_remove_grp.clicked.connect(self._remove_group)
+        self._btn_resync_numbers = QPushButton("Physische Nummern abgleichen")
+        self._btn_resync_numbers.setToolTip(
+            "Gruppennummern mit den echten DALI-Gruppennummern aus dem "
+            "Gateway (KO-Namen, z.B. \"G5, Schalten,\") abgleichen. "
+            "Namen/GAs/EVG-Zuordnungen bleiben erhalten."
+        )
+        self._btn_resync_numbers.clicked.connect(self._resync_group_numbers)
         btn_row.addWidget(self._btn_add_grp)
         btn_row.addWidget(self._btn_remove_grp)
+        btn_row.addWidget(self._btn_resync_numbers)
         btn_row.addStretch()
         layout.addLayout(btn_row)
         return w
 
     def _populate_groups_table(self, gw: DaliGateway):
         self._service.sync_groups_from_devices(gw)
-        self._groups_table.setRowCount(len(gw.groups))
-        for i, grp in enumerate(sorted(gw.groups, key=lambda g: g.number)):
-            nr_item = QTableWidgetItem(str(grp.number))
-            nr_item.setData(Qt.UserRole, grp)
-            self._groups_table.setItem(i, _CG_NR, nr_item)
-            self._groups_table.setItem(i, _CG_NAME, QTableWidgetItem(grp.name))
-            self._groups_table.setItem(
-                i, _CG_DEVS,
-                QTableWidgetItem(", ".join(str(a) for a in sorted(grp.device_addresses)))
-            )
-            self._groups_table.setItem(i, _CG_SWITCH, QTableWidgetItem(grp.ga_switch))
-            self._groups_table.setItem(i, _CG_DIM,    QTableWidgetItem(grp.ga_dim))
-            self._groups_table.setItem(i, _CG_VALUE,  QTableWidgetItem(grp.ga_value))
-        fit_columns(self._groups_table)
+        self._populating = True
+        try:
+            self._groups_table.setRowCount(len(gw.groups))
+            for i, grp in enumerate(sorted(gw.groups, key=lambda g: g.number)):
+                nr_item = QTableWidgetItem(str(grp.number))
+                nr_item.setData(Qt.UserRole, grp)
+                nr_item.setFlags(nr_item.flags() & ~Qt.ItemIsEditable)
+                self._groups_table.setItem(i, _CG_NR, nr_item)
+                self._groups_table.setItem(i, _CG_NAME, QTableWidgetItem(grp.name))
+                devs_item = QTableWidgetItem(
+                    ", ".join(str(a) for a in sorted(grp.device_addresses))
+                )
+                # Geräte-Zuordnung wird aus DaliDevice.group_memberships
+                # abgeleitet (sync_groups_from_devices) -- hier nur Anzeige,
+                # Bearbeitung erfolgt über den EVG-Dialog.
+                devs_item.setFlags(devs_item.flags() & ~Qt.ItemIsEditable)
+                self._groups_table.setItem(i, _CG_DEVS, devs_item)
+                self._groups_table.setItem(i, _CG_SWITCH, QTableWidgetItem(grp.ga_switch))
+                self._groups_table.setItem(i, _CG_DIM,    QTableWidgetItem(grp.ga_dim))
+                self._groups_table.setItem(i, _CG_VALUE,  QTableWidgetItem(grp.ga_value))
+            fit_columns(self._groups_table)
+        finally:
+            self._populating = False
+
+    def _on_group_item_changed(self, item: QTableWidgetItem):
+        """Schreibt eine Inline-Bearbeitung der Gruppen-Tabelle (Name, GA
+        Schalten/Dimmen/Wert) zurück ins DaliGroup-Modell -- bisher fehlte
+        dieser Handler komplett, wodurch Bearbeitungen nur optisch in der
+        Tabellenzelle standen und beim nächsten Refresh/Speichern verloren
+        gingen (siehe FA-2801-Folgefehler: Gruppe manuell angelegt, GA
+        eingetragen, aber nichts blieb erhalten)."""
+        if self._populating:
+            return
+        nr_item = self._groups_table.item(item.row(), _CG_NR)
+        grp: DaliGroup | None = nr_item.data(Qt.UserRole) if nr_item else None
+        if grp is None:
+            return
+        col = item.column()
+        text = item.text().strip()
+        if col == _CG_NAME:
+            grp.name = text
+        elif col in (_CG_SWITCH, _CG_DIM, _CG_VALUE):
+            if text and not _GA_RE.match(text):
+                QMessageBox.warning(
+                    self, "Ungültige GA-Adresse",
+                    f"'{text}' ist keine gültige Gruppenadresse (Format x/x/x).",
+                )
+                self._populate_groups_table(self._current_gw)
+                return
+            if col == _CG_SWITCH:
+                grp.ga_switch = text
+            elif col == _CG_DIM:
+                grp.ga_dim = text
+            else:
+                grp.ga_value = text
+        self._project.touch()
 
     def _add_group(self):
         gw = self._current_gw
@@ -326,6 +386,36 @@ class DaliConfigView(QWidget):
                 gw.groups.remove(sorted_grps[row])
         self._populate_groups_table(gw)
 
+    def _resync_group_numbers(self):
+        """FA-2801-Folgefehler (Chalet Franziska 2005): die angezeigte
+        Gruppennummer war rein die Sortierposition beim ersten Import und
+        kann von der echten DALI-Gruppennummer im Gateway abweichen. Gleicht
+        sie anhand der KO-Namen ("G5, Schalten,") ab, ohne Namen/GAs/EVG-
+        Zuordnungen zu verändern."""
+        gw = self._current_gw
+        if not gw:
+            return
+        device = next(
+            (d for d in self._service.get_dali_gateways_from_topology(self._project)
+             if d.id == gw.gateway_device_id),
+            None,
+        )
+        if device is None:
+            QMessageBox.warning(
+                self, "Nicht gefunden",
+                "Zugehöriges Gateway-Gerät nicht mehr in der Topologie vorhanden.",
+            )
+            return
+        n = self._service.resync_group_numbers(gw, device)
+        self._populate_groups_table(gw)
+        self._populate_evg_table(gw)
+        self._project.touch()
+        QMessageBox.information(
+            self, "Nummern abgeglichen",
+            f"{n} Gruppennummer(n) korrigiert." if n else
+            "Alle Gruppennummern stimmten bereits mit den echten DALI-Gruppennummern überein."
+        )
+
     # ── Szenen-Tab ────────────────────────────────────────────────────────────
 
     def _build_scenes_tab(self) -> QWidget:
@@ -336,6 +426,7 @@ class DaliConfigView(QWidget):
         self._scenes_table.setColumnCount(2)
         self._scenes_table.setHorizontalHeaderLabels(["Nr.", "Name"])
         self._scenes_table.horizontalHeader().setStretchLastSection(True)
+        self._scenes_table.itemChanged.connect(self._on_scene_item_changed)
         layout.addWidget(self._scenes_table)
 
         btn_row = QHBoxLayout()
@@ -355,12 +446,30 @@ class DaliConfigView(QWidget):
         return w
 
     def _populate_scenes_table(self, gw: DaliGateway):
-        self._scenes_table.setRowCount(len(gw.scenes))
-        for i, sc in enumerate(sorted(gw.scenes, key=lambda s: s.number)):
-            nr_item = QTableWidgetItem(str(sc.number))
-            nr_item.setData(Qt.UserRole, sc)
-            self._scenes_table.setItem(i, 0, nr_item)
-            self._scenes_table.setItem(i, 1, QTableWidgetItem(sc.name))
+        self._populating = True
+        try:
+            self._scenes_table.setRowCount(len(gw.scenes))
+            for i, sc in enumerate(sorted(gw.scenes, key=lambda s: s.number)):
+                nr_item = QTableWidgetItem(str(sc.number))
+                nr_item.setData(Qt.UserRole, sc)
+                nr_item.setFlags(nr_item.flags() & ~Qt.ItemIsEditable)
+                self._scenes_table.setItem(i, 0, nr_item)
+                self._scenes_table.setItem(i, 1, QTableWidgetItem(sc.name))
+        finally:
+            self._populating = False
+
+    def _on_scene_item_changed(self, item: QTableWidgetItem):
+        """Schreibt eine Umbenennung in der Szenen-Tabelle zurück ins
+        DaliScene-Modell (derselbe fehlende Handler wie bei den Gruppen,
+        siehe _on_group_item_changed)."""
+        if self._populating or item.column() != 1:
+            return
+        nr_item = self._scenes_table.item(item.row(), 0)
+        sc: DaliScene | None = nr_item.data(Qt.UserRole) if nr_item else None
+        if sc is None:
+            return
+        sc.name = item.text().strip()
+        self._project.touch()
 
     def _add_scene(self):
         gw = self._current_gw

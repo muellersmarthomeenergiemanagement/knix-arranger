@@ -246,6 +246,42 @@ class TestAktorRowFelder:
         assert row.element_number == 1
 
 
+class TestCoFallbackGleicherCoName:
+    """Regression (Topologie-Ansicht zeigte GA scheinbar doppelt, Chalet
+    Franziska 2005-Projekt): ein ETS6-importierter Aktor kann zwei
+    Kommunikationsobjekte mit demselben co.name (z.B. "Ausgang A" -- der
+    physische Kanalname) aber unterschiedlicher object_function tragen
+    (kombiniertes "Schalten"-Objekt inkl. Statusempfang + separates
+    "Telegr. Status"-Objekt), die beide auf dieselbe GA zeigen. function_name
+    allein (== co.name) macht die zwei Zeilen fuer die Anzeige ununterscheidbar
+    -- co_function muss die tatsaechliche Rolle tragen, sonst wirkt das wie
+    eine doppelte GA."""
+
+    def test_co_function_unterscheidet_gleichnamige_cos(self):
+        room = Room(number="E01", name="Zimmer")
+        project = _make_project([room], "Fremd-Aktor ohne Gewerk-Zuordnung", [])
+        device = project.topology.areas[0].lines[0].devices[0]
+        device.communication_objects = [
+            CommunicationObject(
+                object_number=0, name="Ausgang A", object_function="Schalten",
+                data_type="1 bit", connected_gas=["3/0/65", "3/7/65"],
+            ),
+            CommunicationObject(
+                object_number=16, name="Ausgang A", object_function="Telegr. Status",
+                data_type="1 bit", connected_gas=["3/7/65"],
+            ),
+        ]
+
+        rows = BelegungsplanService().generate(project).actor_rows
+        shared_ga_rows = [r for r in rows if r.ga_address == "3/7/65"]
+        assert len(shared_ga_rows) == 2
+        assert {r.co_function for r in shared_ga_rows} == {"Schalten", "Telegr. Status"}
+        # Beide gehoeren zum selben Kanal ("Ausgang A") -- die Kanal-Gruppierung
+        # darf durch co_function nicht auseinandergerissen werden.
+        assert {r.function_name for r in shared_ga_rows} == {"Ausgang A"}
+        assert len({r.channel_number for r in shared_ga_rows}) == 1
+
+
 class TestGatewayActorRows:
     """Regression: Gateway-Geraete (device_type='gateway', z.B. DALI, Modbus,
     KNX-Schnittstelle/MM) wurden bisher nirgends als Aktor-Zeile erfasst, da
@@ -382,6 +418,130 @@ class TestVerknuepfungsmatrixFelder:
 
         rows = BelegungsplanService().generate(project).sensor_rows
         assert rows == []
+
+    def test_reines_meldeobjekt_wird_als_feedback_erkannt(self):
+        """Regression (Chalet Franziska 2005, Formular K Verknuepfungsmatrix):
+        ein reines Status-/Messwert-Objekt eines ETS6-importierten Sensors
+        (z.B. Rauchmelder-Alarm, Temperatur-Messwert -- kein Schreiben-Flag,
+        also nicht vom Bus ansteuerbar) wurde bisher IMMER mit is_feedback=
+        False angelegt und erschien deshalb in der Verknuepfungsmatrix als
+        aktive "Taste"-Zeile, obwohl niemand es "drueckt". Muss anhand der
+        fehlenden 'S'-Flag als Feedback erkannt werden."""
+        room = Room(number="E01", name="Wohnzimmer")
+        project = _make_project([room], "Schaltaktor 4-fach", [])
+
+        sensor_dev = Device(
+            device_type="sensor", product="Rauchmelder", physical_address="1.1.2",
+        )
+        sensor_dev.communication_objects = [
+            CommunicationObject(
+                object_number=1, name="Rauchm.:Alarm (0: Aktiv)",
+                object_function="Ausgang", flags="KL-Ü--",
+                connected_gas=["1/0/0"],
+            ),
+        ]
+        project.topology.areas[0].lines[0].devices.append(sensor_dev)
+
+        be = Bedienelement(element_type="Sensor", participant_number="1.1.2")
+        room.bedienelemente = [be]
+
+        rows = BelegungsplanService().generate(project).sensor_rows
+        assert len(rows) == 1
+        assert rows[0].is_feedback is True
+
+    def test_echte_taste_bleibt_aktiv(self):
+        """Ein echtes Taster-Objekt (hat das Schreiben-Flag 'S', der Bus kann
+        es also tatsaechlich ansteuern/ausloesen) bleibt is_feedback=False."""
+        room = Room(number="E01", name="Wohnzimmer")
+        project = _make_project([room], "Schaltaktor 4-fach", [])
+
+        sensor_dev = Device(
+            device_type="sensor", product="Taster 2-fach", physical_address="1.1.2",
+        )
+        sensor_dev.communication_objects = [
+            CommunicationObject(
+                object_number=1, name="Taste 1, links",
+                object_function="EIN/AUS, Schalten", flags="K-SÜA-",
+                connected_gas=["1/0/0"],
+            ),
+        ]
+        project.topology.areas[0].lines[0].devices.append(sensor_dev)
+
+        be = Bedienelement(element_type="Tastereinheit", participant_number="1.1.2")
+        room.bedienelemente = [be]
+
+        rows = BelegungsplanService().generate(project).sensor_rows
+        assert len(rows) == 1
+        assert rows[0].is_feedback is False
+
+    def test_leere_flags_bleiben_konservativ_kein_feedback(self):
+        """Ohne bekannte Flags (z.B. synthetisch angelegtes CO ohne ETS-Import-
+        Daten) bleibt das bisherige Verhalten erhalten: is_feedback=False."""
+        room = Room(number="E01", name="Wohnzimmer")
+        project = _make_project([room], "Schaltaktor 4-fach", [])
+
+        sensor_dev = Device(
+            device_type="sensor", product="Taster 2-fach", physical_address="1.1.2",
+        )
+        sensor_dev.communication_objects = [
+            CommunicationObject(
+                object_number=1, name="Taste 1", object_function="Schalten",
+                flags="", connected_gas=["1/0/0"],
+            ),
+        ]
+        project.topology.areas[0].lines[0].devices.append(sensor_dev)
+
+        be = Bedienelement(element_type="Tastereinheit", participant_number="1.1.2")
+        room.bedienelemente = [be]
+
+        rows = BelegungsplanService().generate(project).sensor_rows
+        assert len(rows) == 1
+        assert rows[0].is_feedback is False
+
+
+class TestFunctionGaMitAdressPraefixAufloesen:
+    """Regression (Chalet Franziska 2005, Formular K Verknuepfungsmatrix):
+    importierte Direkte-GA-SensorFunktionen speichern in ga_designation das
+    kombinierte "Adresse  Bezeichnung"-Format (XlsxImportService.
+    backfill_function_assignments), das direkt in FunctionAssignment.
+    function_ga uebernommen wird (SensorService._expand_direct_ga). Der
+    GA-Index in _collect_sensor_rows war aber nur nach der REINEN
+    GroupAddress.designation (ohne Adresse) indiziert -- ein Lookup mit dem
+    adress-praefixten function_ga schlug deshalb IMMER fehl, wodurch
+    gewerk_code, ga_address und dpt leer blieben und die Zeile in der
+    Verknuepfungsmatrix unter "Sonstige" statt im richtigen Gewerk landete
+    (im echten Projekt: "Jalousie" erschien dadurch nur bei 1 von 13
+    betroffenen Tastern)."""
+
+    def test_gewerk_code_und_adresse_werden_trotz_praefix_aufgeloest(self):
+        room = Room(number="E01", name="Küche")
+        ga = GroupAddress(
+            main_group=3, middle_group=1, sub_group=40,
+            designation="J.OG.05.01_move  ( Küche )",
+            gewerk_code="J", datapoint_type="DPST-1-8",
+        )
+        project = _make_project([room], "Schaltaktor 4-fach", [ga])
+
+        from knix_arranger.models.building import SensorFunktion
+        be = Bedienelement(
+            element_type="Tastereinheit", participant_number="1.1.2", is_auto=False,
+            funktionen=[
+                # Adress-praefixtes ga_designation, wie es beim XLSX-Import
+                # tatsaechlich entsteht.
+                SensorFunktion(
+                    label="Taste 2, rechts",
+                    ga_designation="3/1/40  J.OG.05.01_move  ( Küche )",
+                ),
+            ],
+        )
+        room.bedienelemente = [be]
+
+        rows = BelegungsplanService().generate(project).sensor_rows
+        matching = [r for r in rows if r.taste_label == "Taste 2, rechts"]
+        assert len(matching) == 1
+        assert matching[0].gewerk_code == "J"
+        assert matching[0].ga_address == "3/1/40"
+        assert matching[0].dpt == "DPST-1-8"
 
 
 def _central_ga(gewerk: str, fn: str, designation: str, sub: int, dpt: str = "DPST-1-1") -> GroupAddress:

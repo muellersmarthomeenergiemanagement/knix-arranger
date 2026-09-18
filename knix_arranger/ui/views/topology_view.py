@@ -475,8 +475,19 @@ class TopologyView(QWidget):
             ch_item.setForeground(0, QColor("#616161"))
             for r in ch_rows:
                 gewerk_prefix = f"{r.gewerk_code} " if r.gewerk_code else ""
+                # ETS6-CO-Fallback: mehrere reale Kommunikationsobjekte desselben
+                # Kanals koennen denselben ETS-Objektnamen tragen (z.B. "Ausgang A"
+                # fuer sowohl das Schalt- als auch ein separates Status-Objekt),
+                # aber auf dieselbe GA verweisen -- ohne die Funktionsrolle
+                # (co_function) sehen beide Zeilen identisch aus und wirken wie
+                # eine doppelte GA, obwohl es zwei unterschiedliche COs sind.
+                role_suffix = (
+                    f" ({r.co_function})"
+                    if r.co_function and r.co_function != r.function_name
+                    else ""
+                )
                 QTreeWidgetItem(ch_item, [
-                    f"{gewerk_prefix}{r.function_name}: {r.ga_designation}",
+                    f"{gewerk_prefix}{r.function_name}{role_suffix}: {r.ga_designation}",
                     r.ga_address,
                     "",
                     "",
@@ -509,11 +520,22 @@ class TopologyView(QWidget):
             ])
             ch_item.setForeground(0, QColor("#616161"))
             for co in cos:
+                co_label = co.name or co.object_function
+                # Siehe _add_channel_items_from_rows: mehrere COs desselben
+                # Kanals koennen gleich heissen (co.name), aber unterschiedliche
+                # Funktionsrollen haben (object_function) -- ohne die Rolle
+                # sehen zwei verschiedene, auf dieselbe GA verweisende CO-Zeilen
+                # wie ein Duplikat aus.
+                role_suffix = (
+                    f" ({co.object_function})"
+                    if co.object_function and co.object_function != co_label
+                    else ""
+                )
                 for ga_addr in co.connected_gas:
                     ga_obj = ga_by_address.get(ga_addr)
                     label_text = ga_obj.designation if ga_obj else ga_addr
                     QTreeWidgetItem(ch_item, [
-                        f"{co.name or co.object_function}: {label_text}",
+                        f"{co_label}{role_suffix}: {label_text}",
                         ga_addr,
                         "",
                         "",

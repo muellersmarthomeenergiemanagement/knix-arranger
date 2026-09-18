@@ -268,12 +268,14 @@ class TestSzenenReport:
             if ga.designation == "ZENTRAL Szenenaufruf"
         )
 
-        # button_channel ("Taste N") wird nicht hier vorgegeben, sondern von
+        # button_channel wird nicht hier vorgegeben, sondern von
         # generate_szenen_report ueber BelegungsplanService -> auto_assign_functions
         # aus den Sensorfunktionen der BE neu berechnet (siehe sensor_service.
-        # _expand_funktionen) -- deshalb je BE zwei Funktionen, sonst faellt die
-        # Nummerierung auf das Freitext-Label zurueck (nur bei genau einer
-        # Funktion je BE).
+        # _expand_funktionen) -- deshalb je BE zwei Dummy-Funktionen, um die
+        # Mehrfach-Funktionen-Situation einer echten Bedienstelle abzubilden.
+        # sf.label ("Kino") hat dabei Vorrang vor einer fortlaufenden
+        # "Taste N"-Nummer (siehe TestExpandFunktionenButtonChannel in
+        # test_sensor_service.py).
         sf1 = SensorFunktion(
             label="Kino", ga_designation=szenen_ga.designation,
             bedienart="Szene abrufen", scene_id=scene.id,
@@ -313,11 +315,11 @@ class TestSzenenReport:
         buttons = rs._scene_trigger_buttons_index()[scene.id]
         assert len(buttons) == 2
         assert any(
-            b.startswith("Raum E01 Wohnzimmer") and "Taster 1.1.5" in b and "Taste 3" in b
+            b.startswith("Raum E01 Wohnzimmer") and "Taster 1.1.5" in b and "Kino" in b
             for b in buttons
         )
         assert any(
-            b.startswith("Raum E02 Kueche") and "Taster 1.1.9" in b and "Taste 1" in b
+            b.startswith("Raum E02 Kueche") and "Taster 1.1.9" in b and "Kino" in b
             for b in buttons
         )
 

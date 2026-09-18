@@ -575,8 +575,22 @@ class SensorService:
             if sf.ga_designation:
                 # Direkte GA (FA-1410a, inkl. Szenen)
                 global_channel += 1
-                button_ch = (
-                    f"Taste {global_channel}" if use_numbers else (sf.label or "GA")
+                # sf.label hat Vorrang vor der Zaehl-Nummer, wenn vorhanden:
+                # bei importierten Projekten traegt es haeufig bereits die
+                # echte, aussagekraeftige Tastenbezeichnung aus der ETS
+                # (z.B. "Taste 2, rechts"), waehrend "Taste {global_channel}"
+                # nur eine bedeutungslose fortlaufende Position ueber ALLE
+                # SensorFunktionen der Bedienstelle ist. Vorher wurde das
+                # Label sobald use_numbers aktiv war (>1 Funktion auf der
+                # Bedienstelle -- der Regelfall) komplett verworfen, wodurch
+                # z.B. Primaer- und Status-GA DERSELBEN echten Taste ("Taste
+                # 2, rechts") als zwei verschiedene, falsch benannte Zeilen
+                # ("Taste 5"/"Taste 6") in der Verknuepfungsmatrix auftauchten
+                # (Chalet Franziska 2005, Formular K Verknuepfungsmatrix).
+                # Die Nummer bleibt nur noch Fallback fuer Funktionen ohne
+                # eigenes Label (z.B. Wizard-Direktzuordnung ohne Taste-Text).
+                button_ch = sf.label or (
+                    f"Taste {global_channel}" if use_numbers else "GA"
                 )
                 new_fas = self._expand_direct_ga(sf, button_ch)
                 fas.extend(new_fas)

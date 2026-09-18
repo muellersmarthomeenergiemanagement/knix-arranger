@@ -7,38 +7,63 @@ einem Klick in die Topologie uebernehmen.
 """
 from __future__ import annotations
 import logging
+from collections import Counter
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QLabel, QHeaderView, QCheckBox, QMessageBox, QSizePolicy,
-    QFrame,
+    QFrame, QLineEdit,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QFont
 
 logger = logging.getLogger("knix_arranger.co_linking_view")
 
+
+def _segment_matches(filter_text: str, value: str, sep: str) -> bool:
+    """Vergleicht filter_text gegen value anhand von durch `sep` getrennten
+    Segmenten (physikalische Adresse "Bereich.Linie.Geraet" mit sep=".",
+    GA-Adresse "HG/MG/UG" mit sep="/").
+
+    Ein vollstaendiger Filter (gleich viele oder mehr Segmente als die
+    Adresse) muss EXAKT passen -- sonst wuerde z.B. "1.1.1" faelschlich auch
+    "1.1.10"/"1.1.12" treffen (reiner Praefixvergleich auf dem String statt
+    auf Segmenten). Ein kuerzerer Filter grenzt weiterhin per Praefix auf
+    ganze Segmente ein, z.B. "1.1" zeigt alle Geraete der Linie 1.1."""
+    filter_text = filter_text.strip()
+    if not filter_text:
+        return True
+    f_parts = filter_text.split(sep)
+    while len(f_parts) > 1 and f_parts[-1] == "":
+        f_parts.pop()
+    v_parts = value.split(sep)
+    if len(f_parts) >= len(v_parts):
+        return f_parts == v_parts
+    return v_parts[:len(f_parts)] == f_parts
+
 # Farben
 _COLOR_SICHER = QColor("#C8E6C9")       # Gruen: sichere Verknuepfung
 _COLOR_MANUELL = QColor("#FFF9C4")      # Gelb: manuell pruefen
 _COLOR_ALREADY = QColor("#E3F2FD")      # Blau: bereits verknuepft
 _COLOR_HEADER = QColor("#1565C0")       # KNX-Blau fuer Header
+_COLOR_DUP = QColor("#FFAB91")          # Orange-Rot: mehrfach verknuepfte GA (FA-3000)
 
 # Spalten-Indizes
 _COL_SEL = 0
 _COL_ADDR = 1
-_COL_CO_NAME = 2
-_COL_DPT = 3      # CO-DPT (erwartet)
-_COL_GA_DPT = 4   # GA-DPT (tatsaechlich) – FA-3004
-_COL_FLAGS = 5
-_COL_DIR = 6      # Richtung: empfangen / senden
-_COL_GEWERK = 7
-_COL_GA_ADDR = 8
-_COL_GA_NAME = 9
-_COL_CONF = 10
-_NUM_COLS = 11
+_COL_ORT = 2      # Ort/Raum des Stromkreises – FA-3000
+_COL_CO_NAME = 3
+_COL_DPT = 4      # CO-DPT (erwartet)
+_COL_GA_DPT = 5   # GA-DPT (tatsaechlich) – FA-3004
+_COL_FLAGS = 6
+_COL_DIR = 7      # Richtung: empfangen / senden
+_COL_GEWERK = 8
+_COL_GA_ADDR = 9
+_COL_GA_NAME = 10
+_COL_CONF = 11
+_NUM_COLS = 12
 
 _HEADERS = [
-    "✓", "Geraeteadresse", "CO-Funktion", "CO-DPT", "GA-DPT", "Flags",
+    "✓", "Geraeteadresse", "Ort", "CO-Funktion", "CO-DPT", "GA-DPT", "Flags",
     "Richtung", "Gewerk", "GA-Adresse", "GA-Bezeichnung", "Konfidenz",
 ]
 
@@ -55,6 +80,7 @@ class CoLinkingView(QWidget):
         self._project = None
         self._proposals: list = []
         self._checkboxes: list[QCheckBox] = []
+        self._dup_keys: set[tuple] = set()
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -113,6 +139,50 @@ class CoLinkingView(QWidget):
         line.setStyleSheet("color: #ddd;")
         layout.addWidget(line)
 
+        # Filterzeile
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Geraeteadresse:"))
+        self._filter_addr = QLineEdit()
+        self._filter_addr.setPlaceholderText("z.B. 1.1.3")
+        self._filter_addr.setClearButtonEnabled(True)
+        self._filter_addr.setMaximumWidth(140)
+        self._filter_addr.textChanged.connect(self._apply_filters)
+        filter_layout.addWidget(self._filter_addr)
+
+        filter_layout.addSpacing(8)
+        filter_layout.addWidget(QLabel("Gruppenadresse:"))
+        self._filter_ga = QLineEdit()
+        self._filter_ga.setPlaceholderText("z.B. 2/0/4")
+        self._filter_ga.setClearButtonEnabled(True)
+        self._filter_ga.setMaximumWidth(140)
+        self._filter_ga.textChanged.connect(self._apply_filters)
+        filter_layout.addWidget(self._filter_ga)
+
+        filter_layout.addSpacing(12)
+        filter_layout.addWidget(QLabel("Anzeigen:"))
+        self._cb_filter_sicher = QCheckBox("Sicher")
+        self._cb_filter_sicher.setChecked(True)
+        self._cb_filter_sicher.toggled.connect(self._apply_filters)
+        filter_layout.addWidget(self._cb_filter_sicher)
+
+        self._cb_filter_manuell = QCheckBox("Manuell pruefen")
+        self._cb_filter_manuell.setChecked(True)
+        self._cb_filter_manuell.toggled.connect(self._apply_filters)
+        filter_layout.addWidget(self._cb_filter_manuell)
+
+        self._cb_filter_already = QCheckBox("Bereits verknuepft")
+        self._cb_filter_already.setChecked(True)
+        self._cb_filter_already.toggled.connect(self._apply_filters)
+        filter_layout.addWidget(self._cb_filter_already)
+
+        filter_layout.addSpacing(12)
+        self._cb_filter_dup = QCheckBox("Nur Mehrfachverknuepfungen (gleiche GA am selben Geraet)")
+        self._cb_filter_dup.toggled.connect(self._apply_filters)
+        filter_layout.addWidget(self._cb_filter_dup)
+
+        filter_layout.addStretch()
+        layout.addLayout(filter_layout)
+
         # Statuszeile
         self._status_label = QLabel("Kein Projekt geladen.")
         self._status_label.setStyleSheet("font-size: 11px; color: #555;")
@@ -140,7 +210,8 @@ class CoLinkingView(QWidget):
             "Legende:  "
             "<span style='background:#C8E6C9; padding:2px 6px;'>Sicher</span>  "
             "<span style='background:#FFF9C4; padding:2px 6px;'>Manuell pruefen</span>  "
-            "<span style='background:#E3F2FD; padding:2px 6px;'>Bereits verknuepft</span>"
+            "<span style='background:#E3F2FD; padding:2px 6px;'>Bereits verknuepft</span>  "
+            "<span style='background:#FFAB91; padding:2px 6px;'>Gleiche GA mehrfach am Geraet</span>"
         )
         legend.setTextFormat(Qt.RichText)
         legend.setStyleSheet("font-size: 10px;")
@@ -201,6 +272,7 @@ class CoLinkingView(QWidget):
         """Befuellt die QTableWidget mit den aktuellen Vorschlaegen."""
         self._table.setRowCount(0)
         self._checkboxes.clear()
+        self._dup_keys.clear()
         if not self._proposals:
             self._table.setRowCount(1)
             item = QTableWidgetItem("Keine Vorschlaege — Wizard-Schritte 6–8 zuerst abschliessen.")
@@ -210,6 +282,18 @@ class CoLinkingView(QWidget):
             return
 
         self._table.setRowCount(len(self._proposals))
+        # FA-3000: GA-Adressen zaehlen, die am selben Geraet mehrfach auftauchen
+        # (z.B. gleiche GA fuer zwei verschiedene CO-Funktionen vorgeschlagen) --
+        # echte 1:1-Duplikate (identische Geraet+GA+CO-Funktion) werden bereits
+        # in CoLinkingService._dedupe_proposals() entfernt; was hier uebrig
+        # bleibt, ist eine Mehrfachverknuepfung derselben GA am selben Geraet,
+        # die der Planer pruefen sollte.
+        ga_counts = Counter(
+            (p.physical_address, p.ga_address)
+            for p in self._proposals if p.ga_address
+        )
+        self._dup_keys = {key for key, n in ga_counts.items() if n > 1}
+
         for row_idx, proposal in enumerate(self._proposals):
             # Hintergrundfarbe bestimmen
             if proposal.already_linked:
@@ -218,6 +302,7 @@ class CoLinkingView(QWidget):
                 bg = _COLOR_SICHER
             else:
                 bg = _COLOR_MANUELL
+            is_dup = (proposal.physical_address, proposal.ga_address) in self._dup_keys
 
             # Checkbox
             cb = QCheckBox()
@@ -241,37 +326,89 @@ class CoLinkingView(QWidget):
                 and not proposal.already_linked
             )
             ga_dpt_bg = QColor("#FFCDD2") if dpt_mismatch else bg
+            ga_addr_bg = _COLOR_DUP if is_dup else bg
             for col, text, cell_bg in [
                 (_COL_ADDR,    proposal.physical_address,  bg),
+                (_COL_ORT,     proposal.room_name or "Zentral", bg),
                 (_COL_CO_NAME, proposal.co_name,           bg),
                 (_COL_DPT,     proposal.co_dpt,            bg),
                 (_COL_GA_DPT,  ga_dpt,                     ga_dpt_bg),
                 (_COL_FLAGS,   proposal.co_flags,          bg),
                 (_COL_DIR,     direction,                  dir_color if not proposal.already_linked else bg),
                 (_COL_GEWERK,  proposal.gewerk_code,       bg),
-                (_COL_GA_ADDR, proposal.ga_address,        bg),
+                (_COL_GA_ADDR, proposal.ga_address,        ga_addr_bg),
                 (_COL_GA_NAME, proposal.ga_designation,    bg),
                 (_COL_CONF,    "Bereits verknuepft" if proposal.already_linked else proposal.confidence, bg),
             ]:
                 item = QTableWidgetItem(text)
                 item.setBackground(QBrush(cell_bg))
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                if col == _COL_GA_ADDR and is_dup:
+                    item.setToolTip(
+                        "Diese GA-Adresse wird am selben Geraet mehrfach vorgeschlagen "
+                        "(mehrere CO-Funktionen) -- pruefen, ob das gewollt ist."
+                    )
                 self._table.setItem(row_idx, col, item)
 
         self._table.resizeColumnsToContents()
         self._table.setColumnWidth(_COL_SEL, 36)
+        self._apply_filters()
 
     def _update_status(self):
         total = len(self._proposals)
         already = sum(1 for p in self._proposals if p.already_linked)
         new_ = total - already
-        self._status_label.setText(
-            f"{total} Vorschlaege insgesamt  |  "
-            f"{new_} neu  |  {already} bereits verknuepft"
-        )
+        dup = len(self._dup_keys)
+        text = f"{total} Vorschlaege insgesamt  |  {new_} neu  |  {already} bereits verknuepft"
+        if dup:
+            text += f"  |  {dup} GA-Adresse(n) mehrfach am gleichen Geraet"
+        self._status_label.setText(text)
+
+    def _apply_filters(self):
+        """FA-3000: Blendet Zeilen aus, die nicht zum Geraeteadress-/GA-/Farb-/
+        Mehrfachverknuepfungs-Filter passen. Arbeitet rein auf Zeilensichtbarkeit
+        (setRowHidden) -- Proposal-Liste und Checkbox-Zuordnung bleiben
+        unveraendert, damit "Alle auswaehlen"/"Uebernehmen" weiterhin korrekt
+        auf die zugrundeliegenden Vorschlaege abbilden.
+
+        Adress-/GA-Filter vergleichen segmentweise (siehe _segment_matches),
+        damit z.B. "1.1.1" nicht faelschlich auch "1.1.10"/"1.1.12" trifft."""
+        if not self._proposals:
+            return
+        addr_filter = self._filter_addr.text()
+        ga_filter = self._filter_ga.text()
+        show_sicher = self._cb_filter_sicher.isChecked()
+        show_manuell = self._cb_filter_manuell.isChecked()
+        show_already = self._cb_filter_already.isChecked()
+        dup_only = self._cb_filter_dup.isChecked()
+
+        for row_idx, proposal in enumerate(self._proposals):
+            visible = True
+            if not _segment_matches(addr_filter, proposal.physical_address, "."):
+                visible = False
+            elif not _segment_matches(ga_filter, proposal.ga_address, "/"):
+                visible = False
+            elif proposal.already_linked:
+                visible = show_already
+            elif proposal.confidence == "sicher":
+                visible = show_sicher
+            else:
+                visible = show_manuell
+            if visible and dup_only:
+                visible = (proposal.physical_address, proposal.ga_address) in self._dup_keys
+            self._table.setRowHidden(row_idx, not visible)
+
+    def _visible_indices(self) -> list[int]:
+        return [
+            i for i in range(len(self._proposals))
+            if not self._table.isRowHidden(i)
+        ]
 
     def _set_all(self, state: bool):
-        for cb, proposal in zip(self._checkboxes, self._proposals):
+        visible = set(self._visible_indices())
+        for idx, (cb, proposal) in enumerate(zip(self._checkboxes, self._proposals)):
+            if idx not in visible:
+                continue
             if not proposal.already_linked:
                 cb.setChecked(state)
 

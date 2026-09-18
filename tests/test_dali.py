@@ -275,6 +275,23 @@ class TestLinkGasFromStructureImportConvention:
         assert self.gw.ga_switch_broadcast == "0/0/0"
         assert self.gw.ga_dim_broadcast == "0/0/1"
 
+    def test_dot_convention_tolerates_freitext_zwischen_suffix_und_klammer(self):
+        """Regression (Chalet Franziska 2005): 'LDA.EG.00.01_ea von pir
+        ( Spots Haupteingang )' -- der Installateur haengt in ETS teils noch
+        einen Freitext-Kommentar ("von pir") HINTER das Funktions-Suffix,
+        VOR die Klammer-Bezeichnung. Der alte Endanker (\\s*$) verlangte den
+        Suffix als letztes Wort vor der Klammer und schlug hier fehl, wodurch
+        diese GA nie verknuepft wurde (unsichtbar in der DALI-Konfiguration,
+        obwohl sie laut CO-Verknuepfung an DALI-COs haengt)."""
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.EG.00.01_ea von pir  ( Spots Haupteingang )",
+        ])
+
+        n = self.svc.link_gas_from_structure(self.gw, self.project)
+
+        assert n == 1
+        assert self.gw.ga_switch_broadcast == "0/0/0"
+
 
 # ---------------------------------------------------------------------------
 # _derive_groups_from_import / _derive_evgs_from_import -- dieselbe
@@ -364,6 +381,238 @@ class TestDeriveGroupsFromImportDotConvention:
         assert n == 1
         assert self.gw.groups[0].ga_switch == "0/0/0"
         assert self.gw.groups[0].ga_dim == "0/0/1"
+
+    def test_mg0_mg7_spiegeladresse_erzeugt_keine_zweite_gruppe(self):
+        """Regression (Chalet Franziska 2005): fast jede DALI-Gruppe trug dort
+        neben ihrer MG-0-Steuer-GA eine MG-7-"Status"-Spiegeladresse mit
+        IDENTISCHEM Freitext (nur Haupt-/Untergruppe gleich, Mittelgruppe
+        0 vs 7) -- das darf nicht zu einer verdoppelten Gruppe fuehren."""
+        from knix_arranger.models.group_address import GroupAddress, MiddleGroup
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.OG.00.02_ea  ( Wandleuchten )",
+        ])
+        ga2 = GroupAddress(
+            main_group=0, middle_group=7, sub_group=0,
+            designation="LDA.OG.00.02_ea  ( Wandleuchten )",
+        )
+        self.project.group_addresses.main_groups[0].middle_groups.append(
+            MiddleGroup(number=7, name="Status", group_addresses=[ga2])
+        )
+        device = _make_device_with_kos("1.1.1", [("0/0/0", "a"), ("0/7/0", "b")])
+
+        n = self.svc._derive_groups_from_import(self.gw, device, self.project)
+
+        assert n == 1
+        assert self.gw.groups[0].ga_switch == "0/0/0"  # MG-0-Adresse gewinnt
+
+    def test_echte_kollision_wird_als_eigene_gruppe_sichtbar(self):
+        """Regression (Chalet Franziska 2005): GA 2/0/3 ("Spots Haupteingang",
+        per Bewegungsmelder ausgeloest) trug denselben LDA-Raum/Element-Code
+        wie die unabhaengige GA 2/0/0 -- gleiche Haupt- UND Mittelgruppe,
+        aber andere Untergruppe = keine Spiegeladresse, echte Kollision.
+        Vorher ging 2/0/3 dabei stillschweigend verloren (last-write-wins)
+        und tauchte in der DALI-Konfiguration nirgends auf, obwohl sie laut
+        CO-Verknuepfung an DALI-COs haengt."""
+        from knix_arranger.models.group_address import GroupAddress
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.EG.00.01_ea  ( Spots Haupteingang )",
+        ])
+        ga2 = GroupAddress(
+            main_group=0, middle_group=0, sub_group=3,
+            designation="LDA.EG.00.01_ea von pir  ( Spots Haupteingang )",
+        )
+        self.project.group_addresses.main_groups[0].middle_groups[0].group_addresses.append(ga2)
+        device = _make_device_with_kos("1.1.1", [("0/0/0", "a"), ("0/0/3", "b")])
+
+        n = self.svc._derive_groups_from_import(self.gw, device, self.project)
+
+        assert n == 2
+        switches = {g.ga_switch for g in self.gw.groups}
+        assert switches == {"0/0/0", "0/0/3"}
+        new_grp = next(g for g in self.gw.groups if g.ga_switch == "0/0/3")
+        assert new_grp.name == "Spots Haupteingang"
+
+    def test_freitext_nach_suffix_verhindert_gruppe_nicht(self):
+        """Regression (Chalet Franziska 2005, Formular DA DALI-Konfiguration):
+        eine GA mit Freitext zwischen Funktions-Suffix und Klammer-Bezeichnung
+        ("LDA.EG.00.01_ea von pir  ( Spots Haupteingang )") muss trotzdem eine
+        eigene DALI-Gruppe ergeben, statt beim Parsen uebersehen zu werden."""
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.EG.00.01_ea von pir  ( Spots Haupteingang )",
+        ])
+        device = _make_device_with_kos("1.1.1", [("0/0/0", "a")])
+
+        n = self.svc._derive_groups_from_import(self.gw, device, self.project)
+
+        assert n == 1
+        assert self.gw.groups[0].ga_switch == "0/0/0"
+
+    def test_gruppennummer_folgt_echtem_ko_namen(self):
+        """Regression (Chalet Franziska 2005): ohne Abgleich mit dem echten
+        KO-Namen ("G5, Schalten,") lief die in der App angezeigte
+        Gruppennummer rein nach Sortierreihenfolge der Raum-Schluessel und
+        driftete von der physischen DALI-Gruppennummer im Gateway auseinander.
+        Jetzt muss "G5" zu number=4 werden (0-basiert: DALI-Gruppe 1 = 0)."""
+        from knix_arranger.models.topology import Device, CommunicationObject
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.OG.00.05_ea",
+        ])
+        device = Device(physical_address="1.1.1", device_type="gateway", product="DALI-Gateway")
+        device.communication_objects = [
+            CommunicationObject(object_number=0, name="G5, Schalten,", connected_gas=["0/0/0"]),
+        ]
+
+        self.svc._derive_groups_from_import(self.gw, device, self.project)
+
+        assert len(self.gw.groups) == 1
+        assert self.gw.groups[0].number == 4
+
+    def test_ausgeschriebene_ko_form_wird_auch_erkannt(self):
+        """'Gruppe 3 Schalten' (bereits vorher unterstuetzte Langform) muss
+        weiterhin zur physischen Nummer fuehren, nicht nur die Kurzform 'G3,'."""
+        from knix_arranger.models.topology import Device, CommunicationObject
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.OG.00.03_ea",
+        ])
+        device = Device(physical_address="1.1.1", device_type="gateway", product="DALI-Gateway")
+        device.communication_objects = [
+            CommunicationObject(object_number=0, name="Gruppe 3 Schalten", connected_gas=["0/0/0"]),
+        ]
+
+        self.svc._derive_groups_from_import(self.gw, device, self.project)
+
+        assert self.gw.groups[0].number == 2
+
+    def test_mehrdeutige_ga_faellt_auf_naechste_freie_nummer_zurueck(self):
+        """Wird dieselbe GA von zwei verschiedenen physischen Gruppen-COs
+        referenziert (reale, mehrdeutige Verdrahtung -- siehe GA 2/0/3-Fall),
+        darf das Ableiten nicht crashen oder eine falsche Nummer erzwingen;
+        beide Gruppen muessen trotzdem eindeutige Nummern erhalten."""
+        from knix_arranger.models.topology import Device, CommunicationObject
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.OG.00.01_ea",
+            "LDA.OG.00.02_ea",
+        ])
+        device = Device(physical_address="1.1.1", device_type="gateway", product="DALI-Gateway")
+        device.communication_objects = [
+            # Beide GAs sind ambig (auch an G2/G5 gebunden) -- keine eindeutige
+            # physische Nummer ableitbar, aber es darf trotzdem funktionieren.
+            CommunicationObject(object_number=0, name="G2, Schalten,",
+                                 connected_gas=["0/0/0", "0/0/1"]),
+            CommunicationObject(object_number=1, name="G5, Schalten,",
+                                 connected_gas=["0/0/0", "0/0/1"]),
+        ]
+
+        n = self.svc._derive_groups_from_import(self.gw, device, self.project)
+
+        assert n == 2
+        numbers = [g.number for g in self.gw.groups]
+        assert len(numbers) == len(set(numbers))  # keine doppelte Nummer
+
+    def test_switch_wahl_bei_kollidierenden_gas_ist_deterministisch(self):
+        """Regression: zwei verschiedene GAs mit '_ea'-Suffix, die auf
+        denselben LDA-Schluessel fallen (widerspruechliche Import-Daten,
+        unterschiedliche Untergruppe = echte Kollision, siehe
+        _same_mirrored_target), duerfen nicht je nach Python-Hash-
+        Reihenfolge ein anderes Ergebnis liefern -- sortierte Verarbeitung
+        macht es reproduzierbar (die zuerst sortierte Adresse bleibt unter
+        dem urspruenglichen Schluessel, die zweite wird als eigene Gruppe
+        disambiguiert)."""
+        self.project.group_addresses = _make_ga_structure([
+            "LDA.OG.00.02_ea",
+            "LDA.OG.00.02_ea",  # zweite GA mit identischem Schluessel+Funktion
+        ])
+        # Zweite GA-Adresse manuell auf eine andere Adresse setzen
+        self.project.group_addresses.all_addresses()[1].sub_group = 9
+        device = _make_device_with_kos("1.1.1", [("0/0/0", "a"), ("0/0/9", "b")])
+
+        for _ in range(5):
+            gw = DaliGateway(gateway_device_id="dev-1", name="GW")
+            self.svc._derive_groups_from_import(gw, device, self.project)
+            switches = {g.ga_switch for g in gw.groups}
+            assert switches == {"0/0/0", "0/0/9"}
+
+
+class TestResyncGroupNumbers:
+    """DaliService.resync_group_numbers() -- manueller Abgleich der
+    Gruppennummer mit der echten DALI-Gruppennummer im Gateway (FA-2801-
+    Folgefehler, Chalet Franziska 2005: "Gruppe 1" in der App war real
+    "G5" im Gateway)."""
+
+    def setup_method(self):
+        self.svc = DaliService()
+
+    def _make_device(self, kos: list[tuple[str, list[str]]]):
+        from knix_arranger.models.topology import Device, CommunicationObject
+        device = Device(physical_address="1.1.1", device_type="gateway", product="DALI-Gateway")
+        for i, (name, gas) in enumerate(kos):
+            device.communication_objects.append(
+                CommunicationObject(object_number=i, name=name, connected_gas=gas)
+            )
+        return device
+
+    def test_korrigiert_abweichende_nummer(self):
+        device = self._make_device([("G5, Schalten,", ["0/0/0"])])
+        gw = DaliGateway(gateway_device_id="dev-1", name="GW")
+        gw.groups = [DaliGroup(number=1, name="Galerie", ga_switch="0/0/0")]
+
+        n = self.svc.resync_group_numbers(gw, device)
+
+        assert n == 1
+        assert gw.groups[0].number == 4
+
+    def test_bereits_korrekte_nummer_bleibt_unveraendert(self):
+        device = self._make_device([("G5, Schalten,", ["0/0/0"])])
+        gw = DaliGateway(gateway_device_id="dev-1", name="GW")
+        gw.groups = [DaliGroup(number=4, name="Galerie", ga_switch="0/0/0")]
+
+        n = self.svc.resync_group_numbers(gw, device)
+
+        assert n == 0
+        assert gw.groups[0].number == 4
+
+    def test_evg_group_memberships_werden_mitverschoben(self):
+        """Kritisch: EVGs verweisen per Nummer (nicht per Objekt-Referenz) auf
+        ihre Gruppe -- eine Renummerierung ohne Mitverschieben wuerde ein EVG
+        stillschweigend einer voellig anderen Gruppe zuordnen."""
+        device = self._make_device([("G5, Schalten,", ["0/0/0"])])
+        gw = DaliGateway(gateway_device_id="dev-1", name="GW")
+        gw.groups = [DaliGroup(number=1, name="Galerie", ga_switch="0/0/0")]
+        gw.devices = [DaliDevice(short_address=0, name="EVG 0", group_memberships=[1])]
+
+        self.svc.resync_group_numbers(gw, device)
+
+        assert gw.devices[0].group_memberships == [4]
+
+    def test_unaufloesbare_gruppe_behaelt_nummer_wenn_frei(self):
+        device = self._make_device([("G5, Schalten,", ["0/0/0"])])
+        gw = DaliGateway(gateway_device_id="dev-1", name="GW")
+        gw.groups = [
+            DaliGroup(number=1, name="Galerie", ga_switch="0/0/0"),
+            DaliGroup(number=7, name="Unbekannt", ga_switch="9/9/9"),  # keine KO-Entsprechung
+        ]
+
+        self.svc.resync_group_numbers(gw, device)
+
+        numbers = {g.name: g.number for g in gw.groups}
+        assert numbers["Galerie"] == 4
+        assert numbers["Unbekannt"] == 7  # unveraendert, da frei
+
+    def test_keine_kollision_bei_mehreren_gruppen(self):
+        device = self._make_device([
+            ("G2, Schalten,", ["0/0/0"]),
+            ("G5, Schalten,", ["0/0/1"]),
+        ])
+        gw = DaliGateway(gateway_device_id="dev-1", name="GW")
+        gw.groups = [
+            DaliGroup(number=0, name="Erste", ga_switch="0/0/0"),
+            DaliGroup(number=1, name="Zweite", ga_switch="0/0/1"),
+        ]
+
+        self.svc.resync_group_numbers(gw, device)
+
+        numbers = sorted(g.number for g in gw.groups)
+        assert numbers == [1, 4]
 
 
 class TestDeriveEvgsRoomFromDotConvention:

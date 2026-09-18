@@ -45,6 +45,24 @@ from ..models.group_address import (
 
 logger = logging.getLogger("knix_arranger.xlsx_import")
 
+_valid_gewerk_codes_cache: set[str] | None = None
+
+
+def _valid_gewerk_codes() -> set[str]:
+    """Lädt einmalig (und cached) die Menge gültiger Standard-Gewerk-Kürzel
+    aus dem Default-Katalog (config/gewerke_catalog.json), zur Validierung
+    in `_parse_xlsx_designation()`. Projektspezifische Custom-Gewerke sind
+    beim Import naturgemäss noch nicht bekannt (werden erst im Wizard
+    angelegt) -- die Prüfung gegen den Standardkatalog reicht aber, um
+    Nicht-Gewerk-Präfixe zuverlässig zu erkennen."""
+    global _valid_gewerk_codes_cache
+    if _valid_gewerk_codes_cache is None:
+        from ..models.gewerk import GewerkCatalog
+        catalog = GewerkCatalog()
+        catalog.load_defaults()
+        _valid_gewerk_codes_cache = set(catalog.all_codes())
+    return _valid_gewerk_codes_cache
+
 try:
     import openpyxl
     HAS_OPENPYXL = True
@@ -1349,11 +1367,22 @@ class XlsxImportService:
             base = designation[:paren_m.start()].strip()
         else:
             base = designation.strip()
-        # Gewerk-Code: erstes Segment vor '.' oder '_'
+        # Gewerk-Code: erstes Segment vor '.' oder '_'.
+        # Nur uebernehmen, wenn es tatsaechlich ein bekanntes Gewerk-Kuerzel
+        # ist -- andere Bezeichnungskonventionen (z.B. Szenen-Controller-GAs
+        # wie "Raum1_Szene High", "AK_...", "Tag/Nacht_...") folgen demselben
+        # PRAEFIX_Funktion-Muster, sind aber kein Gewerk. Ungeprueft uebernommen
+        # tauchten deren Praefixe bisher als scheinbare, aber ungueltige
+        # Gewerk-Spalten in der Verknuepfungsmatrix auf (Chalet Franziska
+        # 2005: "RAUM1"/"RAUM5"/"AK"/"TAG/NACHT" statt "Sonstige").
         if '.' in base:
-            ga.gewerk_code = base.split('.')[0].upper()
+            candidate = base.split('.')[0].upper()
         elif '_' in base:
-            ga.gewerk_code = base.split('_')[0].upper()
+            candidate = base.split('_')[0].upper()
+        else:
+            candidate = ""
+        if candidate in _valid_gewerk_codes():
+            ga.gewerk_code = candidate
 
     def import_ga_report(self, filepath: str) -> GroupAddressStructure:
         """

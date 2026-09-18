@@ -1373,6 +1373,28 @@ class TestParseGaEntries:
         assert ga.gewerk_code == "J"
         assert ga.description == ""
 
+    def test_nicht_gewerk_praefix_wird_verworfen(self):
+        """Regression (Chalet Franziska 2005, Formular K Verknuepfungsmatrix):
+        Szenen-Controller-GAs wie 'Raum1_Szene High' folgen demselben
+        PRAEFIX_Funktion-Muster wie echte Gewerk-GAs ('J_...', 'L_...'),
+        sind aber kein Gewerk-Kuerzel. Vorher wurde 'RAUM1' ungeprueft als
+        gewerk_code uebernommen und tauchte als ungueltige, verwirrende
+        Spalte in der Verknuepfungsmatrix auf statt unter 'Sonstige'."""
+        from knix_arranger.models.group_address import GroupAddress
+        for text in ("Raum1_Szene High", "Raum5_Szene Off", "AK_Freigabe", "Tag/Nacht_Umschaltung"):
+            ga = GroupAddress()
+            self.svc._parse_xlsx_designation(ga, text)
+            assert ga.gewerk_code == "", f"{text!r} lieferte faelschlich gewerk_code={ga.gewerk_code!r}"
+
+    def test_gueltiges_gewerk_praefix_mit_unterstrich_bleibt_erhalten(self):
+        """Regressionsschutz: die Unterstrich-Variante (NamingEngine-
+        Konvention, kein Punkt) eines ECHTEN Gewerk-Kuerzels darf durch die
+        Validierung nicht verworfen werden."""
+        from knix_arranger.models.group_address import GroupAddress
+        ga = GroupAddress()
+        self.svc._parse_xlsx_designation(ga, "LD_E01_01 E/A")
+        assert ga.gewerk_code == "LD"
+
     def test_designation_empty(self):
         from knix_arranger.models.group_address import GroupAddress
         ga = GroupAddress()

@@ -36,6 +36,7 @@ class CoLinkingProposal:
     ga_address: str             # z.B. "2/0/0"
     ga_designation: str         # z.B. "LD_E01_01 E/A (Wohnzimmer)"
     ga_dpt: str = ""            # tatsaechlicher DPT der GA (aus Projekt)
+    room_name: str = ""         # Ort/Raum des bedienten Stromkreises (leer bei Zentral-/Szenen-GAs)
     confidence: str = "sicher"  # "sicher" | "manuell pruefen"
     selected: bool = True
     already_linked: bool = False  # GA bereits in connected_gas vorhanden
@@ -153,7 +154,7 @@ class CoLinkingService:
                 (row.physical_address, row.function_name), set()
             )
 
-            real_co = self._match_real_co(device, row.function_name)
+            real_co = self._match_real_co(device, row.function_name, row.co_function)
             if real_co is not None:
                 co_specs = [(
                     real_co.name or row.function_name,
@@ -192,16 +193,52 @@ class CoLinkingService:
                     ga_address=row.ga_address,
                     ga_designation=row.ga_designation,
                     ga_dpt=ga_dpt,
+                    room_name=row.room_name,
                     confidence=confidence,
                     selected=not already,
                     already_linked=already,
                 ))
+
+        proposals = self._dedupe_proposals(proposals)
 
         logger.info(
             f"CO-Auto-Linking: {len(proposals)} Vorschlaege generiert "
             f"({sum(1 for p in proposals if p.already_linked)} bereits verknuepft)"
         )
         return proposals
+
+    def _dedupe_proposals(
+        self, proposals: list[CoLinkingProposal]
+    ) -> list[CoLinkingProposal]:
+        """
+        Entfernt echte Doppeleintraege: identische (Geraeteadresse, GA-Adresse,
+        CO-Name, Richtung)-Kombination mehrfach vorgeschlagen.
+
+        Kann entstehen, wenn dasselbe Geraet (gleiche physikalische Adresse)
+        aus mehreren Quellen dieselbe GA fuer dieselbe Funktion erhaelt, z.B.
+        bei doppelten Geraete-Eintraegen in der Topologie (Import-Merge) oder
+        bei sich ueberschneidenden Gewerk-/Zentral-GA-Zuordnungen fuer dieselbe
+        Funktion. Eine identische Verknuepfung zweimal vorzuschlagen bringt
+        keinen Mehrwert (apply_proposals wuerde ohnehin nur einmal schreiben)
+        und verwirrt in der Tabelle -- daher hier bereits bereinigt, mit
+        Logging, damit die Quelle bei Bedarf nachvollzogen werden kann.
+        """
+        seen: dict[tuple, CoLinkingProposal] = {}
+        result: list[CoLinkingProposal] = []
+        dropped: list[tuple] = []
+        for p in proposals:
+            key = (p.physical_address, p.ga_address, p.co_name, p.direction)
+            if key in seen:
+                dropped.append(key)
+                continue
+            seen[key] = p
+            result.append(p)
+        if dropped:
+            logger.warning(
+                f"CO-Auto-Linking: {len(dropped)} doppelte Vorschlags-Zeile(n) "
+                f"entfernt (identische Geraeteadresse+GA+CO-Funktion): {dropped}"
+            )
+        return result
 
     def apply_proposals(self, project, proposals: list[CoLinkingProposal]) -> int:
         """
@@ -263,7 +300,7 @@ class CoLinkingService:
                     result.setdefault(key, set()).update(co.connected_gas)
         return result
 
-    def _match_real_co(self, device, function_name: str):
+    def _match_real_co(self, device, function_name: str, co_function: str = ""):
         """
         FA-3006: Sucht ein reales (aus KNXPROD importiertes) Kommunikations-
         objekt des Geraets, dessen Funktionsname/Name exakt (ohne Gross-/
@@ -272,6 +309,18 @@ class CoLinkingService:
         Nur ein exakter Treffer zaehlt -- eine unscharfe Zuordnung wuerde
         bei generischen Vorlagen-Funktionsnamen (z.B. "EIN/AUS") faelschlich
         auf voellig andere Produktfunktionen matchen.
+
+        `co_function` (ActorRow.co_function, siehe belegungsplan_service):
+        bei ETS6-CO-Fallback-Zeilen kann ein Geraet MEHRERE COs mit demselben
+        `co.name` (physischer Kanal, z.B. "Ausgang A") aber unterschiedlicher
+        `co.object_function` (Schalten/8-Bit-Szene/Telegr. Status ...) haben.
+        Ohne dieses Zusatzkriterium liefert die Namenssuche unten den ERSTEN
+        Treffer -- unabhaengig davon, ob das ueberhaupt das CO ist, aus dem
+        diese Zeile stammt (Chalet Franziska 2005: 1.1.10, GA 0/4/1 -- die
+        Zeile stammt vom "8-Bit-Szene"-CO, aber die reine Namenssuche traf
+        zuerst das gleichnamige "Schalten"-CO, DPT "1 bit" statt "1 byte" --
+        daher der scheinbare CO-DPT/GA-DPT-Widerspruch in der Tabelle). Ist
+        `co_function` bekannt, muss sie zusaetzlich zum Namen exakt passen.
 
         Ausnahme "SZENE": Hersteller benennen das Szenen-Objekt selten
         woertlich "Szene", meist z.B. "8-Bit-Szene" oder "Szenensteuerung"
@@ -289,6 +338,11 @@ class CoLinkingService:
         target = function_name.strip().lower()
         if not target:
             return None
+        role = co_function.strip().lower()
+        if role:
+            for co in device.communication_objects:
+                if co.name.strip().lower() == target and co.object_function.strip().lower() == role:
+                    return co
         for co in device.communication_objects:
             if co.object_function.strip().lower() == target:
                 return co

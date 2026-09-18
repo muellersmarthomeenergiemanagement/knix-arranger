@@ -493,6 +493,81 @@ class TestAutoAssignFunctions:
         )
 
 
+class TestExpandFunktionenButtonChannel:
+    """Regression (Chalet Franziska 2005, Formular K Verknuepfungsmatrix):
+    _expand_funktionen() ueberschrieb bei Direkte-GA-SensorFunktionen das
+    vorhandene, aussagekraeftige sf.label (z.B. "Taste 2, rechts", aus einem
+    ETS6-Import) durch eine bedeutungslose fortlaufende Nummer ("Taste 6"),
+    sobald mehr als eine Funktion auf derselben Bedienstelle lag -- der
+    Regelfall, da eine Taste in diesem Projekt meist aus Primaer- + Status-GA
+    besteht (zwei SensorFunktionen mit identischem Label). Das Label muss
+    Vorrang vor der Nummer haben; die Nummer bleibt nur Fallback."""
+
+    def test_label_hat_vorrang_vor_taste_nummer(self):
+        from knix_arranger.models.building import SensorFunktion
+        room = Room(number="E01", name="Zimmer")
+        svc = SensorService()
+        funktionen = [
+            SensorFunktion(label="Taste 1, rechts", ga_designation="1/0/0"),
+            SensorFunktion(label="Taste 1, rechts", ga_designation="1/7/0"),
+            SensorFunktion(label="Taste 2, rechts", ga_designation="1/0/20"),
+            SensorFunktion(label="Taste 2, rechts", ga_designation="1/7/20"),
+        ]
+
+        fas, total = svc._expand_funktionen(funktionen, room, {})
+
+        assert total == 4
+        assert [fa.button_channel for fa in fas] == [
+            "Taste 1, rechts", "Taste 1, rechts", "Taste 2, rechts", "Taste 2, rechts",
+        ]
+
+    def test_primaer_und_status_ga_derselben_taste_gruppieren_sich(self):
+        """Direkte Konsequenz des obigen Fixes: Primaer- und Status-GA
+        DERSELBEN echten Taste teilen sich jetzt denselben button_channel --
+        sie landen dadurch in der Verknuepfungsmatrix (rk = (Adresse, Taste))
+        wieder in EINER Zeile statt zweier falsch benannter Zeilen."""
+        from knix_arranger.models.building import SensorFunktion
+        room = Room(number="E01", name="Zimmer")
+        svc = SensorService()
+        funktionen = [
+            SensorFunktion(label="Taste 2, rechts", ga_designation="1/0/20"),
+            SensorFunktion(label="Taste 2, rechts", ga_designation="1/7/20"),
+        ]
+
+        fas, _ = svc._expand_funktionen(funktionen, room, {})
+
+        assert len({fa.button_channel for fa in fas}) == 1
+
+    def test_fehlendes_label_faellt_auf_nummer_zurueck(self):
+        """Ohne eigenes Label (z.B. reine Wizard-Direktzuordnung ohne
+        Taste-Text) bleibt die bisherige fortlaufende Nummerierung als
+        Fallback bestehen -- Regressionsschutz fuer den bisherigen Zweck von
+        use_numbers (mehrere generische Funktionen unterscheidbar machen)."""
+        from knix_arranger.models.building import SensorFunktion
+        room = Room(number="E01", name="Zimmer")
+        svc = SensorService()
+        funktionen = [
+            SensorFunktion(label="", ga_designation="1/0/0"),
+            SensorFunktion(label="", ga_designation="1/0/1"),
+        ]
+
+        fas, _ = svc._expand_funktionen(funktionen, room, {})
+
+        assert [fa.button_channel for fa in fas] == ["Taste 1", "Taste 2"]
+
+    def test_einzelne_direkte_ga_ohne_label_nutzt_ga_fallback(self):
+        """Regressionsschutz: genau eine Direkte-GA-SF ohne Label (use_numbers
+        False) nutzte schon vorher den generischen 'GA'-Fallback."""
+        from knix_arranger.models.building import SensorFunktion
+        room = Room(number="E01", name="Zimmer")
+        svc = SensorService()
+        funktionen = [SensorFunktion(label="", ga_designation="1/0/0")]
+
+        fas, _ = svc._expand_funktionen(funktionen, room, {})
+
+        assert fas[0].button_channel == "GA"
+
+
 class TestSensorTypeOverride:
     """Tests fuer FA-1407: manueller Sensortyp-Override."""
 

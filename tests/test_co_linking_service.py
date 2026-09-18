@@ -167,6 +167,71 @@ class TestGenerateProposals:
         proposals = CoLinkingService().generate_proposals(project)
         assert proposals == []
 
+    def test_ort_wird_aus_raum_uebernommen(self):
+        """FA-3000: room_name wird aus dem bedienten Raum uebernommen (Ort-Spalte)."""
+        room = Room(number="E01", name="Wohnzimmer")
+        gas = [_ga(room, "L", 1, "E/A", 0)]
+        project = _make_project([room], "Schaltaktor 4-fach", gas)
+
+        proposals = CoLinkingService().generate_proposals(project)
+        p = next(p for p in proposals if p.function_name == "E/A")
+        assert p.room_name == "Wohnzimmer"
+
+    def test_zentral_ga_hat_keinen_ort(self):
+        """Zentral-/Szenen-GAs sind raumlos -- room_name bleibt leer."""
+        room = Room(number="E01", name="Wohnzimmer")
+        gas = [
+            _ga(room, "L", 1, "E/A", 0),
+            _central_ga("", "SZENE", "ZENTRAL Szene Abwesenheit", 1, dpt="DPST-17-1"),
+        ]
+        project = _make_project([room], "Schaltaktor 4-fach", gas)
+
+        proposals = CoLinkingService().generate_proposals(project)
+        p = next(p for p in proposals if p.function_name == "SZENE")
+        assert p.room_name == ""
+
+
+# ── Doppelte Vorschlaege (FA-3000) ────────────────────────────────────────────
+
+class TestDedupeProposals:
+    """_dedupe_proposals() entfernt exakte Duplikate (identische Geraeteadresse
+    + GA-Adresse + CO-Name + Richtung), die in der Tabelle nur verwirren und
+    ohnehin nicht doppelt geschrieben werden koennten."""
+
+    def test_exaktes_duplikat_wird_entfernt(self):
+        p1 = CoLinkingProposal(
+            device_id="d1", physical_address="1.1.1", co_name="Schalten",
+            co_dpt="DPST-1-1", co_flags="KSUA", direction="empfangen",
+            function_name="E/A", gewerk_code="L", ga_address="1/0/0",
+            ga_designation="L_E01_01 E/A",
+        )
+        p2 = CoLinkingProposal(
+            device_id="d1", physical_address="1.1.1", co_name="Schalten",
+            co_dpt="DPST-1-1", co_flags="KSUA", direction="empfangen",
+            function_name="E/A", gewerk_code="L", ga_address="1/0/0",
+            ga_designation="L_E01_01 E/A",
+        )
+        result = CoLinkingService()._dedupe_proposals([p1, p2])
+        assert result == [p1]
+
+    def test_unterschiedliche_ga_bleibt_erhalten(self):
+        """Gleiche Geraeteadresse+CO-Name, aber unterschiedliche GA -- keine
+        Entfernung (z.B. Raum-GA + Zentral-GA auf demselben CO)."""
+        p1 = CoLinkingProposal(
+            device_id="d1", physical_address="1.1.1", co_name="Schalten",
+            co_dpt="DPST-1-1", co_flags="KSUA", direction="empfangen",
+            function_name="E/A", gewerk_code="L", ga_address="1/0/0",
+            ga_designation="L_E01_01 E/A",
+        )
+        p2 = CoLinkingProposal(
+            device_id="d1", physical_address="1.1.1", co_name="Schalten",
+            co_dpt="DPST-1-1", co_flags="KSUA", direction="empfangen",
+            function_name="E/A", gewerk_code="L", ga_address="0/0/1",
+            ga_designation="ZENTRAL Alle Lichter AUS",
+        )
+        result = CoLinkingService()._dedupe_proposals([p1, p2])
+        assert result == [p1, p2]
+
 
 # ── Gateway-Geraete (FA-1307): muessen wie Aktoren behandelt werden ──────────
 
@@ -342,6 +407,60 @@ class TestRealComObjectPreferred:
         proposals = CoLinkingService().generate_proposals(project)
         p = next(p for p in proposals if p.function_name == "EIN/AUS")
         assert p.co_name == "Ein/Aus"  # generischer _FUNCTION_MAP-Name
+
+
+# ── Mehrdeutiger CO-Name auf demselben Kanal (FA-3000-Folgefehler) ───────────
+
+class TestAmbiguousChannelName:
+    """Regression (Chalet Franziska 2005, 1.1.10 / GA 0/4/1): ein ETS6-
+    importierter Aktor kann mehrere COs mit demselben Kanalnamen ("Ausgang A")
+    aber unterschiedlicher Funktion (Schalten/8-Bit-Szene/Telegr. Status)
+    haben. Die reine Namenssuche in _match_real_co() traf immer das ERSTE
+    davon -- unabhaengig davon, welches CO die GA tatsaechlich traegt --
+    und zeigte deshalb einen falschen CO-DPT ("1 bit" statt "1 byte"), der
+    dann faelschlich als Widerspruch zum echten GA-DPT auffiel."""
+
+    def _make_device_with_ambiguous_cos(self, ga_address: str):
+        room = Room(number="E01", name="Zimmer")
+        project = _make_project([room], "Fremd-Aktor ohne Gewerk-Zuordnung", [])
+        device = project.topology.areas[0].lines[0].devices[0]
+        device.communication_objects = [
+            CommunicationObject(
+                object_number=10, name="Ausgang A", object_function="Schalten",
+                data_type="1 bit", connected_gas=["1/0/2"],
+            ),
+            CommunicationObject(
+                object_number=17, name="Ausgang A", object_function="8-Bit-Szene",
+                data_type="1 byte", connected_gas=[ga_address],
+            ),
+            CommunicationObject(
+                object_number=29, name="Ausgang A", object_function="Telegr. Status Schalten",
+                data_type="1 bit", connected_gas=["1/0/3"],
+            ),
+        ]
+        ga = GroupAddress(
+            main_group=1, middle_group=0, sub_group=1,
+            designation="Anwesenheit Chalet", datapoint_type="1 byte",
+        )
+        project.group_addresses.main_groups[0].middle_groups[0].group_addresses = [ga]
+        return project, device
+
+    def test_matches_the_co_that_actually_carries_the_ga(self):
+        project, device = self._make_device_with_ambiguous_cos("1/0/1")
+
+        proposals = CoLinkingService().generate_proposals(project)
+        matches = [p for p in proposals if p.ga_address == "1/0/1"]
+        assert len(matches) == 1
+        assert matches[0].co_dpt == "1 byte"  # vom "8-Bit-Szene"-CO, nicht "Schalten"
+
+    def test_no_false_dpt_mismatch(self):
+        project, device = self._make_device_with_ambiguous_cos("1/0/1")
+
+        proposals = CoLinkingService().generate_proposals(project)
+        p = next(p for p in proposals if p.ga_address == "1/0/1")
+        assert p.ga_dpt == "1 byte"
+        assert p.co_dpt == p.ga_dpt
+        assert p.confidence == "sicher"
 
 
 # ── DPT-Kompatibilitaetspruefung (FA-3004) ────────────────────────────────────

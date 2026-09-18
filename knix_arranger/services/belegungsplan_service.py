@@ -113,6 +113,11 @@ class ActorRow:
     ga_address: str             # z.B. "2/0/4"
     dpt: str                    # z.B. "DPST-1-1"
     floor_name: str = ""        # Stockwerk des bedienten Raums (FA-2501)
+    co_function: str = ""       # ETS6-CO-Fallback: object_function des Kommunikations-
+                                 # objekts (z.B. "Schalten", "Telegr. Status") -- siehe
+                                 # _collect_actor_rows(). Nur zur Anzeige-Disambiguierung,
+                                 # NICHT fuer die Kanal-Gruppierung verwenden (die haengt
+                                 # bewusst an function_name/co.name, siehe dortiger Kommentar).
 
 
 @dataclass
@@ -121,6 +126,26 @@ class BelegungsplanData:
     project_name: str
     sensor_rows: list[SensorRow] = field(default_factory=list)
     actor_rows: list[ActorRow] = field(default_factory=list)
+
+
+def _is_feedback_co(co) -> bool:
+    """Leitet is_feedback aus den ETS-Flags eines CO-Fallback-Objekts ab
+    (nur fuer ETS6-Importe ohne Bedienelement-Konfiguration relevant --
+    Wizard-geplante Zeilen setzen is_feedback bereits selbst korrekt).
+
+    Fehlt das Schreiben-Flag ("S"), kann der Bus dieses Objekt nicht
+    ansteuern/ausloesen -- es ist ein reiner Status-/Messwert-/Alarm-Report
+    (z.B. Rauchmelder-Alarm "KL-Ü--", Temperatur-Messwert "KL-ÜA-",
+    Raumtemperatur "K--Ü--"), keine aktive Taste. Vorher wurde is_feedback
+    hier immer hart auf False gesetzt, wodurch solche reinen Meldeobjekte in
+    der Verknuepfungsmatrix (FA-2500) als "Taste"-Zeile erschienen, obwohl
+    niemand sie "drueckt" -- ein echter Taster/Schalter-Eingang hat dagegen
+    immer auch das Schreiben-Flag (z.B. "K-SÜA-").
+
+    Unbekannte/leere Flags (kein ETS-Import) bleiben konservativ False, wie
+    bisher.
+    """
+    return bool(co.flags) and "S" not in co.flags
 
 
 def _split_button_channel(button_channel: str) -> tuple[str, str]:
@@ -196,6 +221,38 @@ def _parse_ga_addr(addr: str) -> tuple[int, ...]:
         return tuple(int(p) for p in addr.split("/"))
     except (ValueError, AttributeError):
         return (0, 0, 0)
+
+
+# "Adresse  Bezeichnung" (zwei Leerzeichen), wie ihn resolve_ga_display() und
+# XlsxImportService.backfill_function_assignments erzeugen, siehe
+# _lookup_ga_by_function_ga().
+_FUNCTION_GA_ADDR_PREFIX_RE = re.compile(r"^\d+/\d+/\d+\s+")
+
+
+def _lookup_ga_by_function_ga(function_ga: str, ga_index: dict):
+    """Loest FunctionAssignment.function_ga zur zugehoerigen GroupAddress auf.
+
+    Wizard-geplante (Gewerk-basierte) Zuweisungen speichern hier nur die
+    reine GA-Bezeichnung (passt direkt gegen ga_index, das nach
+    GroupAddress.designation indiziert ist). Importierte Direkte-GA-
+    Zuordnungen (XlsxImportService.backfill_function_assignments,
+    ETS6/XLSX-Import) speichern dagegen "Adresse  Bezeichnung" kombiniert --
+    ein direkter ga_index-Lookup schlug fuer diese IMMER fehl (kein Eintrag
+    traegt die Adresse im Schluessel), wodurch die betroffenen SensorRows
+    weder gewerk_code noch ga_address/dpt erhielten und in der
+    Verknuepfungsmatrix (FA-2500) unter "Sonstige" statt im richtigen
+    Gewerk landeten -- z.B. tauchte "Jalousie" im Chalet Franziska 2005-
+    Projekt dadurch nur bei einem von 13 betroffenen Tastern auf. Ohne
+    Treffer wird deshalb zusaetzlich mit abgetrenntem Adress-Praefix erneut
+    gesucht.
+    """
+    ga = ga_index.get(function_ga)
+    if ga is not None:
+        return ga
+    stripped = _FUNCTION_GA_ADDR_PREFIX_RE.sub("", function_ga, count=1)
+    if stripped != function_ga:
+        return ga_index.get(stripped)
+    return None
 
 
 def build_ga_by_designation(group_addresses) -> dict:
@@ -334,7 +391,7 @@ class BelegungsplanService:
                             continue
                         if be.function_assignments:
                             for fa in be.function_assignments:
-                                ga = ga_index.get(fa.function_ga)
+                                ga = _lookup_ga_by_function_ga(fa.function_ga, ga_index)
                                 rows.append(SensorRow(
                                     floor_name=floor_name,
                                     zone_name=zone_name,
@@ -371,7 +428,7 @@ class BelegungsplanService:
             for be in active_bes:
                 if be.function_assignments:
                     for fa in be.function_assignments:
-                        ga = ga_index.get(fa.function_ga)
+                        ga = _lookup_ga_by_function_ga(fa.function_ga, ga_index)
                         rows.append(SensorRow(
                             floor_name=floor_name,
                             zone_name=zone_name,
@@ -432,7 +489,7 @@ class BelegungsplanService:
                                     physical_address=device.physical_address,
                                     taste_label=co.name or f"KO {co.object_number}",
                                     action_type="",
-                                    is_feedback=False,
+                                    is_feedback=_is_feedback_co(co),
                                     function=co.object_function,
                                     ga_designation=ga_obj.designation if ga_obj else ga_addr,
                                     ga_address=ga_addr,
@@ -498,7 +555,7 @@ class BelegungsplanService:
                         physical_address=be.participant_number or "",
                         taste_label=co.name or f"KO {co.object_number}",
                         action_type="",
-                        is_feedback=False,
+                        is_feedback=_is_feedback_co(co),
                         function=co.object_function,
                         ga_designation=ga_obj.designation if ga_obj else ga_addr,
                         ga_address=ga_addr,
@@ -711,6 +768,7 @@ class BelegungsplanService:
                                 ga_designation=ga_obj.designation if ga_obj else ga_addr,
                                 ga_address=ga_addr,
                                 dpt=co.data_type,
+                                co_function=co.object_function,
                             ))
 
         if fallback_rows:
