@@ -16,29 +16,11 @@ neu berechnet. Manuelle Linienzuordnungen und Verschiebungen bleiben erhalten.
 from __future__ import annotations
 import logging
 from ..models.project import KnxProject
-from ..models.group_address import GroupAddress, GroupAddressStructure, MainGroup, MiddleGroup
 from .topology_engine import TopologyEngine
-from .address_generator import AddressGenerator
+from .address_generator import regenerate_addresses
 from .sensor_service import SensorService
 
 logger = logging.getLogger("knix_arranger.recalc_service")
-
-
-def _insert_ga(structure: GroupAddressStructure, ga: GroupAddress) -> None:
-    """Fügt eine GA in die passende HG/MG der Struktur ein (legt sie an falls nötig)."""
-    hg = next((h for h in structure.main_groups if h.number == ga.main_group), None)
-    if not hg:
-        hg = MainGroup(number=ga.main_group, name=f"HG {ga.main_group}")
-        structure.main_groups.append(hg)
-        structure.main_groups.sort(key=lambda h: h.number)
-
-    mg = next((m for m in hg.middle_groups if m.number == ga.middle_group), None)
-    if not mg:
-        mg = MiddleGroup(number=ga.middle_group, name=f"MG {ga.middle_group}")
-        hg.middle_groups.append(mg)
-        hg.middle_groups.sort(key=lambda m: m.number)
-
-    mg.group_addresses.append(ga)
 
 
 class RecalcService:
@@ -87,23 +69,11 @@ class RecalcService:
         # ETS importierten Gruppenadressen und Bedienelement-Verknüpfungen
         # durch heuristisch generierte ersetzen.
         if not topology.is_imported:
-            # Schritt 2: GAs neu generieren (manuelle GAs sichern und wiederherstellen)
-            manual_gas: list[GroupAddress] = [
-                ga for ga in project.group_addresses.all_addresses()
-                if ga.is_manual
-            ]
-
-            gen = AddressGenerator(catalog, variant=project.config.mg_variant)
-            project.group_addresses = gen.generate(
-                project.areal, scenes=project.scenes, existing=project.group_addresses,
-            )
-
-            for ga in manual_gas:
-                _insert_ga(project.group_addresses, ga)
-
+            # Schritt 2: GAs neu generieren (manuelle GAs und Astro-GAs bleiben erhalten)
+            result = regenerate_addresses(project)
             logger.info(
                 f"RecalcService: GAs neu generiert → {len(project.group_addresses.all_addresses())} GAs"
-                + (f" ({len(manual_gas)} manuelle beibehalten)" if manual_gas else "")
+                + (f" ({result.manual_count} manuelle beibehalten)" if result.manual_count else "")
             )
 
             # Schritt 3: function_assignments aktualisieren

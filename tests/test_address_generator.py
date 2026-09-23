@@ -1473,3 +1473,73 @@ class TestManualGaLinking:
 
         light_gas = self._light_gas(structure, hg_number=2)
         assert len(light_gas) == 10  # 2 Elemente x 5 Slots, alles frisch generiert
+
+
+class TestAstroGasSurviveRegeneration:
+    """Astro-GAs (HG0/MG7, FA-3308) werden per Zeitsteuerung angelegt und
+    dürfen bei keiner Neugenerierung (Wizard Schritt 5/10, RecalcService)
+    verloren gehen."""
+
+    @staticmethod
+    def _project(areal, catalog, variant="A"):
+        from types import SimpleNamespace
+        gen = AddressGenerator(catalog, variant=variant)
+        return SimpleNamespace(
+            areal=areal, scenes=[], gewerk_catalog=catalog, time_programs=[],
+            config=SimpleNamespace(mg_variant=variant),
+            group_addresses=gen.generate(areal),
+        )
+
+    @staticmethod
+    def _astro(structure):
+        return [
+            ga for ga in structure.all_addresses()
+            if ga.main_group == 0 and ga.middle_group == 7
+        ]
+
+    def test_regenerate_keeps_astro_gas(self, eg_room_with_gewerke, gewerk_catalog):
+        from knix_arranger.services.address_generator import regenerate_addresses
+        from knix_arranger.services.time_program_service import ensure_astro_gas
+
+        project = self._project(eg_room_with_gewerke, gewerk_catalog)
+        assert ensure_astro_gas(project) == 4
+        project.group_addresses.find_address(0, 7, 1).designation = "Eigene Bezeichnung"
+        ids_before = {ga.id for ga in self._astro(project.group_addresses)}
+
+        result = regenerate_addresses(project)
+
+        astro = self._astro(project.group_addresses)
+        assert {ga.id for ga in astro} == ids_before
+        assert project.group_addresses.find_address(0, 7, 1).designation == "Eigene Bezeichnung"
+        assert not result.changed
+
+    def test_variant_switch_keeps_astro_gas(self, eg_room_with_gewerke, gewerk_catalog):
+        from knix_arranger.services.address_generator import regenerate_addresses
+        from knix_arranger.services.time_program_service import ensure_astro_gas
+
+        project = self._project(eg_room_with_gewerke, gewerk_catalog)
+        ensure_astro_gas(project)
+        regenerate_addresses(project, variant="B")
+        assert len(self._astro(project.group_addresses)) == 4
+
+    def test_manual_astro_ga_not_duplicated(self, eg_room_with_gewerke, gewerk_catalog):
+        from knix_arranger.services.address_generator import regenerate_addresses
+        from knix_arranger.services.time_program_service import ensure_astro_gas
+
+        project = self._project(eg_room_with_gewerke, gewerk_catalog)
+        ensure_astro_gas(project)
+        project.group_addresses.find_address(0, 7, 2).is_manual = True
+        regenerate_addresses(project)
+        assert len(self._astro(project.group_addresses)) == 4
+
+    def test_regenerate_reports_changes(self, eg_room_with_gewerke, gewerk_catalog):
+        from knix_arranger.models.building import GewerkAssignment
+        from knix_arranger.services.address_generator import regenerate_addresses
+
+        project = self._project(eg_room_with_gewerke, gewerk_catalog)
+        eg_room_with_gewerke.all_rooms[0].gewerk_assignments.append(
+            GewerkAssignment(gewerk_code="L", count=1)
+        )
+        result = regenerate_addresses(project)
+        assert result.changed and result.added and not result.removed
+        assert result.summary().startswith("Gruppenadressen aktualisiert: +")

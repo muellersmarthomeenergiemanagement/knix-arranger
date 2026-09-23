@@ -7,6 +7,7 @@ Referenz: Pflichtenheft Anhang A
 """
 from __future__ import annotations
 import copy
+from dataclasses import dataclass, field
 import logging
 from ..models.building import Areal, Floor, Room, GewerkAssignment
 from ..models.group_address import (
@@ -106,14 +107,19 @@ class AddressGenerator:
                 werden ans Ende der jeweiligen Mittelgruppe angehängt statt
                 die gesamte Struktur neu durchzunummerieren.
         """
+        # Astro-GAs (HG0/MG7) werden nicht aus Gewerken abgeleitet, sondern per
+        # Zeitsteuerung angelegt (ensure_astro_gas) – vor einem evtl.
+        # Variantenwechsel sichern, damit sie keine Neugenerierung verlieren.
+        existing_astro = self._existing_astro_middle_group(existing)
+
         if existing is not None and existing.variant != self.variant:
             existing = None  # Variantenwechsel erzwingt vollständige Neuordnung
 
         structure = GroupAddressStructure(variant=self.variant)
 
         # Prüfen ob Astro-SwitchPoints vorhanden (FA-3308)
-        has_astro = False
-        if project is not None:
+        has_astro = existing_astro is not None
+        if project is not None and not has_astro:
             from .time_program_service import has_astro_switch_points
             has_astro = has_astro_switch_points(project)
 
@@ -121,6 +127,12 @@ class AddressGenerator:
         central_hg = self._create_central_main_group(
             scenes or [], has_astro=has_astro, areal=areal, warnings=structure.warnings,
         )
+        if existing_astro is not None:
+            # Bestehende Astro-GAs unverändert übernehmen (IDs, Bezeichnungen)
+            central_hg.middle_groups = [
+                existing_astro if mg.number == 7 else mg
+                for mg in central_hg.middle_groups
+            ]
         structure.main_groups.append(central_hg)
 
         # Stockwerke nach HG-Nummer gruppieren (verhindert Duplikate)
@@ -496,6 +508,23 @@ class AddressGenerator:
 
         return hg
 
+    @staticmethod
+    def _existing_astro_middle_group(
+        existing: GroupAddressStructure | None,
+    ) -> MiddleGroup | None:
+        """Gibt HG0/MG7 der bisherigen Struktur zurück, falls sie Astro-GAs enthält."""
+        if existing is None:
+            return None
+        hg0 = next((h for h in existing.main_groups if h.number == 0), None)
+        if hg0 is None:
+            return None
+        mg7 = next((m for m in hg0.middle_groups if m.number == 7), None)
+        if mg7 is None or not any(
+            ga.designation.startswith("SYS.ASTRO.") for ga in mg7.group_addresses
+        ):
+            return None
+        return mg7
+
     def _create_central_main_group(self, scenes: list, has_astro: bool = False,
                                     areal=None, warnings: list | None = None) -> MainGroup:
         """Erstellt HG 0 mit Zentraladressen, Szenen und ggf. Astro-GAs (FA-441, FA-3308)."""
@@ -734,3 +763,83 @@ class AddressGenerator:
                 schema.block_size += 1
 
         return schema
+
+
+# ── Gemeinsamer Neugenerierungs-Ablauf (Wizard Schritt 5/10, RecalcService) ──
+
+@dataclass
+class RegenerationResult:
+    """Ergebnis von regenerate_addresses() inkl. Änderungsbilanz für die UI."""
+    structure: GroupAddressStructure
+    manual_count: int = 0
+    added: list[str] = field(default_factory=list)    # "1/2/3 Bezeichnung"
+    removed: list[str] = field(default_factory=list)
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.added or self.removed)
+
+    def summary(self) -> str:
+        """Kurzer Text wie 'GAs aktualisiert: +3 / −1' bzw. 'unverändert'."""
+        if not self.changed:
+            return "Gruppenadressen unverändert"
+        return f"Gruppenadressen aktualisiert: +{len(self.added)} / −{len(self.removed)}"
+
+
+def insert_ga(structure: GroupAddressStructure, ga: GroupAddress) -> None:
+    """Fügt eine GA in die passende HG/MG ein (legt sie an falls nötig).
+
+    Ist dieselbe GA (gleiche id) dort bereits vorhanden – z.B. eine manuelle
+    Astro-GA, die der Generator schon übernommen hat –, wird nichts eingefügt.
+    """
+    hg = next((h for h in structure.main_groups if h.number == ga.main_group), None)
+    if not hg:
+        hg = MainGroup(number=ga.main_group, name=f"HG {ga.main_group}")
+        structure.main_groups.append(hg)
+        structure.main_groups.sort(key=lambda h: h.number)
+
+    mg = next((m for m in hg.middle_groups if m.number == ga.middle_group), None)
+    if not mg:
+        mg = MiddleGroup(number=ga.middle_group, name=f"MG {ga.middle_group}")
+        hg.middle_groups.append(mg)
+        hg.middle_groups.sort(key=lambda m: m.number)
+
+    if any(existing.id == ga.id for existing in mg.group_addresses):
+        return
+    mg.group_addresses.append(ga)
+
+
+def _ga_keys(structure: GroupAddressStructure) -> set[str]:
+    return {
+        f"{ga.address} {ga.designation}"
+        for ga in structure.all_addresses()
+        if not ga.is_placeholder
+    }
+
+
+def regenerate_addresses(project, variant: str | None = None) -> RegenerationResult:
+    """Generiert die GA-Struktur des Projekts neu und setzt sie ein.
+
+    Manuelle GAs bleiben erhalten, unveränderte Blöcke behalten ihre Adresse
+    (existing=), Astro-GAs (FA-3308) werden berücksichtigt (project=).
+    """
+    variant = variant or project.config.mg_variant
+    old = project.group_addresses
+    manual_gas = [ga for ga in old.all_addresses() if ga.is_manual]
+    old_keys = _ga_keys(old)
+
+    gen = AddressGenerator(project.gewerk_catalog, variant=variant)
+    structure = gen.generate(
+        project.areal, scenes=project.scenes, project=project, existing=old,
+    )
+    for ga in manual_gas:
+        insert_ga(structure, ga)
+    project.group_addresses = structure
+
+    new_keys = _ga_keys(structure)
+    return RegenerationResult(
+        structure=structure,
+        manual_count=len(manual_gas),
+        added=sorted(new_keys - old_keys),
+        removed=sorted(old_keys - new_keys),
+    )

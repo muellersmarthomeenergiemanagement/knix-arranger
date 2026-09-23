@@ -13,10 +13,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer
 from ...models.project import KnxProject
 from ...models.building import GewerkAssignment
-from ...models.group_address import GroupAddress, GroupAddressStructure, MainGroup, MiddleGroup
 from ...models.device import GEWERK_TO_SENSOR_TYPE
 from ...services.gewerk_service import GewerkService
-from ...services.address_generator import AddressGenerator
+from ...services.address_generator import regenerate_addresses
 from ..dialogs.gewerk_template_dialog import GewerkTemplateDialog
 from ..dialogs.extra_ga_dialog import ExtraGaDialog
 from ..dialogs.product_select_dialog import ProductSelectDialog
@@ -25,6 +24,7 @@ from ..dialogs.gewerk_channel_assign_dialog import GewerkChannelAssignDialog
 from ..dialogs.gewerk_suggestion_review_dialog import GewerkSuggestionReviewDialog
 from ...services.gewerk_suggestion_service import suggest_gewerk_assignments
 from ..column_utils import fit_columns
+from .recompute_guard import RecomputeGuard, KEY_ADDRESSES
 
 # Spalten-Indizes
 _COL_FLOOR   = 0
@@ -52,6 +52,8 @@ class Step05Gewerke(QWidget):
     def __init__(self, project: KnxProject, parent=None):
         super().__init__(parent)
         self._project = project
+        # Vom WizardController durch eine gemeinsame Instanz ersetzt
+        self._guard = RecomputeGuard()
         # Zwischenablage: None oder {"level": "room"|"apartment"|"floor", "data": ...}
         self._clipboard: dict | None = None
         # Verhindert dass itemChanged während _refresh_table ausgelöst wird
@@ -304,39 +306,15 @@ class Step05Gewerke(QWidget):
         has_gewerke = any(r.gewerk_assignments for r in self._project.all_rooms)
         if not has_gewerke:
             return
+        if not self._guard.is_stale(self._project, KEY_ADDRESSES):
+            return
         self._regenerate_gas()
 
     def _regenerate_gas(self):
         """Generiert die GA-Struktur neu (stabil: unveränderte Zuweisungsblöcke
         bleiben an ihrer Position, geänderte/neue werden angehängt)."""
-        catalog = self._project.gewerk_catalog
-        manual_gas = [
-            ga for ga in self._project.group_addresses.all_addresses()
-            if ga.is_manual
-        ]
-        existing = self._project.group_addresses
-        gen = AddressGenerator(catalog, variant=self._project.config.mg_variant)
-        structure = gen.generate(
-            self._project.areal, scenes=self._project.scenes, existing=existing,
-        )
-        self._project.group_addresses = structure
-        for ga in manual_gas:
-            self._insert_manual_ga(ga)
-
-    def _insert_manual_ga(self, ga: GroupAddress) -> None:
-        """Fügt eine manuelle GA in die Struktur ein."""
-        structure = self._project.group_addresses
-        hg = next((h for h in structure.main_groups if h.number == ga.main_group), None)
-        if not hg:
-            hg = MainGroup(number=ga.main_group, name=f"HG {ga.main_group}")
-            structure.main_groups.append(hg)
-            structure.main_groups.sort(key=lambda h: h.number)
-        mg = next((m for m in hg.middle_groups if m.number == ga.middle_group), None)
-        if not mg:
-            mg = MiddleGroup(number=ga.middle_group, name=f"MG {ga.middle_group}")
-            hg.middle_groups.append(mg)
-            hg.middle_groups.sort(key=lambda m: m.number)
-        mg.group_addresses.append(ga)
+        regenerate_addresses(self._project)
+        self._guard.mark_done(self._project, KEY_ADDRESSES)
 
     def on_enter(self):
         catalog = self._project.gewerk_catalog

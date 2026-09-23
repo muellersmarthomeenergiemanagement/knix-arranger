@@ -768,6 +768,9 @@ class TopologyEngine:
 
         # Zähler: (room_id, element_type) -> Anzahl bereits zugewiesener BEs
         assigned_count: dict[tuple, int] = defaultdict(int)
+        # Topologie-Geräte ohne passendes Bedienelement – gesammelt, damit
+        # wiederholte Aufrufe (Berichte, Ansichten) das Log nicht fluten.
+        unmatched: list[str] = []
 
         for area in topology.areas:
             for line in area.lines:
@@ -802,11 +805,15 @@ class TopologyEngine:
                         )
                         assigned_count[key] += 1
                     else:
-                        logger.warning(
-                            f"Kein weiteres Bedienelement '{device.product}' "
-                            f"in Raum '{room.name}' für Adresse "
-                            f"{device.physical_address} gefunden"
+                        unmatched.append(
+                            f"{device.physical_address} ({device.product}, {room.name})"
                         )
+
+        if unmatched:
+            logger.warning(
+                "%d Topologie-Gerät(e) ohne passendes Bedienelement im Raum: %s",
+                len(unmatched), ", ".join(unmatched),
+            )
 
     def check_topology_conflicts(
         self, current_topology: Topology, areal

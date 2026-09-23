@@ -1,5 +1,5 @@
 """
-Wizard Schritt 5c: Gerätekonfiguration pro Raum (FA-1400a)
+Wizard Schritt 6: Gerätekonfiguration pro Raum (FA-1400a)
 
 Alle physischen Bedienelemente (Tastereinheiten, Bewegungsmelder, Präsenzmelder,
 Thermostate usw.) werden hier pro Raum festgelegt – BEVOR die Topologie
@@ -23,6 +23,7 @@ from ...models.project import KnxProject
 from ...models.building import Bedienelement
 from ...services.sensor_service import SensorService
 from ..column_utils import fit_columns
+from .recompute_guard import RecomputeGuard, KEY_FUNCTIONS
 from ..dialogs.product_select_dialog import ProductSelectDialog
 from ..dialogs.com_object_select_dialog import ComObjectSelectDialog
 
@@ -223,6 +224,8 @@ class Step05cDevices(QWidget):
     def __init__(self, project: KnxProject, parent=None):
         super().__init__(parent)
         self._project = project
+        # Vom WizardController durch eine gemeinsame Instanz ersetzt
+        self._guard = RecomputeGuard()
 
         layout = QVBoxLayout(self)
 
@@ -303,9 +306,11 @@ class Step05cDevices(QWidget):
 
     def on_enter(self):
         rooms = self._project.all_rooms
-        if any(r.gewerk_assignments for r in rooms):
+        if (any(r.gewerk_assignments for r in rooms)
+                and self._guard.is_stale(self._project, KEY_FUNCTIONS)):
             service = SensorService()
             service.auto_assign_functions(rooms, self._project.group_addresses)
+            self._guard.mark_done(self._project, KEY_FUNCTIONS)
         self._refresh_tree()
 
     # ── Baum-Aufbau ────────────────────────────────────────────────────────────

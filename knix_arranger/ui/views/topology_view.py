@@ -550,7 +550,7 @@ class TopologyView(QWidget):
         Gruppiert Bedienelement.function_assignments nach sf_id, damit Befehl
         und Rückmeldung derselben physischen Taste zusammen erscheinen statt
         als lauter flache Geschwister-Zeilen (dieselbe Gruppierung wie in
-        Schritt 9, siehe step09_functions.py:_refresh).
+        Schritt 12, siehe step09_functions.py:_refresh).
         """
         if not self._areal:
             return

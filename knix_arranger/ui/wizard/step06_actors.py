@@ -1,5 +1,5 @@
 """
-Wizard Schritt 6: Aktor-Ermittlung (liniengerecht)
+Wizard Schritt 8: Aktor-Ermittlung (liniengerecht)
 """
 from __future__ import annotations
 import logging
@@ -15,6 +15,7 @@ from ...models.building import ActorAssignment
 from ...models.material_list import MaterialEntry
 from ...services.actor_service import ActorService
 from ...services.topology_engine import TopologyEngine
+from .recompute_guard import RecomputeGuard, KEY_DEVICES
 from ..column_utils import fit_columns
 
 logger = logging.getLogger("knix_arranger.step06_actors")
@@ -26,6 +27,8 @@ class Step06Actors(QWidget):
     def __init__(self, project: KnxProject, parent=None):
         super().__init__(parent)
         self._project = project
+        # Vom WizardController durch eine gemeinsame Instanz ersetzt
+        self._guard = RecomputeGuard()
 
         layout = QVBoxLayout(self)
 
@@ -100,14 +103,11 @@ class Step06Actors(QWidget):
         layout.addWidget(mat_group)
 
     def on_enter(self):
-        # Falls noch keine Topologie vorhanden, automatisch aus Gebäudestruktur ableiten
-        if not self._project.topology.areas and self._project.areal.buildings:
-            engine = TopologyEngine(self._project.config.topology_mode)
-            self._project.topology = engine.calculate_topology(self._project.areal)
-
+        # Die Topologie entsteht ausschliesslich in Schritt 7 – fehlt sie,
+        # zeigt _calculate() einen Hinweis statt still eine eigene zu berechnen.
         rooms = self._project.all_rooms
         has_gewerke = any(r.gewerk_assignments for r in rooms)
-        if has_gewerke:
+        if has_gewerke or not self._project.topology.areas:
             self._calculate()
 
     def _calculate(self):
@@ -243,13 +243,15 @@ class Step06Actors(QWidget):
 
         # Aktoren und Sensoren in die Topologie persistieren (für Views/Berichte).
         # Importierte Topologien (XLSX/knxproj) bleiben unverändert (FA-ImportGuard).
-        if not topology.is_imported:
+        # Nur wenn sich Räume/Aktoren/Topologie seit dem letzten Lauf geändert haben.
+        if not topology.is_imported and self._guard.is_stale(self._project, KEY_DEVICES):
             engine = TopologyEngine(self._project.config.topology_mode)
             engine.populate_devices(
                 topology, all_rooms, catalog,
                 small_project=(topology.topology_mode == "TP-64"),
                 preserve_manual=True,
             )
+            self._guard.mark_done(self._project, KEY_DEVICES)
 
         # Materialliste aggregieren und anzeigen (FA-1306)
         all_actors = [actor for r in line_results for actor in r.actors]

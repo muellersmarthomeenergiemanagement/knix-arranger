@@ -196,7 +196,7 @@ class SensorService:
         aggregated: dict[tuple, SensorRequirement] = {}
 
         for room in rooms:
-            # In der Gerätekonfiguration (Schritt 5c) gelöschte Auto-Geräte
+            # In der Gerätekonfiguration (Wizard-Schritt 6) gelöschte Auto-Geräte
             # hinterlassen ein suppressed=True-Tombstone-BE. Diese Typen dürfen
             # hier nicht neu ermittelt werden, sonst erscheint das gelöschte
             # Gerät wieder in der Topologie.
@@ -694,3 +694,21 @@ class SensorService:
             summary[key]["quantity"] += 1
 
         return list(summary.values())
+
+
+def project_for_export(project):
+    """Kopie des Projekts mit aktuellen Bedienelement-Adressen (FA-1404) und
+    Funktionszuordnungen – für Berichte/Exporte, die das Projekt selbst
+    nicht verändern dürfen (ein Export soll nur lesen)."""
+    import copy
+    from .knxproj_import_service import KnxprojImportService
+
+    snapshot = copy.deepcopy(project)
+    try:
+        KnxprojImportService._create_bedienelemente_from_topology(
+            snapshot.topology, snapshot.areal
+        )
+    except Exception:
+        logger.exception("Bedienelement-Adressen für Export nicht ermittelbar")
+    SensorService().auto_assign_functions(snapshot.all_rooms, snapshot.group_addresses)
+    return snapshot

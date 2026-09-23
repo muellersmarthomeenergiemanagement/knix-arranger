@@ -1,8 +1,8 @@
 """
-Wizard Schritt 9: Funktionszuordnung (FA-1410)
+Wizard Schritt 11: Funktionszuordnung (FA-1410)
 
 Weist jedem Bedienelement die passenden Gruppenadressen zu.
-Geräte (Tastereinheiten, Thermostate usw.) wurden bereits in Schritt 5c
+Geräte (Tastereinheiten, Thermostate usw.) wurden bereits in Schritt 6
 konfiguriert.  Hier wird nur noch festgelegt, welche GA welchen Kanal steuert.
 """
 from __future__ import annotations
@@ -27,6 +27,7 @@ from ...services.scene_addressing import (
 )
 from ...services.topology_engine import TopologyEngine
 from ..column_utils import fit_columns
+from .recompute_guard import RecomputeGuard, KEY_FUNCTIONS
 
 
 _SENSOR_TYPE_CHOICES = [
@@ -421,6 +422,8 @@ class Step08Sensors(QWidget):
     def __init__(self, project: KnxProject, parent=None):
         super().__init__(parent)
         self._project = project
+        # Vom WizardController durch eine gemeinsame Instanz ersetzt
+        self._guard = RecomputeGuard()
 
         layout = QVBoxLayout(self)
 
@@ -514,7 +517,10 @@ class Step08Sensors(QWidget):
         if any(r.gewerk_assignments for r in rooms):
             # Importierte Verknüpfungen (XLSX/knxproj) bleiben unverändert
             # (FA-ImportGuard) – nur anzeigen, keine automatische Neuzuordnung.
-            self._refresh_from_project(run_auto_assign=not is_imported)
+            self._refresh_from_project(
+                run_auto_assign=not is_imported
+                and self._guard.is_stale(self._project, KEY_FUNCTIONS)
+            )
 
     def _manual_auto_assign(self):
         if self._project.topology.is_imported:
@@ -553,6 +559,7 @@ class Step08Sensors(QWidget):
         if run_auto_assign:
             service = SensorService()
             service.auto_assign_functions(all_rooms, self._project.group_addresses)
+            self._guard.mark_done(self._project, KEY_FUNCTIONS)
 
         self._tree.clear()
         room_by_id = {r.id: r for r in all_rooms}
@@ -597,10 +604,22 @@ class Step08Sensors(QWidget):
                             total_with_fn += 1
 
         fit_columns(self._tree)
-        self._summary.setText(
+        summary = (
             f"{total_be} Geräte – {total_with_fn} mit Funktionszuordnung, "
             f"{total_be - total_with_fn} noch ohne"
         )
+        # Manuell angepasste Bedienelemente (is_auto=False) werden bei späteren
+        # Gewerk-Änderungen bewusst nicht mehr automatisch nachgeführt.
+        manual_be = sum(
+            1 for r in all_rooms for be in r.bedienelemente
+            if not be.is_auto and not be.suppressed
+        )
+        if manual_be:
+            summary += (
+                f"  |  {manual_be} manuell angepasst – werden bei "
+                f"Gewerk-Änderungen nicht automatisch nachgeführt"
+            )
+        self._summary.setText(summary)
         self._refresh_material()
 
     def _add_be_item(self, parent: QTreeWidgetItem, be: Bedienelement, room):

@@ -579,35 +579,26 @@ class ReportService:
 
     def generate_bedienelemente_report(self, filepath: str):
         """Erzeugt einen Bedienelemente-Bericht als PDF (Gerätekarten-Layout)."""
-        from .sensor_service import SensorService
-        from .knxproj_import_service import KnxprojImportService
-        # FA-1404: Physikalische Adressen aus Topologie sicherstellen.
-        # Lazy-Aufruf damit auch alte gespeicherte Projekte korrekte Adressen erhalten,
-        # ohne erneuten Import.
-        try:
-            KnxprojImportService._create_bedienelemente_from_topology(
-                self.project.topology, self.project.areal
-            )
-        except Exception:
-            pass
-        SensorService().auto_assign_functions(
-            self.project.all_rooms, self.project.group_addresses
-        )
+        from .sensor_service import project_for_export
+        # FA-1404: Physikalische Adressen aus Topologie sicherstellen – auf einer
+        # Kopie, damit auch alte gespeicherte Projekte korrekte Adressen erhalten,
+        # ohne dass der Bericht das Projekt selbst verändert.
+        project = project_for_export(self.project)
         pdf = self._make_pdf("Bedienelemente")
 
         pdf.add_heading("Bedienelemente", level=1)
         pdf.add_paragraph(
-            f"Projekt: {self.project.name} | "
+            f"Projekt: {project.name} | "
             f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
         )
         pdf.add_separator()
 
         # ── Lookup-Strukturen ────────────────────────────────────────────────
         # GA-Adresse → GroupAddress
-        ga_by_address = {ga.address: ga for ga in self.project.group_addresses.all_addresses()}
+        ga_by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
         # GA-Bezeichnung → GroupAddress (für function_assignments)
         ga_by_designation: dict = {}
-        for ga in self.project.group_addresses.all_addresses():
+        for ga in project.group_addresses.all_addresses():
             if ga.designation:
                 key = ga.designation.split(" (")[0].strip()
                 ga_by_designation.setdefault(key, ga)
@@ -615,14 +606,14 @@ class ReportService:
         # Phys. Adresse → Topology-Device
         device_by_addr = {
             d.physical_address: d
-            for area in self.project.topology.areas
+            for area in project.topology.areas
             for line in area.lines
             for d in line.devices
         }
         # room_id → Stockwerk-Name / Wohnungs-/Zonenname
         floor_by_room: dict[str, str] = {}
         zone_by_room: dict[str, str] = {}
-        for building in self.project.areal.buildings:
+        for building in project.areal.buildings:
             for wing in building.wings:
                 for floor in wing.floors:
                     for apt in floor.apartments:
@@ -648,7 +639,7 @@ class ReportService:
                     num = int(m.group())
             return (floor, zone, num, room.name)
 
-        sorted_rooms = sorted(self.project.all_rooms, key=_room_key)
+        sorted_rooms = sorted(project.all_rooms, key=_room_key)
 
         # ── Übersichtstabelle ────────────────────────────────────────────────
         summary_rows = []

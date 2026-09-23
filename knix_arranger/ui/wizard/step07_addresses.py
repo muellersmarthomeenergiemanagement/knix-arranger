@@ -1,5 +1,5 @@
 """
-Wizard Schritt 7: Gruppenadressen generieren
+Wizard Schritt 10: Gruppenadressen generieren
 """
 from __future__ import annotations
 
@@ -12,15 +12,17 @@ from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QBrush, QColor, QFont
 
 from ...models.project import KnxProject
-from ...models.group_address import GroupAddress, MainGroup, MiddleGroup
-from ...services.address_generator import AddressGenerator
+from ...models.group_address import GroupAddress
+from ...services.address_generator import insert_ga, regenerate_addresses
 from ...services.validation_engine import ValidationEngine
 from ...services import ga_library_service
 from ..dialogs.ga_edit_dialog import GaEditDialog
 from ..dialogs.ga_library_dialog import GALibraryDialog
 from ..column_utils import fit_columns
+from .recompute_guard import RecomputeGuard, KEY_ADDRESSES
 
 _MANUAL_COLOR = QColor("#1565C0")   # Blau für manuelle GAs
+_MAX_CHANGE_LINES = 10              # Änderungsliste im Log begrenzen
 
 
 class Step07Addresses(QWidget):
@@ -29,6 +31,8 @@ class Step07Addresses(QWidget):
     def __init__(self, project: KnxProject, parent=None):
         super().__init__(parent)
         self._project = project
+        # Vom WizardController durch eine gemeinsame Instanz ersetzt
+        self._guard = RecomputeGuard()
 
         layout = QVBoxLayout(self)
 
@@ -188,12 +192,18 @@ class Step07Addresses(QWidget):
 
         # Automatisch (neu) generieren wenn Gewerk-Zuweisungen vorhanden –
         # analog zu Step06 (Aktoren) und Step08 (Sensoren).
+        # Nur neu generieren, wenn sich Gebäude, Gewerke, Szenen, Variante oder
+        # GAs seit der letzten Generierung geändert haben.
         has_gewerke = any(r.gewerk_assignments for r in self._project.all_rooms)
-        if has_gewerke:
+        if has_gewerke and self._guard.is_stale(self._project, KEY_ADDRESSES):
             self._generate()
         elif self._project.group_addresses.main_groups:
             self._display_preview(self._project.group_addresses)
             self._update_summary()
+            if has_gewerke:
+                self._log.clear()
+                self._log.append("Keine Änderungen seit der letzten Generierung – "
+                                 "Gruppenadressen unverändert.")
 
     # ── Haupt-Aktionen ─────────────────────────────────────────────────────
 
@@ -216,32 +226,26 @@ class Step07Addresses(QWidget):
         variant = "B" if self._variant_b.isChecked() else "A"
         self._project.config.mg_variant = variant
 
-        # Manuell hinzugefügte GAs sichern
-        manual_gas = [
-            ga for ga in self._project.group_addresses.all_addresses()
-            if ga.is_manual
-        ]
-
-        catalog = self._project.gewerk_catalog
-        existing = self._project.group_addresses
-        gen = AddressGenerator(catalog, variant=variant)
-        structure = gen.generate(
-            self._project.areal, scenes=self._project.scenes, existing=existing,
-        )
-        self._project.group_addresses = structure
-
-        # Manuelle GAs wieder einfügen
-        for ga in manual_gas:
-            self._insert_ga_into_structure(ga)
+        result = regenerate_addresses(self._project, variant=variant)
+        structure = result.structure
+        self._guard.mark_done(self._project, KEY_ADDRESSES)
 
         self._display_preview(structure)
         self._update_summary()
 
         self._log.clear()
         ga_count = len(structure.all_addresses())
-        self._log.append(f"Generierung abgeschlossen: {ga_count} GAs")
-        if manual_gas:
-            self._log.append(f"{len(manual_gas)} manuelle GA(s) beibehalten.")
+        self._log.append(f"Generierung abgeschlossen: {ga_count} GAs – {result.summary()}")
+        if result.manual_count:
+            self._log.append(f"{result.manual_count} manuelle GA(s) beibehalten.")
+        for key in result.added[:_MAX_CHANGE_LINES]:
+            self._log.append(f'<span style="color:#2e7d32">+ {key}</span>')
+        for key in result.removed[:_MAX_CHANGE_LINES]:
+            self._log.append(f'<span style="color:#c62828">− {key}</span>')
+        hidden = (max(0, len(result.added) - _MAX_CHANGE_LINES)
+                  + max(0, len(result.removed) - _MAX_CHANGE_LINES))
+        if hidden:
+            self._log.append(f"… und {hidden} weitere Änderungen")
         for warning in structure.warnings:
             self._log.append(f'<b style="color:#c62828">WARNUNG:</b> {warning}')
 
@@ -318,7 +322,7 @@ class Step07Addresses(QWidget):
         dlg.setWindowTitle("Neue GA manuell hinzufügen")
         if dlg.exec():
             new_ga.is_manual = True  # sicherstellen nach Dialog
-            self._insert_ga_into_structure(new_ga)
+            insert_ga(self._project.group_addresses, new_ga)
             self._display_preview(self._project.group_addresses)
             self._update_summary()
             self._log.append(f"Hinzugefügt: {new_ga.address} – {new_ga.designation}")
@@ -391,7 +395,7 @@ class Step07Addresses(QWidget):
                     central=entry.get("central", ""),
                     is_manual=True,
                 )
-                self._insert_ga_into_structure(new_ga)
+                insert_ga(self._project.group_addresses, new_ga)
             self._display_preview(self._project.group_addresses)
             self._update_summary()
             self._log.append(
@@ -457,24 +461,6 @@ class Step07Addresses(QWidget):
         self._log.insertHtml("<br>" + "<br>".join(lines))
 
     # ── Hilfsmethoden ──────────────────────────────────────────────────────
-
-    def _insert_ga_into_structure(self, ga: GroupAddress) -> None:
-        """Fügt eine GA in die passende HG/MG der Struktur ein (legt sie an falls nötig)."""
-        structure = self._project.group_addresses
-
-        hg = next((h for h in structure.main_groups if h.number == ga.main_group), None)
-        if not hg:
-            hg = MainGroup(number=ga.main_group, name=f"HG {ga.main_group}")
-            structure.main_groups.append(hg)
-            structure.main_groups.sort(key=lambda h: h.number)
-
-        mg = next((m for m in hg.middle_groups if m.number == ga.middle_group), None)
-        if not mg:
-            mg = MiddleGroup(number=ga.middle_group, name=f"MG {ga.middle_group}")
-            hg.middle_groups.append(mg)
-            hg.middle_groups.sort(key=lambda m: m.number)
-
-        mg.group_addresses.append(ga)
 
     def _selected_ga(self) -> GroupAddress | None:
         """Gibt das GA-Objekt der aktuell ausgewählten Tree-Zeile zurück."""

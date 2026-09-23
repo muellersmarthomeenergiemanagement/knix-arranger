@@ -1,5 +1,5 @@
 """
-Wizard Schritt 3b: Elektroverteilungen (HV/UV/...) pro Raum anlegen
+Wizard Schritt 4: Elektroverteilungen (HV/UV/...) pro Raum anlegen
 """
 from __future__ import annotations
 from PySide6.QtWidgets import (

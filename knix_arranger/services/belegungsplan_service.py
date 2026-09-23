@@ -299,12 +299,14 @@ class BelegungsplanService:
         """
         from .sensor_service import SensorService
         from .knxproj_import_service import KnxprojImportService
+        # Bewusst auf dem echten Projekt (keine Kopie): die Verknüpfungsmatrix
+        # bearbeitet Bedienelemente direkt über diese Daten.
         try:
             KnxprojImportService._create_bedienelemente_from_topology(
                 project.topology, project.areal
             )
         except Exception:
-            pass
+            logger.exception("Bedienelement-Adressen aus Topologie nicht ermittelbar")
         SensorService().auto_assign_functions(
             project.all_rooms, project.group_addresses
         )

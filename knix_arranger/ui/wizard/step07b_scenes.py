@@ -1,5 +1,5 @@
 """
-Wizard Schritt 7b: Szenen definieren
+Wizard Schritt 9: Szenen definieren
 
 Eingebettete SceneView im Wizard-Flow, so dass Szenen-GAs
 vor der GA-Generierung (Schritt 10) bekannt sind.

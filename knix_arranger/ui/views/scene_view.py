@@ -163,7 +163,7 @@ class SceneView(QWidget):
             self._scene_scope.addItem(label, code)
         self._scene_scope.setToolTip(
             "Szenen mit gleichem Geltungsbereich (+ Raum/Zone) teilen sich beim "
-            "Generieren der Adressen (Schritt 7) eine gemeinsame Szenenaufruf-GA."
+            "Generieren der Adressen (Schritt 10) eine gemeinsame Szenenaufruf-GA."
         )
         detail_form.addRow("Geltungsbereich:", self._scene_scope)
 

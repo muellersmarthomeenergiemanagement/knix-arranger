@@ -1,6 +1,8 @@
 """
-Wizard Schritt 9: Funktionsdefinition (Bauherr-Formular)
-Automatische Zuordnung Sensor-Tasten -> Gruppenadressen
+Wizard Schritt 12: Tastenbelegung prüfen
+
+Nur-Lese-Übersicht Taste → Gruppenadresse als Kontrolle vor dem Export.
+Bearbeitet wird die Zuordnung in Schritt 11 (Funktionszuordnung).
 """
 from __future__ import annotations
 from PySide6.QtWidgets import (
@@ -13,6 +15,7 @@ from ...models.project import KnxProject
 from ...services.sensor_service import SensorService
 from ...services.belegungsplan_service import _split_button_channel
 from ..column_utils import fit_columns
+from .recompute_guard import RecomputeGuard, KEY_FUNCTIONS
 
 _ROLE_LABELS = {
     "befehl": "Befehl",
@@ -22,18 +25,21 @@ _ROLE_LABELS = {
 
 
 class Step09Functions(QWidget):
-    """Funktionszuordnung Sensortasten -> GA (FA-1500)."""
+    """Prüfansicht Sensortasten -> GA (FA-1500)."""
 
     def __init__(self, project: KnxProject, parent=None):
         super().__init__(parent)
         self._project = project
+        # Vom WizardController durch eine gemeinsame Instanz ersetzt
+        self._guard = RecomputeGuard()
 
         layout = QVBoxLayout(self)
 
         info = QLabel(
-            "Ordnen Sie Sensortasten den Gruppenadressen zu.\n"
-            "Die automatische Zuordnung verknuepft Sensoren mit den\n"
-            "offensichtlich logischen Funktionen im selben Raum."
+            "Prüfen Sie die Tastenbelegung vor dem Export: pro Taste die zugeordnete "
+            "Gruppenadresse mit Befehl und Rückmeldung.\n"
+            "Änderungen nehmen Sie in Schritt 11 (Funktionszuordnung) vor – "
+            "diese Ansicht ist nur zur Kontrolle."
         )
         info.setWordWrap(True)
         layout.addWidget(info)
@@ -101,8 +107,10 @@ class Step09Functions(QWidget):
         all_rooms = self._project.all_rooms
         has_gewerke = any(r.gewerk_assignments for r in all_rooms)
         has_gas = bool(self._project.group_addresses.all_addresses())
-        if has_gewerke and has_gas:
-            # Immer neu zuweisen – Gewerke, GAs oder funktionen können sich geändert haben
+        # Die Zuordnung läuft bereits in Schritt 11 – hier nur nachholen, wenn
+        # sich Gewerke, Geräte oder GAs seither geändert haben.
+        if (has_gewerke and has_gas
+                and self._guard.is_stale(self._project, KEY_FUNCTIONS)):
             self._auto_assign()
         else:
             self._refresh()
@@ -138,6 +146,7 @@ class Step09Functions(QWidget):
 
         # Basis-Zuweisung aus Gewerken (auto_assign_functions)
         count = service.auto_assign_functions(all_rooms, gas)
+        self._guard.mark_done(self._project, KEY_FUNCTIONS)
 
         # auto_assign_functions behandelt bereits sowohl Auto- als auch Manual-BEs
         # (FA-1410: SensorFunktionen werden expandiert, function_assignments befüllt).

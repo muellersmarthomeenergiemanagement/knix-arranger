@@ -1093,7 +1093,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logger.warning(f"Verteiler-Raum-Ableitung fehlgeschlagen: {e}")
 
-            # Zuvor manuell zugeordnete Verteiler (Schritt 3b) wieder in ihren
+            # Zuvor manuell zugeordnete Verteiler (Schritt 4) wieder in ihren
             # echten Raum verschieben, bevor create_verteiler_rooms' frischer
             # Pseudo-Raum den Geräten zugeordnet wird -- sonst würde jeder
             # Re-Import die manuelle Zuordnung rückgängig machen.
@@ -1295,7 +1295,7 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     logger.warning(f"Verteiler-Raum-Ableitung fehlgeschlagen: {e}")
 
-                # Zuvor manuell zugeordnete Verteiler (Schritt 3b) wieder in
+                # Zuvor manuell zugeordnete Verteiler (Schritt 4) wieder in
                 # ihren echten Raum verschieben (siehe _import_xlsx).
                 try:
                     importer.apply_verteiler_room_overrides(
@@ -2028,9 +2028,22 @@ class MainWindow(QMainWindow):
             if not self._project:
                 return
 
+        import json
         from .wizard.wizard_controller import WizardController
+
+        def _state() -> str:
+            return json.dumps(self._project.to_dict(), sort_keys=True, default=repr)
+
+        # Ein Undo-Punkt für die gesamte Wizard-Sitzung: der Wizard schreibt
+        # direkt ins Projekt, "Rückgängig" stellt den Stand davor wieder her.
+        before = _state()
+        self._on_begin_change("Projektassistent")
         wizard = WizardController(self._project, self, start_step=start_step)
         completed = wizard.exec()
+        if _state() != before:
+            self._on_any_change("wizard")  # Undo-Punkt ablegen, Dirty-Flag setzen
+        else:
+            self._pending_undo_cmd = None
         # Immer alle Views aktualisieren: der Wizard schreibt Aenderungen
         # Schritt fuer Schritt direkt in das Projektobjekt, auch bei Abbruch.
         self._update_views()

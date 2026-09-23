@@ -2,10 +2,13 @@
 13-Schritt-Wizard Steuerung (FA-1002)
 """
 from __future__ import annotations
+import json
 import logging
+from pathlib import Path
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QStackedWidget, QProgressBar, QWidget, QMessageBox, QFrame,
+    QTextBrowser, QDialogButtonBox,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -23,6 +26,7 @@ from .step07b_scenes import Step07bScenes
 from .step08_sensors import Step08Sensors
 from .step09_functions import Step09Functions
 from .step10_export import Step10Export
+from .recompute_guard import RecomputeGuard
 
 from ...models.project import KnxProject
 from ..styles import KNX_GREEN, KNX_DARK_GREEN
@@ -42,7 +46,7 @@ STEP_TITLES = [
     "9. Szenen",                 # 8
     "10. Gruppenadressen",       # 9
     "11. Funktionszuordnung",    # 10
-    "12. Funktionsdefinition",   # 11
+    "12. Tastenbelegung prüfen", # 11
     "13. Export",                # 12
 ]
 
@@ -51,6 +55,13 @@ NUM_STEPS = len(STEP_TITLES)
 # Schritt-Index fuer Deep-Links aus anderen Ansichten (siehe start_step),
 # z.B. der "Jetzt generieren"-Hinweis in scene_view.py.
 STEP_INDEX_ADDRESSES = 9  # "10. Gruppenadressen" (Step07Addresses)
+
+_HELP_PATH = Path(__file__).parent.parent.parent / "config" / "help_contents.json"
+
+
+def help_topic_key(step_index: int) -> str:
+    """Hilfe-Key in help_contents.json: 'step01' … 'step13' = angezeigte Nummer."""
+    return f"step{step_index + 1:02d}"
 
 
 class WizardController(QDialog):
@@ -78,6 +89,13 @@ class WizardController(QDialog):
         self._step_info = QLabel("")
         self._step_info.setStyleSheet("color: #808080;")
         header.addWidget(self._step_info)
+
+        self._btn_help = QPushButton("Hilfe (F1)")
+        self._btn_help.setObjectName("secondary")
+        self._btn_help.setToolTip("Erklärung zum aktuellen Schritt anzeigen")
+        self._btn_help.clicked.connect(self._show_step_help)
+        header.addWidget(self._btn_help)
+        QShortcut(QKeySequence(Qt.Key.Key_F1), self, self._show_step_help)
 
         self._btn_close = QPushButton("Schliessen")
         self._btn_close.setObjectName("secondary")
@@ -111,10 +129,16 @@ class WizardController(QDialog):
             Step07bScenes(project),     # 9.  Szenen
             Step07Addresses(project),   # 10. Gruppenadress-Generierung
             Step08Sensors(project),     # 11. Funktionszuordnung
-            Step09Functions(project),   # 12. Funktionsdefinition
+            Step09Functions(project),   # 12. Tastenbelegung prüfen
             Step10Export(project),      # 13. Export
         ]
+        # Gemeinsame Änderungsprüfung: eine automatische Neuberechnung (GAs,
+        # Funktionszuordnung, Linienteilnehmer) läuft nur, wenn sich ihre
+        # Eingaben seit dem letzten Lauf in irgendeinem Schritt geändert haben.
+        self._guard = RecomputeGuard()
         for step in self._steps:
+            if hasattr(step, "_guard"):
+                step._guard = self._guard
             self._stack.addWidget(step)
         layout.addWidget(self._stack, 1)
 
@@ -133,7 +157,7 @@ class WizardController(QDialog):
             btn = QPushButton(str(i + 1))
             btn.setFixedSize(32, 32)
             btn.setCheckable(True)
-            btn.clicked.connect(lambda checked, idx=i: self._go_to_step(idx))
+            btn.clicked.connect(lambda checked, idx=i: self._jump_to_step(idx))
             self._step_buttons.append(btn)
             nav.addWidget(btn)
             # Phasengrenze: Schritte 1-8 (Planung & Kundenofferte) sind
@@ -214,6 +238,52 @@ class WizardController(QDialog):
             step.on_enter()
 
         self._update_ui()
+
+    def _jump_to_step(self, index: int):
+        """Direktsprung über die Schrittnummern: Pflichtschritte auf dem Weg
+        dürfen nicht übersprungen werden (weiche Warnungen werden ignoriert)."""
+        for i in range(self._current_step, index):
+            ok, msg, is_hard = self._check_can_leave(i)
+            if not ok and is_hard:
+                QMessageBox.warning(
+                    self, "Schritt unvollständig",
+                    f"{STEP_TITLES[i]}:\n{msg}",
+                )
+                if i != self._current_step:
+                    self._go_to_step(i)
+                else:
+                    self._update_ui()  # Button-Markierung zurücksetzen
+                return
+        self._go_to_step(index)
+
+    def _show_step_help(self):
+        """Zeigt die Hilfe zum aktuellen Schritt in einem eigenen Fenster
+        (die Hilfe-Ansicht des Hauptfensters liegt hinter dem modalen Wizard)."""
+        key = help_topic_key(self._current_step)
+        try:
+            with open(_HELP_PATH, encoding="utf-8") as f:
+                topic = json.load(f).get("help_topics", {}).get(key)
+        except Exception:
+            logger.exception("Hilfe konnte nicht geladen werden")
+            topic = None
+        if not topic:
+            QMessageBox.information(
+                self, "Hilfe", f"Für {STEP_TITLES[self._current_step]} ist keine Hilfe hinterlegt.",
+            )
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Hilfe – {topic.get('title', '')}")
+        dlg.resize(760, 560)
+        lay = QVBoxLayout(dlg)
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        browser.setHtml(topic.get("content_html", ""))
+        lay.addWidget(browser)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        dlg.exec()
 
     def _go_next(self):
         if self._current_step >= NUM_STEPS - 1:
@@ -471,7 +541,7 @@ class WizardController(QDialog):
                 )
                 return f"{n} Funktion{'en' if n != 1 else ''} zugewiesen"
             elif step_index == 11:
-                return "Bauherr-Formular"
+                return "Übersicht Taste → Gruppenadresse"
             elif step_index == 12:
                 return "Export & Speichern"
         except Exception:

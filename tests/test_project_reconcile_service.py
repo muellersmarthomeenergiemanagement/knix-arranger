@@ -176,7 +176,7 @@ def test_reconcile_restores_manual_ga_not_present_in_fresh_import():
         main_group=9, middle_group=0, sub_group=1,
         designation="Sonderfunktion", is_manual=True,
     )
-    from knix_arranger.services.recalc_service import _insert_ga
+    from knix_arranger.services.address_generator import insert_ga as _insert_ga
     _insert_ga(old_project.group_addresses, manual_ga)
 
     new_project, _, _ = _project_with_device_and_room()
@@ -201,7 +201,7 @@ def test_reconcile_skips_manual_ga_on_address_conflict():
         main_group=9, middle_group=0, sub_group=1,
         designation="Alte manuelle GA", is_manual=True,
     )
-    from knix_arranger.services.recalc_service import _insert_ga
+    from knix_arranger.services.address_generator import insert_ga as _insert_ga
     _insert_ga(old_project.group_addresses, manual_ga)
 
     new_project, _, _ = _project_with_device_and_room()

@@ -210,7 +210,7 @@ class TopologyReportView(QWidget):
 
         self._be_fallback_info = QLabel(
             "ℹ️  Orange Zeilen: Sensorfunktionen ohne vollständige GA-Zuordnung "
-            "(Wizard Schritt 9 noch nicht ausgeführt oder XLSX-Import ohne passende GA-Bezeichnungen)."
+            "(Wizard Schritt 11 noch nicht ausgeführt oder XLSX-Import ohne passende GA-Bezeichnungen)."
         )
         self._be_fallback_info.setWordWrap(True)
         self._be_fallback_info.setStyleSheet(

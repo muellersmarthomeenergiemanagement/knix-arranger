@@ -1,5 +1,5 @@
 """
-Wizard Schritt 4: Topologie (HV/UV, Linienzuteilung) mit manueller Anpassung
+Wizard Schritt 7: Topologie (HV/UV, Linienzuteilung) mit manueller Anpassung
 """
 from __future__ import annotations
 from PySide6.QtWidgets import (
@@ -15,6 +15,7 @@ from ...models.topology import Area, Line, Device
 from ...services.topology_engine import TopologyEngine
 from ..dialogs.topology_assignment_dialog import TopologyAssignmentDialog
 from ..column_utils import fit_columns
+from .recompute_guard import RecomputeGuard, KEY_DEVICES
 
 # Farben konsistent mit topology_view.py (FA-1007)
 _COLOR_COUPLER      = QColor("#1565C0")   # Dunkelblau: Koppler
@@ -234,6 +235,8 @@ class Step04Topology(QWidget):
     def __init__(self, project: KnxProject, parent=None):
         super().__init__(parent)
         self._project = project
+        # Vom WizardController durch eine gemeinsame Instanz ersetzt
+        self._guard = RecomputeGuard()
         self._current_device = None
         self._current_device_item = None
 
@@ -411,14 +414,17 @@ class Step04Topology(QWidget):
             # Wizard-Topologie: Linienteilnehmer aus Gewerk-Zuweisungen ableiten
             # und anzeigen – NICHT neu berechnen.
             # preserve_manual=True: manuell zugewiesene Produkte bleiben erhalten.
-            engine = TopologyEngine(self._project.config.topology_mode)
-            engine.populate_devices(
-                self._project.topology,
-                self._project.all_rooms,
-                self._project.gewerk_catalog,
-                small_project=(self._project.topology.topology_mode == "TP-64"),
-                preserve_manual=True,
-            )
+            # Nur wenn sich Räume/Gewerke/Topologie seit dem letzten Lauf geändert haben.
+            if self._guard.is_stale(self._project, KEY_DEVICES):
+                engine = TopologyEngine(self._project.config.topology_mode)
+                engine.populate_devices(
+                    self._project.topology,
+                    self._project.all_rooms,
+                    self._project.gewerk_catalog,
+                    small_project=(self._project.topology.topology_mode == "TP-64"),
+                    preserve_manual=True,
+                )
+                self._guard.mark_done(self._project, KEY_DEVICES)
             self._update_change_banner()
             self._display_topology()
         else:

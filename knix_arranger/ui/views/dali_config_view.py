@@ -67,7 +67,7 @@ class DaliConfigView(QWidget):
         self._no_gw_label = QLabel(
             "Keine DALI-Gateways im Projekt gefunden.\n"
             "Fügen Sie in Wizard Schritt 5 das Gewerk 'LDA' (DALI) hinzu "
-            "und berechnen Sie die Topologie (Schritt 6)."
+            "und berechnen Sie die Topologie (Schritt 7)."
         )
         self._no_gw_label.setWordWrap(True)
         self._no_gw_label.setStyleSheet("color: #888; font-style: italic; padding: 16px;")

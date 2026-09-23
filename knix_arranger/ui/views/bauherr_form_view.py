@@ -44,7 +44,7 @@ _FONT_HEADER = "#FFFFFF"
 
 # Obergrenze fuer die manuelle Tastenanzahl-Anpassung -- deckt auch groessere
 # Glas-/Rocker-Tastereinheiten ab, die ueber die feste Auswahl (1/2/4/6) im
-# Funktionszuordnungs-Dialog (Schritt 8) hinausgehen.
+# Funktionszuordnungs-Dialog (Schritt 11) hinausgehen.
 _MAX_CHANNELS = 12
 
 # Physische Position aus einem ETS-Import-Label wie "Taste 2, links"
@@ -109,7 +109,7 @@ class _SlotWidget(QWidget):
     einem anderen Raum, jeweils mit Raumnamen beschriftet), eine Szene oder
     einen freien Wunsch umstellen -- so laesst sich waehrend der Beratung
     direkt auf Aenderungswuensche des Bauherrn reagieren, ohne zuerst in
-    Schritt 8 etwas entfernen zu muessen. Grün = bereits ein Wert gesetzt,
+    Schritt 11 etwas entfernen zu muessen. Grün = bereits ein Wert gesetzt,
     Gelb = noch offen.
 
     Eine Gewerk-Auswahl deckt automatisch ALLE Funktionen dieser Gewerk-
@@ -311,7 +311,7 @@ class _SlotWidget(QWidget):
         """Waehlt die Combo-Option, die dem aktuellen Zustand von sf
         entspricht, und gibt zurueck ob ueberhaupt ein Wert gesetzt ist.
         Passt der Zustand zu keiner gelisteten Option (z.B. eine "Direkte
-        GA"-Zuweisung aus Schritt 8), wird ein synthetischer Eintrag mit den
+        GA"-Zuweisung aus Schritt 11), wird ein synthetischer Eintrag mit den
         Originalwerten ergaenzt -- sonst wuerde das blosse Anzeigen dieses
         Slots eine bestehende Zuweisung stillschweigend verwerfen."""
         if sf is None:
@@ -325,7 +325,7 @@ class _SlotWidget(QWidget):
             target = ("gewerk", sf.gewerk_code, sf.element_number,
                       sf.source_room_id or self._room.id)
         elif sf.ga_designation:
-            target = None  # Direkte GA (Schritt 8) -- unten als Sonderfall behandelt
+            target = None  # Direkte GA (Schritt 11) -- unten als Sonderfall behandelt
         elif sf.label:
             idx = self._combo.findText(sf.label)
             if idx >= 0:
@@ -388,7 +388,7 @@ class _SlotWidget(QWidget):
             )
         if kind == "current":
             # Unveraendert uebernommener Ausgangszustand (z.B. Direkte-GA-
-            # Zuweisung aus Schritt 8) -- source_room_id wird unten je nach
+            # Zuweisung aus Schritt 11) -- source_room_id wird unten je nach
             # eigenem/fremdem Raum wieder korrekt aufgeloest.
             return dict(data[1])
         # "wish": reiner Freitext-Wunsch, keine GA bekannt -- muss spaeter ueber
@@ -467,7 +467,7 @@ class _SlotWidget(QWidget):
     def _ga_text(ga) -> str:
         """Adresse + Bezeichnung kombiniert (z.B. "1/0/5  L.DG.03_ea (Lavabo)"),
         dieselbe Konvention wie XlsxImportService.backfill_function_assignments
-        -- sonst zeigen Gebäude-Ansicht/Schritt 9 nur den Bezeichnungstext ohne
+        -- sonst zeigen Gebäude-Ansicht/Schritt 12 nur den Bezeichnungstext ohne
         die eigentliche Gruppenadressnummer."""
         return f"{ga.address}  {ga.designation}".strip() if ga.designation else ga.address
 
