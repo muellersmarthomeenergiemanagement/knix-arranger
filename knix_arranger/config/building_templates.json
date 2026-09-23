@@ -10,7 +10,7 @@
           "apartments": [{"name": "UG", "rooms": [
             {"number": "U01", "name": "Keller"},
             {"number": "U02", "name": "Technikraum"},
-            {"number": "U03", "name": "Waschkueche"},
+            {"number": "U03", "name": "Waschküche"},
             {"number": "U04", "name": "Hobbyraum"}
           ]}]
         },
@@ -19,7 +19,7 @@
           "apartments": [{"name": "EG", "rooms": [
             {"number": "E01", "name": "Eingang/Garderobe"},
             {"number": "E02", "name": "Wohnzimmer"},
-            {"number": "E03", "name": "Kueche"},
+            {"number": "E03", "name": "Küche"},
             {"number": "E04", "name": "Esszimmer"},
             {"number": "E05", "name": "WC"}
           ]}]
@@ -31,14 +31,14 @@
             {"number": "O02", "name": "Kinderzimmer 1"},
             {"number": "O03", "name": "Kinderzimmer 2"},
             {"number": "O04", "name": "Badezimmer"},
-            {"number": "O05", "name": "Buero"}
+            {"number": "O05", "name": "Büro"}
           ]}]
         },
         {
           "name": "Dachgeschoss", "short_code": "DG", "main_group": 4,
           "apartments": [{"name": "DG", "rooms": [
             {"number": "D01", "name": "Estrich"},
-            {"number": "D02", "name": "Gaestezimmer"}
+            {"number": "D02", "name": "Gästezimmer"}
           ]}]
         }
       ]
@@ -53,7 +53,7 @@
           "apartments": [{"name": "Allgemein", "rooms": [
             {"number": "U01", "name": "Veloraum"},
             {"number": "U02", "name": "Technikraum"},
-            {"number": "U03", "name": "Waschkueche"}
+            {"number": "U03", "name": "Waschküche"}
           ]}]
         },
         {
@@ -62,12 +62,12 @@
             {"name": "Wohnung 1", "rooms": [
               {"number": "E01", "name": "Wohnzimmer"},
               {"number": "E02", "name": "Schlafzimmer"},
-              {"number": "E03", "name": "Kueche/Bad"}
+              {"number": "E03", "name": "Küche/Bad"}
             ]},
             {"name": "Wohnung 2", "rooms": [
               {"number": "E04", "name": "Wohnzimmer"},
               {"number": "E05", "name": "Schlafzimmer"},
-              {"number": "E06", "name": "Kueche/Bad"}
+              {"number": "E06", "name": "Küche/Bad"}
             ]}
           ]
         },
@@ -77,12 +77,12 @@
             {"name": "Wohnung 3", "rooms": [
               {"number": "O01", "name": "Wohnzimmer"},
               {"number": "O02", "name": "Schlafzimmer"},
-              {"number": "O03", "name": "Kueche/Bad"}
+              {"number": "O03", "name": "Küche/Bad"}
             ]},
             {"name": "Wohnung 4", "rooms": [
               {"number": "O04", "name": "Wohnzimmer"},
               {"number": "O05", "name": "Schlafzimmer"},
-              {"number": "O06", "name": "Kueche/Bad"}
+              {"number": "O06", "name": "Küche/Bad"}
             ]}
           ]
         }
@@ -91,20 +91,20 @@
     {
       "id": "zweckbau",
       "name": "Zweckbau / Gewerbe",
-      "description": "Buerogebaeude mit 2 Stockwerken",
+      "description": "Bürogebäude mit 2 Stockwerken",
       "floors": [
         {
           "name": "Erdgeschoss", "short_code": "EG", "main_group": 1,
           "apartments": [
             {"name": "Zone Nord", "rooms": [
               {"number": "E01", "name": "Empfang"},
-              {"number": "E02", "name": "Buero 1"},
-              {"number": "E03", "name": "Buero 2"}
+              {"number": "E02", "name": "Büro 1"},
+              {"number": "E03", "name": "Büro 2"}
             ]},
             {"name": "Zone Sued", "rooms": [
               {"number": "E04", "name": "Sitzungszimmer"},
-              {"number": "E05", "name": "Buero 3"},
-              {"number": "E06", "name": "Kueche"}
+              {"number": "E05", "name": "Büro 3"},
+              {"number": "E06", "name": "Küche"}
             ]}
           ]
         },
@@ -112,11 +112,11 @@
           "name": "1. Obergeschoss", "short_code": "1.OG", "main_group": 2,
           "apartments": [
             {"name": "Zone Nord", "rooms": [
-              {"number": "O01", "name": "Grossraumbuero"},
-              {"number": "O02", "name": "Buero 4"}
+              {"number": "O01", "name": "Grossraumbüro"},
+              {"number": "O02", "name": "Büro 4"}
             ]},
             {"name": "Zone Sued", "rooms": [
-              {"number": "O03", "name": "Grossraumbuero"},
+              {"number": "O03", "name": "Grossraumbüro"},
               {"number": "O04", "name": "Serverraum"}
             ]}
           ]
@@ -133,7 +133,7 @@
           "apartments": [{"name": "EG", "rooms": [
             {"number": "E01", "name": "Eingang"},
             {"number": "E02", "name": "Wohnzimmer"},
-            {"number": "E03", "name": "Kueche"},
+            {"number": "E03", "name": "Küche"},
             {"number": "E04", "name": "WC"}
           ]}]
         },
@@ -165,7 +165,7 @@
           "apartments": [{"name": "EG", "rooms": [
             {"number": "E01", "name": "Eingang"},
             {"number": "E02", "name": "Wohnzimmer"},
-            {"number": "E03", "name": "Kueche/Essen"},
+            {"number": "E03", "name": "Küche/Essen"},
             {"number": "E04", "name": "WC"},
             {"number": "E05", "name": "Schlafzimmer 1"}
           ]}]
@@ -191,7 +191,7 @@
           "apartments": [{"name": "Rezeption", "rooms": [
             {"number": "E01", "name": "Rezeption"},
             {"number": "E02", "name": "Lobby"},
-            {"number": "E03", "name": "Fruehstuecksraum"},
+            {"number": "E03", "name": "Frühstücksraum"},
             {"number": "E04", "name": "Technik"}
           ]}]
         },

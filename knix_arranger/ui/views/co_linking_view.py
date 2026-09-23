@@ -126,8 +126,8 @@ class CoLinkingView(QWidget):
         desc = QLabel(
             "Das System erkennt anhand der generierten Gruppenadressen (Funktion, "
             "Gewerk, Raum) automatisch, welche Kommunikationsobjekte der Aktoren "
-            "mit welchen GAs verknuepft werden sollen. Vorschlaege pruefen und mit "
-            "\"Verknuepfungen uebernehmen\" in die Topologie schreiben."
+            "mit welchen GAs verknüpft werden sollen. Vorschläge prüfen und mit "
+            "\"Verknüpfungen übernehmen\" in die Topologie schreiben."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #555; font-size: 11px;")
@@ -221,7 +221,7 @@ class CoLinkingView(QWidget):
         btn_layout = QHBoxLayout()
 
         self._btn_refresh = QPushButton("Aktualisieren")
-        self._btn_refresh.setToolTip("Vorschlaege neu berechnen")
+        self._btn_refresh.setToolTip("Vorschläge neu berechnen")
         self._btn_refresh.clicked.connect(self._refresh)
         btn_layout.addWidget(self._btn_refresh)
 
@@ -261,7 +261,7 @@ class CoLinkingView(QWidget):
             self._proposals = CoLinkingService().generate_proposals(self._project)
         except Exception as exc:
             logger.exception("Fehler bei CO-Linking-Generierung")
-            QMessageBox.warning(self, "Fehler", f"Vorschlaege konnten nicht generiert werden:\n{exc}")
+            QMessageBox.warning(self, "Fehler", f"Vorschläge konnten nicht generiert werden:\n{exc}")
             return
 
         self._fill_table()
@@ -275,7 +275,7 @@ class CoLinkingView(QWidget):
         self._dup_keys.clear()
         if not self._proposals:
             self._table.setRowCount(1)
-            item = QTableWidgetItem("Keine Vorschlaege — Wizard-Schritte 6–8 zuerst abschliessen.")
+            item = QTableWidgetItem("Keine Vorschläge — Wizard-Schritte 6–8 zuerst abschliessen.")
             item.setTextAlignment(Qt.AlignCenter)
             self._table.setItem(0, _COL_ADDR, item)
             self._table.setSpan(0, 0, 1, _NUM_COLS)
@@ -359,7 +359,7 @@ class CoLinkingView(QWidget):
         already = sum(1 for p in self._proposals if p.already_linked)
         new_ = total - already
         dup = len(self._dup_keys)
-        text = f"{total} Vorschlaege insgesamt  |  {new_} neu  |  {already} bereits verknuepft"
+        text = f"{total} Vorschläge insgesamt  |  {new_} neu  |  {already} bereits verknüpft"
         if dup:
             text += f"  |  {dup} GA-Adresse(n) mehrfach am gleichen Geraet"
         self._status_label.setText(text)

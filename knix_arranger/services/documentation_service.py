@@ -338,7 +338,7 @@ class DocumentationService:
         sonst leere ☐-Checkboxen. Layout: einheitliches 5-Spalten-Schema.
         """
         if not HAS_OPENPYXL:
-            raise ImportError("openpyxl wird für Excel-Export benoetigt.")
+            raise ImportError("openpyxl wird für Excel-Export benötigt.")
 
         # Gespeicherte Ergebnisse: (room_id, be_type, be_number, check_type, function_ga) → item
         saved: dict[tuple, ChecklistItem] = {}
@@ -547,16 +547,16 @@ class DocumentationService:
     # Gewerk-Beschreibungen nach Sprache (FA-2006)
     GEWERK_DESCRIPTIONS = {
         "de": {
-            "L": "Licht (schaltbar): Ein/Aus ueber Taster",
-            "LD": "Licht (dimmbar): Ein/Aus und Dimmen ueber Taster",
+            "L": "Licht (schaltbar): Ein/Aus über Taster",
+            "LD": "Licht (dimmbar): Ein/Aus und Dimmen über Taster",
             "LDA": "Licht (dimmbar DALI): Ein/Aus und Dimmen",
             "J": "Jalousie/Beschattung: AUF/AB und Lamellen-Verstellung",
-            "R": "Rolladen: AUF/AB ueber Taster",
+            "R": "Rolladen: AUF/AB über Taster",
             "H": "Heizung: Temperaturregelung (Soll/Ist)",
-            "M": "Markise: AUF/AB ueber Taster",
-            "T": "Tuerkommunikation",
+            "M": "Markise: AUF/AB über Taster",
+            "T": "Türkommunikation",
             "A": "Alarm/Sicherheit",
-            "S": "Storen: AUF/AB ueber Taster",
+            "S": "Storen: AUF/AB über Taster",
         },
         "en": {
             "L": "Light (switchable): On/Off via push button",

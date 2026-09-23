@@ -90,7 +90,7 @@ class Step09Functions(QWidget):
         # Hinweis
         hint = QLabel(
             "Hinweis: Das detaillierte Funktionsdefinitions-Formular für den Bauherrn\n"
-            "kann im Menue 'Berichte' als Excel-Datei generiert werden."
+            "kann im Menü 'Berichte' als Excel-Datei generiert werden."
         )
         hint.setStyleSheet("color: #808080; padding: 10px;")
         layout.addWidget(hint)

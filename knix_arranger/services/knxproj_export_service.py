@@ -77,14 +77,14 @@ class ExportSummary:
     def as_text(self) -> str:
         lines = [
             f"Gruppenadressen exportiert:    {self.ga_count}",
-            f"Geraete in Topologie:          {self.device_count}",
-            f"Geplante CO-GA-Verknuepfungen: {self.co_link_count}"
+            f"Geräte in Topologie:           {self.device_count}",
+            f"Geplante CO-GA-Verknüpfungen:  {self.co_link_count}"
             "  (Referenz; in ETS6 manuell einzutragen)",
         ]
         if self.missing_co_devices:
             lines.append(
                 f"Aktoren ohne CO-Plan:          {self.missing_co_devices}  "
-                "(CO-Verknuepfung in KNX Arranger ausfuehren)"
+                "(CO-Verknüpfung in KNX Arranger ausführen)"
             )
         if self.warnings:
             lines.append("")
@@ -226,17 +226,17 @@ class KnxprojExportService:
         if n_ga == 0:
             warnings.append(
                 "Keine Gruppenadressen vorhanden — "
-                "Wizard Schritt 8 (GA-Generierung) zuerst ausfuehren."
+                "Wizard Schritt 8 (GA-Generierung) zuerst ausführen."
             )
         areas = project.topology.areas
         if not areas or all(not a.lines for a in areas):
             warnings.append(
                 "Keine Topologie vorhanden — "
-                "Wizard Schritt 6 (Topologie) zuerst ausfuehren."
+                "Wizard Schritt 6 (Topologie) zuerst ausführen."
             )
         warnings.append(
             "Applikationsprogramme sind nicht enthalten — "
-            "Geraete muessen in ETS weiterhin programmiert werden."
+            "Geräte müssen in ETS weiterhin programmiert werden."
         )
         return warnings
 

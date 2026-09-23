@@ -597,7 +597,7 @@ class BauherrFormService:
     def generate_form(self, filepath: str):
         """Erzeugt ein Excel-Formular pro Raum für den Bauherren (FA-1501)."""
         if not HAS_OPENPYXL:
-            raise ImportError("openpyxl wird für Excel-Export benoetigt.")
+            raise ImportError("openpyxl wird für Excel-Export benötigt.")
 
         excel = ExcelGenerator(
             title="Funktionsdefinition",
@@ -771,7 +771,7 @@ class BauherrFormService:
         - Neue Wahl → SensorFunktion.label aktualisieren oder neue SF anlegen
         """
         if not HAS_OPENPYXL:
-            raise ImportError("openpyxl wird für Excel-Import benoetigt.")
+            raise ImportError("openpyxl wird für Excel-Import benötigt.")
 
         import re
         from openpyxl import load_workbook

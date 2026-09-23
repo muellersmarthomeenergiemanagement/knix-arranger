@@ -29,7 +29,7 @@ class NewProjectDialog(QDialog):
         form = QFormLayout()
 
         self._name = QLineEdit()
-        self._name.setPlaceholderText("z.B. Neubau EFH Mueller")
+        self._name.setPlaceholderText("z.B. Neubau EFH Müller")
         self._name.textChanged.connect(self._update_preview)
         form.addRow("Projektname:", self._name)
 

@@ -81,7 +81,7 @@ class RfqGroupingDialog(QDialog):
 
         # ── Marken speichern ──
         self._chk_save_brands = QCheckBox(
-            "Lieferant-Markenzuordnung fuer kuenftige Projekte speichern"
+            "Lieferant-Markenzuordnung für künftige Projekte speichern"
         )
         self._chk_save_brands.setToolTip(
             "Speichert die Zuordnung in den Lieferanten-Stammdaten (Feld 'Marken'),\n"

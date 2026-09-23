@@ -42,7 +42,7 @@ class KnxprojPasswordRequired(Exception):
     """Das KNXPROJ-Projekt ist verschluesselt und benoetigt ein Passwort."""
     def __init__(self, project_id: str):
         self.project_id = project_id
-        super().__init__(f"Passwort benoetigt fuer Projekt: {project_id}")
+        super().__init__(f"Passwort benötigt für Projekt: {project_id}")
 
 
 class KnxprojPasswordWrong(Exception):
@@ -309,8 +309,8 @@ class KnxprojImportService:
                 import pyzipper
             except ImportError as exc:
                 raise KnxprojImportError(
-                    "Fuer passwortgeschuetzte ETS6-Projekte wird das Paket "
-                    "'pyzipper' benoetigt (siehe requirements.txt)."
+                    "Für passwortgeschützte ETS6-Projekte wird das Paket "
+                    "'pyzipper' benötigt (siehe requirements.txt)."
                 ) from exc
             inner_cls = pyzipper.AESZipFile
             pwd_bytes = password.encode("utf-8")

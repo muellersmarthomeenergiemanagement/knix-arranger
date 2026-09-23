@@ -1,6 +1,6 @@
 ENDBENUTZER-LIZENZVERTRAG (EULA)
 KNiX Arranger – KNX-Projektplanungssoftware
-(c) Michael Mueller SmartHome&EnergieManagement
+(c) Michael Müller SmartHome&EnergieManagement
 Alle Rechte vorbehalten.
 
 Stand: April 2026
@@ -12,7 +12,7 @@ Mit der Nutzung der Software erklären Sie sich mit den nachstehenden Bedingunge
 1. LIZENZGEWÄHRUNG
 ===============================================================================
 
-Michael Mueller SmartHome&EnergieManagement (nachfolgend „Lizenzgeber") gewährt
+Michael Müller SmartHome&EnergieManagement (nachfolgend „Lizenzgeber") gewährt
 Ihnen (nachfolgend „Lizenznehmer") eine nicht ausschliessliche, nicht übertragbare
 Lizenz zur Nutzung der Software KNiX Arranger (nachfolgend „Software") ausschliesslich
 für Ihre eigenen beruflichen Zwecke im Bereich der KNX-Projektplanung.
@@ -109,4 +109,4 @@ oder werden, berührt dies die Wirksamkeit der übrigen Bestimmungen nicht.
 Durch Klicken auf „Akzeptieren" erklären Sie sich mit allen Bedingungen dieses
 Endbenutzer-Lizenzvertrages einverstanden.
 
-KNiX Arranger – (c) Michael Mueller SmartHome&EnergieManagement. Alle Rechte vorbehalten.
+KNiX Arranger – (c) Michael Müller SmartHome&EnergieManagement. Alle Rechte vorbehalten.

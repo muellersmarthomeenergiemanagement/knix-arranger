@@ -307,7 +307,7 @@ class XlsxImportService:
             if not os.path.exists(filepath):
                 raise FileNotFoundError(f"XLSX-Datei nicht gefunden: {filepath}")
             if not HAS_OPENPYXL:
-                raise ImportError("openpyxl wird für XLSX-Import benoetigt.")
+                raise ImportError("openpyxl wird für XLSX-Import benötigt.")
             wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
             ws = wb.active
             self._rows_cache[filepath] = list(ws.iter_rows(values_only=True))
@@ -451,7 +451,7 @@ class XlsxImportService:
         Prüft die ersten 10 Zeilen auf den Report-Titel in Spalte 1.
         """
         if not HAS_OPENPYXL:
-            raise ImportError("openpyxl wird für XLSX-Import benoetigt.")
+            raise ImportError("openpyxl wird für XLSX-Import benötigt.")
         wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
         ws = wb.active
         report_type = "topology"
@@ -805,7 +805,7 @@ class XlsxImportService:
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"XLSX-Datei nicht gefunden: {filepath}")
         if not HAS_OPENPYXL:
-            raise ImportError("openpyxl wird für XLSX-Import benoetigt.")
+            raise ImportError("openpyxl wird für XLSX-Import benötigt.")
 
         # floor_rooms: {floor_code -> {room_nr -> [ga-beschreibungen]}}
         floor_rooms: dict[str, dict[str, list[str]]] = {}
@@ -1268,7 +1268,7 @@ class XlsxImportService:
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"XLSX-Datei nicht gefunden: {filepath}")
         if not HAS_OPENPYXL:
-            raise ImportError("openpyxl wird für XLSX-Import benoetigt.")
+            raise ImportError("openpyxl wird für XLSX-Import benötigt.")
 
         # Eindeutige GA-Eintraege sammeln: addr_str -> designation-Text
         ga_map: dict[str, str] = {}
@@ -1567,7 +1567,7 @@ class XlsxImportService:
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"XLSX-Datei nicht gefunden: {filepath}")
         if not HAS_OPENPYXL:
-            raise ImportError("openpyxl wird für XLSX-Import benoetigt.")
+            raise ImportError("openpyxl wird für XLSX-Import benötigt.")
 
         result: dict[str, dict] = {}
         rows = self._load_rows(filepath)
@@ -2779,7 +2779,7 @@ class XlsxImportService:
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"XLSX-Datei nicht gefunden: {filepath}")
         if not HAS_OPENPYXL:
-            raise ImportError("openpyxl wird für XLSX-Import benoetigt.")
+            raise ImportError("openpyxl wird für XLSX-Import benötigt.")
 
         # ── Schritt 1: GA-Report parsen → {phys_addr → {ko_num → CO}} ──
         parsed: dict[str, dict[int, CommunicationObject]] = {}

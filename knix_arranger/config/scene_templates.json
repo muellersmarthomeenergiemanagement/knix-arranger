@@ -2,7 +2,7 @@
   "scene_templates": [
     {
       "name": "Kino",
-      "description": "Verdunkelung fuer Filmgenuss",
+      "description": "Verdunkelung für Filmgenuss",
       "actions": [
         {"gewerk_category": "licht", "action": "AUS oder 10%"},
         {"gewerk_category": "jalousie", "action": "Geschlossen, Lamellen zu"}

@@ -93,7 +93,7 @@ GEWERK_TEMPLATES = {
         ],
     },
     "buero": {
-        "name": "Buero",
+        "name": "Büro",
         "gewerke": [
             ("LD", 2),
             ("J", 1),

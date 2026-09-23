@@ -23,7 +23,7 @@ def main() -> int:
         app = QApplication(sys.argv)
         app.setApplicationName(APP_NAME)
         app.setApplicationVersion(__version__)
-        app.setOrganizationName("Michael Mueller SmartHome&EnergieManagement")
+        app.setOrganizationName("Michael Müller SmartHome&EnergieManagement")
 
         # Verhindert, dass modale Dialoge (Meldefenster, Fortschrittsanzeigen, ...)
         # unsichtbar hinter dem Hauptfenster landen, wenn die Anwendung beim

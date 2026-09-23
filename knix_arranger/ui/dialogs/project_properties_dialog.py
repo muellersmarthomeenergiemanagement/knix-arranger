@@ -41,7 +41,7 @@ class ProjectPropertiesDialog(QDialog):
         form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
         self._name_edit = QLineEdit(project.name)
-        self._name_edit.setPlaceholderText("z.B. Neubau EFH Mueller")
+        self._name_edit.setPlaceholderText("z.B. Neubau EFH Müller")
         form.addRow("Projektname:", self._name_edit)
 
         self._number_edit = QLineEdit(project.project_number)

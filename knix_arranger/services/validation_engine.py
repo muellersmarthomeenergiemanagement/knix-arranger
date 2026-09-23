@@ -183,7 +183,7 @@ class ValidationEngine:
             if not ga.datapoint_type:
                 issues.append(ValidationIssue(
                     "warning", "FA-604",
-                    f"Fehlender Datenpunkttyp fuer: {ga.designation}",
+                    f"Fehlender Datenpunkttyp für: {ga.designation}",
                     ga.address,
                     f"Vorschlag: {expected_dpts.get(ga.function_name, 'unbekannt')}",
                 ))
@@ -255,7 +255,7 @@ class ValidationEngine:
                         gap_end = gas[i + 1].sub_group - 1
                         issues.append(ValidationIssue(
                             "warning", "FA-605",
-                            f"Luecke in MG {hg.number}/{mg.number}: "
+                            f"Lücke in MG {hg.number}/{mg.number}: "
                             f"Adressen {gap_start}-{gap_end} fehlen",
                             f"{hg.number}/{mg.number}/{gap_start}",
                         ))

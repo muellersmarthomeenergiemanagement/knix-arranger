@@ -144,7 +144,7 @@ class WizardController(QDialog):
 
         # Navigation
         nav = QHBoxLayout()
-        self._btn_back = QPushButton("Zurueck")
+        self._btn_back = QPushButton("Zurück")
         self._btn_back.setObjectName("secondary")
         self._btn_back.clicked.connect(self._go_back)
         nav.addWidget(self._btn_back)

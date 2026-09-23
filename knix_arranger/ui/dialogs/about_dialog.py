@@ -15,7 +15,7 @@ class AboutDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"Ueber {APP_NAME}")
+        self.setWindowTitle(f"Über {APP_NAME}")
         self.setFixedWidth(400)
         self.setMinimumHeight(280)
 

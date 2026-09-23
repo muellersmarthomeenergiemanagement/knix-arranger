@@ -705,7 +705,7 @@ class QuotationView(QWidget):
         else:
             QMessageBox.information(
                 self, "Keine neuen Anfragen",
-                "Fuer alle gewaaehlten Lieferanten/Hersteller existieren bereits Offertanfragen.",
+                "Für alle gewählten Lieferanten/Hersteller existieren bereits Offertanfragen.",
             )
 
     def _persist_brand_assignments(self, grouping: dict[str, str]) -> None:

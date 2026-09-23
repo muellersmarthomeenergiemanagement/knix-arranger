@@ -900,9 +900,9 @@ class CustomerQuoteView(QWidget):
                 self, "Keine zugeschlagenen Anfragen",
                 "Es gibt noch keine Offertanfragen mit Status 'Zugeschlagen'.\n\n"
                 "Vorgehen:\n"
-                "1. Offertanfragen-Verwaltung oeffnen\n"
+                "1. Offertanfragen-Verwaltung öffnen\n"
                 "2. Preise des Lieferanten in der Spalte 'Angebotspreis' eintragen\n"
-                "3. Schaltflaeche 'Zuschlag erteilen…' klicken",
+                "3. Schaltfläche 'Zuschlag erteilen…' klicken",
             )
             return
 
@@ -1222,7 +1222,7 @@ class CustomerQuoteView(QWidget):
         except ImportError:
             QMessageBox.warning(
                 self, "PyMuPDF fehlt",
-                "Fuer die PDF-Erstellung wird PyMuPDF (fitz) benoetigt.\n"
+                "Für die PDF-Erstellung wird PyMuPDF (fitz) benötigt.\n"
                 "Bitte mit 'pip install pymupdf' installieren.",
             )
         except Exception as exc:

@@ -481,7 +481,7 @@ class LinkingMatrixView(QWidget):
 
     def _update_status(self):
         if not self._belegungsplan:
-            self._status_label.setText("Kein Belegungsplan verfuegbar.")
+            self._status_label.setText("Kein Belegungsplan verfügbar.")
             return
         n_sensor = len(self._belegungsplan.sensor_rows)
         n_actor  = len(self._belegungsplan.actor_rows)

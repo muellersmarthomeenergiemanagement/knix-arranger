@@ -269,7 +269,7 @@ class MainWindow(QMainWindow):
 
         help_menu.addSeparator()
 
-        about_action = QAction("&Ueber " + APP_NAME, self)
+        about_action = QAction("&Über " + APP_NAME, self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
 
@@ -1220,14 +1220,14 @@ class MainWindow(QMainWindow):
             ga_source = self._project.group_addresses.source
             ga_hint = " (GA-Report)" if ga_source == "ga_report" else ""
             ga_tipp = (
-                " | Tipp: Gruppenadress-Report (XLSX) importieren fuer vollstaendige GA-Daten."
+                " | Tipp: Gruppenadress-Report (XLSX) importieren für vollständige GA-Daten."
                 if not self._ga_report_path else ""
             )
             self._status_bar.set_status(
                 f"Topologie importiert: {len(topology.areas)} Bereiche, "
                 f"{sum(len(a.lines) for a in topology.areas)} Linien, "
-                f"{total_devices} Geraete, {kos} KOs, {ga_count} GAs{ga_hint} | "
-                f"Gebaeude: {total_floors} Stockwerke, {total_rooms} Raeume.{ga_tipp} | "
+                f"{total_devices} Geräte, {kos} KOs, {ga_count} GAs{ga_hint} | "
+                f"Gebäude: {total_floors} Stockwerke, {total_rooms} Räume.{ga_tipp} | "
                 f"{reconcile_diff.summary_line()}."
             )
             self._sidebar.select("topology_report")
