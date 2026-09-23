@@ -1,6 +1,7 @@
 """
 Produkt-Suche und Vorschlaege (FA-1303/1304, FA-1402/1403, FA-2303)
-Lokale Produktdatenbank mit gaengigen KNX-Produkten.
+Lokale Produktdatenbank mit gaengigen KNX-Produkten, ergaenzt um den
+Online-Katalog (siehe online_catalog_service) und nutzereigene KNXPROD-Importe.
 """
 from __future__ import annotations
 import json
@@ -49,6 +50,8 @@ class ProductSuggestion:
     # Bestellnummer des Nachfolgeprodukts (gleicher Hersteller), falls dieses
     # Produkt manuell als veraltet markiert wurde ("" = aktuell/nicht markiert)
     superseded_by: str = ""
+    # True, wenn der Eintrag aus dem Online-Katalog stammt (FA-1303/1402)
+    online: bool = False
 
     def display_type(self) -> str:
         """Gibt den anzuzeigenden Gerätetyp zurück (kategorie-unabhängig)."""
@@ -58,15 +61,20 @@ class ProductSuggestion:
 class ProductSearchService:
     """Sucht passende KNX-Produkte aus lokaler Datenbank (FA-1303)."""
 
-    def __init__(self):
+    def __init__(self, online_service=None):
+        from .online_catalog_service import OnlineCatalogService
         self._catalog: list[dict] = []
         self._user_products: list[dict] = []  # nur Nutzer-Importe, für Persistenz
+        self._online = online_service or OnlineCatalogService()
+        self._online_keys: set[tuple[str, str]] = set()
         self._load_catalog()
 
     def _load_catalog(self):
-        """Lädt die mitgelieferte Basis-Produktdatenbank und die nutzereigene
-        Katalog-Erweiterung (persistierte KNXPROD-Importe, siehe add_product/
-        add_products) und führt beide zusammen."""
+        """Lädt die mitgelieferte Basis-Produktdatenbank, den zwischengespeicherten
+        Online-Katalog und die nutzereigene Katalog-Erweiterung (persistierte
+        KNXPROD-Importe, siehe add_product/add_products) und führt sie in dieser
+        Reihenfolge zusammen -- spätere Quellen überschreiben frühere bei
+        gleichem (Hersteller, Bestellnummer)."""
         catalog_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "data", "product_catalog.json",
@@ -78,6 +86,8 @@ class ProductSearchService:
         else:
             logger.warning(f"Produktkatalog nicht gefunden: {catalog_path}")
 
+        self._merge_online(self._online.load_cached().products)
+
         user_path = _user_catalog_path()
         if os.path.exists(user_path):
             try:
@@ -88,8 +98,27 @@ class ProductSearchService:
                 self._user_products = []
             for prod in self._user_products:
                 self._upsert(self._catalog, prod)
+                self._online_keys.discard(self._key(prod))
             if self._user_products:
                 logger.info(f"Nutzereigener Produktkatalog geladen: {len(self._user_products)} Produkte")
+
+    @staticmethod
+    def _key(product: dict) -> tuple[str, str]:
+        return (product.get("manufacturer", ""), product.get("order_number", ""))
+
+    def _merge_online(self, products: list[dict]) -> None:
+        """Übernimmt Online-Produkte in den Katalog. Eigene Importe des Nutzers
+        mit gleichem Schlüssel haben Vorrang und bleiben unverändert."""
+        user_keys = {self._key(p) for p in self._user_products}
+        for prod in products:
+            key = self._key(prod)
+            if key in user_keys:
+                continue
+            self._upsert(self._catalog, dict(prod))
+            self._online_keys.add(key)
+
+    def _is_online(self, prod: dict) -> bool:
+        return self._key(prod) in self._online_keys
 
     @staticmethod
     def _upsert(target: list[dict], product: dict) -> None:
@@ -141,6 +170,7 @@ class ProductSearchService:
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
                 superseded_by=prod.get("superseded_by", ""),
+                online=self._is_online(prod),
             ))
 
         # Bevorzugte Hersteller zuerst (FA-1304)
@@ -183,6 +213,7 @@ class ProductSearchService:
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
                 superseded_by=prod.get("superseded_by", ""),
+                online=self._is_online(prod),
             ))
 
         if preferred_manufacturers:
@@ -224,6 +255,7 @@ class ProductSearchService:
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
                 superseded_by=prod.get("superseded_by", ""),
+                online=self._is_online(prod),
             ))
 
         if preferred_manufacturers:
@@ -287,6 +319,7 @@ class ProductSearchService:
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
                 superseded_by=prod.get("superseded_by", ""),
+                online=self._is_online(prod),
             ))
 
         if preferred_manufacturers:
@@ -334,6 +367,7 @@ class ProductSearchService:
         statt einem pro Produkt)."""
         self._upsert(self._catalog, product)
         self._upsert(self._user_products, product)
+        self._online_keys.discard(self._key(product))
         self._save_user_catalog()
 
     def add_products(self, products: list[dict]) -> None:
@@ -343,6 +377,7 @@ class ProductSearchService:
         for product in products:
             self._upsert(self._catalog, product)
             self._upsert(self._user_products, product)
+            self._online_keys.discard(self._key(product))
         if products:
             self._save_user_catalog()
 
@@ -361,6 +396,7 @@ class ProductSearchService:
             if (prod.get("manufacturer", ""), prod.get("order_number", "")) == key:
                 prod["superseded_by"] = superseded_by
                 self._upsert(self._user_products, dict(prod))
+                self._online_keys.discard(key)
                 self._save_user_catalog()
                 return
         logger.warning(
@@ -380,14 +416,32 @@ class ProductSearchService:
                 return prod
         return None
 
-    def search_online(self, query: str) -> list[ProductSuggestion]:
-        """
-        Placeholder für zukuenftige Online-Suche.
+    def online_catalog_status(self):
+        """Stand des zwischengespeicherten Online-Katalogs (OnlineCatalogResult)."""
+        return self._online.load_cached()
 
-        In einer spaeteren Version kann hier eine API-Anbindung
-        an Herstellerkataloge implementiert werden.
-        """
-        raise NotImplementedError(
-            "Online-Produktsuche ist für eine spaetere Version vorgesehen. "
-            "Verwenden Sie die lokale Produktdatenbank."
-        )
+    def update_online_catalog(self, timeout: float = 10.0):
+        """Lädt den Online-Katalog neu herunter und übernimmt ihn in den
+        Katalog (FA-1303/1402). Gibt das OnlineCatalogResult zurück; bei einem
+        Fehler bleibt der bisherige Katalog unverändert."""
+        result = self._online.fetch(timeout=timeout)
+        if result.ok:
+            self._merge_online(result.products)
+        return result
+
+    def search_online(
+        self,
+        query: str = "",
+        category_filter: str = "",
+        preferred_manufacturers: list[str] | None = None,
+        timeout: float = 10.0,
+    ) -> list[ProductSuggestion]:
+        """Aktualisiert den Online-Katalog und liefert die passenden Produkte
+        daraus (FA-1303 Aktoren, FA-1402 Sensoren). Bevorzugte Hersteller
+        zuerst (FA-1304/1403). Ohne Internetverbindung werden die zuletzt
+        geladenen Online-Produkte durchsucht."""
+        self.update_online_catalog(timeout=timeout)
+        return [
+            r for r in self.search_all(query, category_filter, preferred_manufacturers)
+            if r.online
+        ]

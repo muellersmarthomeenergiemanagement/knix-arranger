@@ -2,7 +2,8 @@
 Produkt-Auswahl-Dialog (FA-2303, FA-2304)
 
 Erlaubt die Suche und Auswahl von KNX-Geräten aus dem lokalen Katalog
-sowie den Import weiterer Geräte via KNXPROD-Dateien.
+sowie den Import weiterer Geräte via KNXPROD-Dateien und das Nachladen
+des Online-Katalogs (FA-1303, FA-1402).
 """
 from __future__ import annotations
 import logging
@@ -62,6 +63,9 @@ _CAT_FILTER_MAP = {
     "Sensor": "sensor",
     "Infrastruktur": "infrastructure",
 }
+
+# Schriftfarbe für Produkte aus dem Online-Katalog
+_ONLINE_COLOR = QColor("#1f5fa8")
 
 # Mapping: catalog-Kategorie + device_type → MaterialEntry.category
 _DEVICE_TYPE_TO_ML_CAT = {
@@ -171,13 +175,29 @@ class ProductSelectDialog(QDialog):
         btn_knxprod_folder.clicked.connect(self._import_knxprod_folder)
         filter_layout.addWidget(btn_knxprod_folder)
 
+        btn_online = QPushButton("Online-Katalog aktualisieren")
+        btn_online.setToolTip(
+            "Lädt die aktuelle Produktliste von KNiX Arranger aus dem Internet\n"
+            "und nimmt neue Produkte in den Katalog auf (blau dargestellt).\n"
+            "Eigene KNXPROD-Importe bleiben unverändert."
+        )
+        btn_online.clicked.connect(self._update_online_catalog)
+        filter_layout.addWidget(btn_online)
+
         filter_group.setLayout(filter_layout)
         layout.addWidget(filter_group)
 
         # --- Ergebnis-Tabelle ---
+        result_row = QHBoxLayout()
         self._result_label = QLabel("0 Produkte gefunden")
         self._result_label.setObjectName("subtitle")
-        layout.addWidget(self._result_label)
+        result_row.addWidget(self._result_label)
+        result_row.addStretch()
+        self._online_label = QLabel()
+        self._online_label.setStyleSheet("color: #666;")
+        result_row.addWidget(self._online_label)
+        layout.addLayout(result_row)
+        self._update_online_label()
 
         self._table = QTableWidget(0, 6)
         self._table.setHorizontalHeaderLabels([
@@ -375,6 +395,12 @@ class ProductSelectDialog(QDialog):
                 for item in items:
                     item.setFont(bold)
 
+            # Produkte aus dem Online-Katalog blau (FA-1303/1402)
+            if prod.online and not prod.superseded_by:
+                for item in items:
+                    item.setForeground(_ONLINE_COLOR)
+                    item.setToolTip("Aus dem Online-Katalog")
+
             # Veraltete Produkte grau/kursiv absetzen
             if prod.superseded_by:
                 for item in items:
@@ -389,6 +415,51 @@ class ProductSelectDialog(QDialog):
         )
         self._btn_ok.setEnabled(False)
         self._selected = None
+
+    # ------------------------------------------------------------------ Online-Katalog
+
+    def _update_online_label(self):
+        status = self._search_service.online_catalog_status()
+        if not status.fetched_at:
+            self._online_label.setText("Online-Katalog: noch nicht geladen")
+            return
+        stand = status.updated or status.fetched_at[:10]
+        self._online_label.setText(
+            f"Online-Katalog: {len(status.products)} Produkte, Stand {stand}"
+        )
+
+    def _update_online_catalog(self):
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            result = self._search_service.update_online_catalog()
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if not result.ok:
+            QMessageBox.warning(
+                self, "Online-Katalog",
+                "Der Online-Katalog konnte nicht geladen werden.\n\n"
+                f"{result.error}\n\n"
+                "Es werden weiterhin die zuletzt geladenen Produkte angezeigt.",
+            )
+            return
+
+        current_mfrs = {
+            self._mfr_combo.itemText(i)
+            for i in range(self._mfr_combo.count())
+        }
+        for prod in result.products:
+            mfr = prod.get("manufacturer", "")
+            if mfr not in current_mfrs:
+                self._mfr_combo.addItem(mfr)
+                current_mfrs.add(mfr)
+
+        self._refresh_results()
+        self._update_online_label()
+        msg = f"{len(result.products)} Produkte aus dem Online-Katalog geladen."
+        if result.skipped:
+            msg += f"\n{result.skipped} unvollständige Einträge wurden übersprungen."
+        QMessageBox.information(self, "Online-Katalog", msg)
 
     # ------------------------------------------------------------------ Auswahl
 

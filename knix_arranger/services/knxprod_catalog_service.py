@@ -201,9 +201,12 @@ class KnxprodCatalogService:
                 channels = hw.get("channels", 0)
                 # Fehlt ApplicationArea in Hardware.xml (z.B. Theben), wird die
                 # Kategorie ersatzweise aus dem ETS-Katalogbaum abgeleitet.
+                # Fehlt auch der Katalogbaum (Produkt nicht in Catalog.xml),
+                # hilft der Produktname (z.B. "... Gateway" -> Infrastruktur).
                 category = (
                     hw.get("category")
                     or self._infer_category_from_section(section_path)
+                    or self._infer_category_from_name(full_name)
                     or "actor"
                 )
                 device_type = self._infer_device_type(full_name, category, section_path)
@@ -211,7 +214,11 @@ class KnxprodCatalogService:
                 # ComObjects über Hardware2Program → ApplikationsprogrammID auflösen.
                 # Hardware2ProgramRefId steht je nach Hersteller entweder am Product-
                 # Element (Hardware.xml) oder am CatalogItem (Catalog.xml, per ProductRefId).
-                hw2prog_id = hw.get("hw2prog_id") or catalog_hw2prog.get(hw["id"], "")
+                hw2prog_id = (
+                    hw.get("hw2prog_id")
+                    or catalog_hw2prog.get(hw["id"], "")
+                    or hw.get("hw2prog_fallback", "")
+                )
                 app_id = hw2prog_map.get(hw2prog_id, "")
                 com_objects = app_comobjects.get(app_id, [])
 
@@ -299,6 +306,16 @@ class KnxprodCatalogService:
             hw_id = hw.get("Id", "")
             hw_name = hw.get("Name", "")
 
+            # Hardware2Program-Einträge dieser Hardware: Ersatz für die
+            # Produkt->Applikation-Zuordnung, wenn Catalog.xml für das Produkt
+            # keinen CatalogItem führt (z.B. aus einem .knxproj extrahierte
+            # Herstellerdateien, die nur einen Teil des Katalogs enthalten).
+            own_h2p = [
+                h2p.get("Id", "")
+                for group in hw if group.tag.endswith("Hardware2Programs")
+                for h2p in group if h2p.tag.endswith("Hardware2Program") and h2p.get("Id")
+            ]
+
             for prod in hw:
                 if not prod.tag.endswith("Products"):
                     continue
@@ -336,6 +353,8 @@ class KnxprodCatalogService:
                         "channels": channels,
                         "category": category,
                         "hw2prog_id": product.get("Hardware2ProgramRefId", ""),
+                        # nur eindeutig verwendbar: genau ein Programm für diese Hardware
+                        "hw2prog_fallback": own_h2p[0] if len(own_h2p) == 1 else "",
                         "secure_supported": secure_supported,
                     })
 
@@ -486,6 +505,13 @@ class KnxprodCatalogService:
         gemergt (Ref-Attribute haben Vorrang). Basisobjekte ohne zugehörigen
         Ref (Hersteller, die ganz ohne Refs arbeiten) werden ebenfalls als
         eigenständiges ComObject übernommen.
+
+        Refs desselben Basisobjekts, die nach dem Merge identisch sind, werden
+        nur einmal übernommen: z.B. bietet das Viessmann Vitogate je
+        Objektplatz sieben per Parameter umschaltbare Grössenvarianten
+        (1 Bit .. 4 Byte), von denen in der ETS genau eine aktiv ist -- ohne
+        Zusammenfassen erschiene jedes Objekt siebenfach und der GA-Bedarf
+        wäre versiebenfacht.
         """
         def _flag(attrs: dict, attr: str) -> bool:
             return attrs.get(attr, "Disabled").lower() == "enabled"
@@ -519,13 +545,19 @@ class KnxprodCatalogService:
 
         com_objects: list[ComObjectInfo] = []
         consumed_base_ids: set[str] = set()
+        seen: set[tuple] = set()
 
         for ref in refs:
             ref_id = ref.get("RefId", "")
             base = base_by_id.get(ref_id, {})
             consumed_base_ids.add(ref_id)
             merged = {**base, **ref}
-            com_objects.append(_build(merged))
+            co = _build(merged)
+            key = (ref_id, *co.to_dict().values())
+            if key in seen:
+                continue
+            seen.add(key)
+            com_objects.append(co)
 
         for base_id, base in base_by_id.items():
             if base_id not in consumed_base_ids:
@@ -559,6 +591,22 @@ class KnxprodCatalogService:
             if any(k in section_path for k in keywords):
                 return cat
         return ""
+
+    # Eingangs-Schnittstellen (Taster, Fensterkontakte) sind Sensoren, auch
+    # wenn ihr Name "Interface"/"Schnittstelle" enthält -- wird vor den
+    # Katalogbaum-Stichworten geprüft.
+    _NAME_SENSOR_KEYWORDS: tuple[str, ...] = (
+        "universal interface", "universalschnittstelle", "tasterschnittstelle",
+        "fensterschnittstelle", "binäreingang", "binaereingang", "binary input",
+    )
+
+    def _infer_category_from_name(self, product_name: str) -> str:
+        """Letzter Ausweg, wenn weder Hardware.xml (ApplicationArea) noch der
+        Katalogbaum eine Kategorie liefern: Stichworte im Produktnamen."""
+        name = product_name.lower()
+        if any(k in name for k in self._NAME_SENSOR_KEYWORDS):
+            return "sensor"
+        return self._infer_category_from_section(name)
 
     def _infer_device_type(self, product_name: str, category: str,
                            section_path: str = "") -> str:

@@ -1,29 +1,43 @@
 """
 GA-Vorlagen-Bibliothek: Speichert benutzerdefinierte GA-Vorlagen projektübergreifend.
-Ablageort: config/custom_ga_library.json
+Ablageort: %APPDATA%/KNiX Arranger/custom_ga_library.json -- nicht im
+Installationsordner, der bei der installierten App schreibgeschützt ist und
+bei Updates ersetzt wird.
 """
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
-_LIBRARY_PATH = Path(__file__).parent.parent / "config" / "custom_ga_library.json"
+# Früherer Ablageort im Programmordner; wird beim ersten Laden übernommen.
+_LEGACY_PATH = Path(__file__).parent.parent / "config" / "custom_ga_library.json"
+
+
+def _library_path() -> Path:
+    appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+    return Path(appdata) / "KNiX Arranger" / "custom_ga_library.json"
 
 
 def load_library() -> list[dict]:
     """Lädt alle gespeicherten GA-Vorlagen."""
-    if not _LIBRARY_PATH.exists():
+    path = _library_path()
+    if not path.exists():
+        path = _LEGACY_PATH
+    if not path.exists():
         return []
     try:
-        return json.loads(_LIBRARY_PATH.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return []
+    return data if isinstance(data, list) else []
 
 
 def save_library(entries: list[dict]) -> None:
     """Speichert die Bibliothek auf Disk."""
-    _LIBRARY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _LIBRARY_PATH.write_text(
+    path = _library_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
         json.dumps(entries, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )

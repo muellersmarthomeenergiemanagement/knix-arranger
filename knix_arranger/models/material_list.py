@@ -73,6 +73,10 @@ class MaterialEntry:
     # GA-Bedarf aus KNXPROD-ComObjects
     ga_min: int = 0                   # Minimaler GA-Bedarf (Basis-ComObjects je Gerät)
     ga_max: int = 0                   # Maximaler GA-Bedarf (alle aktiven ComObjects je Gerät)
+    # Von Hand festgelegter GA-Bedarf je Gerät (None = Werte aus KNXPROD).
+    # Für frei belegbare Gateways (z.B. Viessmann Vitogate), deren KNXPROD nur
+    # generische Objektplätze enthält und so einen viel zu hohen Bedarf ergibt.
+    ga_override: int | None = None
     # KNX Secure (FA-2705)
     secure_supported: bool = False    # True wenn Gerät KNX Secure (TP/IP) unterstützt
 
@@ -145,6 +149,7 @@ class MaterialEntry:
             "assigned_channels": self.assigned_channels,
             "ga_min": self.ga_min,
             "ga_max": self.ga_max,
+            "ga_override": self.ga_override,
             "secure_supported": self.secure_supported,
         }
 
@@ -170,6 +175,7 @@ class MaterialEntry:
             assigned_channels=data.get("assigned_channels", 0),
             ga_min=data.get("ga_min", 0),
             ga_max=data.get("ga_max", 0),
+            ga_override=data.get("ga_override"),
             secure_supported=data.get("secure_supported", False),
         )
 

@@ -131,6 +131,15 @@ class MaterialListView(QWidget):
         self._btn_split.clicked.connect(self._split_entry)
         toolbar.addWidget(self._btn_split)
 
+        self._btn_ga = QPushButton("GA-Bedarf festlegen…")
+        self._btn_ga.setEnabled(False)
+        self._btn_ga.setToolTip(
+            "GA-Bedarf je Gerät von Hand festlegen, z.B. für frei belegbare\n"
+            "Gateways, deren KNXPROD nur generische Objektplätze enthält"
+        )
+        self._btn_ga.clicked.connect(self._set_ga_override)
+        toolbar.addWidget(self._btn_ga)
+
         self._btn_batch = QPushButton("Typ-Batch zuweisen…")
         self._btn_batch.setToolTip(
             "Allen Platzhaltern desselben Gerätetyps auf einmal ein Produkt zuweisen"
@@ -276,6 +285,21 @@ class MaterialListView(QWidget):
         if not topology.areas:
             return
 
+        # Produktabhängige Werte (Kanäle, GA-Bedarf inkl. manuellem Wert),
+        # die die Topologie selbst nicht kennt, für dasselbe Produkt über
+        # den Neuaufbau hinweg erhalten -- sonst gingen sie bei jedem
+        # Öffnen des Projekts verloren.
+        product_values: dict[tuple[str, str], dict] = {}
+        for old in self._material_list.entries:
+            if old.source == "wizard_auto" and old.order_number:
+                product_values.setdefault((old.manufacturer, old.order_number), {
+                    "assigned_channels": old.assigned_channels,
+                    "ga_min": old.ga_min,
+                    "ga_max": old.ga_max,
+                    "ga_override": old.ga_override,
+                    "secure_supported": old.secure_supported,
+                })
+
         self._material_list.clear_auto_entries()
 
         # Gruppen aufbauen: key → [(device, line_label, line_id)]
@@ -354,6 +378,9 @@ class MaterialListView(QWidget):
                 device_id=first_dev.id if len(items) == 1 else "",
                 required_channels=parse_channel_count(device_type),
             )
+            if order_number:
+                for attr, value in product_values.get((manufacturer, order_number), {}).items():
+                    setattr(entry, attr, value)
             self._material_list.entries.append(entry)
 
     def _rebuild_addr_cache(self) -> None:
@@ -495,7 +522,16 @@ class MaterialListView(QWidget):
             ch_item.setTextAlignment(Qt.AlignCenter)
 
             # GA-Bedarf-Spalte: "Min–Max" (nur wenn KNXPROD-Daten vorhanden)
-            if entry.ga_min > 0 or entry.ga_max > 0:
+            ga_manual = entry.ga_override is not None
+            if ga_manual:
+                ga_text = f"{entry.ga_override} (manuell)"
+                ga_tooltip = (
+                    f"GA-Bedarf von Hand festgelegt: {entry.ga_override} je Gerät, "
+                    f"Gesamt: {entry.quantity}× = {entry.ga_override * entry.quantity} GAs"
+                )
+                if entry.ga_min or entry.ga_max:
+                    ga_tooltip += f"\nAus KNXPROD: {entry.ga_min}–{entry.ga_max}"
+            elif entry.ga_min > 0 or entry.ga_max > 0:
                 if entry.ga_min == entry.ga_max:
                     ga_text = str(entry.ga_min)
                 else:
@@ -514,6 +550,10 @@ class MaterialListView(QWidget):
             ga_item = QTableWidgetItem(ga_text)
             ga_item.setTextAlignment(Qt.AlignCenter)
             ga_item.setToolTip(ga_tooltip)
+            if ga_manual:
+                ga_font = ga_item.font()
+                ga_font.setItalic(True)
+                ga_item.setFont(ga_font)
 
             items = [
                 qty_item,
@@ -716,6 +756,48 @@ class MaterialListView(QWidget):
             can_split = can_split_by_addr or can_split_by_ch
         self._btn_assign.setEnabled(is_wizard_auto)
         self._btn_split.setEnabled(can_split)
+        self._btn_ga.setEnabled(bool(rows))
+
+    def _set_ga_override(self) -> None:
+        """GA-Bedarf je Gerät für die ausgewählte Position von Hand festlegen.
+        Leere Eingabe stellt den Wert aus der KNXPROD-Datei wieder her."""
+        rows = self._table.selectionModel().selectedRows()
+        if not rows or not self._material_list:
+            return
+        entry_id = self._table.item(rows[0].row(), 0).data(Qt.UserRole)
+        entry = next((e for e in self._material_list.entries if e.id == entry_id), None)
+        if entry is None:
+            return
+
+        current = "" if entry.ga_override is None else str(entry.ga_override)
+        hint = (f"Aus KNXPROD: {entry.ga_min}–{entry.ga_max}\n"
+                if entry.ga_min or entry.ga_max else "")
+        text, ok = QInputDialog.getText(
+            self, "GA-Bedarf festlegen",
+            f"{entry.product_name or entry.device_type}\n{hint}\n"
+            "GA-Bedarf je Gerät (leer = Wert aus KNXPROD):",
+            text=current,
+        )
+        if not ok:
+            return
+        text = text.strip()
+        if not text:
+            entry.ga_override = None
+        else:
+            try:
+                value = int(text)
+                if value < 0:
+                    raise ValueError
+            except ValueError:
+                QMessageBox.warning(
+                    self, "Ungültige Eingabe",
+                    f"'{text}' ist keine gültige Anzahl.\nDer bisherige Wert bleibt erhalten.",
+                )
+                return
+            entry.ga_override = value
+
+        self._rebuild_table()
+        self.list_changed.emit()
 
     def _on_double_click_row(self, index) -> None:
         """Doppelklick auf wizard_auto-Zeile öffnet direkt die Produktzuweisung."""
@@ -793,6 +875,10 @@ class MaterialListView(QWidget):
                 device_id=dev.id if dev else "",
                 required_channels=entry.required_channels,
                 assigned_channels=entry.assigned_channels,
+                ga_min=entry.ga_min,
+                ga_max=entry.ga_max,
+                ga_override=entry.ga_override,
+                secure_supported=entry.secure_supported,
             )
             self._material_list.entries.insert(idx, individual)
             idx += 1
@@ -981,6 +1067,7 @@ class MaterialListView(QWidget):
         entry.assigned_channels = prod.channels
         entry.ga_min = prod.ga_min
         entry.ga_max = prod.ga_max
+        entry.ga_override = None  # gehörte zum bisherigen Produkt
 
         # Kanaldefizit prüfen und Benutzer warnen
         # channel_deficit berücksichtigt bereits quantity × assigned_channels
@@ -1161,6 +1248,7 @@ class MaterialListView(QWidget):
             entry.assigned_channels = prod.channels
             entry.ga_min = prod.ga_min
             entry.ga_max = prod.ga_max
+            entry.ga_override = None  # gehörte zum bisherigen Produkt
             if self._project:
                 self._update_device_product(entry, prod)
 

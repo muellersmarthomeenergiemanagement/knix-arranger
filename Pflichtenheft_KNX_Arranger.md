@@ -1,7 +1,7 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.12
-**Datum:** 19.06.2026
+**Version:** 3.13
+**Datum:** 23.09.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
 **Status:** Entwurf
@@ -27,6 +27,7 @@
 | 3.10 | 07.03.2026 | M. Mueller / Claude AI | Gateway-Gewerke und Systemsensoren ergaenzt (FA-1307, FA-1308, FA-1408, FA-1409): Gewerk.interface_type unterscheidet "actor", "gateway" (WP, MM, LDA) und "system_sensor" (W); Device.device_type um "gateway" erweitert; Gewerk-Katalog-Tabelle um Schnittstellentyp-Spalte ergaenzt; Aktor-Ermittlung und Sensor-Ermittlung fuer Gateway-Gewerke und projektweite Systemsensoren spezifiziert |
 | 3.11 | 05.04.2026 | M. Mueller / Claude AI | Sensorfunktion-Konzept eingefuehrt (FA-1410): Bedienelement.control_functions ersetzt durch Bedienelement.funktionen (Liste von SensorFunktion); eine SensorFunktion buendelt alle Primaer- und Rueckmelde-GAs einer Gewerk-Instanz; direkte GA-Zuweisung als degenerierte Einzelfunktion; Dialog zeigt eine Zeile pro logischer Steuereinheit; Abwaertskompatibilitaet durch automatische Migration alter control_functions-Daten |
 | 3.12 | 19.06.2026 | M. Mueller / Claude AI | Nachfuehrung auf Code-Stand v1.1.2: Wizard-Schrittstruktur auf 13 Schritte korrigiert (FA-1002: Tastereinheiten-Matrix, Szenen-Definition vor GA-Generierung); Workspace-Konzept fuer Projekt- und Berichtsablage neu dokumentiert (FA-3401 bis FA-3408); Bauherren-Beratungsansicht mit persistenten Anmerkungen ergaenzt (FA-1508 bis FA-1511); KNXPROJ-Passwortimport erweitert (FA-524, FA-525 ueberarbeitet: neueres ETS6-Containerformat, AES-Erkennung, ETS6-Cloud-Lizenz als nicht entschluesselbarer Sonderfall, Passwort-Dialog); ETS6 Gruppenadress-Report (XLSX) als eigenstaendiges Importformat ergaenzt (FA-519b); FA-854 um Zwischenablage-Import fuer Firmenlogo/Projektfoto ergaenzt |
+| 3.13 | 23.09.2026 | M. Mueller / Claude AI | Nachfuehrung auf Code-Stand v1.1.16: Uebernahme importierter Projekte in die Planung dokumentiert (FA-521b bis FA-521g: Verteiler-Raeume aus Einbauort, Funktionszuordnungen aus KO-Verknuepfungen, Kanal-Gewerk-Konflikte, Wiedererkennung importierter GAs, manuelle Kanal-Zuweisung, Gewerk-Vorschlaege mit Pruefdialog); Szenen-Erkennung aus ETS-Importen ergaenzt (FA-1808 bis FA-1810: Erkennung, Szenen-Schaltwerte, Szenen-Ausloeser); Internet-Produktvorschlag konkretisiert (FA-1303a bis FA-1303d: Online-Produktkatalog im Release-Repository, Zwischenspeicher, Vorrang eigener Importe); KNXPROD-Import praezisiert (FA-2304a bis FA-2304c: Applikationszuordnung aus Hardware.xml, zusammengefasste Objektvarianten, manueller GA-Bedarf) |
 
 ---
 
@@ -118,6 +119,7 @@ Alle Anforderungen in diesem Pflichtenheft sind nach der MoSCoW-Methode priorisi
 | CSV-Import | FA-501 bis FA-506 | **(M)** | Kernfunktionalitaet |
 | XLSX-Import | FA-511 bis FA-520 | **(S)** | Erweiterte Analysefaehigkeit |
 | KNXPROJ-Import | FA-521 bis FA-526 | **(C)** | Vollstaendiger Projektimport in einem Schritt |
+| Uebernahme importierter Projekte | FA-521b bis FA-521g | **(S)** | Importierte Projekte ohne Doppelungen weiterplanen |
 | Validierung (Basis) | FA-601 bis FA-608, FA-610 | **(M)** | Kernfunktionalitaet |
 | Validierung (Topologie) | FA-609, FA-611 bis FA-613 | **(S)** | Erweiterte Pruefungen |
 | Reorganisation | FA-701 bis FA-706 | **(M)** | Kernfunktionalitaet |
@@ -174,6 +176,7 @@ Alle Anforderungen in diesem Pflichtenheft sind nach der MoSCoW-Methode priorisi
 | Kundenofferte Verwaltung | FA-1721 bis FA-1724 | **(C)** | Komfortfunktion Offertverwaltung |
 | Szenen-Definition | FA-1801 bis FA-1805 | **(S)** | Wichtiger Bestandteil professioneller KNX-Projekte |
 | Szenen in Dokumentation | FA-1806, FA-1807 | **(S)** | Integration in Bauherr-Workflow |
+| Szenen-Erkennung aus Import | FA-1808 bis FA-1810 | **(S)** | Bestehende Szenen importierter Projekte uebernehmen |
 | Inbetriebnahme-Checkliste | FA-1901 bis FA-1905 | **(M)** | Zwingend fuer professionelle Uebergabe |
 | Abnahmeprotokoll | FA-1911 bis FA-1914 | **(M)** | Zwingend fuer professionelle Uebergabe |
 | Bauherr-Bedienungsanleitung | FA-2001 bis FA-2004 | **(M)** | Zwingend fuer professionelle Uebergabe |
@@ -580,6 +583,19 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 | FA-525c | Liegt keine Cloud-Lizenz-Verschluesselung vor, muss das System den Benutzer ueber einen Passwort-Dialog zur Eingabe des ETS6-Projektpassworts auffordern und den Import mit dem eingegebenen Passwort fortsetzen. Bei falschem Passwort muss eine verstaendliche Fehlermeldung erscheinen und eine erneute Eingabe moeglich sein. **(C)** |
 | FA-526 | Das System muss eine Fehlermeldung ausgeben, wenn die `.knxproj`-Datei beschaedigt, unvollstaendig oder nicht dem KNX-Standard entspricht. **(C)** |
 
+#### 3.5.5 Uebernahme importierter Projekte in die Planung
+
+Nach einem Import (KNXPROJ oder XLSX-Reports) soll das Projekt im Wizard weitergeplant werden koennen, ohne dass bereits bestehende Gruppenadressen doppelt erzeugt oder ueberschrieben werden.
+
+| ID | Anforderung |
+|----|-------------|
+| FA-521b | Beim XLSX-Import muss das System Verteiler (HV, UV, NV, TV) aus den Einbauort-Texten der Topologie-Geraete ableiten (z.B. "HV", "UV2 (Steigzone)") und dafuer Raeume mit Verteiler-Objekt anlegen -- analog zur strukturellen Verteiler-Erkennung beim KNXPROJ-Import. Der Anwender muss einen erkannten Verteiler einem echten Raum zuordnen koennen; die Zuordnung bleibt bei einem erneuten Import erhalten. **(S)** |
+| FA-521c | Das System muss die Funktionszuordnungen der Bedienelemente direkt aus den Verknuepfungen der Kommunikationsobjekte mit Gruppenadressen importierter Geraete uebernehmen. **(S)** |
+| FA-521d | Das System muss Kommunikationsobjekte erkennen, deren verbundene Gruppenadressen zu unterschiedlichen Gewerken gehoeren (z.B. ein Aktorkanal mit GAs fuer zwei Gewerke). Solche Kanaele werden nicht automatisch einem Gewerk zugeordnet; das System muss den Anwender nach dem Import darauf hinweisen, damit er die Zuordnung in Schritt 5 (Gewerke) prueft. **(S)** |
+| FA-521e | Nach einem (erneuten) Import muss das System importierte Gruppenadressen mit der passenden Gewerk-Zuweisung verknuepfen, damit eine spaetere Neugenerierung der Gruppenadressen sie wiedererkennt und keine doppelten Adressbloecke erzeugt. **(S)** |
+| FA-521f | Der Anwender muss eine Gewerk-Zuweisung manuell mit einem bestehenden Aktorkanal eines importierten Geraets verknuepfen koennen (Geraet waehlen, Kanal waehlen, Vorschau der automatisch erkannten Funktionszuordnung mit Korrekturmoeglichkeit). Verknuepfte Gruppenadressen werden als manuell markiert und bei einer Neugenerierung weder verschoben noch umbenannt; nur noch nicht belegte Funktionen erhalten neue Adressen. Bei importierten Projekten erzeugt der Gewerke-Schritt beim Verlassen keine Gruppenadressen automatisch, damit vorher verknuepft werden kann. **(S)** |
+| FA-521g | Das System muss die importierte Topologie nach noch nicht zugewiesenen Aktorkanaelen durchsuchen und daraus Raum-/Gewerk-Vorschlaege ableiten. Vorgeschlagen wird nur bei eindeutigem Treffer (genau ein Gewerk mit mindestens einer Kernfunktion); unterstuetzt werden Gewerke, deren Funktionen sich aus den Objektnamen sicher erkennen lassen (Licht, Beschattung, DALI). Die Vorschlaege muessen in einem Pruefdialog einzeln an- und abgewaehlt und im Gewerk-Code korrigiert werden koennen; erst nach Bestaetigung werden Gewerk-Zuweisungen angelegt und Gruppenadressen verknuepft. **(S)** |
+
 ### 3.6 Analyse und Validierung (FA-600)
 
 | ID | Anforderung |
@@ -768,6 +784,10 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 |----|-------------|
 | FA-1302 | Das System muss die Aktor-Kanaele zusammenfassen: Wenn ein Raum z.B. 3x L hat, benoetigt er 3 Kanaele eines Schaltaktors. Das System muss ermitteln, welche Mehrkanalaktoren (z.B. 4-fach, 8-fach, 12-fach Schaltaktor) optimal eingesetzt werden koennen. |
 | FA-1303 | Das System muss passende Aktoren aus dem Internet vorschlagen koennen. Dazu muss es Produktdatenbanken / Online-Kataloge von KNX-Herstellern abfragen oder eine integrierte/herunterladbare Produktdatenbank nutzen. |
+| FA-1303a | Umsetzung als herunterladbare Produktdatenbank: Der Hersteller von KNX Arranger pflegt einen Online-Produktkatalog (JSON-Datei `product_catalog_online.json` im oeffentlichen Release-Repository, gleiche Produktfelder wie die mitgelieferte Datenbank). Der Anwender kann ihn im Produkt-Auswahldialog ueber "Online-Katalog aktualisieren" herunterladen; Anzahl Produkte und Stand werden angezeigt. |
+| FA-1303b | Der heruntergeladene Katalog muss lokal zwischengespeichert werden (Benutzerprofil, nicht Programmordner), damit die Vorschlaege auch ohne Internetverbindung und nach einem Neustart verfuegbar sind. Schlaegt der Download fehl, bleibt der bisherige Stand erhalten und der Anwender erhaelt eine verstaendliche Meldung. |
+| FA-1303c | Online-Produkte muessen zusammen mit der mitgelieferten Datenbank und den eigenen KNXPROD-Importen durchsucht und in der Ergebnisliste erkennbar markiert werden. Bei gleichem Hersteller und gleicher Bestellnummer hat ein eigener Import Vorrang vor dem Online-Katalog, der Online-Katalog Vorrang vor der mitgelieferten Datenbank. Unvollstaendige Eintraege (ohne Hersteller, Bestellnummer oder gueltige Kategorie) werden verworfen. |
+| FA-1303d | Fuer die Pflege des Online-Katalogs muss ein Werkzeug zur Verfuegung stehen, das die Katalogdatei prueft und Produkte aus den eigenen KNXPROD-Importen (optional nach Hersteller gefiltert) uebernimmt. |
 | FA-1304 | Der Anwender muss eine Liste bevorzugter Hersteller definieren koennen (z.B. ABB, MDT, Theben, Gira, Jung). Die Produktvorschlaege muessen bevorzugt Produkte dieser Hersteller anzeigen. |
 | FA-1305 | Die vom Benutzer ausgewaehlten Aktoren muessen mit Produktdatenblatt (gemaess FA-1201) im Projekt gespeichert und der entsprechenden Linie in der Topologie zugeordnet werden. |
 | FA-1306 | Das System muss eine Zusammenfassung der benoetigten Aktoren pro UV/HV erstellen koennen (Stueckliste / Materialliste). |
@@ -794,7 +814,7 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 
 | ID | Anforderung |
 |----|-------------|
-| FA-1402 | Das System muss passende Sensoren aus dem Internet vorschlagen koennen (analog zu FA-1303 fuer Aktoren). |
+| FA-1402 | Das System muss passende Sensoren aus dem Internet vorschlagen koennen (analog zu FA-1303 fuer Aktoren; derselbe Online-Produktkatalog gemaess FA-1303a bis FA-1303d). |
 | FA-1403 | Der Anwender muss bevorzugte Hersteller fuer Sensoren definieren koennen (analog zu FA-1304, kann dieselbe Liste sein). |
 | FA-1404 | Die vom Benutzer ausgewaehlten Sensoren muessen mit Produktdatenblatt (gemaess FA-1201) im Projekt gespeichert und dem jeweiligen Raum zugeordnet werden. |
 | FA-1405 | Das System muss eine Zusammenfassung der benoetigten Sensoren pro Raum/Stockwerk/Gesamtprojekt erstellen koennen (Stueckliste / Materialliste). |
@@ -1045,6 +1065,9 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 | FA-1805 | Das System muss die Szenen-Definitionen in die Gruppenadress-Struktur integrieren: Fuer jede Szene werden die entsprechenden Szenen-Gruppenadressen in der Zentralgruppe (HG 0) oder im jeweiligen Stockwerk automatisch erzeugt. |
 | FA-1806 | Das System muss eine Szenen-Uebersicht pro Raum generieren koennen, die in die Projektdokumentation und die Bauherr-Bedienungsanleitung (FA-1900) einfliesst. |
 | FA-1807 | Die Szenen-Definitionen muessen in das Bauherr-Funktionsdefinitions-Formular (FA-1501) integriert werden: Der Bauherr kann angeben, welche Szenen er in welchem Raum wuenscht und welche Werte (z.B. Lichtstimmung) er bevorzugt. |
+| FA-1808 | Das System muss in importierten Projekten bestehende Szenen automatisch erkennen und in die Szenen-Uebersicht uebernehmen. Erkannt werden: (1) Gruppenadressen mit Datenpunkttyp 17.x (Szenennummer) oder 18.x (Szenensteuerung), unabhaengig vom Ordner und sowohl als ETS-Rohcode (KNXPROJ) als auch als Klartext (XLSX-Report); (2) Gruppenadressen in einer Mittelgruppe, deren Name "Szene" enthaelt, sofern auch die GA-Bezeichnung "Szene" enthaelt; (3) Namensmuster fuer Taster-Lichtstimmungen (z.B. "Raum1_Szene High/Middle/Low/Off" mit optionaler LED-Rueckmeldung). Datenpunkttyp 1.017 (Szene A/B) wird ausserhalb eines Szenen-Ordners bewusst nicht als Szene gewertet, da er haeufig fuer andere Zwecke verwendet wird. Erkannte Szenen werden als solche gekennzeichnet und bei der GA-Neugenerierung nicht doppelt angelegt; sie koennen in der Uebersicht bearbeitet oder geloescht werden. |
+| FA-1809 | Das System muss aus dem Geraeteparameter-Abschnitt des ETS6-Topologie-Reports die Szenen-Schaltwerte der Aktorkanaele einlesen (z.B. "Kanal A schaltet bei Szene 2 auf AUS") und daraus die Aktionen der erkannten Szenen ableiten. Traegt ein zentraler Szenen-Kanal mehrere Szenennummern, muss pro konfigurierter Szenennummer eine eigene Szene entstehen. Nicht aufloesbare Kanaele werden uebersprungen. |
+| FA-1810 | Das System muss aus der Tastenkonfiguration der Geraeteparameter einlesen, welche Taste welche Szenennummer sendet (z.B. "Taste 1, links sendet Szene 1"), und diese Tasten als Ausloeser der zugehoerigen Szene hinterlegen. |
 
 ### 3.20 Abnahmeprotokoll und Inbetriebnahme (FA-1900)
 
@@ -1225,6 +1248,9 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 | ID | Anforderung |
 |----|-------------|
 | FA-2304 | Das System muss .knxprod-Dateien (Hersteller-Produktdatenbankdateien im KNX-Standard) importieren koennen. Eine .knxprod-Datei ist ein ZIP-Archiv mit XML-Struktur (Hardware.xml, Catalog.xml). Das System liest Hersteller, Bestellnummer, Produktname und Kanalanzahl aus und nimmt diese als neue Produkte in den lokalen Katalog auf. Die importierten Produkte stehen sofort in der Produktauswahl zur Verfuegung. Der Import ist erreichbar ueber: Menuepunkt "Datei -> Produktkatalog KNXPROD importieren..." sowie direkt im Produktauswahl-Dialog. |
+| FA-2304a | Die Kommunikationsobjekte eines Produkts muessen ueber die Zuordnung Produkt -> Applikationsprogramm aufgeloest werden. Fehlt die Zuordnung in Catalog.xml (z.B. bei aus einem .knxproj extrahierten Herstellerdateien), muss die Zuordnung aus Hardware.xml verwendet werden, sofern sie eindeutig ist. Liefern weder Hardware.xml noch der Katalogbaum eine Kategorie, wird sie aus dem Produktnamen abgeleitet (z.B. Gateway/Schnittstelle -> Infrastruktur, Taster-/Fensterschnittstelle -> Sensor). Dasselbe Produkt muss unabhaengig von der Importquelle dieselben Kommunikationsobjekte erhalten. |
+| FA-2304b | Per Parameter umschaltbare Varianten desselben Kommunikationsobjekts, die sich nur in der Objektgroesse unterscheiden, muessen als ein Objekt gefuehrt werden, damit der GA-Bedarf nicht vervielfacht wird. |
+| FA-2304c | Der Anwender muss den GA-Bedarf einer Materiallisten-Position von Hand festlegen und wieder auf den Wert aus der KNXPROD-Datei zuruecksetzen koennen (z.B. fuer frei belegbare Gateways, deren KNXPROD nur generische Objektplaetze enthaelt). Der manuelle Wert wird im Projekt gespeichert, als solcher gekennzeichnet und bleibt beim Neuaufbau der Materialliste aus der Topologie erhalten; bei Zuweisung eines anderen Produkts wird er verworfen. |
 
 #### FA-2307 -- Materialliste Export **(S)**
 

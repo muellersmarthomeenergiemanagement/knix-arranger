@@ -157,6 +157,48 @@ class TestComObjectRefResolution:
         finally:
             os.remove(path)
 
+    def test_identical_size_variants_are_merged(self):
+        """Regression (Viessmann Vitogate): mehrere per Parameter umschaltbare
+        Refs desselben Objekts, die sich nur in der Objektgroesse
+        unterscheiden, ergeben EIN ComObject -- sonst erscheint jedes Objekt
+        mehrfach und der GA-Bedarf wird vervielfacht."""
+        body = """
+        <ComObjectTable>
+          <ComObject Id="CO-1" Number="1" Text="Object 0" FunctionText="1 bit"
+                     CommunicationFlag="Enabled" WriteFlag="Enabled" TransmitFlag="Enabled"/>
+        </ComObjectTable>
+        <ComObjectRefs>
+          <ComObjectRef Id="COR-1" RefId="CO-1" ObjectSize="1 Bit"/>
+          <ComObjectRef Id="COR-2" RefId="CO-1" FunctionText="1 Byte" ObjectSize="1 Byte"/>
+          <ComObjectRef Id="COR-3" RefId="CO-1" FunctionText="4 Byte" ObjectSize="4 Bytes"/>
+        </ComObjectRefs>
+        """
+        path = _build_knxprod(body)
+        try:
+            prod = KnxprodCatalogService().import_file(path)[0]
+            assert len(prod.com_objects) == 1
+            assert prod.ga_max == 1
+        finally:
+            os.remove(path)
+
+    def test_variants_with_different_datapoint_type_stay_separate(self):
+        body = """
+        <ComObjectTable>
+          <ComObject Id="CO-1" Number="1" Text="Wert"
+                     CommunicationFlag="Enabled" WriteFlag="Enabled"/>
+        </ComObjectTable>
+        <ComObjectRefs>
+          <ComObjectRef Id="COR-1" RefId="CO-1" DatapointType="DPST-5-1"/>
+          <ComObjectRef Id="COR-2" RefId="CO-1" DatapointType="DPST-9-1"/>
+        </ComObjectRefs>
+        """
+        path = _build_knxprod(body)
+        try:
+            prod = KnxprodCatalogService().import_file(path)[0]
+            assert sorted(co.datapoint_type for co in prod.com_objects) == ["DPST-5-1", "DPST-9-1"]
+        finally:
+            os.remove(path)
+
 
 def _build_knxprod_no_application_area(catalog_section_names: list[str], product_name: str) -> str:
     """Wie `_build_knxprod`, aber ohne ApplicationArea auf <Hardware> (wie
@@ -394,3 +436,115 @@ class TestManufacturerNameFallbackViaMasterFile:
             os.remove(path)
             if os.path.exists(fixed):
                 os.remove(fixed)
+
+
+def _build_knxprod_partial_catalog(product_name: str, application_area: str = "") -> str:
+    """Nachbau einer aus einem .knxproj extrahierten Herstellerdatei: zwei
+    Geraete mit je eigenem Applikationsprogramm, das Produkt P1 hat aber
+    keinen CatalogItem in Catalog.xml und keine Hardware2ProgramRefId am
+    <Product> -- die Zuordnung steht nur unter <Hardware2Programs>."""
+    area = f' ApplicationArea="{application_area}"' if application_area else ""
+    hardware_xml = f"""<?xml version="1.0"?>
+<KNX xmlns="http://knx.org/xml/project/20">
+  <ManufacturerData>
+    <Manufacturer RefId="M-0001">
+      <Hardware>
+        <Hardware Id="H1" Name="Geraet 1"{area}>
+          <Products>
+            <Product Id="P1" Text="{product_name}" OrderNumber="TP-1"/>
+          </Products>
+          <Hardware2Programs>
+            <Hardware2Program Id="H2P1">
+              <ApplicationProgramRef RefId="APP1"/>
+            </Hardware2Program>
+          </Hardware2Programs>
+        </Hardware>
+        <Hardware Id="H2" Name="Geraet 2">
+          <Products>
+            <Product Id="P2" Text="Anderes Geraet" OrderNumber="TP-2"/>
+          </Products>
+          <Hardware2Programs>
+            <Hardware2Program Id="H2P2">
+              <ApplicationProgramRef RefId="APP2"/>
+            </Hardware2Program>
+          </Hardware2Programs>
+        </Hardware>
+      </Hardware>
+    </Manufacturer>
+  </ManufacturerData>
+</KNX>"""
+
+    catalog_xml = """<?xml version="1.0"?>
+<KNX xmlns="http://knx.org/xml/project/20">
+  <ManufacturerData>
+    <Manufacturer Name="TestHersteller">
+      <Catalog>
+        <CatalogItem ProductRefId="P2" Name="Anderes Geraet" Hardware2ProgramRefId="H2P2"/>
+      </Catalog>
+    </Manufacturer>
+  </ManufacturerData>
+</KNX>"""
+
+    def app_xml(app_id: str, count: int) -> str:
+        objs = "".join(
+            f'<ComObject Id="{app_id}-O{i}" Number="{i}" Text="Objekt {i}" '
+            f'CommunicationFlag="Enabled" WriteFlag="Enabled" DatapointType="DPST-1-1"/>'
+            for i in range(count)
+        )
+        return f"""<?xml version="1.0"?>
+<KNX xmlns="http://knx.org/xml/project/20">
+  <ManufacturerData><Manufacturer><ApplicationPrograms>
+    <ApplicationProgram Id="{app_id}"><Static><ComObjectTable>{objs}</ComObjectTable></Static></ApplicationProgram>
+  </ApplicationPrograms></Manufacturer></ManufacturerData>
+</KNX>"""
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("M-0001/Hardware.xml", hardware_xml)
+        zf.writestr("M-0001/Catalog.xml", catalog_xml)
+        zf.writestr("M-0001/M-0001_A-0001-01.xml", app_xml("APP1", 3))
+        zf.writestr("M-0001/M-0001_A-0002-01.xml", app_xml("APP2", 5))
+
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=".knxprod")
+    with os.fdopen(fd, "wb") as f:
+        f.write(buf.getvalue())
+    return path
+
+
+class TestProductMissingFromCatalog:
+    """Regression (Revox Gateway): In aus einem .knxproj extrahierten
+    Herstellerdateien fehlt Catalog.xml-Eintrag und Hardware2ProgramRefId
+    fuer manche Produkte. Ohne Fallback bekam das Produkt keine ComObjects
+    und wurde als 'Schaltaktor' eingestuft -- je nach Importquelle waren
+    dann andere Kanaele auswaehlbar."""
+
+    def _import(self, name, area=""):
+        path = _build_knxprod_partial_catalog(name, area)
+        try:
+            return {p.order_number: p for p in KnxprodCatalogService().import_file(path)}
+        finally:
+            os.remove(path)
+
+    def test_com_objects_resolved_via_hardware2programs(self):
+        products = self._import("Revox Gateway designed by Weinzierl")
+        assert len(products["TP-1"].com_objects) == 3
+        assert len(products["TP-2"].com_objects) == 5  # andere Produkte unveraendert
+
+    def test_gateway_classified_as_infrastructure_by_name(self):
+        prod = self._import("Revox Gateway designed by Weinzierl")["TP-1"]
+        assert prod.category == "infrastructure"
+        assert prod.device_type == "Sonstiges"
+
+    def test_input_interface_classified_as_sensor_by_name(self):
+        prod = self._import("Universalschnittstelle 8fach Komfort")["TP-1"]
+        assert prod.category == "sensor"
+
+    def test_application_area_still_wins_over_name(self):
+        prod = self._import("KNX DALI Gateway", area="Lighting")["TP-1"]
+        assert prod.category == "actor"
+
+    def test_unknown_name_still_falls_back_to_actor(self):
+        prod = self._import("Geraet XY")["TP-1"]
+        assert prod.category == "actor"
+        assert len(prod.com_objects) == 3

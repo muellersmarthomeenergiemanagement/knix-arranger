@@ -76,11 +76,6 @@ class TestProductSearchService:
         for r in all_sensors:
             assert r.category == "sensor"
 
-    def test_search_online_not_implemented(self):
-        import pytest
-        with pytest.raises(NotImplementedError):
-            self.svc.search_online("test")
-
 
 class TestProductSearchInfrastructure:
     """Tests fuer search_infrastructure (FA-2303)."""
