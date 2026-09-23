@@ -27,6 +27,14 @@ jobs:
           echo "VERSION=$version" >> $env:GITHUB_ENV
         shell: pwsh
 
+      - name: Generate release notes from release_notes.json
+        # Bricht ab, wenn für die getaggte Version kein Eintrag existiert –
+        # vor dem Build, damit kein Release ohne Änderungsliste entsteht.
+        run: |
+          python -m knix_arranger.services.release_notes_service $env:VERSION --output release_notes.md
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+        shell: pwsh
+
       - name: Set version in source files
         run: |
           $content = Get-Content "knix_arranger/__init__.py" -Raw
@@ -56,6 +64,6 @@ jobs:
             "installer/KNiX_Arranger_Setup_v$env:VERSION.exe" `
             --repo muellersmarthomeenergiemanagement/knix-arranger-releases `
             --title "KNiX Arranger $env:VERSION" `
-            --notes "KNiX Arranger Version $env:VERSION" `
+            --notes-file release_notes.md `
             --latest
         shell: pwsh

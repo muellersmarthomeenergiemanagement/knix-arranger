@@ -52,3 +52,6 @@ Produkte KNX/
 # Persönliche Daten
 tools/betatester.csv
 tools/._betatester.csv
+
+# Von release.py / CI aus config/release_notes.json erzeugt
+release_notes.md

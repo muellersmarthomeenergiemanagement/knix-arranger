@@ -1,0 +1,61 @@
+{
+  "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
+  "versions": [
+    {
+      "version": "1.1.16",
+      "date": "2026-09-24",
+      "neu": [
+        "Wizard: Mit F1 bzw. dem Button «Hilfe» erscheint die Erklärung zum aktuellen Schritt direkt im Wizard.",
+        "Nach einem Update zeigt KNiX Arranger einmalig, was sich geändert hat – jederzeit wieder abrufbar unter Hilfe → Was ist neu."
+      ],
+      "verbessert": [
+        "Wizard berechnet Gruppenadressen, Funktionszuordnungen und Linienteilnehmer nur noch neu, wenn sich tatsächlich etwas geändert hat. Beim Generieren zeigt Schritt 10, welche Gruppenadressen hinzugekommen oder weggefallen sind.",
+        "Schritt 11 zeigt, wie viele Bedienelemente manuell angepasst wurden – diese werden bei späteren Gewerk-Änderungen nicht automatisch nachgeführt.",
+        "Schritt 12 heisst jetzt «Tastenbelegung prüfen» und ist eine reine Kontrollansicht vor dem Export; bearbeitet wird in Schritt 11.",
+        "Direktsprung über die Schrittnummern: Pflichtschritte (z.B. Topologie) können nicht mehr übersprungen werden.",
+        "Änderungen im Wizard lassen sich als Ganzes mit «Rückgängig» (Ctrl+Z) zurücknehmen.",
+        "Hilfetexte und Hinweise nennen durchgehend die richtigen Schrittnummern; neue Hilfeseite für Schritt 6 (Gerätekonfiguration)."
+      ],
+      "behoben": [
+        "Astro-Gruppenadressen der Zeitsteuerung (0/7/0–0/7/3) gingen beim Öffnen von Wizard-Schritt 10 oder nach Gewerk-Änderungen verloren.",
+        "Berichte und Inbetriebnahme-Checklisten veränderten beim Erstellen das Projekt.",
+        "Nach dem Wizard wurde das Projekt nicht als ungespeichert markiert."
+      ]
+    },
+    {
+      "version": "1.1.15",
+      "date": "2026-09-18",
+      "verbessert": [
+        "Der Installer schliesst eine laufende KNiX-Arranger-Instanz vor dem Update (mit Rückfrage, damit Sie vorher speichern können)."
+      ]
+    },
+    {
+      "version": "1.1.14",
+      "date": "2026-09-18",
+      "verbessert": [
+        "CO-Verknüpfung: Filter nach Geräte- und GA-Adresse arbeitet segmentweise, Duplikate werden erkannt.",
+        "DALI-Konfiguration: Gruppen- und Szenentabellen lassen sich bearbeiten und speichern; Gruppennummern werden mit den echten DALI-Gruppen abgeglichen."
+      ],
+      "behoben": [
+        "Verknüpfungsmatrix: Taste-Spalte zeigt wieder das echte Tastenlabel; bei importierten Projekten fehlten Gewerk-Spalten wie Jalousie teilweise.",
+        "Topologie-Ansicht: doppelte GA-Anzeige bei gleichnamigen Kommunikationsobjekten."
+      ]
+    },
+    {
+      "version": "1.1.13",
+      "date": "2026-09-17",
+      "neu": [
+        "Bauherrenberatung: Anzahl Tasten pro Tastereinheit direkt anpassbar, jede Taste auf Gewerk, Szene oder Freitext umstellbar.",
+        "Excel-Bauherrformular mit Titelblatt zur Auftragsbestätigung (Datum und Unterschrift Bauherr)."
+      ],
+      "verbessert": [
+        "ETS-Import: Kommunikationsobjekte werden pro physischer Taste gebündelt – eine Tasterkombination erscheint mit der richtigen Tastenzahl.",
+        "Eine Taste kann mehrere Gruppenadressen mit eigener Rolle (Befehl, Rückmeldung, Fremdsteuerung) tragen."
+      ],
+      "behoben": [
+        "GA-Adressnummer fehlte in Gebäude-, Topologie- und Berichtsansicht bei im Wizard geplanten Projekten.",
+        "Bei einem Re-Import folgt das Bedienelement seinem Gerät in den neuen Raum."
+      ]
+    }
+  ]
+}

@@ -82,8 +82,8 @@ class UpdateDialog(QDialog):
             layout.addWidget(QLabel("<b>Neuerungen in dieser Version:</b>"))
             changelog = QTextEdit()
             changelog.setReadOnly(True)
-            changelog.setPlainText(update_info.changelog)
-            changelog.setMaximumHeight(180)
+            changelog.setMarkdown(update_info.changelog)
+            changelog.setMaximumHeight(260)
             changelog.setStyleSheet("background: #F5F5F5; border: 1px solid #DDD;")
             layout.addWidget(changelog)
 

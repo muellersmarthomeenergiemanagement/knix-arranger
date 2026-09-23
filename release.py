@@ -70,7 +70,7 @@ def create_github_release(version: str, installer_path: Path):
             str(installer_path),
             "--repo", "muellersmarthomeenergiemanagement/knix-arranger-releases",
             "--title", f"KNiX Arranger {version}",
-            "--notes", f"KNiX Arranger Version {version}",
+            "--notes-file", str(ROOT / "release_notes.md"),
             "--latest",
         ],
         cwd=ROOT,
@@ -98,6 +98,16 @@ def main():
         sys.exit(1)
 
     publish_github = "--github" in sys.argv
+
+    # Ohne Änderungsliste kein Release (gleiche Prüfung wie in CI)
+    notes_path = ROOT / "release_notes.md"
+    result = subprocess.run(
+        [sys.executable, "-m", "knix_arranger.services.release_notes_service",
+         new_version, "--output", str(notes_path)],
+        cwd=ROOT,
+    )
+    if result.returncode != 0:
+        sys.exit(1)
 
     set_version(new_version)
     build()

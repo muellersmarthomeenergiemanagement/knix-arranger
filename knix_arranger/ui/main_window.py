@@ -120,8 +120,10 @@ class MainWindow(QMainWindow):
         self._sidebar.select("overview")
         self._navigate("overview")
 
-        # Willkommensbildschirm beim ersten Start (kein Projekt geladen)
-        QTimer.singleShot(0, self._show_welcome)
+        # Startdialoge nacheinander: erst "Was ist neu" (nach Update), dann
+        # Willkommensbildschirm. Bewusst EIN Timer – ein modaler Dialog startet
+        # eine eigene Ereignisschleife, ein zweiter Timer würde darüber aufgehen.
+        QTimer.singleShot(0, self._show_startup_dialogs)
 
         # Automatischer Update-Check nach 4 Sekunden (NFA-111, blockiert nicht)
         QTimer.singleShot(4000, self._auto_check_updates)
@@ -249,6 +251,10 @@ class MainWindow(QMainWindow):
         help_menu.addAction(manual_action)
 
         help_menu.addSeparator()
+
+        whats_new_action = QAction("&Was ist neu…", self)
+        whats_new_action.triggered.connect(self._show_whats_new)
+        help_menu.addAction(whats_new_action)
 
         update_action = QAction("Nach &Updates suchen...", self)
         update_action.setShortcut(QKeySequence("Ctrl+U"))
@@ -2283,6 +2289,51 @@ class MainWindow(QMainWindow):
                 path = dialog.workspace_path
                 self._save_app_setting("workspace_root_path", path)
                 return path
+
+    def _show_startup_dialogs(self):
+        self._show_whats_new_after_update()
+        self._show_welcome()
+
+    def _show_whats_new_after_update(self):
+        """Zeigt nach einem Update einmalig die Änderungen seit der zuletzt
+        gesehenen Version – auch übersprungene Versionen."""
+        from ..services.release_notes_service import notes_since
+        from .dialogs.whats_new_dialog import WhatsNewDialog
+
+        settings = self._load_app_settings()
+        last_seen = settings.get("last_seen_version", "")
+        if last_seen == __version__:
+            return
+        self._save_app_setting("last_seen_version", __version__)
+        try:
+            if last_seen:
+                notes = notes_since(last_seen, __version__)
+            elif settings:
+                # Bestandsnutzer, dessen Version diese Funktion noch nicht kannte
+                # (App-Einstellungen existieren bereits): aktuelle Version zeigen.
+                notes = notes_since("0", __version__)[:1]
+            else:
+                return  # Neuinstallation: keine Änderungsliste
+        except Exception:
+            logger.exception("Release-Notes konnten nicht geladen werden")
+            return
+        if notes:
+            WhatsNewDialog(
+                notes, f"KNiX Arranger wurde auf Version {__version__} aktualisiert",
+                self,
+            ).exec()
+
+    def _show_whats_new(self):
+        """Hilfe → Was ist neu: alle Versionen (neueste zuerst)."""
+        from ..services.release_notes_service import load_release_notes
+        from .dialogs.whats_new_dialog import WhatsNewDialog
+        try:
+            notes = load_release_notes()
+        except Exception:
+            logger.exception("Release-Notes konnten nicht geladen werden")
+            QMessageBox.warning(self, "Was ist neu", "Die Änderungsliste konnte nicht geladen werden.")
+            return
+        WhatsNewDialog(notes, f"Was ist neu – Version {__version__}", self).exec()
 
     def _show_welcome(self):
         """Zeigt den Willkommensbildschirm beim Start (kein Projekt geladen)."""
