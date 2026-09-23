@@ -226,13 +226,13 @@ class KnxprojExportService:
         if n_ga == 0:
             warnings.append(
                 "Keine Gruppenadressen vorhanden — "
-                "Wizard Schritt 8 (GA-Generierung) zuerst ausführen."
+                "Wizard Schritt 10 (Gruppenadressen) zuerst ausführen."
             )
         areas = project.topology.areas
         if not areas or all(not a.lines for a in areas):
             warnings.append(
                 "Keine Topologie vorhanden — "
-                "Wizard Schritt 6 (Topologie) zuerst ausführen."
+                "Wizard Schritt 7 (Topologie) zuerst ausführen."
             )
         warnings.append(
             "Applikationsprogramme sind nicht enthalten — "

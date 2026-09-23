@@ -39,6 +39,8 @@ version_info.txt
 *.knxlic
 *.xlsx
 *.pdf
+# Ausnahme: mit der App ausgelieferte Bedienungsanleitung (Hilfe → Bedienungsanleitung)
+!knix_arranger/data/KNiX_Arranger_Handbuch.pdf
 *.docx
 *.zpro
 nul

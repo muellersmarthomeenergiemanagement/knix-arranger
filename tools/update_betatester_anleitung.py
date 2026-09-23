@@ -18,6 +18,12 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 import copy
+import sys
+from pathlib import Path
+
+# Versionsnummer direkt aus der App – Anleitung und Programm laufen so nie auseinander
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from knix_arranger import __version__  # noqa: E402
 
 # ── Farben ────────────────────────────────────────────────────────────────────
 C_GREEN_DARK  = RGBColor(0x1B, 0x5E, 0x20)
@@ -149,7 +155,11 @@ def add_wizard_step(doc: Document, number: int, title: str, description: str,
                     berechnet: list[str] | None = None,
                     tipp: str | None = None) -> None:
     """Formatiert einen Wizard-Schritt einheitlich."""
-    p = doc.add_paragraph(style="List Number")
+    # "List Bullet" statt "List Number": die Schrittnummer steht bereits im Text
+    # ("Schritt N - ..."), ein numerierter Absatzstil wuerde Words eigene
+    # Autonumerierung fortlaufend ueber das gesamte Dokument zaehlen (inkl. der
+    # 3 Schritte aus der Lizenzaktivierung) und so falsche Nummern anzeigen.
+    p = doc.add_paragraph(style="List Bullet")
     run = p.add_run(f"Schritt {number} – {title}")
     run.bold = True
     run.font.size = Pt(10)
@@ -209,7 +219,7 @@ def build_document() -> Document:
 
     p = doc.add_paragraph(style="Normal")
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run("Betatester-Anleitung  ·  Version 1.1.2")
+    run = p.add_run(f"Betatester-Anleitung  ·  Version {__version__}")
     run.font.size = Pt(14)
     run.font.color.rgb = C_GREY
 
@@ -228,7 +238,7 @@ def build_document() -> Document:
 
     p = doc.add_paragraph(style="Normal")
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.add_run("Mueller SmartHome & EnergieManagement").font.size = Pt(11)
+    p.add_run("Müller SmartHome & EnergieManagement").font.size = Pt(11)
     p = doc.add_paragraph(style="Normal")
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = p.add_run("info@muellersmarthomeenergiemanagement.ch")
@@ -252,35 +262,46 @@ def build_document() -> Document:
 
     # ── 2  Installation ───────────────────────────────────────────────────────
     add_heading1(doc, "2  Installation")
-    add_body(doc, "Das Programm steht zum Download bereit unter:")
+    add_body(doc, "Das Installationsprogramm steht zum Download bereit unter:")
     add_bullet(doc, "https://github.com/muellersmarthomeenergiemanagement/knix-arranger-releases/releases/latest")
-    add_bullet(doc, "IhrName_JJJJ-MM-TT.knxlic  –  Ihre persönliche Lizenzdatei")
+    add_bullet(doc, "KNiX_Arranger_Setup_vX.X.X.exe  –  Installationsprogramm (neueste Version)")
+    add_bullet(doc, "IhrName_JJJJ-MM-TT.knxlic  –  Ihre persönliche Lizenzdatei (separat erhalten)")
     doc.add_paragraph()
 
-    add_heading2(doc, "2.1  ZIP entpacken")
+    add_heading2(doc, "2.1  Installationsprogramm ausführen")
     add_body(doc,
-        "Klicken Sie mit der rechten Maustaste auf die ZIP-Datei und wählen Sie "
-        "«Alle extrahieren…». Wählen Sie einen Zielordner, z. B. "
-        "C:\\Programme\\KNiX Arranger, und klicken Sie auf «Extrahieren».")
+        "Doppelklicken Sie auf die heruntergeladene Datei KNiX_Arranger_Setup_vX.X.X.exe "
+        "und folgen Sie dem Setup-Assistenten: Zielordner bestätigen (Standard: "
+        "Programme\\KNiX Arranger), optional Desktop-Verknüpfung und/oder Dateiverknüpfung "
+        "für .knxarr-Projektdateien aktivieren, dann «Installieren». Die Installation "
+        "benötigt Administratorrechte – bestätigen Sie die Windows-Sicherheitsabfrage "
+        "(Benutzerkontensteuerung/UAC) mit «Ja». Auf einem fremden oder verwalteten PC "
+        "(z. B. Schulungsraum) sind dafür ggf. lokale Administratorrechte nötig.")
+    add_note(doc,
+        "Da das Programm noch nicht mit einem kostenpflichtigen Hersteller-Codesigning-"
+        "Zertifikat signiert ist, zeigt Windows SmartScreen beim Start des Installers "
+        "die Meldung «Windows hat Ihren PC geschützt» / «Unbekannter Herausgeber». "
+        "Klicken Sie auf «Weitere Informationen» und dann auf «Trotzdem ausführen», um "
+        "fortzufahren. Das ist normal bei nicht signierter Software aus einer Ihnen "
+        "bekannten, vertrauenswürdigen Quelle – prüfen Sie in diesem Fall nur, dass Sie "
+        "die Datei tatsächlich von obigem GitHub-Link bzw. direkt von uns erhalten haben, "
+        "bevor Sie «Trotzdem ausführen» wählen.")
     doc.add_paragraph()
 
     add_heading2(doc, "2.2  Programm starten")
     add_body(doc,
-        "Öffnen Sie den entpackten Ordner und doppelklicken Sie auf KNX_Arranger.exe. "
-        "Optional können Sie eine Verknüpfung auf dem Desktop anlegen "
-        "(Rechtsklick → Senden an → Desktop).")
-    add_note(doc,
-        "Wenn Windows SmartScreen erscheint («Unbekannter Herausgeber»), klicken Sie auf "
-        "«Weitere Informationen» und dann «Trotzdem ausführen». Dies ist beim ersten Start "
-        "eines nicht signierten Programms normal und kein Sicherheitsrisiko.")
+        "Nach Abschluss der Installation startet KNiX Arranger automatisch "
+        "(Option «KNiX Arranger starten» auf der letzten Seite des Assistenten bleibt "
+        "angehakt). Künftig finden Sie das Programm über das Startmenü oder die "
+        "angelegte Desktop-Verknüpfung.")
     doc.add_paragraph()
 
     # ── 3  Lizenzaktivierung ──────────────────────────────────────────────────
     add_heading1(doc, "3  Lizenzaktivierung")
     add_body(doc, "Beim ersten Start erscheint der Lizenz-Dialog. Gehen Sie wie folgt vor:")
     add_numbered(doc,
-        "EULA akzeptieren:  Lesen Sie die Endnutzer-Lizenzvereinbarung und klicken "
-        "Sie auf «Akzeptieren».")
+        "EULA akzeptieren:  Lesen Sie die Endnutzer-Lizenzvereinbarung. «Akzeptieren» "
+        "wird erst aktiv, sobald Sie bis ans Ende des Textes gescrollt haben.")
     add_numbered(doc,
         "Lizenzdatei auswählen:  Im Lizenz-Dialog klicken Sie auf «Lizenzdatei "
         "auswählen…» und wählen die mitgelieferte .knxlic-Datei aus Ihrem "
@@ -290,9 +311,9 @@ def build_document() -> Document:
         "erfolgreich importiert». Die Anwendung startet nun vollständig.")
     doc.add_paragraph()
     add_body(doc,
-        "Betatester-Lizenz: Ihre Lizenz ist gültig bis 1. Juli 2026. "
-        "14 Tage vor Ablauf erscheint beim Programmstart ein Hinweis. "
-        "Melden Sie sich bei uns, falls Sie eine Verlängerung benötigen.")
+        "Ihre Lizenzdatei ist zeitlich befristet (Testlizenz). Das Ablaufdatum sehen "
+        "Sie jederzeit im Feld «Gültig bis» unter Hilfe → Lizenz. Melden Sie sich bei "
+        "uns, falls Sie nach Ablauf eine Verlängerung benötigen.")
     add_note(doc,
         "Die Lizenzdatei ist personalisiert und nicht übertragbar. "
         "Bitte geben Sie sie nicht an Dritte weiter.")
@@ -371,11 +392,18 @@ def build_document() -> Document:
 
     add_heading2(doc, "4.1  Menüleiste")
     add_table_2col(doc, [
-        ("Datei",    "Neues Projekt, Öffnen, Speichern, Import (ETS6/CSV/KNXPROJ), Export"),
+        ("Datei",    "Neues Projekt, Öffnen, Speichern, Speichern unter, Import (ETS6/CSV/KNXPROJ), CSV-Export, Projekteigenschaften (Ctrl+P)"),
         ("Bearbeiten", "Rückgängig (Ctrl+Z), Wiederholen (Ctrl+Y), Einstellungen"),
         ("Ansicht",  "Wizard starten (Ctrl+W), Projekt validieren (Ctrl+V)"),
-        ("Hilfe",    "Hilfe (F1), Tour, Benutzerhandbuch, Updates, Lizenz"),
+        ("Hilfe",    "Hilfe (F1), Erste Schritte (Tour), Bedienungsanleitung (PDF), Was ist neu, "
+                    "Nach Updates suchen (Ctrl+U), Lizenz, Über KNiX Arranger"),
     ])
+    add_tip(doc,
+        "KNiX Arranger prüft beim Start automatisch im Hintergrund auf neue Versionen "
+        "(GitHub Releases) und weist gegebenenfalls auf ein Update hin – inklusive der "
+        "Liste der Änderungen. Manuell auslösbar über Hilfe → Nach Updates suchen (Ctrl+U). "
+        "Nach der Installation zeigt das Programm beim ersten Start einmalig, was sich "
+        "geändert hat (siehe Kapitel 10.3).")
     doc.add_paragraph()
 
     add_heading2(doc, "4.2  Auto-Speichern")
@@ -391,13 +419,17 @@ def build_document() -> Document:
     # ── 5  Neues Projekt anlegen ──────────────────────────────────────────────
     add_heading1(doc, "5  Neues Projekt anlegen")
     add_body(doc,
-        "Beim allerersten Programmstart fragt KNiX Arranger einmalig nach einem "
-        "Arbeitsverzeichnis (Workspace) – dem Ordner, in dem künftig alle Projekte "
-        "abgelegt werden. Diesen Pfad können Sie jederzeit über "
-        "Bearbeiten → Einstellungen → Tab «Arbeitsverzeichnis» ändern.")
+        "Beim allerersten Programmstart fragt der Dialog «Arbeitsverzeichnis einrichten» "
+        "einmalig nach einem Ordner (Vorschlag: Dokumente\\KNX-Projekte), in dem künftig "
+        "alle Projekte einheitlich abgelegt werden. Übernehmen Sie den Vorschlag oder "
+        "wählen Sie über «Ordner wählen…» einen anderen Speicherort, und bestätigen Sie "
+        "mit «Verwenden».")
     add_body(doc,
-        "Für ein neues Projekt wählen Sie im Willkommens-Dialog «Neues Projekt» oder "
-        "klicken im Menü auf Datei → Neues Projekt (Ctrl+N). Im Dialog geben Sie an:")
+        "Danach erscheint der Willkommens-Bildschirm mit den Optionen «Neues Projekt "
+        "erstellen», «Bestehendes Projekt öffnen» (inkl. Liste zuletzt verwendeter "
+        "Projekte) und «Ohne Projekt fortfahren». Für ein neues Projekt wählen Sie "
+        "«Neues Projekt erstellen» oder klicken im Menü auf Datei → Neues Projekt "
+        "(Ctrl+N). Im Dialog geben Sie an:")
     add_bullet(doc, "Projektname (z. B. «Neubau EFH Mueller»)")
     add_bullet(doc, "Projektnummer (z. B. «2024-001»)")
     add_bullet(doc, "Gebäudetyp / Vorlage: Leeres Projekt, Einfamilienhaus (EFH), "
@@ -422,23 +454,35 @@ def build_document() -> Document:
     add_body(doc,
         "Wenn Sie bereits ein bestehendes KNX-Projekt in ETS6 haben, können Sie es in "
         "den KNiX Arranger importieren. Gehen Sie dazu auf Datei → Import und wählen "
-        "Sie das gewünschte Format:")
+        "Sie das gewünschte Format. Empfohlener Weg: die drei ETS6-Berichte «Gebäude», "
+        "«Topologie» und «Gruppenadressen» jeweils als Excel (XLSX) exportieren – dabei "
+        "in ETS6 alle verfügbaren Detail-/Parameteroptionen aktivieren, damit möglichst "
+        "viele Informationen (Räume, Objekte, Tastenbelegungen usw.) übernommen werden "
+        "können.")
     doc.add_paragraph()
 
     add_table_2col(doc,
         header=("Format", "Verwendung und Hinweise"),
         rows=[
-            ("CSV (ETS6-Export)",
-             "ETS6: Extras → Gruppenadressbericht → CSV exportieren. "
-             "Importiert alle Gruppenadressen mit Name, Adresse und DPT."),
-            ("XLSX (Topologie-Report)",
-             "ETS6: Berichte → Topologie-Report → Excel. "
-             "Importiert Busstruktur, Linien, Geräte und Kommunikationsobjekte."),
+            ("Gebäude-Report (XLSX)",
+             "ETS6: Berichte → Gebäude → als Excel exportieren (alle Details aktivieren). "
+             "Liefert die reale Raum-/Verteilerzuordnung der Geräte aus ETS6."),
+            ("Topologie-Report (XLSX)",
+             "ETS6: Berichte → Topologie → als Excel exportieren, Zusatzwahl «Objekte» "
+             "aktivieren. Liefert Bereiche, Linien, Geräte und Kommunikationsobjekte."),
+            ("Gruppenadressen-Report (XLSX)",
+             "ETS6: Berichte → Gruppenadressen → als Excel exportieren (alle Details "
+             "aktivieren). Liefert alle Gruppenadressen mit Name, Adresse und Datentyp."),
             ("KNXPROJ",
-             "Natives ETS-Projektformat. Importiert Topologie und GAs in einem Schritt. "
-             "Empfohlenes Format für den vollständigen Projektimport."),
+             "Natives ETS-Projektformat. Importiert Topologie und GAs eines bestehenden "
+             "ETS-Projekts in einem Schritt."),
         ]
     )
+    doc.add_paragraph()
+    add_tip(doc,
+        "Die drei XLSX-Reports werden automatisch anhand ihres Titels erkannt – Sie "
+        "können sie in beliebiger Reihenfolge nacheinander importieren "
+        "(Datei → Import, je Report einmal).")
     doc.add_paragraph()
 
     add_body(doc,
@@ -456,9 +500,24 @@ def build_document() -> Document:
     add_body(doc,
         "Der Wizard führt Sie in 13 Schritten durch die vollständige KNX-Projektplanung. "
         "Starten Sie ihn über Ansicht → Wizard starten (Ctrl+W) oder über die Übersichtsseite. "
-        "Sie können jederzeit zwischen den Schritten vor- und zurücknavigieren. "
-        "Jeder Schritt zeigt oben rechts einen «?»-Button – dieser öffnet die kontextsensitive "
-        "Hilfe direkt zum aktuellen Schritt.")
+        "Sie können jederzeit zwischen den Schritten vor- und zurücknavigieren – mit "
+        "«Zurück»/«Weiter» oder direkt über die nummerierten Schritt-Buttons unten. "
+        "Oben rechts öffnet der Button «Hilfe (F1)» (oder die Taste F1) die Erklärung "
+        "zum aktuellen Schritt.")
+    add_bullet(doc, "Farben der Schritt-Buttons: Grün = vollständig, Orange = teilweise / "
+                    "optional, Grau = leer, Dunkelgrün = aktueller Schritt.")
+    add_bullet(doc, "Pflichtschritte (Stockwerke, Zonen, Räume, Topologie) können auch beim "
+                    "Direktsprung nicht übersprungen werden – der Wizard hält beim ersten "
+                    "unvollständigen Schritt an.")
+    add_bullet(doc, "Gruppenadressen, Funktionszuordnungen und Linienteilnehmer werden nur "
+                    "neu berechnet, wenn sich seit dem letzten Besuch etwas geändert hat. "
+                    "Manuelle Anpassungen bleiben erhalten.")
+    add_bullet(doc, "Alle Änderungen einer Wizard-Sitzung lassen sich nach dem Schliessen "
+                    "mit Bearbeiten → Rückgängig (Ctrl+Z) als Ganzes zurücknehmen.")
+    add_tip(doc,
+        "Die Schritte 1–8 liefern eine vollständige Geräteliste für die Kundenofferte. "
+        "Die Schritte 9–13 (Szenen, Gruppenadressen, Funktionszuordnung, Export) "
+        "brauchen Sie erst für die Ausführungsplanung.")
     doc.add_paragraph()
 
     add_wizard_step(doc, 1, "Gebäudestruktur",
@@ -536,19 +595,21 @@ def build_document() -> Document:
              "Raums als wiederverwendbare Vorlage speichern.")
 
     add_wizard_step(doc, 6, "Gerätekonfiguration",
-        "Konfigurieren Sie raumspezifische Einstellungen für spezielle Geräte. "
-        "In der Matrix-Ansicht sehen Sie, welches Gewerk auf welcher "
-        "Tastereinheit (TE) liegt.",
+        "Legen Sie pro Raum fest, welche physischen Bedienelemente vorhanden sind – "
+        "Tastereinheiten, Präsenz- und Bewegungsmelder, Thermostate usw. Das geschieht "
+        "bewusst vor der Topologie, damit alle Busteilnehmer von Anfang an bekannt sind.",
         eingabe=[
-            "Tastereinheiten-Zuweisung: Gewerk → Tastereinheit(en) per Checkbox",
-            "Anzahl Tastereinheiten pro Raum (SpinBox, 1–9)",
-            "DALI-Gruppen und EVG-Konfiguration (falls LDA-Gewerk vorhanden)",
+            "Automatisch ermittelte Geräte (grün) prüfen, per Doppelklick bearbeiten "
+            "(Typ, Kanalzahl, Bezeichnung) oder per Rechtsklick löschen",
+            "Zusätzliche Geräte manuell ergänzen (orange)",
+            "«Gelöschte wiederherstellen» holt versehentlich entfernte Auto-Geräte zurück",
         ],
         berechnet=[
-            "Tastenbedarf pro Sensor (bestimmt Sensor-Typ im nächsten Schritt)",
+            "Bedienelemente pro Raum aus den Gewerk-Zuweisungen (Schritt 5)",
+            "Systemsensoren (z. B. Wetterstation) aus zentralen Gewerken",
         ],
-        tipp="Ein Gewerk kann auf mehreren Tastereinheiten gleichzeitig liegen "
-             "(Mehrfachauswahl per Checkbox).")
+        tipp="Welche Gruppenadresse welche Taste steuert, legen Sie erst in Schritt 11 fest – "
+             "hier geht es nur um die physischen Geräte.")
 
     add_wizard_step(doc, 7, "Topologie",
         "KNiX Arranger berechnet die KNX-Topologie automatisch aus den Zonen "
@@ -609,37 +670,39 @@ def build_document() -> Document:
             "MG 0=Licht, 1=Jalousie, 2=Heizung, 3=Alarm, 4=Allgemein, 5=Szenen usw.",
             "Datenpunkttypen (DPT) für alle GAs",
         ],
-        tipp="Nach der Generierung empfiehlt sich ein Klick auf «Validieren», "
-             "um Fehler und Warnungen zu prüfen.")
+        tipp="Das Protokoll unter der Vorschau zeigt nach jeder Generierung, welche "
+             "Gruppenadressen hinzugekommen (+) oder weggefallen (−) sind. Die Astro-"
+             "Gruppenadressen der Zeitsteuerung (0/7/x) bleiben erhalten. Anschliessend "
+             "empfiehlt sich ein Klick auf «Validieren».")
 
-    add_wizard_step(doc, 11, "Sensor-Ermittlung / Funktionszuordnung",
-        "KNiX Arranger ermittelt automatisch, welche Bedienelemente (Tastsensoren, "
-        "Raumthermostate, Systemsensoren) in jedem Raum benötigt werden, "
-        "und weist ihnen Funktionen zu.",
+    add_wizard_step(doc, 11, "Funktionszuordnung",
+        "Legen Sie fest, welche Gruppenadressen jedes Bedienelement steuert. "
+        "KNiX Arranger schlägt die Zuordnung automatisch aus den Gewerken des Raums vor.",
         eingabe=[
-            "Sensor-Typ manuell überschreiben (Doppelklick auf Raum)",
-            "Funktionszuordnung anpassen: welche Taste steuert welches Gewerk",
+            "Doppelklick auf ein Gerät: Sensorfunktionen hinzufügen oder entfernen – "
+            "aus dem eigenen Raum, aus einem anderen Raum (z. B. Zentral-Taster), "
+            "als direkte Gruppenadresse oder als Szene",
+            "«Funktionen automatisch zuordnen» setzt die Vorschläge neu",
         ],
         berechnet=[
-            "Sensor-Typ und Tastenanzahl basierend auf Gewerken und Tastereinheiten",
-            "Tastsensor 2-fach / 4-fach / 8-fach je nach Gewerk-Anzahl",
-            "Raumthermostat wenn Heizungs- oder Klimagewerk vorhanden",
-            "Systemsensoren (Wetterstation, Windsensor) aus Zentral-Gewerken",
-        ])
+            "Befehls- und Rückmelde-Gruppenadressen pro Taste",
+            "Materialliste der Bedienelemente (in die Projekt-Materialliste übernehmbar)",
+        ],
+        tipp="Die Zusammenfassung oben zeigt, wie viele Geräte Sie manuell angepasst haben. "
+             "Diese werden bei späteren Gewerk-Änderungen nicht automatisch nachgeführt – "
+             "prüfen Sie sie nach Änderungen in Schritt 5 gezielt.")
 
-    add_wizard_step(doc, 12, "Funktionsdefinition",
-        "Das Bauherr-Formular zeigt alle Bedienelemente und deren zugeordneten Funktionen. "
-        "Es dient als Grundlage für die Inbetriebnahme und wird vom Bauherrn unterschrieben.",
+    add_wizard_step(doc, 12, "Tastenbelegung prüfen",
+        "Kontrollansicht vor dem Export: pro Raum und Bedienelement jede Taste mit Kanal, "
+        "Aktion (Befehl / Rückmeldung) und zugeordneter Gruppenadresse. "
+        "Diese Ansicht ist nur zum Lesen – Änderungen nehmen Sie in Schritt 11 vor.",
         eingabe=[
-            "Tastenbelegung prüfen und bei Bedarf manuell anpassen",
-            "Beschreibungstext pro Bedienelement ergänzen",
+            "Tasten ohne Gruppenadresse und fehlende Rückmeldungen erkennen",
+            "Zentral- und Fremdraum-Tasten auf die richtigen Räume prüfen",
         ],
-        berechnet=[
-            "Bauherr-Formular als XLSX exportierbar (Schritt 13)",
-            "Rückmelde-GA wird automatisch zum Steuertelegramm ergänzt (Status-LED)",
-        ],
-        tipp="«Auto-Assign» belegt alle Tasten automatisch. "
-             "Danach können Einzeltasten manuell angepasst werden.")
+        berechnet=None,
+        tipp="Das Bauherr-Formular zur Abstimmung mit dem Kunden erzeugen Sie in "
+             "Schritt 13 oder im Menü Berichte.")
 
     add_wizard_step(doc, 13, "Export",
         "Exportieren Sie das Projekt in die gewünschten Formate.",
@@ -657,7 +720,10 @@ def build_document() -> Document:
              "Direkt in ETS6 importierbar (Extras → Gruppenadressbericht → Import)."),
             ("KNXPROJ",
              "Natives ETS6-Projektformat mit Topologie und Gruppenadressen. "
-             "Vollständiger Import in ETS6 möglich."),
+             "Enthält derzeit noch keine gültige ETS-Projektsignatur (fehlendes "
+             "Hersteller-/ETS-Zertifikat) und lässt sich deshalb aktuell noch nicht "
+             "direkt in ETS6 re-importieren. Für den Rückweg nach ETS6 empfehlen wir "
+             "vorerst den CSV-Gruppenadress-Export."),
             ("Revisionspaket (ZIP)",
              "Vollständiges Dokumentationspaket: GA-Übersicht (XLSX), Topologie-Plan, "
              "Belegungsplan, Kabellängen-Report, Datenbläter."),
@@ -690,44 +756,64 @@ def build_document() -> Document:
             ("Gruppenadressen",
              "Tabellarische GA-Übersicht mit Filterfunktion. "
              "Für manuelle GA-Korrekturen und GA-Suche."),
-            ("Verknüpfungsmatrix",
-             "Welcher Sensor sendet auf welche GA? "
-             "Für die Kontrolle vor der ETS-Programmierung."),
-            ("Materialliste",
-             "Ermittelte Geräte mit Typ, Kanal und Raum. "
-             "Für Produktzuweisung und Offertanfragen."),
-            ("Szenen",
-             "Szenen-Verwaltung ausserhalb des Wizards. "
-             "Für Nachträge oder Korrekturen an Szenen."),
-            ("Zeitsteuerung",
-             "Wochenprogramme mit Astrofunktionen und Feiertagskalender. "
-             "Für zeitgesteuerte Schaltprogramme."),
-            ("DALI-Konfiguration",
-             "DALI-Gruppen und EVGs – automatisch aus importierten GAs ermittelt. "
-             "Nur relevant wenn DALI-Leuchten (LDA-Gewerk) vorhanden."),
+            ("Gewerke",
+             "Übersicht aller verfügbaren Gewerk-Codes mit Beschreibung. "
+             "Zum Nachschlagen während der Gewerke-Zuweisung (Schritt 5)."),
             ("Validierung",
              "Prüft das Projekt auf Fehler und Warnungen vor dem Export. "
              "Empfohlen immer vor dem CSV/KNXPROJ-Export."),
-            ("Export",
-             "Direktzugriff auf alle Exportfunktionen (auch ohne Wizard)."),
-            ("Gewerk-Katalog",
-             "Übersicht aller verfügbaren Gewerk-Codes mit Beschreibung. "
-             "Zum Nachschlagen während der Gewerke-Zuweisung (Schritt 5)."),
+            ("Szenen",
+             "Szenen-Verwaltung ausserhalb des Wizards. "
+             "Für Nachträge oder Korrekturen an Szenen."),
+            ("Offertanfragen",
+             "Lieferanten und Anfragen verwalten; Offertanfragen automatisch aus der "
+             "Materialliste erzeugen."),
+            ("Kundenofferte",
+             "Automatische Angebotskalkulation basierend auf Materialliste und den "
+             "Stundensätzen aus dem Firmenprofil."),
+            ("Produktdatenblätter",
+             "Produktdatenblätter zu den zugewiesenen Geräten, inkl. Online-Suche "
+             "und Speichern von Links."),
+            ("Topologie-Report",
+             "Zeigt einen importierten ETS-Topologie-Report (Datei → Importieren → "
+             "ETS6 Topologie-Report XLSX oder .knxproj)."),
+            ("Topologie-Diagramm",
+             "Grafische Darstellung der Topologie, exportierbar als PNG oder PDF."),
+            ("Materialliste",
+             "Ermittelte Geräte mit Typ, Kanal und Raum. "
+             "Für Produktzuweisung und als Grundlage für Offertanfragen."),
+            ("CO-Verknüpfung",
+             "Manuelle Verknüpfung einzelner Kommunikationsobjekte mit Gruppenadressen "
+             "(z. B. für eigene Gewerke ausserhalb der Standardlogik)."),
+            ("Verknüpfungsmatrix",
+             "Welcher Sensor sendet auf welche GA? "
+             "Für die Kontrolle vor der ETS-Programmierung."),
+            ("Leitungslängen",
+             "Berechnung und Prüfung der Kabellängen zwischen Verteilungen und Geräten "
+             "je Linie."),
+            ("DALI-Konfiguration",
+             "DALI-Gruppen und EVGs – automatisch aus importierten GAs ermittelt. "
+             "Nur relevant wenn DALI-Leuchten (LDA-Gewerk) vorhanden."),
+            ("KNX Secure",
+             "Konfiguration der KNX-Secure-Schlüssel für gesicherte Linien und Geräte."),
+            ("Zeitsteuerung",
+             "Wochenprogramme mit Astrofunktionen und Feiertagskalender. "
+             "Für zeitgesteuerte Schaltprogramme."),
             ("Bauherren-Beratung",
              "Interaktive Tastenbelegung gemeinsam mit dem Bauherrn: Für jede Taste "
              "kann ein Wunsch ausgewählt und je Raum eine Anmerkung erfasst werden. "
-             "Ideal für die Besprechung am Bildschirm vor dem Bauherr-Formular (Schritt 12)."),
-            ("Datenblätter",
-             "Produktdatenblätter zu den zugewiesenen Geräten, inkl. Online-Suche "
-             "und Speichern von Links."),
-            ("Kundenofferten",
-             "Automatische Angebotskalkulation basierend auf Materialliste und den "
-             "Stundensätzen aus dem Firmenprofil."),
-            ("KNX Secure",
-             "Konfiguration der KNX-Secure-Schlüssel für gesicherte Linien und Geräte."),
+             "Ideal für die Besprechung am Bildschirm vor dem Bauherr-Formular (Export in Schritt 13)."),
             ("Inbetriebnahme",
              "Checkliste und Protokoll für die Projektübergabe "
              "(siehe auch Abnahmeprotokoll, Schritt 13)."),
+            ("Änderungsprotokoll",
+             "Automatische Checkpoints und manuelle Notizen zur Änderungshistorie "
+             "des Projekts."),
+            ("CSV Export",
+             "Direktzugriff auf den CSV-Export (auch ohne Wizard)."),
+            ("Berichte",
+             "Sammelstelle zum Erzeugen von Berichten und Dokumentation "
+             "(Revisionspaket, Abnahmeprotokoll u. a.)."),
         ]
     )
     doc.add_paragraph()
@@ -740,25 +826,27 @@ def build_document() -> Document:
         ("Ctrl+O",       "Projekt öffnen"),
         ("Ctrl+S",       "Speichern"),
         ("Ctrl+Shift+S", "Speichern unter"),
+        ("Ctrl+Shift+W", "Speichern und Schliessen"),
         ("Ctrl+W",       "Wizard starten"),
         ("Ctrl+I",       "Import (CSV / XLSX / KNXPROJ)"),
         ("Ctrl+E",       "CSV-Export"),
+        ("Ctrl+P",       "Projekteigenschaften"),
         ("Ctrl+Z",       "Rückgängig"),
         ("Ctrl+Y",       "Wiederholen"),
         ("Ctrl+V",       "Validieren"),
+        ("Ctrl+U",       "Nach Updates suchen"),
         ("F1",           "Hilfe anzeigen (kontextsensitiv)"),
-        ("Esc",          "Dialog / Wizard schliessen"),
     ])
     doc.add_paragraph()
 
     # ── 10  Hilfe-System ──────────────────────────────────────────────────────
     add_heading1(doc, "10  Hilfe und Onboarding")
 
-    add_heading2(doc, "10.1  Kontextsensitive Hilfe (F1 / «?»-Button)")
+    add_heading2(doc, "10.1  Kontextsensitive Hilfe (F1)")
     add_body(doc,
         "Drücken Sie jederzeit F1, um die Hilfe zur aktuell geöffneten Ansicht anzuzeigen. "
-        "In jedem Wizard-Schritt finden Sie oben rechts einen «?»-Button – dieser öffnet "
-        "direkt das passende Hilfethema.")
+        "Im Wizard öffnet F1 bzw. der Button «Hilfe (F1)» oben rechts die Erklärung zum "
+        "aktuellen Schritt in einem eigenen Fenster.")
     add_body(doc,
         "Die Hilfe-Ansicht (Seitenleiste → Hilfe) enthält alle Themen als durchsuchbare Liste. "
         "Geben Sie einen Suchbegriff ein, um relevante Hilfeseiten zu filtern.")
@@ -776,6 +864,20 @@ def build_document() -> Document:
     add_tip(doc,
         "Die Tour kann über die Checkbox «Tour beim nächsten Start nicht mehr anzeigen» "
         "dauerhaft deaktiviert werden.")
+    doc.add_paragraph()
+
+    add_heading2(doc, "10.3  Was ist neu")
+    add_body(doc,
+        "Nach einem Update zeigt KNiX Arranger beim ersten Start einmalig die Änderungen "
+        "seit Ihrer bisherigen Version – auch wenn Sie eine Version übersprungen haben. "
+        "Die vollständige Liste aller Versionen finden Sie jederzeit unter "
+        "Hilfe → Was ist neu.")
+    doc.add_paragraph()
+
+    add_heading2(doc, "10.4  Bedienungsanleitung")
+    add_body(doc,
+        "Diese Anleitung ist im Programm enthalten und lässt sich jederzeit über "
+        "Hilfe → Bedienungsanleitung (PDF) öffnen – immer passend zur installierten Version.")
     doc.add_paragraph()
 
     # ── 11  Troubleshooting ───────────────────────────────────────────────────
@@ -800,7 +902,7 @@ def build_document() -> Document:
              "Prüfen Sie ob Gewerke in Schritt 5 zugewiesen wurden und "
              "ob die Topologie (Schritt 7) berechnet wurde."),
             ("Programm startet nicht / Absturz",
-             "Log-Datei prüfen: %APPDATA%\\KNiX Arranger\\knix_arranger.log. "
+             "Log-Datei prüfen: %APPDATA%\\KNiX Arranger\\logs\\knix_arranger.log. "
              "Bitte legen Sie diese Datei dem Feedback-Mail bei."),
             ("KNXPROJ-Import schlägt fehl",
              "Stellen Sie sicher, dass die Datei aus ETS6 exportiert wurde "
@@ -835,7 +937,7 @@ def build_document() -> Document:
         "Feedback per E-Mail an:  info@muellersmarthomeenergiemanagement.ch")
     add_body(doc,
         "Bitte geben Sie in der Betreffzeile «KNiX Arranger Beta» an. "
-        "Für Absturz-Reports finden Sie unter %APPDATA%\\KNiX Arranger\\ eine "
+        "Für Absturz-Reports finden Sie unter %APPDATA%\\KNiX Arranger\\logs\\ eine "
         "Log-Datei, die Sie uns beilegen können.")
     doc.add_paragraph()
 
@@ -859,7 +961,7 @@ def build_document() -> Document:
             ("Was wurde erwartet", "Was sollte eigentlich passieren?"),
             ("Was ist passiert",   "Was ist tatsächlich passiert? Fehlermeldung?"),
             ("Log-Datei",
-             "Bitte beilegen: %APPDATA%\\KNiX Arranger\\knix_arranger.log"),
+             "Bitte beilegen: %APPDATA%\\KNiX Arranger\\logs\\knix_arranger.log"),
             ("Projektdatei",
              "Falls möglich: .knxarr-Datei beilegen (anonymisiert falls nötig)"),
         ]
@@ -876,7 +978,7 @@ def build_document() -> Document:
 
     p = doc.add_paragraph(style="Normal")
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run("Mueller SmartHome & EnergieManagement")
+    run = p.add_run("Müller SmartHome & EnergieManagement")
     run.font.size = Pt(11)
 
     return doc
@@ -891,3 +993,26 @@ if __name__ == "__main__":
     doc.save(out_path)
     print(f"Gespeichert: {out_path}")
     print(f"Absätze: {len(doc.paragraphs)}, Tabellen: {len(doc.tables)}")
+
+    # --pdf: PDF über das installierte MS Word erzeugen und als In-App-Handbuch
+    # (Hilfe → Bedienungsanleitung) nach knix_arranger/data/ kopieren.
+    if "--pdf" in sys.argv:
+        import shutil
+        from pathlib import Path
+        import win32com.client
+
+        docx = Path(out_path).resolve()
+        pdf = docx.with_suffix(".pdf")
+        word = win32com.client.DispatchEx("Word.Application")
+        word.Visible = False
+        try:
+            wdoc = word.Documents.Open(str(docx), ReadOnly=True)
+            wdoc.ExportAsFixedFormat(str(pdf), 17)  # 17 = wdExportFormatPDF
+            wdoc.Close(False)
+        finally:
+            word.Quit()
+        print(f"Gespeichert: {pdf}")
+
+        in_app = Path(__file__).resolve().parent.parent / "knix_arranger" / "data" / "KNiX_Arranger_Handbuch.pdf"
+        shutil.copyfile(pdf, in_app)
+        print(f"In-App-Handbuch aktualisiert: {in_app}")

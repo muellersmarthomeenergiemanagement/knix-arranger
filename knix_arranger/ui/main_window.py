@@ -246,7 +246,7 @@ class MainWindow(QMainWindow):
         tour_action.triggered.connect(self._show_onboarding_tour)
         help_menu.addAction(tour_action)
 
-        manual_action = QAction("&Benutzerhandbuch (PDF)...", self)
+        manual_action = QAction("&Bedienungsanleitung (PDF)...", self)
         manual_action.triggered.connect(self._open_manual)
         help_menu.addAction(manual_action)
 
@@ -2144,7 +2144,9 @@ class MainWindow(QMainWindow):
             self._save_app_setting("onboarding_shown", True)
 
     def _open_manual(self):
-        """Oeffnet das Benutzerhandbuch als PDF (FA-1105)."""
+        """Öffnet die mitgelieferte Bedienungsanleitung als PDF (FA-1105).
+
+        Erzeugt mit tools/update_betatester_anleitung.py --pdf."""
         import os, sys
         from pathlib import Path
         pdf_path = Path(__file__).parent.parent / "data" / "KNiX_Arranger_Handbuch.pdf"
@@ -2156,8 +2158,8 @@ class MainWindow(QMainWindow):
                 subprocess.Popen(["xdg-open", str(pdf_path)])
         else:
             QMessageBox.information(
-                self, "Benutzerhandbuch",
-                "Das Benutzerhandbuch steht noch nicht als PDF zur Verfügung.\n\n"
+                self, "Bedienungsanleitung",
+                "Die Bedienungsanleitung wurde in dieser Installation nicht gefunden.\n\n"
                 "Nutzen Sie das integrierte Hilfesystem (F1) für Unterstützung.",
             )
 
