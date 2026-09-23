@@ -95,8 +95,6 @@ Freundliche Grüsse
 def interactive():
     from key_generator import generate_license  # Importiert aus demselben Verzeichnis
 
-    config = load_mail_config()
-
     print("=" * 55)
     print("  KNiX Arranger – Lizenz erstellen und versenden")
     print("=" * 55)
@@ -118,12 +116,22 @@ def interactive():
     license_path = generate_license(customer, email, license_type, expiry_days)
     print(f"\nLizenzdatei erstellt: {license_path}")
 
-    confirm = input(f"E-Mail an {email} senden? [J/n]: ").strip().lower()
-    if confirm in ("", "j", "y", "ja", "yes"):
+    print("\nVersandart:")
+    print("  1) Outlook-Entwurf öffnen (empfohlen, kein Passwort nötig)")
+    print("  2) Direkt per SMTP senden")
+    print("  3) Nicht versenden")
+    send_choice = input("Auswahl [1]: ").strip() or "1"
+
+    if send_choice == "1":
+        from outlook_mail import create_license_draft
+        create_license_draft(customer, email, license_path, display=True)
+        print("Outlook-Entwurf geöffnet. Bitte in Outlook prüfen und senden.")
+    elif send_choice == "2":
+        config = load_mail_config()
         send_license_email(customer, email, license_path, config)
         print("Fertig.")
     else:
-        print(f"E-Mail nicht gesendet. Datei liegt unter: {license_path}")
+        print(f"E-Mail nicht versendet. Datei liegt unter: {license_path}")
 
 
 if __name__ == "__main__":
