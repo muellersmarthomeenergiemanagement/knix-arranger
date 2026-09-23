@@ -130,6 +130,9 @@ class LizenzManager(QMainWindow):
         self._table.setEditTriggers(QAbstractItemView.DoubleClicked)
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(True)
+        # Name/E-Mail-Aenderungen direkt in der Tabelle sofort speichern
+        self._loading = False
+        self._table.itemChanged.connect(self._on_item_changed)
         table_layout.addWidget(self._table)
 
         row_btns = QHBoxLayout()
@@ -220,6 +223,14 @@ class LizenzManager(QMainWindow):
         self._set_status(f"{name} hinzugefügt.")
 
     def _insert_row(self, name, email, ltype, anrede="Sie", checked=False):
+        # Waehrend des Aufbaus keine Zwischenstaende speichern
+        was_loading, self._loading = self._loading, True
+        try:
+            self._fill_new_row(name, email, ltype, anrede, checked)
+        finally:
+            self._loading = was_loading
+
+    def _fill_new_row(self, name, email, ltype, anrede, checked):
         row = self._table.rowCount()
         self._table.insertRow(row)
 
@@ -235,13 +246,25 @@ class LizenzManager(QMainWindow):
         idx = combo.findText(ltype)
         if idx >= 0:
             combo.setCurrentIndex(idx)
+        combo.currentIndexChanged.connect(self._on_row_changed)
         self._table.setCellWidget(row, 3, combo)
 
         anrede_combo = QComboBox()
         anrede_combo.addItems(["Sie", "Du"])
         a_idx = anrede_combo.findText(anrede)
         anrede_combo.setCurrentIndex(a_idx if a_idx >= 0 else 0)
+        anrede_combo.currentIndexChanged.connect(self._on_row_changed)
         self._table.setCellWidget(row, 4, anrede_combo)
+
+    def _on_row_changed(self, *_):
+        """Lizenztyp/Anrede geaendert -> sofort in die CSV schreiben."""
+        if not self._loading:
+            self._save_csv()
+
+    def _on_item_changed(self, item):
+        # Spalte 0 (Checkbox) wird bewusst nicht gespeichert
+        if item.column() != 0:
+            self._on_row_changed()
 
     def _set_all_checked(self, checked: bool):
         state = Qt.Checked if checked else Qt.Unchecked
@@ -280,7 +303,7 @@ class LizenzManager(QMainWindow):
 
         ok = 0
         errors = []
-        created = []  # (name, email, out_path, formal) fuer Outlook-Entwuerfe
+        created = []  # (name, email, out_path, formal, renewal, valid_until) fuer Outlook-Entwuerfe
         for r in selected_rows:
             name  = self._table.item(r, 1).text().strip() if self._table.item(r, 1) else ""
             email = self._table.item(r, 2).text().strip() if self._table.item(r, 2) else ""
@@ -306,15 +329,20 @@ class LizenzManager(QMainWindow):
             expiry = (datetime.today() + timedelta(days=days)).strftime("%Y-%m-%d")
             out_path = str(OUT_DIR / f"{safe}_{expiry}.knxlic")
 
-            # Alte Lizenzdateien derselben Person entfernen
+            # Gibt es schon eine Lizenzdatei dieser Person, ist es eine Erneuerung
+            # (eigener Mailtext). Alte Dateien werden dabei entfernt.
+            renewal = False
             for old in OUT_DIR.glob(f"{safe}_*.knxlic"):
+                renewal = True
                 if str(old) != out_path:
                     old.unlink()
+            valid_until = None if ltype == "single" else (
+                datetime.today() + timedelta(days=days)).strftime("%d.%m.%Y")
 
             try:
                 generate_license(name, email, ltype, days, out_path)
                 ok += 1
-                created.append((name, email, out_path, formal))
+                created.append((name, email, out_path, formal, renewal, valid_until))
             except Exception as e:
                 errors.append(f"{name}: {e}")
 
@@ -345,9 +373,12 @@ class LizenzManager(QMainWindow):
             return
 
         mail_errors = []
-        for name, email, out_path, formal in entries:
+        for name, email, out_path, formal, renewal, valid_until in entries:
             try:
-                create_license_draft(name, email, out_path, display=True, formal=formal)
+                create_license_draft(
+                    name, email, out_path, display=True, formal=formal,
+                    renewal=renewal, valid_until=valid_until,
+                )
             except Exception as e:
                 mail_errors.append(f"{name}: {e}")
 
@@ -446,14 +477,18 @@ class LizenzManager(QMainWindow):
             else:
                 return
 
-            self._table.setRowCount(0)
-            for row in rows:
-                name   = row.get("name", "").strip()
-                email  = row.get("email", "").strip()
-                ltype  = row.get("lizenztyp", "Testlizenz (30 Tage)").strip()
-                anrede = (row.get("anrede") or "Sie").strip() or "Sie"
-                if name or email:
-                    self._insert_row(name, email, ltype, anrede)
+            self._loading = True
+            try:
+                self._table.setRowCount(0)
+                for row in rows:
+                    name   = row.get("name", "").strip()
+                    email  = row.get("email", "").strip()
+                    ltype  = row.get("lizenztyp", "Testlizenz (30 Tage)").strip()
+                    anrede = (row.get("anrede") or "Sie").strip() or "Sie"
+                    if name or email:
+                        self._insert_row(name, email, ltype, anrede)
+            finally:
+                self._loading = False
         except Exception as e:
             self._set_status(f"CSV-Fehler: {e}", error=True)
 
