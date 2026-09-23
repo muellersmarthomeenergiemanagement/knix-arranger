@@ -781,7 +781,10 @@ def build_document() -> Document:
              "Grafische Darstellung der Topologie, exportierbar als PNG oder PDF."),
             ("Materialliste",
              "Ermittelte Geräte mit Typ, Kanal und Raum. "
-             "Für Produktzuweisung und als Grundlage für Offertanfragen."),
+             "Für Produktzuweisung und als Grundlage für Offertanfragen. "
+             "Im Produktdialog lädt «Online-Katalog aktualisieren» weitere Produkte; "
+             "der GA-Bedarf lässt sich pro Position mit «GA-Bedarf festlegen…» "
+             "von Hand eintragen (z. B. für frei belegbare Gateways)."),
             ("CO-Verknüpfung",
              "Manuelle Verknüpfung einzelner Kommunikationsobjekte mit Gruppenadressen "
              "(z. B. für eigene Gewerke ausserhalb der Standardlogik)."),

@@ -2,6 +2,24 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.17",
+      "date": "2026-09-23",
+      "neu": [
+        "Online-Produktkatalog: Im Produktdialog lädt «Online-Katalog aktualisieren» eine gepflegte Liste mit über 800 KNX-Produkten. Die Produkte stehen danach auch ohne Internetverbindung zur Verfügung und sind in der Liste blau markiert; eigene KNXPROD-Importe haben Vorrang.",
+        "Materialliste: Mit «GA-Bedarf festlegen…» lässt sich der GA-Bedarf einer Position von Hand eintragen – z. B. für frei belegbare Gateways wie das Viessmann Vitogate, deren Herstellerdatei nur allgemeine Objektplätze enthält."
+      ],
+      "verbessert": [
+        "KNXPROD-Import: Dasselbe Produkt erhält jetzt unabhängig von der Importquelle dieselben Kommunikationsobjekte. Bisher fehlten sie teilweise bei Herstellerdateien, die aus einem ETS-Projekt stammen (z. B. Revox Gateway).",
+        "KNXPROD-Import: Mehrfach aufgeführte Varianten desselben Kommunikationsobjekts werden zusammengefasst. Der angezeigte GA-Bedarf ist dadurch bei vielen Produkten deutlich realistischer.",
+        "KNXPROD-Import: Gateways, Schnittstellen, Präsenzmelder und Taster ohne Kategorieangabe in der Herstellerdatei werden richtig eingeordnet statt als Schaltaktor.",
+        "Hinweis: Damit die Verbesserungen für bereits importierte Produkte gelten, im Produktdialog «Ordner importieren…» erneut ausführen."
+      ],
+      "behoben": [
+        "Materialliste: Zugewiesene Kanäle und GA-Bedarf gingen beim erneuten Öffnen des Projekts und beim «Aufteilen» verloren.",
+        "GA-Vorlagen-Bibliothek: «Als Vorlage speichern» funktionierte in der installierten Version nicht. Vorlagen werden jetzt im Benutzerprofil gespeichert und bleiben bei Updates erhalten."
+      ]
+    },
+    {
       "version": "1.1.16",
       "date": "2026-09-23",
       "neu": [
