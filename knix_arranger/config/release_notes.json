@@ -3,10 +3,11 @@
   "versions": [
     {
       "version": "1.1.16",
-      "date": "2026-09-24",
+      "date": "2026-09-23",
       "neu": [
         "Wizard: Mit F1 bzw. dem Button «Hilfe» erscheint die Erklärung zum aktuellen Schritt direkt im Wizard.",
-        "Nach einem Update zeigt KNiX Arranger einmalig, was sich geändert hat – jederzeit wieder abrufbar unter Hilfe → Was ist neu."
+        "Nach einem Update zeigt KNiX Arranger einmalig, was sich geändert hat – jederzeit wieder abrufbar unter Hilfe → Was ist neu.",
+        "Die Bedienungsanleitung ist jetzt im Programm enthalten: Hilfe → Bedienungsanleitung (PDF), immer passend zur installierten Version."
       ],
       "verbessert": [
         "Wizard berechnet Gruppenadressen, Funktionszuordnungen und Linienteilnehmer nur noch neu, wenn sich tatsächlich etwas geändert hat. Beim Generieren zeigt Schritt 10, welche Gruppenadressen hinzugekommen oder weggefallen sind.",
@@ -14,7 +15,8 @@
         "Schritt 12 heisst jetzt «Tastenbelegung prüfen» und ist eine reine Kontrollansicht vor dem Export; bearbeitet wird in Schritt 11.",
         "Direktsprung über die Schrittnummern: Pflichtschritte (z.B. Topologie) können nicht mehr übersprungen werden.",
         "Änderungen im Wizard lassen sich als Ganzes mit «Rückgängig» (Ctrl+Z) zurücknehmen.",
-        "Hilfetexte und Hinweise nennen durchgehend die richtigen Schrittnummern; neue Hilfeseite für Schritt 6 (Gerätekonfiguration)."
+        "Hilfetexte und Hinweise nennen durchgehend die richtigen Schrittnummern; neue Hilfeseite für Schritt 6 (Gerätekonfiguration).",
+        "Durchgehend korrekte Umlaute in Dialogen, Meldungen, Hilfetexten sowie Raum- und Szenenvorlagen."
       ],
       "behoben": [
         "Astro-Gruppenadressen der Zeitsteuerung (0/7/0–0/7/3) gingen beim Öffnen von Wizard-Schritt 10 oder nach Gewerk-Änderungen verloren.",
