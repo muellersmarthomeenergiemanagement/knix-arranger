@@ -153,7 +153,7 @@ class TopologyView(QWidget):
         if self._knx_secure and self._knx_secure.enabled:
             parts.append(
                 f"<span style='color:{_COLOR_SECURE_MISSING.name()};'>&#9679;</span> "
-                "kein KNX Secure (FA-2704)"
+                "kein KNX Secure"
             )
         self._legend.setText("&nbsp;&nbsp;".join(parts))
 
@@ -417,7 +417,7 @@ class TopologyView(QWidget):
                     if secure_missing:
                         self._colorize(dev_item, _COLOR_SECURE_MISSING)
                         dev_item.setToolTip(
-                            0, "Gerät unterstützt laut KNXPROD-Daten kein KNX Secure (FA-2704)"
+                            0, "Gerät unterstützt laut KNXPROD-Daten kein KNX Secure"
                         )
                     elif device.is_programmed:
                         self._colorize(dev_item, _COLOR_PROGRAMMED)

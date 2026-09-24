@@ -38,6 +38,11 @@ _COL_EXTRA   = 7   # Anzahl Extra-GAs (Info-Spalte)
 _COL_ACTION  = 8
 _NUM_COLS    = 9
 
+# Kompaktes Padding für die Buttons in der Aktions-Spalte: Das globale
+# QPushButton-Padding (8px 16px) schnitt deren Text ab ("rodukt", "' Kanal (").
+# Ohne feste Breite richtet sich jeder Button nach seinem Text.
+_ROW_BUTTON_STYLE = "padding: 3px 8px;"
+
 
 def _fresh_ga(ga_dict: dict) -> GewerkAssignment:
     """Erstellt GewerkAssignment aus Dict mit neuer UUID."""
@@ -242,6 +247,7 @@ class Step05Gewerke(QWidget):
         add_layout = QHBoxLayout()
 
         self._gewerk_combo = QComboBox()
+        self._gewerk_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         add_layout.addWidget(QLabel("Gewerk:"))
         add_layout.addWidget(self._gewerk_combo)
 
@@ -471,7 +477,7 @@ class Step05Gewerke(QWidget):
                 block_size = gewerk.block_size if gewerk else 5
                 btn_extra = QPushButton("+ GAs…")
                 btn_extra.setToolTip("Zusätzliche Gruppenadressen für diese Zuweisung definieren")
-                btn_extra.setFixedWidth(58)
+                btn_extra.setStyleSheet(_ROW_BUTTON_STYLE)
                 btn_extra.clicked.connect(
                     lambda checked, g=ga, bs=block_size: self._edit_extra_gas(g, bs)
                 )
@@ -491,7 +497,7 @@ class Step05Gewerke(QWidget):
                         "dieser Zuweisung aus den ComObjects des Produkts und fügt "
                         "es der Materialliste hinzu."
                     )
-                btn_product.setFixedWidth(70)
+                btn_product.setStyleSheet(_ROW_BUTTON_STYLE)
                 btn_product.clicked.connect(
                     lambda checked, r=room, g=ga: self._select_product(r, g)
                 )
@@ -502,7 +508,7 @@ class Step05Gewerke(QWidget):
                     btn_channel = QPushButton(
                         f"✓ Kanal ({n_linked})" if n_linked else "Kanal…"
                     )
-                    btn_channel.setFixedWidth(80)
+                    btn_channel.setStyleSheet(_ROW_BUTTON_STYLE)
                     if ga.count == 1:
                         btn_channel.setToolTip(
                             "Diese Zuweisung mit einem bestehenden Aktor-Kanal "

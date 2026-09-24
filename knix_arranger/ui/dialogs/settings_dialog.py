@@ -103,7 +103,7 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(tab)
 
         # Logo
-        logo_group = QGroupBox("Firmenlogo (FA-854)")
+        logo_group = QGroupBox("Firmenlogo")
         logo_layout = QHBoxLayout()
 
         self._logo_preview = QLabel()
@@ -134,7 +134,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(logo_group)
 
         # Firmendaten
-        data_group = QGroupBox("Firmendaten (FA-851)")
+        data_group = QGroupBox("Firmendaten")
         data_form = QFormLayout()
 
         self._company_name = QLineEdit()
@@ -161,7 +161,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(data_group)
 
         # Bearbeiter
-        user_group = QGroupBox("Bearbeiter (FA-856)")
+        user_group = QGroupBox("Bearbeiter")
         user_form = QFormLayout()
 
         self._user_name = QLineEdit()
@@ -184,7 +184,7 @@ class SettingsDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        rates_group = QGroupBox("Stundensätze (FA-1703)")
+        rates_group = QGroupBox("Stundensätze")
         rates_form = QFormLayout()
 
         self._rate_mounting = QDoubleSpinBox()
@@ -219,7 +219,7 @@ class SettingsDialog(QDialog):
         rates_group.setLayout(rates_form)
         layout.addWidget(rates_group)
 
-        effort_group = QGroupBox("Aufwandsschätzung (FA-1707)")
+        effort_group = QGroupBox("Aufwandsschätzung")
         effort_form = QFormLayout()
 
         effort_hint = QLabel(

@@ -37,8 +37,8 @@ class ImportDialog(QDialog):
 
         # Info
         info = QLabel(
-            "Unterstuetzte Formate:\n"
-            "- ETS6 Projekt-Datei (.knxproj) — vollstaendiger Import (empfohlen)\n"
+            "Unterstützte Formate:\n"
+            "- ETS6 Projekt-Datei (.knxproj) — vollständiger Import (empfohlen)\n"
             "- ETS6 Gruppenadress-Report (XLSX)\n"
             "- ETS6 Topologie-Report mit Objekte (XLSX)\n"
             "- UTF-8 oder ANSI Kodierung"
@@ -70,7 +70,7 @@ class ImportDialog(QDialog):
     def _browse(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "ETS6-Datei öffnen", "",
-            "Alle unterstuetzten Formate (*.csv *.xlsx *.knxproj);;"
+            "Alle unterstützten Formate (*.csv *.xlsx *.knxproj);;"
             "ETS6-Projekt (*.knxproj);;"
             "CSV-Dateien (*.csv);;"
             "XLSX-Dateien (*.xlsx);;"

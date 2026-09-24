@@ -63,7 +63,7 @@ _COL_CONF = 11
 _NUM_COLS = 12
 
 _HEADERS = [
-    "✓", "Geraeteadresse", "Ort", "CO-Funktion", "CO-DPT", "GA-DPT", "Flags",
+    "✓", "Geräteadresse", "Ort", "CO-Funktion", "CO-DPT", "GA-DPT", "Flags",
     "Richtung", "Gewerk", "GA-Adresse", "GA-Bezeichnung", "Konfidenz",
 ]
 
@@ -116,7 +116,7 @@ class CoLinkingView(QWidget):
         layout.setSpacing(8)
 
         # Titel
-        title = QLabel("CO-Verknuepfung (FA-3000)")
+        title = QLabel("CO-Verknüpfung")
         font = QFont()
         font.setPointSize(14)
         font.setBold(True)
@@ -141,7 +141,7 @@ class CoLinkingView(QWidget):
 
         # Filterzeile
         filter_layout = QHBoxLayout()
-        filter_layout.addWidget(QLabel("Geraeteadresse:"))
+        filter_layout.addWidget(QLabel("Geräteadresse:"))
         self._filter_addr = QLineEdit()
         self._filter_addr.setPlaceholderText("z.B. 1.1.3")
         self._filter_addr.setClearButtonEnabled(True)
@@ -165,18 +165,19 @@ class CoLinkingView(QWidget):
         self._cb_filter_sicher.toggled.connect(self._apply_filters)
         filter_layout.addWidget(self._cb_filter_sicher)
 
-        self._cb_filter_manuell = QCheckBox("Manuell pruefen")
+        self._cb_filter_manuell = QCheckBox("Manuell prüfen")
         self._cb_filter_manuell.setChecked(True)
         self._cb_filter_manuell.toggled.connect(self._apply_filters)
         filter_layout.addWidget(self._cb_filter_manuell)
 
-        self._cb_filter_already = QCheckBox("Bereits verknuepft")
+        self._cb_filter_already = QCheckBox("Bereits verknüpft")
         self._cb_filter_already.setChecked(True)
         self._cb_filter_already.toggled.connect(self._apply_filters)
         filter_layout.addWidget(self._cb_filter_already)
 
         filter_layout.addSpacing(12)
-        self._cb_filter_dup = QCheckBox("Nur Mehrfachverknuepfungen (gleiche GA am selben Geraet)")
+        self._cb_filter_dup = QCheckBox("Nur Mehrfachverknüpfungen")
+        self._cb_filter_dup.setToolTip("Nur Vorschläge zeigen, bei denen dieselbe GA mehrfach am selben Gerät verknüpft wird")
         self._cb_filter_dup.toggled.connect(self._apply_filters)
         filter_layout.addWidget(self._cb_filter_dup)
 
@@ -209,9 +210,9 @@ class CoLinkingView(QWidget):
         legend = QLabel(
             "Legende:  "
             "<span style='background:#C8E6C9; padding:2px 6px;'>Sicher</span>  "
-            "<span style='background:#FFF9C4; padding:2px 6px;'>Manuell pruefen</span>  "
-            "<span style='background:#E3F2FD; padding:2px 6px;'>Bereits verknuepft</span>  "
-            "<span style='background:#FFAB91; padding:2px 6px;'>Gleiche GA mehrfach am Geraet</span>"
+            "<span style='background:#FFF9C4; padding:2px 6px;'>Manuell prüfen</span>  "
+            "<span style='background:#E3F2FD; padding:2px 6px;'>Bereits verknüpft</span>  "
+            "<span style='background:#FFAB91; padding:2px 6px;'>Gleiche GA mehrfach am Gerät</span>"
         )
         legend.setTextFormat(Qt.RichText)
         legend.setStyleSheet("font-size: 10px;")
@@ -225,17 +226,17 @@ class CoLinkingView(QWidget):
         self._btn_refresh.clicked.connect(self._refresh)
         btn_layout.addWidget(self._btn_refresh)
 
-        self._btn_all = QPushButton("Alle auswaehlen")
+        self._btn_all = QPushButton("Alle auswählen")
         self._btn_all.clicked.connect(lambda: self._set_all(True))
         btn_layout.addWidget(self._btn_all)
 
-        self._btn_none = QPushButton("Alle abwaehlen")
+        self._btn_none = QPushButton("Alle abwählen")
         self._btn_none.clicked.connect(lambda: self._set_all(False))
         btn_layout.addWidget(self._btn_none)
 
         btn_layout.addStretch()
 
-        self._btn_apply = QPushButton("Verknuepfungen uebernehmen")
+        self._btn_apply = QPushButton("Verknüpfungen übernehmen")
         self._btn_apply.setStyleSheet(
             "QPushButton { background-color: #1565C0; color: white; "
             "font-weight: bold; padding: 6px 16px; border-radius: 4px; }"
@@ -338,15 +339,16 @@ class CoLinkingView(QWidget):
                 (_COL_GEWERK,  proposal.gewerk_code,       bg),
                 (_COL_GA_ADDR, proposal.ga_address,        ga_addr_bg),
                 (_COL_GA_NAME, proposal.ga_designation,    bg),
-                (_COL_CONF,    "Bereits verknuepft" if proposal.already_linked else proposal.confidence, bg),
+                (_COL_CONF,    "Bereits verknüpft" if proposal.already_linked
+                               else proposal.confidence.replace("pruefen", "prüfen"), bg),
             ]:
                 item = QTableWidgetItem(text)
                 item.setBackground(QBrush(cell_bg))
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                 if col == _COL_GA_ADDR and is_dup:
                     item.setToolTip(
-                        "Diese GA-Adresse wird am selben Geraet mehrfach vorgeschlagen "
-                        "(mehrere CO-Funktionen) -- pruefen, ob das gewollt ist."
+                        "Diese GA-Adresse wird am selben Gerät mehrfach vorgeschlagen "
+                        "(mehrere CO-Funktionen) -- prüfen, ob das gewollt ist."
                     )
                 self._table.setItem(row_idx, col, item)
 
@@ -361,7 +363,7 @@ class CoLinkingView(QWidget):
         dup = len(self._dup_keys)
         text = f"{total} Vorschläge insgesamt  |  {new_} neu  |  {already} bereits verknüpft"
         if dup:
-            text += f"  |  {dup} GA-Adresse(n) mehrfach am gleichen Geraet"
+            text += f"  |  {dup} GA-Adresse(n) mehrfach am gleichen Gerät"
         self._status_label.setText(text)
 
     def _apply_filters(self):
@@ -426,14 +428,14 @@ class CoLinkingView(QWidget):
             count = CoLinkingService().apply_proposals(self._project, self._proposals)
         except Exception as exc:
             logger.exception("Fehler beim Uebernehmen der CO-Verknuepfungen")
-            QMessageBox.critical(self, "Fehler", f"Verknuepfungen konnten nicht geschrieben werden:\n{exc}")
+            QMessageBox.critical(self, "Fehler", f"Verknüpfungen konnten nicht geschrieben werden:\n{exc}")
             return
 
         self._project.touch()
         QMessageBox.information(
-            self, "CO-Verknuepfung abgeschlossen",
-            f"{count} neue CO-GA-Verknuepfung(en) in die Topologie eingetragen.\n\n"
-            "Die Verknuepfungen sind beim naechsten KNXPROJ-Export enthalten."
+            self, "CO-Verknüpfung abgeschlossen",
+            f"{count} neue CO-GA-Verknüpfung(en) in die Topologie eingetragen.\n\n"
+            "Die Verknüpfungen sind beim nächsten KNXPROJ-Export enthalten."
         )
         # Ansicht aktualisieren (bereits verknuepfte Eintraege blau markieren)
         self._refresh()

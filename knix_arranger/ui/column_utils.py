@@ -50,8 +50,13 @@ def fit_columns(widget, min_col_width: int = 50, stretch_to_fit: bool = True) ->
     if total <= vp_width:
         return  # Alles passt → fertig
 
-    # Schritt 3: Proportional skalieren, Minimum einhalten
+    # Schritt 3: Proportional skalieren, Minimum einhalten. Das Minimum ist
+    # mindestens die Breite der Spaltenüberschrift -- sonst werden Köpfe wie
+    # "Hersteller" oder "Total (CHF)" abgeschnitten. Passt es dann nicht mehr,
+    # scrollt die Tabelle horizontal.
+    header = widget.header() if hasattr(widget, "header") else widget.horizontalHeader()
     scale = vp_width / total
     for i in range(n):
-        new_w = max(min_col_width, int(widget.columnWidth(i) * scale))
+        min_w = max(min_col_width, header.sectionSizeHint(i))
+        new_w = max(min_w, int(widget.columnWidth(i) * scale))
         widget.setColumnWidth(i, new_w)

@@ -33,7 +33,8 @@ class WizardHelpMixin:
         btn.setToolTip(f"Hilfe zu diesem Schritt anzeigen (F1)")
         btn.setObjectName("secondary")
         btn.setStyleSheet(
-            "QPushButton { border-radius: 14px; font-weight: bold; font-size: 14px; }"
+            "QPushButton { border-radius: 14px; font-weight: bold; font-size: 14px; "
+            "padding: 0px; }"
         )
         btn.clicked.connect(self._show_step_help)
         return btn

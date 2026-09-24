@@ -54,7 +54,7 @@ class BranchDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(
-            "Laenge jeder Stichleitung in Metern (KNX Max. 10 m):"
+            "Länge jeder Stichleitung in Metern (KNX Max. 10 m):"
         ))
 
         self._list = QListWidget()
@@ -63,7 +63,7 @@ class BranchDialog(QDialog):
         self._refresh_list()
 
         btn_row = QHBoxLayout()
-        add_btn = QPushButton("Hinzufuegen")
+        add_btn = QPushButton("Hinzufügen")
         add_btn.clicked.connect(self._add)
         del_btn = QPushButton("Entfernen")
         del_btn.clicked.connect(self._remove)
@@ -92,9 +92,9 @@ class BranchDialog(QDialog):
         spin.setValue(5.0)
         # Simple inline dialog
         dlg = QDialog(self)
-        dlg.setWindowTitle("Stichleitung hinzufuegen")
+        dlg.setWindowTitle("Stichleitung hinzufügen")
         v = QVBoxLayout(dlg)
-        v.addWidget(QLabel("Laenge [m]:"))
+        v.addWidget(QLabel("Länge [m]:"))
         v.addWidget(spin)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(dlg.accept)
@@ -140,7 +140,7 @@ class CableLengthView(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
-        title = QLabel("Leitungslaengen (FA-2600)")
+        title = QLabel("Leitungslängen")
         font = QFont()
         font.setPointSize(14)
         font.setBold(True)
@@ -148,8 +148,8 @@ class CableLengthView(QWidget):
         layout.addWidget(title)
 
         desc = QLabel(
-            "Erfassen Sie die Leitungslaengen jeder KNX-Linie. "
-            "Das System prueft die Werte gegen die KNX-TP-Grenzwerte "
+            "Erfassen Sie die Leitungslängen jeder KNX-Linie. "
+            "Das System prüft die Werte gegen die KNX-TP-Grenzwerte "
             "(Gesamt max. 1000 m, Stamm max. 700 m, Stichleitung max. 10 m)."
         )
         desc.setWordWrap(True)
@@ -193,7 +193,7 @@ class CableLengthView(QWidget):
         self._btn_refresh.clicked.connect(self._refresh)
         btn_layout.addWidget(self._btn_refresh)
         btn_layout.addStretch()
-        self._btn_save = QPushButton("Laengen speichern")
+        self._btn_save = QPushButton("Längen speichern")
         self._btn_save.setStyleSheet(
             "QPushButton { background-color: #1565C0; color: white; "
             "font-weight: bold; padding: 6px 16px; border-radius: 4px; }"
@@ -333,7 +333,7 @@ class CableLengthView(QWidget):
             self._refresh()
             QMessageBox.information(
                 self, "Gespeichert",
-                "Leitungslaengen wurden im Projekt gespeichert."
+                "Leitungslängen wurden im Projekt gespeichert."
             )
 
     def _update_status(self, validations):
@@ -349,5 +349,5 @@ class CableLengthView(QWidget):
         if err:
             parts.append(f"{err} Fehler")
         if empty:
-            parts.append(f"{empty} ohne Laengenangabe")
+            parts.append(f"{empty} ohne Längenangabe")
         self._status_label.setText("  |  ".join(parts))

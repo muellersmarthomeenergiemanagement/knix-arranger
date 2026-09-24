@@ -102,7 +102,7 @@ class TopologyDiagramView(QWidget):
             f"<span style='color:{_C_POWER.name()};'>&#9632;</span> Speisegerät&nbsp;&nbsp;"
             f"<span style='color:{_C_LINE.name()};'>&#9632;</span> Linie (OK)&nbsp;&nbsp;"
             f"<span style='color:{_C_LINE_WARN.name()};'>&#9632;</span> Leitungslänge nahe Grenzwert&nbsp;&nbsp;"
-            f"<span style='color:{_C_LINE_ERROR.name()};'>&#9632;</span> Leitungslänge überschritten (FA-2603)&nbsp;&nbsp;"
+            f"<span style='color:{_C_LINE_ERROR.name()};'>&#9632;</span> Leitungslänge überschritten&nbsp;&nbsp;"
             f"<span style='color:{_C_BACKBONE.name()};'>&#9632;</span> Backbone&nbsp;&nbsp;&nbsp;"
             "▶ Aktor(en)&nbsp;&nbsp;⏺ Sensor(en)&nbsp;&nbsp;◆ Sonstige"
         )

@@ -100,8 +100,11 @@ class MaterialListView(QWidget):
         info.setObjectName("subtitle")
         layout.addWidget(info)
 
-        # --- Toolbar ---
+        # --- Toolbar (zwei Zeilen, damit die Beschriftungen auch bei
+        # 1280 px Fensterbreite vollständig bleiben) ---
+        # Zeile 1: Zuweisen/Bearbeiten, Zeile 2: Verwalten/Export + Filter
         toolbar = QHBoxLayout()
+        toolbar2 = QHBoxLayout()
 
         self._btn_add = QPushButton("+ Gerät hinzufügen…")
         self._btn_add.setToolTip("Produkt aus Katalog wählen und zur Materialliste hinzufügen")
@@ -111,7 +114,7 @@ class MaterialListView(QWidget):
         self._btn_remove = QPushButton("Position entfernen")
         self._btn_remove.setEnabled(False)
         self._btn_remove.clicked.connect(self._remove_selected)
-        toolbar.addWidget(self._btn_remove)
+        toolbar2.addWidget(self._btn_remove)
 
         self._btn_assign = QPushButton("Produkt zuweisen…")
         self._btn_assign.setEnabled(False)
@@ -152,36 +155,38 @@ class MaterialListView(QWidget):
             "Materialliste aus dem aktuellen Stand der Topologie (Linienteilnehmer) neu aufbauen"
         )
         self._btn_sync.clicked.connect(self._on_sync_clicked)
-        toolbar.addWidget(self._btn_sync)
+        toolbar2.addWidget(self._btn_sync)
 
         self._btn_export_xlsx = QPushButton("Als Excel exportieren…")
         self._btn_export_xlsx.setToolTip(
-            "Materialliste als formatierte .xlsx-Datei exportieren (FA-2307)"
+            "Materialliste als formatierte .xlsx-Datei exportieren"
         )
         self._btn_export_xlsx.clicked.connect(self._export_excel)
-        toolbar.addWidget(self._btn_export_xlsx)
+        toolbar2.addWidget(self._btn_export_xlsx)
 
         toolbar.addStretch()
+        toolbar2.addStretch()
 
         # Kategorie-Filter
-        toolbar.addWidget(QLabel("Kategorie:"))
+        toolbar2.addWidget(QLabel("Kategorie:"))
         self._filter_combo = QComboBox()
-        self._filter_combo.setMinimumWidth(130)
+        self._filter_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self._filter_combo.addItem("Alle Kategorien")
         for cat in MATERIAL_CATEGORIES:
             self._filter_combo.addItem(cat)
         self._filter_combo.currentIndexChanged.connect(self._rebuild_table)
-        toolbar.addWidget(self._filter_combo)
+        toolbar2.addWidget(self._filter_combo)
 
         # Linien-Filter
-        toolbar.addWidget(QLabel("Linie:"))
+        toolbar2.addWidget(QLabel("Linie:"))
         self._line_filter_combo = QComboBox()
         self._line_filter_combo.setMinimumWidth(180)
         self._line_filter_combo.addItem("Alle Linien", None)
         self._line_filter_combo.currentIndexChanged.connect(self._rebuild_table)
-        toolbar.addWidget(self._line_filter_combo)
+        toolbar2.addWidget(self._line_filter_combo)
 
         layout.addLayout(toolbar)
+        layout.addLayout(toolbar2)
 
         legend = QLabel(
             "<span style='color:#1B5E20;'>&#9679;</span> Produkt zugewiesen&nbsp;&nbsp;"

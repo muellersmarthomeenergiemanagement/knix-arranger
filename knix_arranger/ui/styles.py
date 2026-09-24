@@ -105,7 +105,7 @@ def get_main_stylesheet() -> str:
     }}
     QPushButton:disabled {{
         background-color: {KNX_MEDIUM_GRAY};
-        color: #808080;
+        color: #505050;
     }}
     QPushButton#secondary {{
         background-color: {KNX_BLUE};
@@ -115,6 +115,13 @@ def get_main_stylesheet() -> str:
     }}
     QPushButton#danger {{
         background-color: {KNX_RED};
+    }}
+    /* Die ID-Selektoren oben sind spezifischer als QPushButton:disabled --
+       ohne diese Regel bliebe z.B. ein deaktivierter "Löschen"-Button rot
+       mit kaum lesbarer Schrift. */
+    QPushButton#secondary:disabled, QPushButton#danger:disabled {{
+        background-color: {KNX_MEDIUM_GRAY};
+        color: #505050;
     }}
 
     /* Tabellen */

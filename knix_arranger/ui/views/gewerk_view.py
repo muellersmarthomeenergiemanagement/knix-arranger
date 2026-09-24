@@ -53,7 +53,7 @@ class GewerkView(QWidget):
         self._btn_custom_gewerk.setToolTip(
             "Für Bedarfe, die der Standard-Katalog nicht abdeckt -- z.B. ein "
             "Fremdsystem-Gateway (Musikanlage, individuelle Wärmepumpe) oder "
-            "eine Zusatzfunktion eines Kombigeräts (FA-303)."
+            "eine Zusatzfunktion eines Kombigeräts."
         )
         self._btn_custom_gewerk.clicked.connect(self._add_custom_gewerk)
         header_layout.addWidget(self._btn_custom_gewerk)

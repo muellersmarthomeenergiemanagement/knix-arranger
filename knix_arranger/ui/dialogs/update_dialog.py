@@ -89,7 +89,7 @@ class UpdateDialog(QDialog):
 
         # ── Auto-Check-Checkbox ────────────────────────────────────────────────
         self._auto_check = QCheckBox(
-            "Beim Programmstart automatisch nach Updates suchen (NFA-111)"
+            "Beim Programmstart automatisch nach Updates suchen"
         )
         self._auto_check.setChecked(True)
         layout.addWidget(self._auto_check)

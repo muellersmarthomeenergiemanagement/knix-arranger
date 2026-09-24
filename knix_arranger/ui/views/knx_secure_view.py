@@ -89,7 +89,7 @@ class KnxSecureView(QWidget):
         enable_box = QGroupBox("KNX Secure aktivieren")
         enable_layout = QFormLayout()
 
-        self._enable_check = QCheckBox("KNX Secure für dieses Projekt aktivieren (FA-2701)")
+        self._enable_check = QCheckBox("KNX Secure für dieses Projekt aktivieren")
         self._enable_check.toggled.connect(self._on_enable_toggled)
         enable_layout.addRow("Aktiviert:", self._enable_check)
 
@@ -110,9 +110,9 @@ class KnxSecureView(QWidget):
         # ── Tabs ──────────────────────────────────────────────────────────────
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_access_tab(), "Zugangsdaten (ETS6-Passwort)")
-        self._tabs.addTab(self._build_ga_tab(), "GA-Sicherheit (FA-2703)")
-        self._tabs.addTab(self._build_devices_tab(), "Gerätekompatibilität / FDSK (FA-2704)")
-        self._tabs.addTab(self._build_warnings_tab(), "Mischlinien-Warnungen (FA-2705)")
+        self._tabs.addTab(self._build_ga_tab(), "GA-Sicherheit")
+        self._tabs.addTab(self._build_devices_tab(), "Gerätekompatibilität / FDSK")
+        self._tabs.addTab(self._build_warnings_tab(), "Mischlinien-Warnungen")
         layout.addWidget(self._tabs, 1)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -408,7 +408,7 @@ class KnxSecureView(QWidget):
         self._btn_refresh_from_mat = QPushButton("Secure-Flags aus Materialliste")
         self._btn_refresh_from_mat.setToolTip(
             "Liest KNX Secure-Unterstützung aus den KNXPROD-Produktdaten\n"
-            "der Materialliste (benötigt KNXPROD-Import mit Secure-Daten) (FA-2705)"
+            "der Materialliste (benötigt KNXPROD-Import mit Secure-Daten)"
         )
         self._btn_refresh_from_mat.clicked.connect(self._refresh_from_material_list)
         btn_row.addWidget(self._btn_refresh_from_mat)
@@ -511,7 +511,7 @@ class KnxSecureView(QWidget):
 
         info = QLabel(
             "Eine Linie mit gemischten Secure/Non-Secure-Geräten kompromittiert "
-            "die Sicherheit aller Geräte in dieser Linie (FA-2705)."
+            "die Sicherheit aller Geräte in dieser Linie."
         )
         info.setWordWrap(True)
         layout.addWidget(info)

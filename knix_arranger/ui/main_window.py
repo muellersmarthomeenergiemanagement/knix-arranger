@@ -140,7 +140,7 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self._new_project)
         file_menu.addAction(new_action)
 
-        open_action = QAction("&Oeffnen...", self)
+        open_action = QAction("&Öffnen...", self)
         open_action.setShortcut(QKeySequence.Open)
         open_action.triggered.connect(self._open_project)
         file_menu.addAction(open_action)

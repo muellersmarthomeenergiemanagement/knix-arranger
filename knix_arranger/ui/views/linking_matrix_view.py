@@ -105,7 +105,7 @@ class LinkingMatrixView(QWidget):
         layout.setSpacing(8)
 
         # Titel
-        title = QLabel("Verknüpfungsmatrix (FA-2500)")
+        title = QLabel("Verknüpfungsmatrix")
         font = QFont()
         font.setPointSize(14)
         font.setBold(True)

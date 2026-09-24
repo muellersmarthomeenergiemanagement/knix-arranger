@@ -83,7 +83,7 @@ class CustomerQuoteView(QWidget):
         self._btn_remove.clicked.connect(self._remove_quote)
         self._btn_export_quote = QPushButton("Als Excel exportieren…")
         self._btn_export_quote.setToolTip(
-            "Ausgewählte Offerte als .xlsx exportieren (FA-1713)"
+            "Ausgewählte Offerte als .xlsx exportieren"
         )
         self._btn_export_quote.clicked.connect(self._export_quote_excel)
         self._btn_create_letter = QPushButton("Brief erstellen…")
@@ -125,9 +125,14 @@ class CustomerQuoteView(QWidget):
         form.addRow("Adresse:", self._quote_address)
 
         self._quote_status = QComboBox()
-        self._quote_status.addItems([
-            "Entwurf", "Versendet", "Akzeptiert", "Abgelehnt", "Ueberarbeitung",
-        ])
+        # Anzeige mit Umlaut, gespeichert wird der bisherige Wert (Kompatibilität
+        # mit bestehenden Projektdateien)
+        for label, value in (
+            ("Entwurf", "Entwurf"), ("Versendet", "Versendet"),
+            ("Akzeptiert", "Akzeptiert"), ("Abgelehnt", "Abgelehnt"),
+            ("Überarbeitung", "Ueberarbeitung"),
+        ):
+            self._quote_status.addItem(label, value)
         form.addRow("Status:", self._quote_status)
 
         self._quote_validity = QSpinBox()
@@ -171,6 +176,10 @@ class CustomerQuoteView(QWidget):
         ])
         self._items_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._items_table.horizontalHeader().setStretchLastSection(True)
+        # Standardbreite (100 px) war schmaler als "Einzelpreis (CHF)"
+        for col in range(self._items_table.columnCount()):
+            self._items_table.setColumnWidth(
+                col, max(100, self._items_table.horizontalHeader().sectionSizeHint(col)))
         items_layout.addWidget(self._items_table)
 
         add_layout = QHBoxLayout()
@@ -317,14 +326,14 @@ class CustomerQuoteView(QWidget):
 
         self._btn_import_material = QPushButton("Aus Materialliste importieren")
         self._btn_import_material.setToolTip(
-            "Materialwert und Positionen aus der Projektmaterialliste übernehmen (FA-2308)"
+            "Materialwert und Positionen aus der Projektmaterialliste übernehmen"
         )
         self._btn_import_material.clicked.connect(self._import_from_material_list)
         cost_form.addRow("", self._btn_import_material)
 
         self._btn_import_awarded = QPushButton("Aus Lieferantenofferten übernehmen…")
         self._btn_import_awarded.setToolTip(
-            "Materialkosten aus zugeschlagenen Offertanfragen übernehmen (FA-1625).\n"
+            "Materialkosten aus zugeschlagenen Offertanfragen übernehmen.\n"
             "Voraussetzung: Offertanfragen mit Status 'Zugeschlagen' vorhanden."
         )
         self._btn_import_awarded.clicked.connect(self._import_from_awarded_requests)
@@ -333,7 +342,7 @@ class CustomerQuoteView(QWidget):
         self._btn_estimate_effort = QPushButton("Aufwand automatisch schätzen…")
         self._btn_estimate_effort.setToolTip(
             "Schätzt Programmier- und Inbetriebnahmestunden aus der Anzahl "
-            "Busgeräte in der Topologie (FA-1707).\n"
+            "Busgeräte in der Topologie.\n"
             "Richtwerte editierbar unter Einstellungen → Stundensätze."
         )
         self._btn_estimate_effort.clicked.connect(self._estimate_effort)
@@ -390,7 +399,7 @@ class CustomerQuoteView(QWidget):
 
         # Ist-Eingabe
         left = QVBoxLayout()
-        actual_group = QGroupBox("Ist-Werte erfassen (FA-2201)")
+        actual_group = QGroupBox("Ist-Werte erfassen")
         actual_form = QFormLayout()
 
         self._actual_material = QDoubleSpinBox()
@@ -440,7 +449,7 @@ class CustomerQuoteView(QWidget):
 
         # Vergleich (FA-2202)
         right = QVBoxLayout()
-        compare_group = QGroupBox("Soll/Ist-Vergleich (FA-2202)")
+        compare_group = QGroupBox("Soll/Ist-Vergleich")
         compare_layout = QVBoxLayout()
 
         self._postcalc_table = QTableWidget()
@@ -584,7 +593,7 @@ class CustomerQuoteView(QWidget):
         self._quote_customer.setText(cq.customer_name)
         self._quote_address.setText(cq.customer_address)
 
-        idx = self._quote_status.findText(cq.status)
+        idx = self._quote_status.findData(cq.status)
         if idx >= 0:
             self._quote_status.setCurrentIndex(idx)
 
@@ -720,7 +729,7 @@ class CustomerQuoteView(QWidget):
         cq.revision = self._quote_rev.text()
         cq.customer_name = self._quote_customer.text()
         cq.customer_address = self._quote_address.text()
-        cq.status = self._quote_status.currentText()
+        cq.status = self._quote_status.currentData()
         cq.validity_days = self._quote_validity.value()
         cq.payment_terms = self._quote_payment.text()
         self._refresh_quotes()
@@ -884,8 +893,8 @@ class CustomerQuoteView(QWidget):
         cq = self._get_selected_quote()
         if not cq:
             QMessageBox.information(
-                self, "Keine Offerte gewaehlt",
-                "Bitte zuerst eine Offerte auswaehlen oder anlegen.",
+                self, "Keine Offerte gewählt",
+                "Bitte zuerst eine Offerte auswählen oder anlegen.",
             )
             return
         if not self._project:
@@ -921,12 +930,12 @@ class CustomerQuoteView(QWidget):
                 supplier_names.append(name)
 
         reply = QMessageBox.question(
-            self, "Materialkosten aus Lieferantenofferten uebernehmen",
-            f"Es werden {len(awarded)} zugeschlagene Offertanfrage(n) uebernommen:\n\n"
+            self, "Materialkosten aus Lieferantenofferten übernehmen",
+            f"Es werden {len(awarded)} zugeschlagene Offertanfrage(n) übernommen:\n\n"
             f"  Lieferanten: {', '.join(supplier_names)}\n"
             f"  Positionen gesamt: {n_items}\n"
             f"  Materialwert (Einkauf): CHF {total:,.2f}\n\n"
-            "Sollen auch die Einzelpositionen uebernommen werden?\n"
+            "Sollen auch die Einzelpositionen übernommen werden?\n"
             "(Bestehende Positionen in der Offerte werden ersetzt.)",
             QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
         )
@@ -1193,8 +1202,8 @@ class CustomerQuoteView(QWidget):
         cq = self._get_selected_quote()
         if not cq:
             QMessageBox.information(
-                self, "Keine Offerte gewaehlt",
-                "Bitte zuerst eine Offerte auswaehlen.",
+                self, "Keine Offerte gewählt",
+                "Bitte zuerst eine Offerte auswählen.",
             )
             return
 

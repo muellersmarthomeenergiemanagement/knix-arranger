@@ -50,7 +50,7 @@ class ProjectOverview(QWidget):
         layout.setSpacing(15)
 
         # Titel
-        title = QLabel("Projektuebersicht")
+        title = QLabel("Projektübersicht")
         title.setObjectName("title")
         layout.addWidget(title)
 

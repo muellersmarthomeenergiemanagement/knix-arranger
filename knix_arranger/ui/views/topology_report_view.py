@@ -38,10 +38,10 @@ class TopologyReportView(QWidget):
         layout.addWidget(self._info)
 
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._create_device_tab(), "Geräte-Detail (FA-1009)")
-        self._tabs.addTab(self._create_ko_tab(), "Kommunikationsobjekte (FA-1010)")
-        self._tabs.addTab(self._create_crossref_tab(), "Kreuzreferenz (FA-1011)")
-        self._tabs.addTab(self._create_bedienelement_tab(), "Bedienelemente (FA-1404)")
+        self._tabs.addTab(self._create_device_tab(), "Geräte-Detail")
+        self._tabs.addTab(self._create_ko_tab(), "Kommunikationsobjekte")
+        self._tabs.addTab(self._create_crossref_tab(), "Kreuzreferenz")
+        self._tabs.addTab(self._create_bedienelement_tab(), "Bedienelemente")
         self._tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self._tabs)
 

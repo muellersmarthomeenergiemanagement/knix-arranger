@@ -199,7 +199,7 @@ class TimeProgramView(QWidget):
         hdr.addWidget(btn_location)
 
         btn_astro_ga = QPushButton("Astro-GAs erzeugen")
-        btn_astro_ga.setToolTip("Erstellt fehlende Astro-Gruppenadressn in HG0/MG7 (FA-3308)")
+        btn_astro_ga.setToolTip("Erstellt fehlende Astro-Gruppenadressen in HG0/MG7")
         btn_astro_ga.clicked.connect(self._ensure_astro_gas)
         hdr.addWidget(btn_astro_ga)
 

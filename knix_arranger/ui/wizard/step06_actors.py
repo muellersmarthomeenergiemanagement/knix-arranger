@@ -94,7 +94,7 @@ class Step06Actors(QWidget):
 
         btn_mat_transfer = QPushButton("In Projekt-Materialliste übernehmen →")
         btn_mat_transfer.setToolTip(
-            "Alle ermittelten Aktoren in die Projekt-Materialliste eintragen (FA-2305)"
+            "Alle ermittelten Aktoren in die Projekt-Materialliste eintragen"
         )
         btn_mat_transfer.clicked.connect(self._transfer_to_material_list)
         mat_layout.addWidget(btn_mat_transfer)

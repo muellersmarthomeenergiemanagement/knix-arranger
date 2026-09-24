@@ -49,7 +49,7 @@ class RfqGroupingDialog(QDialog):
 
         # ── Info-Text ──
         info = QLabel(
-            "Weisen Sie jedem Hersteller einen Lieferanten / Haendler zu. "
+            "Weisen Sie jedem Hersteller einen Lieferanten / Händler zu. "
             "Hersteller mit <b>demselben Lieferanten</b> werden in einer einzigen "
             "Offertanfrage zusammengefasst. "
             "Lieferanten mit hinterlegten Marken werden automatisch vorgeschlagen."
@@ -60,7 +60,7 @@ class RfqGroupingDialog(QDialog):
         # ── Tabelle ──
         self._table = QTableWidget()
         self._table.setColumnCount(3)
-        self._table.setHorizontalHeaderLabels(["Hersteller", "Pos.", "Lieferant / Haendler"])
+        self._table.setHorizontalHeaderLabels(["Hersteller", "Pos.", "Lieferant / Händler"])
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
@@ -85,7 +85,7 @@ class RfqGroupingDialog(QDialog):
         )
         self._chk_save_brands.setToolTip(
             "Speichert die Zuordnung in den Lieferanten-Stammdaten (Feld 'Marken'),\n"
-            "sodass sie beim naechsten Projekt automatisch vorgeschlagen wird."
+            "sodass sie beim nächsten Projekt automatisch vorgeschlagen wird."
         )
         self._chk_save_brands.setChecked(True)
         layout.addWidget(self._chk_save_brands)

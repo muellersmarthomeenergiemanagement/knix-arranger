@@ -90,7 +90,7 @@ class DaliConfigView(QWidget):
 
         self._btn_link_gas = QPushButton("GAs automatisch verknüpfen")
         self._btn_link_gas.setToolTip(
-            "Passende KNX-GAs automatisch dem gewählten Gateway zuordnen (FA-2803)"
+            "Passende KNX-GAs automatisch dem gewählten Gateway zuordnen"
         )
         self._btn_link_gas.clicked.connect(self._auto_link_gas)
         left_layout.addWidget(self._btn_link_gas)
@@ -604,7 +604,7 @@ class _EvgEditDialog(QDialog):
             self._room_combo.setCurrentIndex(idx)
         form.addRow("Raum:", self._room_combo)
 
-        self._emrg_check = QCheckBox("Notlicht-EVG (FA-2804)")
+        self._emrg_check = QCheckBox("Notlicht-EVG")
         self._emrg_check.setChecked(dev.is_emergency)
         form.addRow("Notlicht:", self._emrg_check)
 

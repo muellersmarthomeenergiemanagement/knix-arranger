@@ -464,8 +464,9 @@ class WizardController(QDialog):
 
         _STATUS_STYLE = {
             "complete": (KNX_GREEN, "white"),
-            "partial":  ("#FFA726", "white"),
-            "empty":    ("#C0C0C0", "white"),
+            # Dunkle Schrift auf hellen Status-Farben (Weiss hätte < 2:1 Kontrast)
+            "partial":  ("#FFA726", "#1F1F1F"),
+            "empty":    ("#C0C0C0", "#1F1F1F"),
             "current":  (KNX_DARK_GREEN, "white"),
         }
 
@@ -488,7 +489,7 @@ class WizardController(QDialog):
             color, text_color = _STATUS_STYLE[status]
             btn.setStyleSheet(
                 f"background-color: {color}; color: {text_color}; "
-                f"border-radius: 16px; font-weight: bold;"
+                f"border-radius: 16px; font-weight: bold; padding: 0px;"
             )
 
     def _step_tooltip(self, step_index: int) -> str:

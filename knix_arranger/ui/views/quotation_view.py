@@ -155,12 +155,12 @@ class QuotationView(QWidget):
         self._btn_generate_requests = QPushButton("Aus Materialliste generieren…")
         self._btn_generate_requests.setToolTip(
             "Offertanfragen automatisch aus der Materialliste erzeugen –\n"
-            "eine Anfrage pro Hersteller (FA-1611)"
+            "eine Anfrage pro Hersteller"
         )
         self._btn_generate_requests.clicked.connect(self._generate_from_material_list)
         self._btn_export_request = QPushButton("Als Excel exportieren…")
         self._btn_export_request.setToolTip(
-            "Ausgewählte Offertanfrage als .xlsx exportieren (FA-1614)"
+            "Ausgewählte Offertanfrage als .xlsx exportieren"
         )
         self._btn_export_request.clicked.connect(self._export_request_excel)
         btn_layout.addWidget(self._btn_add_request)
@@ -269,7 +269,7 @@ class QuotationView(QWidget):
         self._btn_award = QPushButton("Zuschlag erteilen…")
         self._btn_award.setToolTip(
             "Setzt den Status auf 'Zugeschlagen' und schreibt die\n"
-            "eingetragenen Preise in die Materialliste zurueck (FA-1625)."
+            "eingetragenen Preise in die Materialliste zurück."
         )
         self._btn_award.clicked.connect(self._award_contract)
         bottom_layout.addWidget(self._btn_award)
@@ -591,7 +591,7 @@ class QuotationView(QWidget):
             f"Offertanfrage '{qr.request_number}' den Zuschlag erteilen?\n\n"
             f"  Positionen mit Preis: {len(items_with_price)}\n"
             f"  Materialwert (Einkauf): CHF {total:,.2f}\n\n"
-            "Die eingetragenen Preise werden in die Materialliste uebernommen.",
+            "Die eingetragenen Preise werden in die Materialliste übernommen.",
             QMessageBox.Yes | QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
@@ -617,7 +617,7 @@ class QuotationView(QWidget):
         QMessageBox.information(
             self, "Zuschlag erteilt",
             f"Offertanfrage '{qr.request_number}' wurde auf 'Zugeschlagen' gesetzt.\n"
-            f"Einkaufspreise wurden in die Materialliste uebernommen.",
+            f"Einkaufspreise wurden in die Materialliste übernommen.",
         )
 
     def _generate_from_material_list(self) -> None:

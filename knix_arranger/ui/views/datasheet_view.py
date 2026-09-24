@@ -91,7 +91,7 @@ class DatasheetView(QWidget):
         right = QVBoxLayout()
 
         # Produktdaten
-        self._product_group = QGroupBox("Produktdaten (FA-1205)")
+        self._product_group = QGroupBox("Produktdaten")
         prod_form = QFormLayout()
 
         self._prod_manufacturer = QLineEdit()
@@ -114,7 +114,7 @@ class DatasheetView(QWidget):
         right.addWidget(self._product_group)
 
         # Datenblätter
-        self._ds_group = QGroupBox("Datenblätter (FA-1201/1202)")
+        self._ds_group = QGroupBox("Datenblätter")
         ds_layout = QVBoxLayout()
 
         self._ds_table = QTableWidget()

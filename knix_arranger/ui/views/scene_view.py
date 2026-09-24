@@ -196,6 +196,10 @@ class SceneView(QWidget):
             QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
         )
         self._actions_table.horizontalHeader().setStretchLastSection(True)
+        # Standardbreite (100 px) war schmaler als "Gruppenadresse / Gewerk"
+        for col in range(self._actions_table.columnCount()):
+            self._actions_table.setColumnWidth(
+                col, max(100, self._actions_table.horizontalHeader().sectionSizeHint(col)))
         self._actions_table.itemChanged.connect(self._on_action_item_changed)
         actions_layout.addWidget(self._actions_table)
 
