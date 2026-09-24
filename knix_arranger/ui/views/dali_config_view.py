@@ -422,9 +422,14 @@ class DaliConfigView(QWidget):
         w = QWidget()
         layout = QVBoxLayout(w)
 
+        self._scenes_hint = QLabel("")
+        self._scenes_hint.setWordWrap(True)
+        self._scenes_hint.setObjectName("subtitle")
+        layout.addWidget(self._scenes_hint)
+
         self._scenes_table = QTableWidget()
-        self._scenes_table.setColumnCount(2)
-        self._scenes_table.setHorizontalHeaderLabels(["Nr.", "Name"])
+        self._scenes_table.setColumnCount(3)
+        self._scenes_table.setHorizontalHeaderLabels(["Nr.", "Name", "KNX-Szene"])
         self._scenes_table.horizontalHeader().setStretchLastSection(True)
         self._scenes_table.itemChanged.connect(self._on_scene_item_changed)
         layout.addWidget(self._scenes_table)
@@ -445,7 +450,24 @@ class DaliConfigView(QWidget):
         layout.addLayout(btn_row)
         return w
 
+    def _scenes_linked(self, gw: DaliGateway) -> bool:
+        """Szenen werden mit der Szenen-Verwaltung abgeglichen, sobald eine
+        Szenenabruf-GA eingetragen ist -- sonst lokale Liste wie bisher."""
+        return bool(self._project and gw.ga_scene)
+
     def _populate_scenes_table(self, gw: DaliGateway):
+        if self._scenes_linked(gw):
+            self._service.sync_scenes(self._project, gw)
+            self._scenes_hint.setText(
+                f"Abgeglichen mit der Szenen-Verwaltung (Szenen auf {gw.ga_scene}): "
+                "Änderungen hier wirken dort und umgekehrt. KNX-Szene N = "
+                "DALI-Szene N−1 -- so im Gateway (ETS) parametrieren."
+            )
+        else:
+            self._scenes_hint.setText(
+                "Keine Szenenabruf-GA eingetragen (Tab \"KNX-GA\"): Szenen werden "
+                "nur hier gepflegt, nicht mit der Szenen-Verwaltung abgeglichen."
+            )
         self._populating = True
         try:
             self._scenes_table.setRowCount(len(gw.scenes))
@@ -455,6 +477,10 @@ class DaliConfigView(QWidget):
                 nr_item.setFlags(nr_item.flags() & ~Qt.ItemIsEditable)
                 self._scenes_table.setItem(i, 0, nr_item)
                 self._scenes_table.setItem(i, 1, QTableWidgetItem(sc.name))
+                # KNX-Szenennummer auf der Szenenabruf-GA (Bus-Wert = DALI-Nr.)
+                knx_item = QTableWidgetItem(str(sc.number + 1))
+                knx_item.setFlags(knx_item.flags() & ~Qt.ItemIsEditable)
+                self._scenes_table.setItem(i, 2, knx_item)
         finally:
             self._populating = False
 
@@ -469,6 +495,10 @@ class DaliConfigView(QWidget):
         if sc is None:
             return
         sc.name = item.text().strip()
+        if self._scenes_linked(self._current_gw):
+            self._service.rename_scene(
+                self._project, self._current_gw, sc.number, sc.name
+            )
         self._project.touch()
 
     def _add_scene(self):
@@ -477,6 +507,11 @@ class DaliConfigView(QWidget):
             return
         if len(gw.scenes) >= 16:
             QMessageBox.warning(self, "Limit erreicht", "Maximal 16 Szenen.")
+            return
+        if self._scenes_linked(gw):
+            self._service.add_scene(self._project, gw)
+            self._project.touch()
+            self._populate_scenes_table(gw)
             return
         used = {s.number for s in gw.scenes}
         nr = next((n for n in range(16) if n not in used), None)
@@ -491,6 +526,20 @@ class DaliConfigView(QWidget):
             return
         rows = {idx.row() for idx in self._scenes_table.selectionModel().selectedRows()}
         sorted_scenes = sorted(gw.scenes, key=lambda s: s.number)
+        if self._scenes_linked(gw):
+            numbers = {sorted_scenes[r].number for r in rows if r < len(sorted_scenes)}
+            if not numbers:
+                return
+            answer = QMessageBox.question(
+                self, "Szenen entfernen",
+                f"{len(numbers)} Szene(n) auch aus der Szenen-Verwaltung entfernen?",
+            )
+            if answer != QMessageBox.Yes:
+                return
+            self._service.remove_scenes(self._project, gw, numbers)
+            self._project.touch()
+            self._populate_scenes_table(gw)
+            return
         for row in sorted(rows, reverse=True):
             if row < len(sorted_scenes):
                 gw.scenes.remove(sorted_scenes[row])
@@ -500,7 +549,11 @@ class DaliConfigView(QWidget):
         gw = self._current_gw
         if not gw:
             return
-        DaliService.ensure_default_scenes(gw)
+        if self._scenes_linked(gw):
+            self._service.add_default_scenes(self._project, gw)
+            self._project.touch()
+        else:
+            DaliService.ensure_default_scenes(gw)
         self._populate_scenes_table(gw)
 
     # ── KNX-GA-Tab ────────────────────────────────────────────────────────────
@@ -555,6 +608,8 @@ class DaliConfigView(QWidget):
         gw.ga_scene = self._ga_scene.text().strip()
         gw.ga_status_value = self._ga_status_value.text().strip()
         gw.ga_status_fault = self._ga_status_fault.text().strip()
+        # Szenen-Abgleich hängt an der Szenenabruf-GA
+        self._populate_scenes_table(gw)
 
     def _auto_link_gas(self):
         gw = self._current_gw
@@ -562,6 +617,7 @@ class DaliConfigView(QWidget):
             return
         n = self._service.link_gas_from_structure(gw, self._project)
         self._populate_ga_tab(gw)
+        self._populate_scenes_table(gw)
         QMessageBox.information(
             self, "GAs verknüpft",
             f"{n} KNX-Gruppenadresse(n) automatisch dem Gateway zugeordnet."

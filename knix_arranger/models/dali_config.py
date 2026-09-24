@@ -124,6 +124,11 @@ class DaliGateway:
     ga_status_value: str = ""        # Status Istwert
     ga_status_fault: str = ""        # Status Störung
 
+    # True, sobald die Szenen einmal mit der Szenen-Verwaltung abgeglichen
+    # wurden (DaliService.sync_scenes). Ab dann ist project.scenes die
+    # Quelle und `scenes` nur noch deren Spiegel.
+    scenes_synced: bool = False
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -137,6 +142,7 @@ class DaliGateway:
             "ga_scene": self.ga_scene,
             "ga_status_value": self.ga_status_value,
             "ga_status_fault": self.ga_status_fault,
+            "scenes_synced": self.scenes_synced,
         }
 
     @classmethod
@@ -153,4 +159,5 @@ class DaliGateway:
             ga_scene=d.get("ga_scene", ""),
             ga_status_value=d.get("ga_status_value", ""),
             ga_status_fault=d.get("ga_status_fault", ""),
+            scenes_synced=d.get("scenes_synced", False),
         )

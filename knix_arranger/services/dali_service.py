@@ -15,6 +15,14 @@ from ..models.dali_config import DaliGateway, DaliDevice, DaliGroup, DaliScene, 
 
 logger = logging.getLogger("knix_arranger.dali_service")
 
+# Standard-Szenen (DALI-Nummer, Name) für "Standard-Szenen"
+_DEFAULT_SCENES = [
+    (0, "Präsenz"),
+    (1, "Putzen"),
+    (2, "Nacht"),
+    (3, "Aus"),
+]
+
 # GA-Adress-Pattern für Validierung
 _GA_RE = re.compile(r"^\d+/\d+/\d+$")
 
@@ -652,14 +660,151 @@ class DaliService:
         """Legt Szenen 0–3 an, falls noch keine Szenen vorhanden sind."""
         if dali_gw.scenes:
             return
-        defaults = [
-            (0, "Präsenz"),
-            (1, "Putzen"),
-            (2, "Nacht"),
-            (3, "Aus"),
-        ]
-        for nr, name in defaults:
+        for nr, name in _DEFAULT_SCENES:
             dali_gw.scenes.append(DaliScene(number=nr, name=name))
+
+    # ── Abgleich mit der Szenen-Verwaltung ────────────────────────────────────
+    #
+    # Das Gateway ruft seine Szenen über ga_scene (DPT 18.001) ab. Die Szenen-
+    # Verwaltung (project.scenes) ist die Quelle: alle Szenen auf dieser GA
+    # erscheinen im DALI-Tab, und Änderungen im DALI-Tab werden dort
+    # vorgenommen. KNX-Szene N entspricht DALI-Szene N-1 (Bus-Wert), nur
+    # KNX-Szenen 1-16 haben ein DALI-Gegenstück.
+
+    @staticmethod
+    def scene_channel(project, dali_gw: DaliGateway) -> list:
+        """Projekt-Szenen, die über die Szenenabruf-GA des Gateways laufen
+        (erkannt, daran gebunden oder mit einer Aktion auf diese GA)."""
+        ga = dali_gw.ga_scene
+        if not ga:
+            return []
+        return [
+            s for s in project.scenes
+            if s.scene_number > 0 and (
+                ga in s.source_ga_addresses
+                or (not s.source_ga_addresses
+                    and any(a.ga_address == ga for a in s.actions))
+            )
+        ]
+
+    def sync_scenes(self, project, dali_gw: DaliGateway) -> None:
+        """Spiegelt die Szenen der Szenen-Verwaltung in dali_gw.scenes.
+
+        Beim ersten Abgleich werden bisher nur im DALI-Tab gepflegte Szenen
+        in die Szenen-Verwaltung übernommen (ausser den unveränderten
+        Standard-Platzhaltern); bei gleicher Nummer gilt die Szenen-Verwaltung.
+        Ohne Szenenabruf-GA bleibt die DALI-Liste unverändert.
+        """
+        if not dali_gw.ga_scene:
+            return
+        if not dali_gw.scenes_synced:
+            self._migrate_dali_only_scenes(project, dali_gw)
+            dali_gw.scenes_synced = True
+
+        by_number: dict[int, DaliScene] = {}
+        for scene in sorted(self.scene_channel(project, dali_gw),
+                            key=lambda s: s.scene_number):
+            nr = scene.scene_number - 1
+            if 0 <= nr < 16 and nr not in by_number:
+                by_number[nr] = DaliScene(number=nr, name=scene.name)
+        dali_gw.scenes = [by_number[nr] for nr in sorted(by_number)]
+
+    def _migrate_dali_only_scenes(self, project, dali_gw: DaliGateway) -> None:
+        if {(s.number, s.name) for s in dali_gw.scenes} == set(_DEFAULT_SCENES):
+            return  # nur die automatisch angelegten Platzhalter
+        used = {s.scene_number for s in self.scene_channel(project, dali_gw)}
+        for dali_scene in sorted(dali_gw.scenes, key=lambda s: s.number):
+            if dali_scene.number + 1 in used:
+                logger.info(
+                    f"DALI-Szene {dali_scene.number} '{dali_scene.name}' nicht "
+                    f"übernommen: Nummer in der Szenen-Verwaltung bereits belegt."
+                )
+                continue
+            self.create_bound_scene(
+                project, dali_gw, dali_scene.number, dali_scene.name
+            )
+            used.add(dali_scene.number + 1)
+
+    def create_bound_scene(self, project, dali_gw: DaliGateway,
+                           dali_number: int, name: str):
+        """Legt in der Szenen-Verwaltung eine an ga_scene gebundene Szene für
+        die DALI-Szene dali_number an (KNX-Szene dali_number + 1)."""
+        from ..models.scene import Scene, SceneAction
+
+        ga_addr = dali_gw.ga_scene
+        ga = next(
+            (g for g in project.group_addresses.all_addresses() if g.address == ga_addr),
+            None,
+        )
+        channel = self.scene_channel(project, dali_gw)
+        template = next((s for s in channel if s.scope), None)
+        if template:
+            scope, scope_id = template.scope, template.scope_id
+        elif ga is not None and ga.room_id:
+            scope, scope_id = "room", ga.room_id
+        else:
+            scope, scope_id = "central", ""
+
+        scene = Scene(
+            name=name,
+            scene_number=dali_number + 1,
+            scope=scope,
+            scope_id=scope_id,
+            source_ga_addresses=[ga_addr],
+            actions=[SceneAction(
+                group_address=ga.designation if ga else ga_addr,
+                ga_address=ga_addr,
+            )],
+        )
+        insert_at = (
+            max(project.scenes.index(s) for s in channel) + 1
+            if channel else len(project.scenes)
+        )
+        project.scenes.insert(insert_at, scene)
+        return scene
+
+    def add_scene(self, project, dali_gw: DaliGateway, name: str = ""):
+        """Neue DALI-Szene (nächste freie Nummer 0-15) als Szene in der
+        Szenen-Verwaltung. None, wenn alle 16 belegt sind."""
+        used = {s.scene_number - 1 for s in self.scene_channel(project, dali_gw)}
+        nr = next((n for n in range(16) if n not in used), None)
+        if nr is None:
+            return None
+        scene = self.create_bound_scene(project, dali_gw, nr, name or "Neue Szene")
+        self.sync_scenes(project, dali_gw)
+        return scene
+
+    def rename_scene(self, project, dali_gw: DaliGateway,
+                     dali_number: int, name: str) -> None:
+        for scene in self.scene_channel(project, dali_gw):
+            if scene.scene_number == dali_number + 1:
+                scene.name = name
+        self.sync_scenes(project, dali_gw)
+
+    def remove_scenes(self, project, dali_gw: DaliGateway,
+                      dali_numbers: set[int]) -> int:
+        """Entfernt die Szenen mit diesen DALI-Nummern aus der
+        Szenen-Verwaltung. Gibt die Anzahl entfernter Szenen zurück."""
+        remove = [
+            s for s in self.scene_channel(project, dali_gw)
+            if s.scene_number - 1 in dali_numbers
+        ]
+        for scene in remove:
+            project.scenes.remove(scene)
+        self.sync_scenes(project, dali_gw)
+        return len(remove)
+
+    def add_default_scenes(self, project, dali_gw: DaliGateway) -> int:
+        """Legt die Standard-Szenen (DALI 0-3) in der Szenen-Verwaltung an,
+        soweit die Nummern noch frei sind."""
+        used = {s.scene_number - 1 for s in self.scene_channel(project, dali_gw)}
+        added = 0
+        for nr, name in _DEFAULT_SCENES:
+            if nr not in used:
+                self.create_bound_scene(project, dali_gw, nr, name)
+                added += 1
+        self.sync_scenes(project, dali_gw)
+        return added
 
     # ── Import-Automatisierung ────────────────────────────────────────────────
 
@@ -671,7 +816,6 @@ class DaliService:
         1. DaliGateway-Config anlegen (get_or_create)
         2. Broadcast-GAs verknüpfen (link_gas_from_structure)
         3. Gruppen aus LDA-GAs oder KO-Namen ableiten (_derive_groups_from_import)
-        4. Standard-Szenen anlegen (ensure_default_scenes)
 
         Gibt die Gesamtzahl verknüpfter GAs zurück.
         """
@@ -705,7 +849,9 @@ class DaliService:
             if not gw.devices:
                 self._derive_evgs_from_import(gw, device, project)
 
-            self.ensure_default_scenes(gw)
+            # Keine Standard-Szenen mehr: die DALI-Szenen spiegeln die
+            # Szenen-Verwaltung (sync_scenes), Platzhalter wie "Präsenz/
+            # Putzen/..." würden dort sonst nach jedem Import auftauchen.
 
         logger.info(
             f"DALI auto_configure_from_import: {len(gateways)} Gateway(s), "
