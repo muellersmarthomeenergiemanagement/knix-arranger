@@ -29,6 +29,7 @@ from ...services.bauherr_form_service import _DROPDOWN_OPTIONS, BauherrFormServi
 from ...services.sensor_service import GEWERK_PRIMARY_FUNCTIONS
 from ...services.scene_addressing import (
     scene_group_key, scene_channel_designation, build_scope_label_lookup,
+    scene_target_designation,
 )
 from ..dialogs.ga_picker_dialog import GaPickerDialog
 from ..styles import KNX_BLUE, KNX_DARK_GREEN
@@ -285,8 +286,8 @@ class _SlotWidget(QWidget):
         if scene_items:
             self._add_header("── Szenen ──")
             for scene in scene_items:
-                designation = scene_channel_designation(
-                    scene_group_key(scene), label_lookup
+                designation = scene_target_designation(
+                    scene, label_lookup, project.group_addresses
                 )
                 self._combo.addItem(
                     f"Szene: {scene.name}   ·   {designation}",

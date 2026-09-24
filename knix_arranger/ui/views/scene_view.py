@@ -15,7 +15,9 @@ from ...models.project import KnxProject
 from ...models.scene import Scene, SceneAction
 from ...services.scene_detection_service import detect_scenes
 from ...services.scene_value_linking import link_scene_values, link_scene_triggers
-from ...services.scene_addressing import group_named_scenes
+from ...services.scene_addressing import (
+    group_named_scenes, is_bound_scene, scene_group_key,
+)
 from ..column_utils import fit_columns
 
 # Interne Scope-Codes (im Datenmodell gespeichert) -> Anzeigetext.
@@ -95,6 +97,13 @@ class SceneView(QWidget):
         btn_layout = QHBoxLayout()
         self._btn_add = QPushButton("+ Neue Szene")
         self._btn_add.clicked.connect(self._add_scene)
+        self._btn_add_same_ga = QPushButton("+ Weitere Szene auf dieser GA")
+        self._btn_add_same_ga.setToolTip(
+            "Legt für die ausgewählte Szene eine weitere Szene auf derselben "
+            "Szenen-Gruppenadresse an: nächste freie Szenennummer, gleicher "
+            "Geltungsbereich, gleiche GA."
+        )
+        self._btn_add_same_ga.clicked.connect(self._add_scene_on_same_ga)
         self._btn_from_template = QPushButton("Aus Vorlage")
         self._btn_from_template.clicked.connect(self._add_from_template)
         self._btn_detect = QPushButton("Szenen erkennen")
@@ -115,6 +124,7 @@ class SceneView(QWidget):
         )
         self._btn_remove_all.clicked.connect(self._remove_all_scenes)
         btn_layout.addWidget(self._btn_add)
+        btn_layout.addWidget(self._btn_add_same_ga)
         btn_layout.addWidget(self._btn_from_template)
         btn_layout.addWidget(self._btn_detect)
         btn_layout.addWidget(self._btn_remove)
@@ -300,10 +310,10 @@ class SceneView(QWidget):
             self._table.setItem(
                 i, 4, QTableWidgetItem(str(len(scene.actions)))
             )
-            self._table.setItem(
-                i, 5,
-                QTableWidgetItem(source_labels.get(scene.detection_kind, ""))
-            )
+            source_text = source_labels.get(scene.detection_kind, "")
+            if is_bound_scene(scene):
+                source_text = f"Manuell → {', '.join(scene.source_ga_addresses)}"
+            self._table.setItem(i, 5, QTableWidgetItem(source_text))
 
         fit_columns(self._table)
         self._info.setText(f"{len(scenes)} Szenen definiert")
@@ -451,6 +461,74 @@ class SceneView(QWidget):
 
         # Neue Szene auswählen
         self._table.selectRow(len(self._project.scenes) - 1)
+
+    def _add_scene_on_same_ga(self):
+        """Legt eine weitere Szene auf der Szenen-GA der ausgewählten Szene an
+        (nächste freie Nummer, gleicher Geltungsbereich). Ist die Szene an eine
+        bestehende GA gebunden (erkannt oder selbst gebunden), wird auch die
+        neue Szene an diese GA gebunden -- sonst teilt sie sich über den
+        Geltungsbereich die generierte Szenenaufruf-GA."""
+        source = self._get_selected_scene()
+        if not self._project or not source:
+            QMessageBox.information(
+                self, "Hinweis", "Bitte zuerst die Szene auswählen, deren "
+                "Gruppenadresse erweitert werden soll."
+            )
+            return
+
+        bound_addrs = list(source.source_ga_addresses)
+        if bound_addrs:
+            # Auch von Hand angelegte Szenen, deren Aktion diese GA nennt,
+            # belegen ihre Nummer -- sonst entstünde eine doppelte Nummer.
+            same_channel = [
+                s for s in self._project.scenes
+                if set(s.source_ga_addresses) == set(bound_addrs)
+                or (not s.source_ga_addresses
+                    and any(a.ga_address in bound_addrs for a in s.actions))
+            ]
+        else:
+            same_channel = [
+                s for s in self._project.scenes
+                if not s.is_detected and not s.source_ga_addresses
+                and scene_group_key(s) == scene_group_key(source)
+            ]
+        used = {s.scene_number for s in same_channel}
+        next_num = next((n for n in range(1, 65) if n not in used), None)
+        if next_num is None:
+            QMessageBox.information(
+                self, "Hinweis",
+                "Auf dieser Gruppenadresse sind bereits alle 64 Szenennummern belegt."
+            )
+            return
+
+        actions = []
+        if bound_addrs:
+            by_addr = {
+                ga.address: ga for ga in self._project.group_addresses.all_addresses()
+            }
+            for addr in bound_addrs:
+                ga = by_addr.get(addr)
+                actions.append(SceneAction(
+                    group_address=ga.designation if ga else addr,
+                    ga_address=addr,
+                ))
+
+        scene = Scene(
+            name=f"Neue Szene {next_num}",
+            scene_number=next_num,
+            scope=source.scope,
+            scope_id=source.scope_id,
+            actions=actions,
+            source_ga_addresses=bound_addrs,
+        )
+        # Direkt hinter den bisherigen Szenen dieser GA einfügen
+        insert_at = max(self._project.scenes.index(s) for s in same_channel) + 1 \
+            if same_channel else len(self._project.scenes)
+        self._project.scenes.insert(insert_at, scene)
+        self._refresh_table()
+        self._table.selectRow(insert_at)
+        self._scene_name.setFocus()
+        self._scene_name.selectAll()
 
     def _add_from_template(self):
         """Erstellt eine Szene aus einer Vorlage."""

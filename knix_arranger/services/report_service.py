@@ -18,6 +18,7 @@ from ..services.belegungsplan_service import (
 )
 from ..services.scene_addressing import (
     scene_group_key, scene_channel_designation, build_scope_label_lookup,
+    scene_target_designation,
 )
 from ..services.co_linking_service import CoLinkingService
 from ..services.naming_engine import NamingEngine
@@ -1019,7 +1020,9 @@ class ReportService:
         for s in self.project.scenes:
             if not s.name or s.is_detected:
                 continue
-            designation = scene_channel_designation(scene_group_key(s), label_lookup)
+            designation = scene_target_designation(
+                s, label_lookup, self.project.group_addresses
+            )
             scenes_by_channel.setdefault(designation, []).append(s)
 
         index: dict[str, list[str]] = {}
@@ -1054,7 +1057,7 @@ class ReportService:
         (None wenn Schritt 10 'Gruppenadressen generieren' noch nicht bzw.
         nicht erneut nach dieser Szenen-Aenderung gelaufen ist)."""
         all_gas = self.project.group_addresses.all_addresses()
-        if scene.is_detected:
+        if scene.source_ga_addresses:   # erkannt oder an bestehende GA gebunden
             for addr in scene.source_ga_addresses:
                 ga = next((g for g in all_gas if g.address == addr), None)
                 if ga:

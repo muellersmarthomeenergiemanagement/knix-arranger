@@ -36,6 +36,28 @@ def scene_group_key(scene) -> str:
     return scene.scope_id or "central"
 
 
+def is_bound_scene(scene) -> bool:
+    """Von Hand angelegte Szene, die eine bereits bestehende Szenen-GA
+    mitbenutzt (z.B. weitere Szenennummer auf der importierten GA
+    "LDA_M01_01 SZENE"). Erkennbar an source_ga_addresses bei
+    is_detected=False -- für sie wird beim Generieren keine eigene
+    Szenenaufruf-GA erzeugt."""
+    return not scene.is_detected and bool(scene.source_ga_addresses)
+
+
+def scene_target_designation(scene, label_lookup: dict[str, str],
+                             group_addresses=None) -> str:
+    """Bezeichnung der GA, über die eine Szene aufgerufen wird: bei an eine
+    bestehende GA gebundenen (oder erkannten) Szenen deren Bezeichnung,
+    sonst die der gemeinsamen, generierten Szenenaufruf-GA."""
+    if scene.source_ga_addresses and group_addresses is not None:
+        by_addr = {ga.address: ga for ga in group_addresses.all_addresses()}
+        for addr in scene.source_ga_addresses:
+            if addr in by_addr:
+                return by_addr[addr].designation
+    return scene_channel_designation(scene_group_key(scene), label_lookup)
+
+
 def scene_channel_designation(group_key: str, label_lookup: dict[str, str]) -> str:
     """Bezeichnung der gemeinsamen Szenenaufruf-GA fuer eine Gruppe."""
     if group_key == "central":
@@ -59,6 +81,8 @@ def scene_value_mapping_text(group_scenes) -> str:
 
 def group_named_scenes(scenes, areal) -> dict[str, tuple[str, list]]:
     """Gruppiert benannte, nicht-erkannte Szenen nach gemeinsamer Ziel-GA.
+    An eine bestehende GA gebundene Szenen (is_bound_scene) brauchen keine
+    generierte GA und fehlen daher.
 
     Gibt {group_key: (designation, [Scene, ...])} zurueck, sortiert ist die
     Iteration ueber das Ergebnis nicht -- Aufrufer sortieren bei Bedarf
@@ -67,7 +91,7 @@ def group_named_scenes(scenes, areal) -> dict[str, tuple[str, list]]:
     label_lookup = build_scope_label_lookup(areal) if areal is not None else {}
     groups: dict[str, tuple[str, list]] = {}
     for scene in scenes:
-        if not scene.name or scene.is_detected:
+        if not scene.name or scene.is_detected or is_bound_scene(scene):
             continue
         key = scene_group_key(scene)
         if key not in groups:

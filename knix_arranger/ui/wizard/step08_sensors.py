@@ -24,6 +24,7 @@ from ...services.sensor_service import (
 )
 from ...services.scene_addressing import (
     scene_group_key, scene_channel_designation, build_scope_label_lookup,
+    scene_target_designation,
 )
 from ...services.topology_engine import TopologyEngine
 from ..column_utils import fit_columns
@@ -375,8 +376,8 @@ class _SensorFunktionDialog(QDialog):
         scene = self._scene_combo.currentData()
         if scene is None:
             return
-        designation = scene_channel_designation(
-            scene_group_key(scene), self._scene_label_lookup
+        designation = scene_target_designation(
+            scene, self._scene_label_lookup, self._gas
         )
         label = self._scene_label.text().strip() or scene.name
         sf = SensorFunktion(
