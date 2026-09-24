@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QFormLayout, QAbstractItemView, QFrame, QCheckBox,
     QInputDialog, QScrollArea,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QColor
 
 CSV_PATH  = Path(__file__).parent / "betatester.csv"
@@ -418,10 +418,10 @@ class LizenzManager(QMainWindow):
             )
         else:
             self._set_status(
-                f"{len(entries)} Outlook-Entwurf/-Entwürfe geöffnet. Falls kein Fenster "
-                "erscheint: Outlook › Entwürfe. Nach dem Senden prüfen, dass der "
-                "Postausgang leer ist."
+                f"{len(entries)} Outlook-Entwurf/-Entwürfe geöffnet. Nach «Senden» "
+                "erscheint hier die Versandbestätigung."
             )
+            self._start_mail_watch(len(entries))
 
     def _resend_existing_license(self):
         """Oeffnet einen Outlook-Entwurf fuer eine bereits erstellte .knxlic-Datei,
@@ -467,8 +467,9 @@ class LizenzManager(QMainWindow):
             create_license_draft(customer, email, path, display=True, formal=(anrede == "Sie"))
             self._set_status(
                 f"Outlook-Entwurf für {customer} ({email}) erneut geöffnet – "
-                "Lizenzdatei unverändert."
+                "Lizenzdatei unverändert. Nach «Senden» erscheint hier die Versandbestätigung."
             )
+            self._start_mail_watch(1)
         except Exception as e:
             QMessageBox.warning(
                 self, "Outlook-Fehler",
@@ -485,6 +486,84 @@ class LizenzManager(QMainWindow):
     def _open_out_dir(self):
         OUT_DIR.mkdir(exist_ok=True)
         os.startfile(str(OUT_DIR))
+
+    # ── Versandstatus (Outlook classic läuft unsichtbar) ──────────────────────
+
+    _WATCH_INTERVAL_MS = 4000
+    _WATCH_MAX_S = 600       # höchstens 10 Minuten beobachten
+    _KICK_AFTER_S = 30       # hängt eine Mail so lange, "Senden/Empfangen" anstossen
+    _STUCK_AFTER_S = 120     # danach als hängend melden
+
+    def _start_mail_watch(self, expected: int) -> None:
+        """Beobachtet nach dem Öffnen der Entwürfe Postausgang und "Gesendete
+        Elemente" von Outlook classic und zeigt den Versandstatus an."""
+        self._watch_since = datetime.now() - timedelta(seconds=30)
+        self._watch_started = datetime.now()
+        self._watch_expected = expected
+        self._outbox_seen_at = None
+        self._kicked = False
+        if not hasattr(self, "_watch_timer"):
+            self._watch_timer = QTimer(self)
+            self._watch_timer.timeout.connect(self._poll_mail_status)
+        self._watch_timer.start(self._WATCH_INTERVAL_MS)
+
+    def _poll_mail_status(self) -> None:
+        try:
+            from outlook_mail import license_mail_status, trigger_send_receive
+            status = license_mail_status(self._watch_since)
+        except Exception:
+            return  # Outlook gerade nicht erreichbar -- beim nächsten Takt erneut
+
+        now = datetime.now()
+        sent, outbox = status["sent"], status["outbox"]
+        if outbox:
+            self._outbox_seen_at = self._outbox_seen_at or now
+            waiting = (now - self._outbox_seen_at).total_seconds()
+            if waiting >= self._KICK_AFTER_S and not self._kicked:
+                self._kicked = True
+                try:
+                    trigger_send_receive()
+                except Exception:
+                    pass
+            if waiting >= self._STUCK_AFTER_S:
+                self._set_status(
+                    f"⚠ {len(outbox)} Lizenz-Mail(s) hängen im Postausgang von Outlook classic "
+                    "und werden nicht gesendet. Bitte Outlook classic öffnen (outlook.exe), "
+                    "Postausgang prüfen und die Mail dort öffnen und erneut senden.",
+                    error=True,
+                )
+            else:
+                self._set_status(f"⏳ {len(outbox)} Lizenz-Mail(s) im Postausgang – wird gesendet …")
+        else:
+            self._outbox_seen_at = None
+            if sent:
+                subject, when = sent[0]
+                self._set_status(f"✓ Gesendet um {when:%H:%M}: «{subject}». Postausgang leer.")
+            else:
+                self._set_status("Entwurf offen – nach «Senden» erscheint hier die Bestätigung.")
+
+        done = len(sent) >= self._watch_expected and not outbox
+        if done or (now - self._watch_started).total_seconds() > self._WATCH_MAX_S:
+            self._watch_timer.stop()
+
+    def closeEvent(self, event):
+        """Warnt, wenn beim Schliessen noch Lizenz-Mails im Postausgang liegen."""
+        try:
+            from outlook_mail import license_mail_status
+            outbox = license_mail_status(datetime.now())["outbox"]
+        except Exception:
+            outbox = []
+        if outbox:
+            answer = QMessageBox.question(
+                self, "Lizenz-Mail noch nicht gesendet",
+                f"Im Postausgang von Outlook classic liegen noch {len(outbox)} "
+                "Lizenz-Mail(s). Trotzdem schliessen?\n\n"
+                "Tipp: Outlook classic (outlook.exe) öffnen und den Postausgang prüfen.",
+            )
+            if answer != QMessageBox.Yes:
+                event.ignore()
+                return
+        event.accept()
 
     def _set_status(self, msg, error=False):
         color = "red" if error else GREEN

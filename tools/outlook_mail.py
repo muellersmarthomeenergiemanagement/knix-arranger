@@ -341,3 +341,54 @@ def create_license_draft(
             pass  # Aktivieren ist nur Komfort; der Entwurf existiert trotzdem
     else:
         mail.Send()
+
+
+# ── Versandstatus ────────────────────────────────────────────────────────────
+# Der Lizenz-Manager startet Outlook classic per COM unsichtbar (ohne
+# Hauptfenster). Nach "Senden" schliesst sich das Entwurfsfenster, den
+# Postausgang sieht man nie -- eine hängende Mail fällt so nicht auf
+# (am 23.09.2026 lag eine Lizenz-Mail einen Tag unbemerkt im Postausgang).
+
+_LICENSE_SUBJECT_MARKER = "KNiX Arranger Lizenz"
+
+
+def _is_license_mail(item) -> bool:
+    try:
+        return _LICENSE_SUBJECT_MARKER in (item.Subject or "")
+    except Exception:
+        return False
+
+
+def license_mail_status(since) -> dict:
+    """Stand der Lizenz-Mails in Outlook classic seit `since` (datetime, lokal).
+
+    Rückgabe: {"outbox": [Betreff, ...], "sent": [(Betreff, Zeit), ...]}
+    Nur lesend. Wirft eine Exception, wenn Outlook nicht erreichbar ist.
+    """
+    import win32com.client
+    ns = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+
+    outbox = [it.Subject for it in ns.GetDefaultFolder(4).Items if _is_license_mail(it)]
+
+    sent = []
+    items = ns.GetDefaultFolder(5).Items
+    items.Sort("[SentOn]", True)
+    for i, it in enumerate(items):
+        if i >= 30:
+            break
+        try:
+            sent_on = it.SentOn.replace(tzinfo=None)
+        except Exception:
+            continue
+        if sent_on < since:
+            break
+        if _is_license_mail(it):
+            sent.append((it.Subject, sent_on))
+    return {"outbox": outbox, "sent": sent}
+
+
+def trigger_send_receive() -> None:
+    """Stösst "Senden/Empfangen" in Outlook classic an (verschickt, was im
+    Postausgang zum Senden bereitliegt)."""
+    import win32com.client
+    win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI").SendAndReceive(False)
