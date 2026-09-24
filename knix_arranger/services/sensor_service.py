@@ -589,9 +589,16 @@ class SensorService:
                 # (Chalet Franziska 2005, Formular K Verknuepfungsmatrix).
                 # Die Nummer bleibt nur noch Fallback fuer Funktionen ohne
                 # eigenes Label (z.B. Wizard-Direktzuordnung ohne Taste-Text).
-                button_ch = sf.label or (
-                    f"Taste {global_channel}" if use_numbers else "GA"
-                )
+                # Ausnahme Szenenaufruf (Schritt 8 / Bauherrenberatung): dort
+                # ist das Label der Szenenname ("Komponieren"), keine Taste --
+                # als Tastenname ergab das keinen Kanal im Topologiereport.
+                # Der Name bleibt als Beschreibung (description) erhalten.
+                if sf.bedienart == "Szene abrufen":
+                    button_ch = f"Taste {global_channel}" if use_numbers else "Taste"
+                else:
+                    button_ch = sf.label or (
+                        f"Taste {global_channel}" if use_numbers else "GA"
+                    )
                 new_fas = self._expand_direct_ga(sf, button_ch)
                 fas.extend(new_fas)
                 total += len(new_fas)

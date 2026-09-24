@@ -567,6 +567,40 @@ class TestExpandFunktionenButtonChannel:
 
         assert fas[0].button_channel == "GA"
 
+    def test_szenenaufruf_erhaelt_tastennummer_statt_szenenname(self):
+        """Szenen aus Schritt 8 / Bauherrenberatung tragen den Szenennamen im
+        Label -- als Tastenname ergab das keinen Kanal im Topologiereport
+        ("Komponieren" statt "Taste 3"). Der Name bleibt Beschreibung."""
+        from knix_arranger.models.building import SensorFunktion
+        from knix_arranger.services.belegungsplan_service import _split_button_channel
+        room = Room(number="M01", name="Musikzimmer")
+        svc = SensorService()
+        funktionen = [
+            SensorFunktion(label="Taste 1, links", ga_designation="1/0/10"),
+            SensorFunktion(label="Komponieren", ga_designation="LDA_M01_01 SZENE",
+                           action_type="kurz", bedienart="Szene abrufen", scene_id="s1"),
+            SensorFunktion(label="Üben", ga_designation="LDA_M01_01 SZENE",
+                           action_type="kurz", bedienart="Szene abrufen", scene_id="s2"),
+        ]
+
+        fas, _ = svc._expand_funktionen(funktionen, room, {})
+
+        # Importiertes Tastenlabel bleibt, Szenen bekommen die Tastennummer
+        assert [fa.button_channel for fa in fas] == ["Taste 1, links", "Taste 2", "Taste 3"]
+        assert [fa.description for fa in fas[1:]] == ["Komponieren", "Üben"]
+        assert _split_button_channel(fas[2].button_channel) == ("Taste", "3")
+
+    def test_einzelner_szenenaufruf_ist_kanal_1(self):
+        from knix_arranger.models.building import SensorFunktion
+        from knix_arranger.services.belegungsplan_service import _split_button_channel
+        room = Room(number="M01", name="Musikzimmer")
+        funktionen = [SensorFunktion(label="Komponieren", ga_designation="LDA_M01_01 SZENE",
+                                     bedienart="Szene abrufen", scene_id="s1")]
+
+        fas, _ = SensorService()._expand_funktionen(funktionen, room, {})
+
+        assert _split_button_channel(fas[0].button_channel) == ("Taste", "1")
+
 
 class TestSensorTypeOverride:
     """Tests fuer FA-1407: manueller Sensortyp-Override."""
