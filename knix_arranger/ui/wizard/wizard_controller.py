@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QStackedWidget, QProgressBar, QWidget, QMessageBox, QFrame,
-    QTextBrowser, QDialogButtonBox,
+    QTextBrowser, QDialogButtonBox, QScrollArea,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -139,7 +139,14 @@ class WizardController(QDialog):
         for step in self._steps:
             if hasattr(step, "_guard"):
                 step._guard = self._guard
-            self._stack.addWidget(step)
+            # Jeder Schritt in einem Bildlaufbereich: Passt der Inhalt nicht in
+            # ein kleines Fenster (z.B. 1280x720), erscheint eine Bildlaufleiste,
+            # statt dass Qt Texte und Buttons unter ihre Mindesthöhe staucht.
+            scroll = QScrollArea()
+            scroll.setWidget(step)
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.NoFrame)
+            self._stack.addWidget(scroll)
         layout.addWidget(self._stack, 1)
 
         # Navigation

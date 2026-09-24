@@ -57,6 +57,7 @@ def fit_columns(widget, min_col_width: int = 50, stretch_to_fit: bool = True) ->
     header = widget.header() if hasattr(widget, "header") else widget.horizontalHeader()
     scale = vp_width / total
     for i in range(n):
-        min_w = max(min_col_width, header.sectionSizeHint(i))
+        # +16: sectionSizeHint rechnet mit normaler Schrift, die Köpfe sind fett
+        min_w = max(min_col_width, header.sectionSizeHint(i) + 16)
         new_w = max(min_w, int(widget.columnWidth(i) * scale))
         widget.setColumnWidth(i, new_w)

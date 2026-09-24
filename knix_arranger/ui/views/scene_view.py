@@ -135,7 +135,7 @@ class SceneView(QWidget):
         template_layout.addStretch()
         left.addLayout(template_layout)
 
-        content.addLayout(left, 2)
+        content.addLayout(left, 3)
 
         # --- Rechte Seite: Detail-Panel ---
         right = QVBoxLayout()
@@ -199,7 +199,7 @@ class SceneView(QWidget):
         # Standardbreite (100 px) war schmaler als "Gruppenadresse / Gewerk"
         for col in range(self._actions_table.columnCount()):
             self._actions_table.setColumnWidth(
-                col, max(100, self._actions_table.horizontalHeader().sectionSizeHint(col)))
+                col, max(100, self._actions_table.horizontalHeader().sectionSizeHint(col) + 16))
         self._actions_table.itemChanged.connect(self._on_action_item_changed)
         actions_layout.addWidget(self._actions_table)
 
@@ -237,7 +237,9 @@ class SceneView(QWidget):
         right.addWidget(self._actions_group)
 
         right.addStretch()
-        content.addLayout(right, 1)
+        # 3:2 statt 2:1 -- sonst sind Aktionstabelle und Eingabefelder rechts
+        # bei 1280 px Fensterbreite abgeschnitten
+        content.addLayout(right, 2)
         layout.addLayout(content)
 
     def _load_templates(self):

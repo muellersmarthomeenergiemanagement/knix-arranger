@@ -179,7 +179,7 @@ class CustomerQuoteView(QWidget):
         # Standardbreite (100 px) war schmaler als "Einzelpreis (CHF)"
         for col in range(self._items_table.columnCount()):
             self._items_table.setColumnWidth(
-                col, max(100, self._items_table.horizontalHeader().sectionSizeHint(col)))
+                col, max(100, self._items_table.horizontalHeader().sectionSizeHint(col) + 16))
         items_layout.addWidget(self._items_table)
 
         add_layout = QHBoxLayout()

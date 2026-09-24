@@ -263,6 +263,8 @@ class CableLengthView(QWidget):
             n = len(line.branch_lengths)
             btn = QPushButton(f"{n} Stichleitung{'en' if n != 1 else ''} bearbeiten…")
             btn.setProperty("line_id", line.id)
+            # Kompakt, damit der Button in die Tabellenzeile passt
+            btn.setStyleSheet("padding: 3px 8px;")
             btn.clicked.connect(
                 lambda checked=False, lid=line.id: self._edit_branches(lid)
             )
