@@ -290,6 +290,13 @@ class MainWindow(QMainWindow):
         # Sidebar
         self._sidebar = Sidebar()
         self._sidebar.navigation_changed.connect(self._navigate)
+        # Aufgeklappte Gruppen der Seitenleiste über Neustarts merken
+        saved_groups = self._load_app_setting("sidebar_open_groups")
+        if isinstance(saved_groups, list):
+            self._sidebar.set_expanded_groups(saved_groups)
+        self._sidebar.groups_changed.connect(
+            lambda groups: self._save_app_setting("sidebar_open_groups", groups)
+        )
         main_layout.addWidget(self._sidebar)
 
         # Content

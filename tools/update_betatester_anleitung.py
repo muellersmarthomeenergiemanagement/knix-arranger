@@ -380,8 +380,11 @@ def build_document() -> Document:
 
     add_table_2col(doc, [
         ("Seitenleiste (links)",
-         "Navigation zwischen den verschiedenen Ansichten: Übersicht, Gebäude, Topologie, "
-         "Gruppenadressen, Materialliste, Szenen, Zeitsteuerung und mehr."),
+         "Navigation zwischen den Ansichten. Oben steht immer der 13-Schritt-Wizard, "
+         "darunter sind die Ansichten nach Arbeitsablauf gruppiert: Projekt, Planung, "
+         "Topologie & Geräte, Adressen & Logik, Angebot, Abschluss & Dokumentation. "
+         "Ein Klick auf eine Gruppenüberschrift klappt sie auf oder zu; mehrere Gruppen "
+         "können gleichzeitig offen sein, und die Auswahl bleibt nach einem Neustart erhalten."),
         ("Hauptbereich (Mitte)",
          "Zeigt die jeweils gewählte Ansicht. Hier finden statt: Dateneingabe, Tabellen, "
          "Baumstrukturen, Diagramme."),
@@ -739,7 +742,9 @@ def build_document() -> Document:
     add_heading1(doc, "8  Wichtige Ansichten in der Seitenleiste")
     add_body(doc,
         "Alle Ansichten sind auch ausserhalb des Wizards jederzeit zugänglich. "
-        "So können Sie z. B. nach Abschluss des Wizards einzelne Bereiche direkt bearbeiten.")
+        "So können Sie z. B. nach Abschluss des Wizards einzelne Bereiche direkt bearbeiten. "
+        "Seltener gebrauchte Aktionen einer Ansicht finden Sie im Menü «Weitere» "
+        "(z. B. in der Materialliste), im Wizard in zugeklappten Bereichen wie «Vorlagen».")
     doc.add_paragraph()
 
     add_table_2col(doc,

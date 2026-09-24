@@ -120,10 +120,10 @@ class SidebarButton(QPushButton):
 class _NavGroup(QWidget):
     """Einklappbare Gruppe von Navigationsbuttons."""
 
-    def __init__(self, title: str, expanded: bool, on_open=None, parent=None):
+    def __init__(self, title: str, expanded: bool, on_toggle=None, parent=None):
         super().__init__(parent)
         self._title = title
-        self._on_open = on_open  # Akkordeon: Sidebar schliesst die übrigen Gruppen
+        self._on_toggle = on_toggle  # meldet Auf-/Zuklappen durch den Nutzer
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
@@ -148,10 +148,13 @@ class _NavGroup(QWidget):
         self._body_layout.addWidget(btn)
 
     def _on_header_clicked(self) -> None:
-        if not self._expanded and self._on_open is not None:
-            self._on_open(self)
-        else:
-            self.set_expanded(not self._expanded)
+        self.set_expanded(not self._expanded)
+        if self._on_toggle is not None:
+            self._on_toggle()
+
+    @property
+    def title(self) -> str:
+        return self._title
 
     def set_expanded(self, expanded: bool) -> None:
         self._expanded = expanded
@@ -170,6 +173,8 @@ class Sidebar(QWidget):
     """Seitenleiste für Navigation mit scrollbarem Navigationsbereich."""
 
     navigation_changed = Signal(str)
+    # Titel der aufgeklappten Gruppen, nach jedem Auf-/Zuklappen
+    groups_changed = Signal(list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -223,14 +228,15 @@ class Sidebar(QWidget):
         self._nav_layout.setContentsMargins(4, 2, 4, 6)
         self._nav_layout.setSpacing(2)
 
-        # Akkordeon: immer nur eine Gruppe offen, damit die Leiste auch bei
-        # 720 px Fensterhöhe ohne Scrollen passt. Anfangs "Planung"; beim
-        # Wechsel auf eine Ansicht öffnet sich deren Gruppe automatisch.
+        # Gruppen lassen sich unabhängig auf- und zuklappen, mehrere dürfen
+        # gleichzeitig offen sein. Anfangs nur "Planung" (das Hauptfenster
+        # stellt den zuletzt gespeicherten Zustand wieder her); beim Wechsel
+        # auf eine Ansicht öffnet sich deren Gruppe automatisch.
         self._scroll = scroll
         self._groups: list[_NavGroup] = []
         for group_title, entries in NAV_GROUPS:
             group = _NavGroup(group_title, expanded=group_title == "Planung",
-                              on_open=self._open_only)
+                              on_toggle=self._emit_groups_changed)
             self._groups.append(group)
             for key, text, icon_name in entries:
                 btn = self._add_button(key, text, icon_name, layout=None)
@@ -276,9 +282,18 @@ class Sidebar(QWidget):
                 self.navigation_changed.emit(key)
                 break
 
-    def _open_only(self, group: _NavGroup) -> None:
+    def expanded_groups(self) -> list[str]:
+        """Titel der aufgeklappten Gruppen (zum Speichern)."""
+        return [g.title for g in self._groups if g.expanded]
+
+    def set_expanded_groups(self, titles: list[str]) -> None:
+        """Stellt gespeicherte aufgeklappte Gruppen wieder her."""
+        wanted = set(titles)
         for g in self._groups:
-            g.set_expanded(g is group)
+            g.set_expanded(g.title in wanted)
+
+    def _emit_groups_changed(self) -> None:
+        self.groups_changed.emit(self.expanded_groups())
 
     def select(self, key: str):
         """Wählt einen Button programmatisch aus, öffnet seine Gruppe und
@@ -286,7 +301,8 @@ class Sidebar(QWidget):
         if key in self._buttons:
             group = self._group_of.get(key)
             if group is not None and not group.expanded:
-                self._open_only(group)
+                group.set_expanded(True)
+                self._emit_groups_changed()
             btn = self._buttons[key]
             btn.setChecked(True)
             if group is not None:
