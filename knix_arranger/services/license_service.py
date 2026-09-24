@@ -33,7 +33,7 @@ owIDAQAB
 
 
 GRACE_PERIOD_DAYS = 14   # App startet noch, tägl. Hinweis
-WARNING_DAYS = 30        # Gelbe Warnung vor Ablauf
+WARNING_DAYS = 7         # Hinweis erst ab 7 Tagen vor Ablauf
 
 
 class LicenseInfo:

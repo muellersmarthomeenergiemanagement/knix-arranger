@@ -136,13 +136,27 @@ class TestLicenseValidation:
 
     def test_validate_warning_before_expiry(self, license_svc, rsa_keypair, tmp_path):
         private_key, _ = rsa_keypair
-        expiry = (date.today() + timedelta(days=10)).isoformat()
+        expiry = (date.today() + timedelta(days=WARNING_DAYS)).isoformat()
         path = tmp_path / "soon.knxlic"
         _write_license_file(path, private_key, _make_payload(expiry=expiry))
 
         info = license_svc.validate_license_file(str(path))
         assert info.is_valid
-        assert info.warning  # < WARNING_DAYS Tage bis Ablauf
+        assert info.warning  # <= WARNING_DAYS Tage bis Ablauf
+
+    @pytest.mark.parametrize("days", [WARNING_DAYS + 1, 10])
+    def test_no_warning_earlier_than_warning_days(self, license_svc, rsa_keypair,
+                                                  tmp_path, days):
+        """Der Hinweis zur Restlaufzeit erscheint erst 7 Tage vor Ablauf."""
+        assert WARNING_DAYS == 7
+        private_key, _ = rsa_keypair
+        expiry = (date.today() + timedelta(days=days)).isoformat()
+        path = tmp_path / "later.knxlic"
+        _write_license_file(path, private_key, _make_payload(expiry=expiry))
+
+        info = license_svc.validate_license_file(str(path))
+        assert info.is_valid
+        assert info.warning == ""
 
 
 class TestLicenseInfo:
