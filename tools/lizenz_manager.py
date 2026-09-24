@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QPushButton, QLabel, QComboBox,
     QSpinBox, QHeaderView, QFileDialog, QMessageBox, QLineEdit,
     QGroupBox, QFormLayout, QAbstractItemView, QFrame, QCheckBox,
-    QInputDialog,
+    QInputDialog, QScrollArea,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QColor
@@ -38,7 +38,10 @@ class LizenzManager(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KNiX Arranger – Lizenz-Manager")
-        self.setMinimumSize(780, 520)
+        # Mindestbreite so, dass die Aktionszeile unten vollständig lesbar ist;
+        # Startgrösse passt auch auf einen Laptop mit 1280x720
+        self.setMinimumSize(900, 600)
+        self.resize(1100, 680)
         self.setStyleSheet(f"""
             QMainWindow {{ background: #f4f6f8; }}
             QPushButton {{
@@ -67,8 +70,28 @@ class LizenzManager(QMainWindow):
             QGroupBox::title {{ subcontrol-origin: margin; left: 10px; }}
         """)
 
+        # Inhalt in einem Bildlaufbereich: bei kleinem Fenster erscheint eine
+        # Bildlaufleiste, statt dass Buttons und Texte gestaucht werden. Die
+        # Aktionszeile unten (bottom_layout) bleibt fest sichtbar.
+        outer = QWidget()
+        outer_layout = QVBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+        self.setCentralWidget(outer)
+
         central = QWidget()
-        self.setCentralWidget(central)
+        scroll = QScrollArea()
+        scroll.setWidget(central)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        outer_layout.addWidget(scroll, 1)
+
+        bottom = QWidget()
+        bottom_layout = QVBoxLayout(bottom)
+        bottom_layout.setContentsMargins(16, 0, 16, 12)
+        bottom_layout.setSpacing(8)
+        outer_layout.addWidget(bottom)
+
         layout = QVBoxLayout(central)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
@@ -115,11 +138,12 @@ class LizenzManager(QMainWindow):
             "Nur angehakte Zeilen werden bei «Lizenzen generieren» verarbeitet "
             "(Lizenzdatei erstellt und ggf. Outlook-Entwurf geöffnet)."
         )
-        hint.setStyleSheet("color: #555; font-size: 11px;")
+        hint.setStyleSheet("color: #555; font-size: 12px;")
         hint.setWordWrap(True)
         table_layout.addWidget(hint)
 
         self._table = QTableWidget(0, 5)
+        self._table.setMinimumHeight(170)  # Kopfzeile + mind. drei Lizenznehmer
         self._table.setHorizontalHeaderLabels(["", "Name", "E-Mail", "Lizenztyp", "Anrede"])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -160,13 +184,15 @@ class LizenzManager(QMainWindow):
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
         sep.setStyleSheet("color: #ddd;")
-        layout.addWidget(sep)
+        bottom_layout.addWidget(sep)
 
-        action_row = QHBoxLayout()
-
+        # Statusmeldung in eigener Zeile, damit sie die Buttons nicht verdrängt
         self._status = QLabel("")
         self._status.setStyleSheet("color: #555; font-size: 12px;")
-        action_row.addWidget(self._status, 1)
+        self._status.setWordWrap(True)
+        bottom_layout.addWidget(self._status)
+
+        action_row = QHBoxLayout()
 
         self._outlook_checkbox = QCheckBox("Danach Outlook-Entwurf öffnen")
         self._outlook_checkbox.setChecked(True)
@@ -176,6 +202,7 @@ class LizenzManager(QMainWindow):
             "Versand erfolgt manuell durch Klick auf «Senden» in Outlook."
         )
         action_row.addWidget(self._outlook_checkbox)
+        action_row.addStretch()
 
         open_btn = QPushButton("Ausgabeordner öffnen")
         open_btn.setObjectName("secondary")
@@ -197,7 +224,7 @@ class LizenzManager(QMainWindow):
         gen_btn.clicked.connect(self._generate)
         action_row.addWidget(gen_btn)
 
-        layout.addLayout(action_row)
+        bottom_layout.addLayout(action_row)
 
         self._load_csv()
 
