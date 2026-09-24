@@ -359,8 +359,11 @@ class _SensorFunktionDialog(QDialog):
         ga_text = self._ga_combo.currentText().strip()
         if not ga_text:
             return
+        # Ohne eigene Bezeichnung kein Label setzen (Anzeige fällt auf die
+        # GA zurück): ein Label wird sonst als Tastenname übernommen und die
+        # Zeile erhielte im Topologiereport keinen Kanal.
         sf = SensorFunktion(
-            label=self._ga_label.text().strip() or ga_text,
+            label=self._ga_label.text().strip(),
             ga_designation=ga_text,
             action_type="",
             bedienart=self._ga_bedienart_combo.currentText(),

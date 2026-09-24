@@ -596,7 +596,12 @@ class SensorService:
                 if sf.bedienart == "Szene abrufen":
                     button_ch = f"Taste {global_channel}" if use_numbers else "Taste"
                 else:
-                    button_ch = sf.label or (
+                    # Label gleich GA-Bezeichnung = keine echte Tasten-
+                    # bezeichnung (ältere Direkte-GA-Zuweisungen aus Schritt 8
+                    # setzten die GA als Label, wenn keine Bezeichnung
+                    # eingegeben war) -- wie "ohne Label" behandeln.
+                    own_label = sf.label if sf.label != sf.ga_designation else ""
+                    button_ch = own_label or (
                         f"Taste {global_channel}" if use_numbers else "GA"
                     )
                 new_fas = self._expand_direct_ga(sf, button_ch)

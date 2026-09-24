@@ -590,6 +590,22 @@ class TestExpandFunktionenButtonChannel:
         assert [fa.description for fa in fas[1:]] == ["Komponieren", "Üben"]
         assert _split_button_channel(fas[2].button_channel) == ("Taste", "3")
 
+    def test_label_gleich_ga_bezeichnung_gilt_als_ohne_label(self):
+        """Direkte-GA-Zuweisungen aus Schritt 8 ohne eigene Bezeichnung
+        trugen frueher die GA-Bezeichnung als Label -- als Tastenname ergab
+        das keinen Kanal im Topologiereport."""
+        from knix_arranger.models.building import SensorFunktion
+        room = Room(number="E01", name="Zimmer")
+        funktionen = [
+            SensorFunktion(label="L_E01_01 E/A", ga_designation="L_E01_01 E/A"),
+            SensorFunktion(label="Taste 2, rechts", ga_designation="J_E01_01 AUF/AB"),
+        ]
+
+        fas, _ = SensorService()._expand_funktionen(funktionen, room, {})
+
+        assert [fa.button_channel for fa in fas] == ["Taste 1", "Taste 2, rechts"]
+        assert fas[0].description == "L_E01_01 E/A"
+
     def test_einzelner_szenenaufruf_ist_kanal_1(self):
         from knix_arranger.models.building import SensorFunktion
         from knix_arranger.services.belegungsplan_service import _split_button_channel
