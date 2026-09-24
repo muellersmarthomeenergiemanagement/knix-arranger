@@ -286,10 +286,14 @@ class TestGewerkAndSceneSelection:
         assert sf.element_number == 1
         assert be.is_auto is False
 
-    def test_combo_lists_named_scenes_not_detected_ones(self):
+    def test_combo_lists_named_and_detected_numbered_scenes_not_channels(self):
+        """Erkannte Szenen mit Nummer (z.B. "Komponieren" aus dem Import) sind
+        aufrufbar; erkannte Szenenaufruf-Kanaele ohne Nummer (Nr. 0) nicht."""
         project, room, be = _make_project_with_room(scenes=[
             Scene(name="Kino", scene_number=1, scope="central"),
             Scene(name="Importiert", scene_number=2, scope="central", is_detected=True),
+            Scene(name="ZENTRAL Szenenaufruf", scene_number=0, scope="central",
+                  is_detected=True),
         ])
         view = BauherrFormView()
         view.set_project(project)
@@ -298,7 +302,28 @@ class TestGewerkAndSceneSelection:
         slot = _first_empty_slot(_find_taster(view))
         texts = [slot._combo.itemText(i) for i in range(slot._combo.count())]
         assert any(t.startswith("Szene: Kino") for t in texts)
-        assert not any("Importiert" in t for t in texts)
+        assert any(t.startswith("Szene: Importiert") for t in texts)
+        assert not any(t.startswith("Szene: ZENTRAL Szenenaufruf") for t in texts)
+
+    def test_detected_scene_uses_its_imported_ga(self):
+        from knix_arranger.models.group_address import GroupAddress
+        scene = Scene(name="Komponieren", scene_number=1, scope="central",
+                      is_detected=True, source_ga_addresses=["1/0/15"])
+        project, room, be = _make_project_with_room(scenes=[scene])
+        project.group_addresses.main_groups[0].middle_groups[0].group_addresses.append(
+            GroupAddress(main_group=1, middle_group=0, sub_group=15,
+                         designation="LDA_M01_01 SZENE", gewerk_code="LDA",
+                         function_name="SZENE")
+        )
+        view = BauherrFormView()
+        view.set_project(project)
+        view._room_list.setCurrentRow(0)
+
+        slot = _first_empty_slot(_find_taster(view))
+        _select_by_kind(slot._combo, "scene")
+
+        assert slot._sf.scene_id == scene.id
+        assert slot._sf.ga_designation == "LDA_M01_01 SZENE"
 
     def test_selecting_scene_sets_scene_id_and_ga_designation(self):
         scene = Scene(name="Kino", scene_number=1, scope="central")

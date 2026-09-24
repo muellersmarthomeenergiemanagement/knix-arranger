@@ -29,7 +29,7 @@ from ...services.bauherr_form_service import _DROPDOWN_OPTIONS, BauherrFormServi
 from ...services.sensor_service import GEWERK_PRIMARY_FUNCTIONS
 from ...services.scene_addressing import (
     scene_group_key, scene_channel_designation, build_scope_label_lookup,
-    scene_target_designation,
+    scene_target_designation, is_callable_scene,
 )
 from ..dialogs.ga_picker_dialog import GaPickerDialog
 from ..styles import KNX_BLUE, KNX_DARK_GREEN
@@ -279,10 +279,7 @@ class _SlotWidget(QWidget):
                 self._combo.addItem(display, ("gewerk", code, elem_nr, room.id))
 
         label_lookup = build_scope_label_lookup(project.areal)
-        scene_items = [
-            scene for scene in project.scenes
-            if scene.name and not scene.is_detected
-        ]
+        scene_items = [scene for scene in project.scenes if is_callable_scene(scene)]
         if scene_items:
             self._add_header("── Szenen ──")
             for scene in scene_items:

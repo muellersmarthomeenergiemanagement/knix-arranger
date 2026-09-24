@@ -45,6 +45,14 @@ def is_bound_scene(scene) -> bool:
     return not scene.is_detected and bool(scene.source_ga_addresses)
 
 
+def is_callable_scene(scene) -> bool:
+    """Szene, die ein Taster gezielt aufrufen kann (Schritt 8,
+    Bauherren-Formular): benannt und -- falls aus dem Import erkannt -- mit
+    Szenennummer. Erkannte Szenen ohne Nummer (Nr. 0) sind nur der
+    Szenenaufruf-Kanal selbst (z.B. "ZENTRAL Szenenaufruf")."""
+    return bool(scene.name) and (not scene.is_detected or scene.scene_number > 0)
+
+
 def scene_target_designation(scene, label_lookup: dict[str, str],
                              group_addresses=None) -> str:
     """Bezeichnung der GA, über die eine Szene aufgerufen wird: bei an eine

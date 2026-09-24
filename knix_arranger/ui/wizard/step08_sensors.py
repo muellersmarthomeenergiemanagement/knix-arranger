@@ -24,7 +24,7 @@ from ...services.sensor_service import (
 )
 from ...services.scene_addressing import (
     scene_group_key, scene_channel_designation, build_scope_label_lookup,
-    scene_target_designation,
+    scene_target_designation, is_callable_scene,
 )
 from ...services.topology_engine import TopologyEngine
 from ..column_utils import fit_columns
@@ -212,9 +212,7 @@ class _SensorFunktionDialog(QDialog):
         # Tab 4: Szene
         scene_tab = _QWidget()
         scene_layout = QVBoxLayout(scene_tab)
-        self._selectable_scenes = [
-            s for s in self._all_scenes if s.name and not s.is_detected
-        ]
+        self._selectable_scenes = [s for s in self._all_scenes if is_callable_scene(s)]
         if self._selectable_scenes:
             scene_layout.addWidget(QLabel("Szene auswählen:"))
             self._scene_combo = QComboBox()
