@@ -148,7 +148,14 @@ class CommissioningView(QWidget):
 
         # Bulk-Toolbar
         bulk_bar = QWidget()
-        bulk_bar.setStyleSheet("background: #F5F5F5; border-bottom: 1px solid #E0E0E0;")
+        # Stil nur auf die Leiste selbst beschränken (ID-Selektor): ohne
+        # Selektor galt der hellgraue Hintergrund auch für die Schaltflächen
+        # darin -- weisse Schrift auf Hellgrau, praktisch unsichtbar.
+        bulk_bar.setObjectName("bulkBar")
+        bulk_bar.setAttribute(Qt.WA_StyledBackground, True)
+        bulk_bar.setStyleSheet(
+            "#bulkBar { background: #F5F5F5; border-bottom: 1px solid #E0E0E0; }"
+        )
         bulk_layout = QHBoxLayout(bulk_bar)
         bulk_layout.setContentsMargins(8, 4, 8, 4)
         bulk_layout.setSpacing(6)
