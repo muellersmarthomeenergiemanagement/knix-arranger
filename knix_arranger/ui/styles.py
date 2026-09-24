@@ -145,6 +145,12 @@ def get_main_stylesheet() -> str:
     QPushButton#secondary:pressed {{
         background-color: #D4E3EF;
     }}
+    /* Buttons mit Menü ("Weitere", "Katalog"): Pfeil mittig rechts */
+    QPushButton::menu-indicator {{
+        subcontrol-origin: padding;
+        subcontrol-position: right center;
+        right: 4px;
+    }}
     QPushButton#link {{
         background-color: transparent;
         color: {KNX_BLUE};

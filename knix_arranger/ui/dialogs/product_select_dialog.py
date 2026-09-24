@@ -159,30 +159,30 @@ class ProductSelectDialog(QDialog):
         self._mfr_combo.currentIndexChanged.connect(self._refresh_results)
         filter_layout.addWidget(self._mfr_combo)
 
-        btn_knxprod = QPushButton("KNXPROD importieren…")
-        btn_knxprod.setToolTip(
+        # Katalogpflege in einem Menü, damit die Filterzeile Platz hat
+        catalog_menu = QMenu(self)
+        catalog_menu.setToolTipsVisible(True)
+        act = catalog_menu.addAction("KNXPROD importieren…", self._import_knxprod)
+        act.setToolTip(
             "Herstellerdatei (.knxprod) importieren und Produkte in den Katalog aufnehmen"
         )
-        btn_knxprod.clicked.connect(self._import_knxprod)
-        filter_layout.addWidget(btn_knxprod)
-
-        btn_knxprod_folder = QPushButton("Ordner importieren…")
-        btn_knxprod_folder.setToolTip(
+        act = catalog_menu.addAction("Ordner importieren…", self._import_knxprod_folder)
+        act.setToolTip(
             "Alle .knxprod-Dateien in einem Ordner (inkl. Unterordner) importieren.\n"
             "Bereits vorhandene Produkte (gleicher Hersteller + Bestellnummer) werden "
             "aktualisiert – so lässt sich der Katalog nach einem Parser-Update auffrischen."
         )
-        btn_knxprod_folder.clicked.connect(self._import_knxprod_folder)
-        filter_layout.addWidget(btn_knxprod_folder)
-
-        btn_online = QPushButton("Online-Katalog aktualisieren")
-        btn_online.setToolTip(
+        catalog_menu.addSeparator()
+        act = catalog_menu.addAction("Online-Katalog aktualisieren", self._update_online_catalog)
+        act.setToolTip(
             "Lädt die aktuelle Produktliste von KNiX Arranger aus dem Internet\n"
             "und nimmt neue Produkte in den Katalog auf (blau dargestellt).\n"
             "Eigene KNXPROD-Importe bleiben unverändert."
         )
-        btn_online.clicked.connect(self._update_online_catalog)
-        filter_layout.addWidget(btn_online)
+        btn_catalog = QPushButton("Katalog")
+        btn_catalog.setObjectName("secondary")
+        btn_catalog.setMenu(catalog_menu)
+        filter_layout.addWidget(btn_catalog)
 
         filter_group.setLayout(filter_layout)
         layout.addWidget(filter_group)

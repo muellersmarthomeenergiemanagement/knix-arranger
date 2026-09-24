@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QPushButton, QHeaderView, QAbstractItemView,
     QGroupBox, QComboBox, QSpinBox, QMessageBox, QLineEdit, QInputDialog,
-    QFileDialog,
+    QFileDialog, QMenu,
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -23,6 +23,8 @@ from ...models.device import GEWERK_TO_SENSOR_TYPE, GEWERK_TO_ACTOR_TYPE
 from ...services.product_search_service import ProductSuggestion
 from ...services.topology_engine import TopologyEngine
 from ...services.material_list_export_service import MaterialListExportService
+from ..icons import icon
+from ..styles import KNX_BLUE
 
 logger = logging.getLogger("knix_arranger.material_list_view")
 
@@ -96,21 +98,14 @@ class MaterialListView(QWidget):
         info.setObjectName("subtitle")
         layout.addWidget(info)
 
-        # --- Toolbar (zwei Zeilen, damit die Beschriftungen auch bei
-        # 1280 px Fensterbreite vollständig bleiben) ---
-        # Zeile 1: Zuweisen/Bearbeiten, Zeile 2: Verwalten/Export + Filter
+        # --- Toolbar: Hauptaktionen als Buttons, alles Weitere im Menü
+        # "Weitere", Filter rechts -- passt einzeilig ab 1280 px Breite ---
         toolbar = QHBoxLayout()
-        toolbar2 = QHBoxLayout()
 
         self._btn_add = QPushButton("+ Gerät hinzufügen…")
         self._btn_add.setToolTip("Produkt aus Katalog wählen und zur Materialliste hinzufügen")
         self._btn_add.clicked.connect(self._add_product)
         toolbar.addWidget(self._btn_add)
-
-        self._btn_remove = QPushButton("Position entfernen")
-        self._btn_remove.setEnabled(False)
-        self._btn_remove.clicked.connect(self._remove_selected)
-        toolbar2.addWidget(self._btn_remove)
 
         self._btn_assign = QPushButton("Produkt zuweisen…")
         self._btn_assign.setEnabled(False)
@@ -120,69 +115,63 @@ class MaterialListView(QWidget):
         self._btn_assign.clicked.connect(self._assign_selected)
         toolbar.addWidget(self._btn_assign)
 
-        self._btn_split = QPushButton("Aufteilen")
+        more_menu = QMenu(self)
+        more_menu.setToolTipsVisible(True)
+        self._btn_batch = more_menu.addAction("Typ-Batch zuweisen…", self._batch_assign_by_type)
+        self._btn_batch.setToolTip(
+            "Allen Platzhaltern desselben Gerätetyps auf einmal ein Produkt zuweisen"
+        )
+        self._btn_split = more_menu.addAction("Aufteilen", self._split_entry)
         self._btn_split.setEnabled(False)
         self._btn_split.setToolTip(
             "Gruppierten Eintrag in einzelne Zeilen aufteilen.\n"
             "• Mehrere Geräte: Trennung nach physikalischer Adresse\n"
             "• Einzelner Aktor: Kanalweise aufteilen (z.B. 16-fach → 2× 8-fach)"
         )
-        self._btn_split.clicked.connect(self._split_entry)
-        toolbar.addWidget(self._btn_split)
-
-        self._btn_ga = QPushButton("GA-Bedarf festlegen…")
+        self._btn_ga = more_menu.addAction("GA-Bedarf festlegen…", self._set_ga_override)
         self._btn_ga.setEnabled(False)
         self._btn_ga.setToolTip(
             "GA-Bedarf je Gerät von Hand festlegen, z.B. für frei belegbare\n"
             "Gateways, deren KNXPROD nur generische Objektplätze enthält"
         )
-        self._btn_ga.clicked.connect(self._set_ga_override)
-        toolbar.addWidget(self._btn_ga)
-
-        self._btn_batch = QPushButton("Typ-Batch zuweisen…")
-        self._btn_batch.setToolTip(
-            "Allen Platzhaltern desselben Gerätetyps auf einmal ein Produkt zuweisen"
-        )
-        self._btn_batch.clicked.connect(self._batch_assign_by_type)
-        toolbar.addWidget(self._btn_batch)
-
-        self._btn_sync = QPushButton("Aus Topologie aktualisieren")
+        more_menu.addSeparator()
+        self._btn_sync = more_menu.addAction("Aus Topologie aktualisieren", self._on_sync_clicked)
         self._btn_sync.setToolTip(
             "Materialliste aus dem aktuellen Stand der Topologie (Linienteilnehmer) neu aufbauen"
         )
-        self._btn_sync.clicked.connect(self._on_sync_clicked)
-        toolbar2.addWidget(self._btn_sync)
+        self._btn_export_xlsx = more_menu.addAction("Als Excel exportieren…", self._export_excel)
+        self._btn_export_xlsx.setToolTip("Materialliste als formatierte .xlsx-Datei exportieren")
+        more_menu.addSeparator()
+        self._btn_remove = more_menu.addAction("Position entfernen", self._remove_selected)
+        self._btn_remove.setEnabled(False)
 
-        self._btn_export_xlsx = QPushButton("Als Excel exportieren…")
-        self._btn_export_xlsx.setToolTip(
-            "Materialliste als formatierte .xlsx-Datei exportieren"
-        )
-        self._btn_export_xlsx.clicked.connect(self._export_excel)
-        toolbar2.addWidget(self._btn_export_xlsx)
+        btn_more = QPushButton("Weitere")
+        btn_more.setObjectName("secondary")
+        btn_more.setIcon(icon("dots", KNX_BLUE))
+        btn_more.setMenu(more_menu)
+        toolbar.addWidget(btn_more)
 
         toolbar.addStretch()
-        toolbar2.addStretch()
 
         # Kategorie-Filter
-        toolbar2.addWidget(QLabel("Kategorie:"))
+        toolbar.addWidget(QLabel("Kategorie:"))
         self._filter_combo = QComboBox()
         self._filter_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self._filter_combo.addItem("Alle Kategorien")
         for cat in MATERIAL_CATEGORIES:
             self._filter_combo.addItem(cat)
         self._filter_combo.currentIndexChanged.connect(self._rebuild_table)
-        toolbar2.addWidget(self._filter_combo)
+        toolbar.addWidget(self._filter_combo)
 
         # Linien-Filter
-        toolbar2.addWidget(QLabel("Linie:"))
+        toolbar.addWidget(QLabel("Linie:"))
         self._line_filter_combo = QComboBox()
         self._line_filter_combo.setMinimumWidth(180)
         self._line_filter_combo.addItem("Alle Linien", None)
         self._line_filter_combo.currentIndexChanged.connect(self._rebuild_table)
-        toolbar2.addWidget(self._line_filter_combo)
+        toolbar.addWidget(self._line_filter_combo)
 
         layout.addLayout(toolbar)
-        layout.addLayout(toolbar2)
 
         legend = QLabel(
             "<span style='color:#1B5E20;'>&#9679;</span> Produkt zugewiesen&nbsp;&nbsp;"

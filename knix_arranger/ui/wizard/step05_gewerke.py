@@ -24,6 +24,7 @@ from ..dialogs.gewerk_channel_assign_dialog import GewerkChannelAssignDialog
 from ..dialogs.gewerk_suggestion_review_dialog import GewerkSuggestionReviewDialog
 from ...services.gewerk_suggestion_service import suggest_gewerk_assignments
 from ..column_utils import fit_columns
+from ..widgets.collapsible_section import CollapsibleSection
 from .recompute_guard import RecomputeGuard, KEY_ADDRESSES
 
 # Spalten-Indizes
@@ -89,7 +90,7 @@ class Step05Gewerke(QWidget):
         layout.addWidget(self._import_banner)
 
         # ── Automatische Erkennung (nur bei importierter Topologie) ──
-        self._auto_detect_group = QGroupBox("Automatische Erkennung")
+        self._auto_detect_group = CollapsibleSection("Automatische Erkennung aus importierter Topologie")
         auto_detect_layout = QHBoxLayout()
         auto_detect_layout.addWidget(QLabel(
             "Scannt die importierte Topologie nach Aktor-Kanälen und "
@@ -99,12 +100,13 @@ class Step05Gewerke(QWidget):
         self._btn_suggest_gewerke = QPushButton("Gewerke aus Topologie vorschlagen…")
         self._btn_suggest_gewerke.clicked.connect(self._suggest_gewerke)
         auto_detect_layout.addWidget(self._btn_suggest_gewerke)
-        self._auto_detect_group.setLayout(auto_detect_layout)
+        self._auto_detect_group.set_body_layout(auto_detect_layout)
         self._auto_detect_group.hide()
         layout.addWidget(self._auto_detect_group)
 
         # ── Vorlagen-Bereich ──
-        template_group = QGroupBox("Vorlagen")
+        # Selten genutzte Werkzeuge eingeklappt: mehr Platz für die Raumtabelle
+        template_group = CollapsibleSection("Vorlagen")
         template_layout = QVBoxLayout()
 
         apply_layout = QHBoxLayout()
@@ -155,11 +157,11 @@ class Step05Gewerke(QWidget):
 
         mgmt_layout.addStretch()
         template_layout.addLayout(mgmt_layout)
-        template_group.setLayout(template_layout)
+        template_group.set_body_layout(template_layout)
         layout.addWidget(template_group)
 
         # ── Kopieren / Einfügen ──
-        cp_group = QGroupBox("Kopieren / Einfügen")
+        cp_group = CollapsibleSection("Kopieren / Einfügen")
         cp_layout = QHBoxLayout()
 
         self._btn_copy_room = QPushButton("Raum kopieren")
@@ -193,11 +195,11 @@ class Step05Gewerke(QWidget):
         cp_layout.addWidget(self._clipboard_label)
         cp_layout.addStretch()
 
-        cp_group.setLayout(cp_layout)
+        cp_group.set_body_layout(cp_layout)
         layout.addWidget(cp_group)
 
         # ── Filter-Leiste ──
-        filter_group = QGroupBox("Filter")
+        filter_group = CollapsibleSection("Filter", expanded=True)
         filter_layout = QHBoxLayout()
         filter_layout.setSpacing(4)
 
@@ -224,7 +226,7 @@ class Step05Gewerke(QWidget):
             filter_layout.addWidget(le)
             self._filters.append((col, le))
 
-        filter_group.setLayout(filter_layout)
+        filter_group.set_body_layout(filter_layout)
         layout.addWidget(filter_group)
 
         # ── Tabelle ──
@@ -242,8 +244,10 @@ class Step05Gewerke(QWidget):
         self._table.itemChanged.connect(self._on_count_changed)
         layout.addWidget(self._table)
 
-        # ── Gewerk hinzufügen ──
-        add_group = QGroupBox("Gewerk hinzufügen")
+        # ── Gewerk hinzufügen (inkl. Schnell-Buttons, ein gemeinsamer
+        # rahmenloser Bereich -- lässt der Raumtabelle mehr Höhe) ──
+        add_group = CollapsibleSection("Gewerk zu ausgewählten Räumen hinzufügen", expanded=True)
+        add_body = QVBoxLayout()
         add_layout = QHBoxLayout()
 
         self._gewerk_combo = QComboBox()
@@ -270,25 +274,28 @@ class Step05Gewerke(QWidget):
             "Gewerk-Zuweisungen der selektierten Räume auf alle Räume\n"
             "mit demselben Namen im gesamten Projekt übertragen."
         )
+        self._btn_apply_all.setObjectName("secondary")
         self._btn_apply_all.clicked.connect(self._apply_to_same_rooms)
         add_layout.addWidget(self._btn_apply_all)
+        add_layout.addStretch()
+        add_body.addLayout(add_layout)
 
-        add_group.setLayout(add_layout)
-        layout.addWidget(add_group)
-
-        # ── Schnell-Buttons häufige Gewerke ──
-        quick_group = QGroupBox("Schnell-Buttons (Gewerk zu selektierten Räumen hinzufügen)")
+        # Schnell-Buttons für häufige Gewerke (Zweitaktionen, kompakt)
         quick_layout = QHBoxLayout()
         quick_layout.addWidget(QLabel("Schnell:"))
         for code, label in [("L", "L Licht"), ("LD", "LD Dimmen"), ("J", "J Jalousie"),
                              ("H", "H Heizung"), ("S", "S Szenen"), ("V", "V Sonstiges")]:
             btn = QPushButton(label)
+            btn.setObjectName("secondary")
+            btn.setStyleSheet("padding: 4px 10px;")
             btn.setToolTip(f"Gewerk {code} zu allen selektierten Räumen hinzufügen")
             btn.clicked.connect(lambda checked, c=code: self._quick_add_gewerk(c))
             quick_layout.addWidget(btn)
         quick_layout.addStretch()
-        quick_group.setLayout(quick_layout)
-        layout.addWidget(quick_group)
+        add_body.addLayout(quick_layout)
+
+        add_group.set_body_layout(add_body)
+        layout.addWidget(add_group)
 
     # ── Lifecycle ──
 
