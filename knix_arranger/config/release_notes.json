@@ -2,6 +2,28 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.19",
+      "date": "2026-09-24",
+      "neu": [
+        "Materialliste: Die neue Spalte «Gewerk / Raum» zeigt, für welches Gewerk und welchen Raum ein Aktor oder Gateway geplant ist (z. B. «WP Waermepumpe – U01 Technik»). Auch der Produktdialog nennt das Gewerk im Titel.",
+        "Szenen-Verwaltung: «+ Weitere Szene auf dieser GA» legt zur gewählten Szene eine weitere Szene auf derselben Szenen-Gruppenadresse an – mit der nächsten freien Szenennummer und gleichem Geltungsbereich. Beim Generieren wird dafür keine zusätzliche Gruppenadresse erzeugt.",
+        "DALI: Die Szenen im DALI-Tab und in der Szenen-Verwaltung sind verbunden. Alle Szenen auf der Szenenabruf-GA des Gateways erscheinen in beiden Ansichten (KNX-Szene 1 = DALI-Szene 0); Hinzufügen, Umbenennen und Entfernen wirken in beiden.",
+        "DALI: «Gruppen aus GAs neu ableiten» (Tab «Gruppen») ersetzt die Gruppen eines Gateways durch eine neue Ableitung aus den Gruppenadressen."
+      ],
+      "verbessert": [
+        "Materialliste: Gateways stehen in der Kategorie «Gateway / Schnittstellen» statt unter «Sonstiges».",
+        "Bauherrenberatung und Wizard Schritt 8: Aus dem ETS-Import erkannte Szenen mit Szenennummer lassen sich Tastern zuweisen.",
+        "Inbetriebnahme-Checkliste: Mehrere markierte Zeilen lassen sich direkt über die Ergebnis-Auswahl einer dieser Zeilen bewerten.",
+        "DALI: Beim Import werden keine Standard-Szenen (Präsenz, Putzen, Nacht, Aus) mehr angelegt; sie stehen weiterhin über «Standard-Szenen» zur Verfügung.",
+        "Lizenz: Der Hinweis zur Restlaufzeit erscheint erst 7 Tage vor Ablauf (bisher 30 Tage)."
+      ],
+      "behoben": [
+        "Topologiereport: Szenen aus der Bauherrenberatung und «Direkte GA»-Zuweisungen ohne eigene Bezeichnung erhielten keinen Tastenkanal.",
+        "DALI: Ein einzelnes Lichtelement ergab zwei gleichnamige Gruppen, und die Schalt-GA fehlte, wenn ihre Bezeichnung einen Zusatz in Klammern trug. Für bestehende Projekte im Tab «Gruppen» «Gruppen aus GAs neu ableiten» ausführen.",
+        "Inbetriebnahme-Checkliste: Die Buttons «Markierte Zeilen» und «Alle sichtbaren» waren nicht sichtbar."
+      ]
+    },
+    {
       "version": "1.1.18",
       "date": "2026-09-24",
       "neu": [
