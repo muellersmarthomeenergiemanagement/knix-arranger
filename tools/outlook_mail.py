@@ -202,6 +202,32 @@ def _build_message_html(
     return "<br>\n".join(lines)
 
 
+def _attach_license(mail, license_path: str, attempts: int = 6, pause: float = 0.5) -> None:
+    """Hängt die Lizenzdatei an und prüft, dass sie wirklich in der Mail ist.
+
+    Eine frisch erzeugte Datei kann kurz gesperrt sein (z.B. durch einen
+    Virenscanner) -- daher mehrere Versuche. Schlägt es endgültig fehl, gibt
+    es einen RuntimeError mit verständlicher Meldung.
+    """
+    import time
+    path = Path(license_path).resolve()
+    last_error: Exception | None = None
+    for _ in range(attempts):
+        try:
+            mail.Attachments.Add(str(path))
+            break
+        except Exception as e:  # COM-Fehler, Datei gesperrt o.ä.
+            last_error = e
+            time.sleep(pause)
+    names = [mail.Attachments.Item(i).FileName for i in range(1, mail.Attachments.Count + 1)]
+    if path.name not in names:
+        raise RuntimeError(
+            f"Die Lizenzdatei {path.name} konnte nicht an die E-Mail angehängt werden"
+            + (f" ({last_error})" if last_error else "")
+            + ". Es wurde kein Entwurf gespeichert."
+        )
+
+
 def create_license_draft(
     customer: str,
     email: str,
@@ -229,21 +255,28 @@ def create_license_draft(
 
     outlook = win32com.client.Dispatch("Outlook.Application")
     mail = outlook.CreateItem(0)  # olMailItem
-    mail.To = email
-    mail.Subject = mail_subject(formal, renewal)
+    try:
+        # Lizenz ZUERST anhängen: schlägt das fehl, wird die Mail verworfen,
+        # bevor Outlook einen unvollständigen Entwurf ohne Lizenz speichert
+        # (am 24.09.2026 lag so ein Entwurf nur mit Signaturbildern vor).
+        _attach_license(mail, license_path)
 
-    # GetInspector (ohne das Fenster anzuzeigen) veranlasst Outlook, die
-    # Standard-Signatur fuer neue Nachrichten in HTMLBody einzufuegen.
-    mail.GetInspector
-    signature_html = mail.HTMLBody
+        mail.To = email
+        mail.Subject = mail_subject(formal, renewal)
 
-    message_html = _build_message_html(
-        customer, license_path, github_url,
-        formal=formal, renewal=renewal, valid_until=valid_until,
-    )
-    mail.HTMLBody = f"{message_html}<br><br>\n{signature_html}"
+        # GetInspector (ohne das Fenster anzuzeigen) veranlasst Outlook, die
+        # Standard-Signatur fuer neue Nachrichten in HTMLBody einzufuegen.
+        mail.GetInspector
+        signature_html = mail.HTMLBody
 
-    mail.Attachments.Add(str(Path(license_path).resolve()))
+        message_html = _build_message_html(
+            customer, license_path, github_url,
+            formal=formal, renewal=renewal, valid_until=valid_until,
+        )
+        mail.HTMLBody = f"{message_html}<br><br>\n{signature_html}"
+    except Exception:
+        mail.Close(1)  # olDiscard: nichts speichern
+        raise
 
     if display:
         # Entwurf immer auch in "Entwürfe" ablegen und das Fenster nach vorne
