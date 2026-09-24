@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QComboBox, QLineEdit, QSplitter, QGroupBox, QProgressBar,
     QMessageBox, QAbstractItemView, QHeaderView, QFileDialog, QMenu,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QItemSelectionModel
 from PySide6.QtGui import QColor, QBrush
 
 from ...models.project import KnxProject
@@ -415,6 +415,10 @@ class CommissioningView(QWidget):
             combo.currentIndexChanged.connect(
                 lambda _i, it=item, cb=combo: self._on_combo_changed(it, cb)
             )
+            # Kein Fokus beim Anklicken: Der Fokuswechsel auf ein Zellen-
+            # Steuerelement macht dessen Zeile zur einzigen markierten Zeile
+            # -- eine Mehrfachmarkierung ging so vor der Auswahl verloren.
+            combo.setFocusPolicy(Qt.NoFocus)
             self._table.setCellWidget(row, _COL_RES, combo)
 
             # Spalte F: Notiz — direkt editierbar
@@ -439,11 +443,34 @@ class CommissioningView(QWidget):
         if self._populating:
             return
         new_result = combo.currentData()
+        # Gehört die geänderte Zeile zu einer Mehrfachmarkierung, gilt die
+        # Auswahl für alle markierten Zeilen -- vorher wurde sie nur in der
+        # einen Zeile übernommen, obwohl mehrere markiert waren.
+        row = self._row_of_combo(combo)
+        selected = sorted({idx.row() for idx in self._table.selectedIndexes()})
+        if row is not None and row in selected and len(selected) > 1:
+            self._apply_bulk(selected, new_result)
+            self._select_rows(selected)
+            return
         cl_item.result = new_result
         self._apply_combo_color(combo, new_result)
         self._update_progress()
         self._refresh_current_tree_node()
         self.checklist_changed.emit()
+
+    def _select_rows(self, rows: list[int]) -> None:
+        sm = self._table.selectionModel()
+        sm.clearSelection()
+        for r in rows:
+            if r < self._table.rowCount():
+                sm.select(self._table.model().index(r, 0),
+                          QItemSelectionModel.Select | QItemSelectionModel.Rows)
+
+    def _row_of_combo(self, combo: QComboBox) -> int | None:
+        for row in range(self._table.rowCount()):
+            if self._table.cellWidget(row, _COL_RES) is combo:
+                return row
+        return None
 
     def _on_notes_edited(self, cell: QTableWidgetItem):
         if self._populating or cell.column() != _COL_NOTES:
@@ -469,8 +496,9 @@ class CommissioningView(QWidget):
     def _bulk_apply_all(self):
         self._apply_bulk(list(range(self._table.rowCount())))
 
-    def _apply_bulk(self, rows: list[int]):
-        result = self._bulk_combo.currentData()
+    def _apply_bulk(self, rows: list[int], result: str | None = None):
+        if result is None:
+            result = self._bulk_combo.currentData()
         for row in rows:
             kind_cell = self._table.item(row, _COL_KIND)
             if not kind_cell:
