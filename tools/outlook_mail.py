@@ -20,7 +20,15 @@ Voraussetzung:
 """
 from __future__ import annotations
 import html
+import json
+import sys
 from pathlib import Path
+
+# Für den Lizenzschlüssel wird der Lizenzdienst der App verwendet (gleiches
+# Format beim Codieren und Einfügen) -- Projektwurzel dafür importierbar machen
+_ROOT = str(Path(__file__).resolve().parent.parent)
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 GITHUB_RELEASES_URL = (
     "https://github.com/muellersmarthomeenergiemanagement/"
@@ -95,6 +103,42 @@ def _renewal_lines(
     ]
 
 
+def license_key_for(license_path: str) -> str | None:
+    """Lizenzschlüssel zum Kopieren (siehe license_service.encode_license_key);
+    None, wenn die Datei fehlt oder unlesbar ist."""
+    from knix_arranger.services.license_service import encode_license_key
+    try:
+        with open(license_path, "r", encoding="utf-8") as f:
+            return encode_license_key(json.load(f))
+    except (OSError, ValueError):
+        return None
+
+
+def _insert_key_block(lines: list[str], license_path: str, formal: bool, as_html: bool) -> None:
+    """Fügt vor "Bei Fragen …" (letzte Zeile) einen Block mit dem
+    Lizenzschlüssel ein -- zum Einfügen in der App statt der Datei."""
+    key = license_key_for(license_path)
+    if not key:
+        return
+    intro = (
+        "Alternativ zur Datei können Sie diesen Lizenzschlüssel kopieren und in KNiX Arranger "
+        "unter «Lizenzschlüssel einfügen…» einfügen (ab Version 1.1.18):"
+        if formal else
+        "Alternativ zur Datei kannst Du diesen Lizenzschlüssel kopieren und in KNiX Arranger "
+        "unter «Lizenzschlüssel einfügen…» einfügen (ab Version 1.1.18):"
+    )
+    chunks = [key[i:i + 64] for i in range(0, len(key), 64)]
+    if as_html:
+        block = [
+            "", intro,
+            '<span style="font-family: Consolas, \'Courier New\', monospace; font-size: 12px;">'
+            + "<br>".join(chunks) + "</span>",
+        ]
+    else:
+        block = ["", intro] + chunks
+    lines[-2:-2] = block
+
+
 def build_license_mail_body(
     customer: str,
     license_path: str,
@@ -111,38 +155,44 @@ def build_license_mail_body(
     filename = Path(license_path).name
     if renewal:
         lines = _renewal_lines(customer, filename, github_url, valid_until, formal)
-        return "\n".join(lines + ["", "Freundliche Grüsse", SENDER_NAME])
-    if formal:
-        return (
-            f"Guten Tag {customer}\n\n"
-            "Vielen Dank für Ihren Kauf von KNiX Arranger.\n\n"
-            "Ihre persönliche Lizenzdatei ist dieser E-Mail beigefügt.\n\n"
-            "So aktivieren Sie Ihre Lizenz:\n"
-            "  1. Laden Sie KNiX Arranger von GitHub herunter und installieren Sie das Programm:\n"
-            f"     {github_url}\n"
-            "  2. Beim ersten Start erscheint der Lizenz-Dialog.\n"
-            "  3. Klicken Sie auf «Lizenzdatei auswählen» und wählen Sie die mitgelieferte\n"
-            f"     Datei ({filename}) aus.\n"
-            "  4. Die Lizenz wird automatisch aktiviert.\n\n"
-            "Bei Fragen stehen wir Ihnen gerne zur Verfügung.\n\n"
-            "Freundliche Grüsse\n"
-            f"{SENDER_NAME}"
-        )
-    return (
-        f"Hallo {customer}\n\n"
-        "Vielen Dank für Deinen Kauf von KNiX Arranger.\n\n"
-        "Deine persönliche Lizenzdatei ist dieser E-Mail beigefügt.\n\n"
-        "So aktivierst Du Deine Lizenz:\n"
-        "  1. Lade KNiX Arranger von GitHub herunter und installiere das Programm:\n"
-        f"     {github_url}\n"
-        "  2. Beim ersten Start erscheint der Lizenz-Dialog.\n"
-        "  3. Klicke auf «Lizenzdatei auswählen» und wähle die mitgelieferte\n"
-        f"     Datei ({filename}) aus.\n"
-        "  4. Die Lizenz wird automatisch aktiviert.\n\n"
-        "Bei Fragen stehen wir Dir gerne zur Verfügung.\n\n"
-        "Freundliche Grüsse\n"
-        f"{SENDER_NAME}"
-    )
+    elif formal:
+        lines = [
+            f"Guten Tag {customer}",
+            "",
+            "Vielen Dank für Ihren Kauf von KNiX Arranger.",
+            "",
+            "Ihre persönliche Lizenzdatei ist dieser E-Mail beigefügt.",
+            "",
+            "So aktivieren Sie Ihre Lizenz:",
+            "  1. Laden Sie KNiX Arranger von GitHub herunter und installieren Sie das Programm:",
+            f"     {github_url}",
+            "  2. Beim ersten Start erscheint der Lizenz-Dialog.",
+            "  3. Klicken Sie auf «Lizenzdatei auswählen» und wählen Sie die mitgelieferte",
+            f"     Datei ({filename}) aus.",
+            "  4. Die Lizenz wird automatisch aktiviert.",
+            "",
+            "Bei Fragen stehen wir Ihnen gerne zur Verfügung.",
+        ]
+    else:
+        lines = [
+            f"Hallo {customer}",
+            "",
+            "Vielen Dank für Deinen Kauf von KNiX Arranger.",
+            "",
+            "Deine persönliche Lizenzdatei ist dieser E-Mail beigefügt.",
+            "",
+            "So aktivierst Du Deine Lizenz:",
+            "  1. Lade KNiX Arranger von GitHub herunter und installiere das Programm:",
+            f"     {github_url}",
+            "  2. Beim ersten Start erscheint der Lizenz-Dialog.",
+            "  3. Klicke auf «Lizenzdatei auswählen» und wähle die mitgelieferte",
+            f"     Datei ({filename}) aus.",
+            "  4. Die Lizenz wird automatisch aktiviert.",
+            "",
+            "Bei Fragen stehen wir Dir gerne zur Verfügung.",
+        ]
+    _insert_key_block(lines, license_path, formal, as_html=False)
+    return "\n".join(lines + ["", "Freundliche Grüsse", SENDER_NAME])
 
 
 def _build_message_html(
@@ -199,6 +249,7 @@ def _build_message_html(
             "",
             "Bei Fragen stehen wir Dir gerne zur Verfügung.",
         ]
+    _insert_key_block(lines, license_path, formal, as_html=True)
     return "<br>\n".join(lines)
 
 

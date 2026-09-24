@@ -303,9 +303,11 @@ def build_document() -> Document:
         "EULA akzeptieren:  Lesen Sie die Endnutzer-Lizenzvereinbarung. «Akzeptieren» "
         "wird erst aktiv, sobald Sie bis ans Ende des Textes gescrollt haben.")
     add_numbered(doc,
-        "Lizenzdatei auswählen:  Im Lizenz-Dialog klicken Sie auf «Lizenzdatei "
+        "Lizenz importieren:  Im Lizenz-Dialog klicken Sie auf «Lizenzdatei "
         "auswählen…» und wählen die mitgelieferte .knxlic-Datei aus Ihrem "
-        "Download-Ordner aus.")
+        "Download-Ordner aus. Alternativ kopieren Sie den Lizenzschlüssel "
+        "(beginnt mit «KNIX1-») aus der E-Mail und fügen ihn über "
+        "«Lizenzschlüssel einfügen…» ein.")
     add_numbered(doc,
         "Bestätigung:  Nach erfolgreichem Import erscheint die Meldung «Lizenz "
         "erfolgreich importiert». Die Anwendung startet nun vollständig.")
@@ -899,7 +901,9 @@ def build_document() -> Document:
              "Das Programm ist nicht signiert, aber sicher."),
             ("Lizenzdialog erscheint beim Start",
              "Die .knxlic-Datei wurde noch nicht importiert oder ist abgelaufen. "
-             "Klicken Sie auf «Lizenzdatei auswählen» und wählen Sie Ihre .knxlic-Datei."),
+             "Klicken Sie auf «Lizenzdatei auswählen» und wählen Sie Ihre .knxlic-Datei, "
+             "oder fügen Sie den Lizenzschlüssel aus der E-Mail über «Lizenzschlüssel "
+             "einfügen…» ein."),
             ("«Lizenz ungültig» Fehlermeldung",
              "Prüfen Sie das Ablaufdatum der Datei (steht im Dateinamen). "
              "Melden Sie sich bei uns für eine Verlängerung."),

@@ -217,3 +217,53 @@ class TestImportAndCheckLicense:
         info = license_svc.import_license(str(source))
         assert not info.is_valid
         assert not os.path.exists(license_svc._license_file)
+
+
+class TestLicenseKey:
+    """Lizenzschlüssel zum Einfügen per Copy-Paste statt Datei."""
+
+    def _key(self, private_key, **payload_kw):
+        from knix_arranger.services.license_service import encode_license_key
+        payload = _make_payload(**payload_kw)
+        return encode_license_key({"payload": payload,
+                                   "signature": _sign_payload(private_key, payload)})
+
+    def test_roundtrip(self, rsa_keypair):
+        from knix_arranger.services.license_service import decode_license_key
+        private_key, _ = rsa_keypair
+        key = self._key(private_key, customer="Jürg Müller")
+        assert key.startswith("KNIX1-")
+        assert decode_license_key(key)["payload"]["customer"] == "Jürg Müller"
+
+    def test_import_valid_key_with_line_breaks(self, license_svc, rsa_keypair):
+        private_key, _ = rsa_keypair
+        key = self._key(private_key, license_type="trial", expiry="2099-01-31")
+        # so, wie er aus einer E-Mail kopiert wird: umbrochen und eingerückt
+        pasted = "\n   ".join(key[i:i + 64] for i in range(0, len(key), 64)) + "\n"
+        info = license_svc.import_license_key(pasted)
+        assert info.is_valid
+        assert info.license_type == "trial"
+        assert os.path.exists(license_svc._license_file)
+        assert license_svc.check_license().expiry_date == "2099-01-31"
+
+    def test_tampered_key_is_rejected(self, license_svc, rsa_keypair):
+        from knix_arranger.services.license_service import decode_license_key, encode_license_key
+        private_key, _ = rsa_keypair
+        data = decode_license_key(self._key(private_key, expiry="2026-10-01"))
+        data["payload"]["expiry"] = "2099-12-31"   # Laufzeit verlängert
+        info = license_svc.import_license_key(encode_license_key(data))
+        assert not info.is_valid
+        assert "Signatur" in info.message
+        assert not os.path.exists(license_svc._license_file)
+
+    def test_text_without_prefix(self, license_svc):
+        info = license_svc.import_license_key("Hallo, hier ist meine Lizenz")
+        assert not info.is_valid
+        assert "KNIX1-" in info.message
+
+    def test_truncated_key(self, license_svc, rsa_keypair):
+        private_key, _ = rsa_keypair
+        key = self._key(private_key)
+        info = license_svc.import_license_key(key[:len(key) // 2])
+        assert not info.is_valid
+        assert "unvollständig" in info.message

@@ -65,6 +65,39 @@ class LicenseInfo:
         return days is not None and days < 0
 
 
+# ── Lizenzschlüssel (Copy-Paste statt Datei) ───────────────────────────────────
+# Ein Lizenzschlüssel ist die komplette signierte Lizenzdatei, kompakt als
+# Base64url codiert und mit Präfix versehen. Die Signaturprüfung ist dieselbe
+# wie bei der Datei -- ein veränderter Schlüssel wird abgelehnt.
+
+LICENSE_KEY_PREFIX = "KNIX1-"
+
+
+def encode_license_key(license_data: dict) -> str:
+    """Macht aus dem Inhalt einer .knxlic-Datei einen kopierbaren Schlüssel."""
+    raw = json.dumps(license_data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return LICENSE_KEY_PREFIX + base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def decode_license_key(text: str) -> dict:
+    """Liest einen eingefügten Lizenzschlüssel. Leerzeichen und Zeilenumbrüche
+    (z.B. vom Kopieren aus einer E-Mail) werden ignoriert. ValueError, wenn der
+    Text kein Lizenzschlüssel ist."""
+    compact = "".join((text or "").split())
+    if not compact.upper().startswith(LICENSE_KEY_PREFIX):
+        raise ValueError("Der Text beginnt nicht mit «KNIX1-» und ist kein Lizenzschlüssel.")
+    body = compact[len(LICENSE_KEY_PREFIX):]
+    try:
+        raw = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4))
+        data = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        raise ValueError("Der Lizenzschlüssel ist unvollständig oder beschädigt. "
+                         "Bitte den ganzen Block aus der E-Mail kopieren.") from None
+    if not isinstance(data, dict) or "payload" not in data or "signature" not in data:
+        raise ValueError("Der Lizenzschlüssel ist unvollständig oder beschädigt.")
+    return data
+
+
 class LicenseService:
     """
     Offline-Lizenzvalidierung via RSA-signierter Lizenzdatei (NFA-098).
@@ -157,6 +190,26 @@ class LicenseService:
             os.makedirs(APPDATA_DIR, exist_ok=True)
             shutil.copy2(source_path, self._license_file)
             logger.info(f"Lizenz importiert: {info.customer} ({info.license_type})")
+        return info
+
+    def import_license_key(self, text: str) -> LicenseInfo:
+        """Prüft einen eingefügten Lizenzschlüssel und speichert ihn als
+        Lizenzdatei -- gleiche Prüfung wie beim Import einer .knxlic-Datei."""
+        info = LicenseInfo()
+        try:
+            data = decode_license_key(text)
+        except ValueError as e:
+            info.message = str(e)
+            return info
+
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(suffix=".knxlic")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            info = self.import_license(tmp_path)
+        finally:
+            os.remove(tmp_path)
         return info
 
     def check_license(self) -> LicenseInfo:

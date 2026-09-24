@@ -5,11 +5,11 @@ Import und Anzeige der .knxlic-Lizenzdatei.
 from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QGroupBox, QGridLayout, QFileDialog,
+    QGroupBox, QGridLayout, QFileDialog, QInputDialog, QApplication,
 )
 from PySide6.QtCore import Qt
 from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
-from ...services.license_service import LicenseService
+from ...services.license_service import LicenseService, LICENSE_KEY_PREFIX
 
 
 class LicenseDialog(QDialog):
@@ -50,12 +50,13 @@ class LicenseDialog(QDialog):
         layout.addWidget(status_group)
 
         # Import
-        import_group = QGroupBox("Lizenzdatei importieren")
+        import_group = QGroupBox("Lizenz importieren")
         import_layout = QVBoxLayout()
 
         hint = QLabel(
-            "Sie haben eine Lizenzdatei (.knxlic) per E-Mail erhalten.\n"
-            "Klicken Sie auf «Datei auswählen» um diese zu importieren."
+            "Sie haben Ihre Lizenz per E-Mail erhalten. Wählen Sie die angehängte "
+            "Lizenzdatei (.knxlic) aus, oder kopieren Sie den Lizenzschlüssel aus der "
+            "E-Mail und fügen Sie ihn ein."
         )
         hint.setStyleSheet("color: #555; font-size: 12px;")
         hint.setWordWrap(True)
@@ -69,6 +70,12 @@ class LicenseDialog(QDialog):
         )
         import_btn.clicked.connect(self._import_license)
         btn_row.addWidget(import_btn)
+
+        key_btn = QPushButton("Lizenzschlüssel einfügen…")
+        key_btn.setObjectName("secondary")
+        key_btn.setToolTip("Den Lizenzschlüssel (beginnt mit «KNIX1-») aus der E-Mail einfügen")
+        key_btn.clicked.connect(self._import_license_key)
+        btn_row.addWidget(key_btn)
         btn_row.addStretch()
         import_layout.addLayout(btn_row)
 
@@ -106,7 +113,22 @@ class LicenseDialog(QDialog):
         if not path:
             return
 
-        info = self._service.import_license(path)
+        self._show_result(self._service.import_license(path))
+
+    def _import_license_key(self):
+        # Steht schon ein Schlüssel in der Zwischenablage, direkt vorbelegen
+        clip = QApplication.clipboard().text().strip()
+        preset = clip if clip.upper().startswith(LICENSE_KEY_PREFIX) else ""
+        text, ok = QInputDialog.getMultiLineText(
+            self, "Lizenzschlüssel einfügen",
+            "Lizenzschlüssel aus der E-Mail (beginnt mit «KNIX1-»):",
+            preset,
+        )
+        if not ok or not text.strip():
+            return
+        self._show_result(self._service.import_license_key(text))
+
+    def _show_result(self, info):
         if info.is_valid:
             self._result_label.setText(f"Lizenz erfolgreich importiert. {info.message}")
             self._result_label.setStyleSheet(f"color: {KNX_PRIMARY}; font-weight: bold;")
