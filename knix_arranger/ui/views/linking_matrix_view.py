@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QFrame, QSizePolicy, QComboBox, QDialog,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QBrush, QColor
+from PySide6.QtGui import QBrush, QColor
 
 from ...models.building import SensorFunktion
 from ..dialogs.ga_picker_dialog import GaPickerDialog
@@ -106,10 +106,7 @@ class LinkingMatrixView(QWidget):
 
         # Titel
         title = QLabel("Verknüpfungsmatrix")
-        font = QFont()
-        font.setPointSize(14)
-        font.setBold(True)
-        title.setFont(font)
+        title.setObjectName("title")
         layout.addWidget(title)
 
         desc = QLabel(
@@ -120,7 +117,7 @@ class LinkingMatrixView(QWidget):
             "die Revisionsunterlagen."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #555; font-size: 11px;")
+        desc.setStyleSheet("color: #555; font-size: 12px;")
         layout.addWidget(desc)
 
         line = QFrame()
@@ -130,7 +127,7 @@ class LinkingMatrixView(QWidget):
 
         # Statuszeile
         self._status_label = QLabel("Kein Projekt geladen.")
-        self._status_label.setStyleSheet("font-size: 11px; color: #555;")
+        self._status_label.setStyleSheet("font-size: 12px; color: #555;")
         layout.addWidget(self._status_label)
 
         # FA-2501: Stockwerk- und Raumfilter (Matrix pro Raum, Stockwerk oder Projekt)

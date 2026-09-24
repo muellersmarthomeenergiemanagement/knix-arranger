@@ -106,7 +106,7 @@ class TopologyDiagramView(QWidget):
             f"<span style='color:{_C_BACKBONE.name()};'>&#9632;</span> Backbone&nbsp;&nbsp;&nbsp;"
             "▶ Aktor(en)&nbsp;&nbsp;⏺ Sensor(en)&nbsp;&nbsp;◆ Sonstige"
         )
-        legend.setStyleSheet("font-size: 11px; color: #666;")
+        legend.setStyleSheet("font-size: 12px; color: #666;")
         layout.addWidget(legend)
 
         # Zeichenfläche

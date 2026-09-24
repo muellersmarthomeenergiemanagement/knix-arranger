@@ -59,7 +59,7 @@ class AddressTreeView(QWidget):
         toolbar.addWidget(self._btn_collapse_all)
         toolbar.addStretch()
         hint = QLabel("Doppelklick oder Rechtsklick auf eine GA zum Bearbeiten")
-        hint.setStyleSheet("color: #808080; font-style: italic;")
+        hint.setStyleSheet("color: #666666; font-style: italic;")
         toolbar.addWidget(hint)
         layout.addLayout(toolbar)
 
@@ -156,7 +156,7 @@ class AddressTreeView(QWidget):
 
                     if ga.is_placeholder:
                         for col in range(6):
-                            ga_item.setForeground(col, QBrush(QColor("#808080")))
+                            ga_item.setForeground(col, QBrush(QColor("#757575")))
 
         fit_columns(self._tree, stretch_to_fit=False)
 

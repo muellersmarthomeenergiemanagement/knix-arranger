@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QGridLayout, QFileDialog,
 )
 from PySide6.QtCore import Qt
-from ..styles import KNX_GREEN, KNX_DARK_GREEN
+from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 from ...services.license_service import LicenseService
 
 
@@ -57,14 +57,14 @@ class LicenseDialog(QDialog):
             "Sie haben eine Lizenzdatei (.knxlic) per E-Mail erhalten.\n"
             "Klicken Sie auf «Datei auswählen» um diese zu importieren."
         )
-        hint.setStyleSheet("color: #555; font-size: 11px;")
+        hint.setStyleSheet("color: #555; font-size: 12px;")
         hint.setWordWrap(True)
         import_layout.addWidget(hint)
 
         btn_row = QHBoxLayout()
         import_btn = QPushButton("Lizenzdatei auswählen…")
         import_btn.setStyleSheet(
-            f"background-color: {KNX_GREEN}; color: white; "
+            f"background-color: {KNX_PRIMARY}; color: white; "
             f"font-weight: bold; padding: 6px 20px;"
         )
         import_btn.clicked.connect(self._import_license)
@@ -89,7 +89,7 @@ class LicenseDialog(QDialog):
         info = self._service.check_license()
         if info.is_valid:
             self._status_label.setText("Gültig")
-            self._status_label.setStyleSheet(f"color: {KNX_GREEN}; font-weight: bold;")
+            self._status_label.setStyleSheet(f"color: {KNX_PRIMARY}; font-weight: bold;")
         else:
             self._status_label.setText(info.message or "Keine Lizenz")
             self._status_label.setStyleSheet("color: red; font-weight: bold;")
@@ -109,7 +109,7 @@ class LicenseDialog(QDialog):
         info = self._service.import_license(path)
         if info.is_valid:
             self._result_label.setText(f"Lizenz erfolgreich importiert. {info.message}")
-            self._result_label.setStyleSheet(f"color: {KNX_GREEN}; font-weight: bold;")
+            self._result_label.setStyleSheet(f"color: {KNX_PRIMARY}; font-weight: bold;")
             self._refresh_status()
         else:
             self._result_label.setText(f"Fehler: {info.message}")

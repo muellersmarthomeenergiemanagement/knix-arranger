@@ -370,7 +370,7 @@ class CustomerQuoteView(QWidget):
         result_layout.addWidget(self._result_table)
 
         self._grand_total_label = QLabel("Gesamtbetrag: CHF 0.00")
-        self._grand_total_label.setStyleSheet("font-size: 18px; font-weight: bold; padding: 10px;")
+        self._grand_total_label.setStyleSheet("font-size: 20px; font-weight: bold; padding: 10px;")
         result_layout.addWidget(self._grand_total_label)
 
         result_group.setLayout(result_layout)
@@ -463,7 +463,7 @@ class CustomerQuoteView(QWidget):
 
         self._postcalc_summary = QLabel("")
         self._postcalc_summary.setStyleSheet(
-            "font-size: 14px; font-weight: bold; padding: 10px;"
+            "font-size: 16px; font-weight: bold; padding: 10px;"
         )
         compare_layout.addWidget(self._postcalc_summary)
 
@@ -531,7 +531,7 @@ class CustomerQuoteView(QWidget):
         pct = cq.delta_percent
         color = "green" if pct <= 0 else ("orange" if pct < 10 else "red")
         self._postcalc_summary.setStyleSheet(
-            f"font-size: 14px; font-weight: bold; padding: 10px; color: {color};"
+            f"font-size: 16px; font-weight: bold; padding: 10px; color: {color};"
         )
         self._postcalc_summary.setText(
             f"Abweichung: CHF {cq.delta_total:,.2f} ({pct:+.1f}%)"

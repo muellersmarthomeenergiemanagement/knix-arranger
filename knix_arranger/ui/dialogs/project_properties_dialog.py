@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
 )
 from PySide6.QtCore import Qt
-from ..styles import KNX_GREEN, KNX_DARK_GREEN
+from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 from ...models.project import KnxProject
 
 
@@ -29,7 +29,7 @@ class ProjectPropertiesDialog(QDialog):
         # Titel
         title_lbl = QLabel("Projekteigenschaften bearbeiten")
         title_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: bold; color: {KNX_DARK_GREEN};"
+            f"font-size: 16px; font-weight: bold; color: {KNX_DARK_GREEN};"
         )
         layout.addWidget(title_lbl)
 
@@ -129,7 +129,7 @@ class ProjectPropertiesDialog(QDialog):
 
         btn_ok = QPushButton("Übernehmen")
         btn_ok.setStyleSheet(
-            f"background-color: {KNX_GREEN}; color: white; "
+            f"background-color: {KNX_PRIMARY}; color: white; "
             f"font-weight: bold; padding: 6px 20px;"
         )
         btn_ok.setDefault(True)

@@ -229,7 +229,7 @@ class SettingsDialog(QDialog):
             "gibt es keinen publizierten Richtwert – bei Bedarf an eigene Erfahrung anpassen."
         )
         effort_hint.setWordWrap(True)
-        effort_hint.setStyleSheet("color: #808080; font-style: italic;")
+        effort_hint.setStyleSheet("color: #666666; font-style: italic;")
         effort_form.addRow(effort_hint)
 
         self._minutes_programming = QDoubleSpinBox()

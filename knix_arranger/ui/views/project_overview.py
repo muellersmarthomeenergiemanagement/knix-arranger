@@ -24,7 +24,7 @@ class StatCard(QFrame):
 
         layout = QVBoxLayout(self)
         self._title = QLabel(title)
-        self._title.setStyleSheet("font-size: 11px; color: #808080;")
+        self._title.setStyleSheet("font-size: 12px; color: #666666;")
         layout.addWidget(self._title)
 
         self._value = QLabel(value)

@@ -405,7 +405,7 @@ class ProductSelectDialog(QDialog):
             if prod.superseded_by:
                 for item in items:
                     item.setFont(italic_grey)
-                    item.setForeground(QColor("#888888"))
+                    item.setForeground(QColor("#757575"))
                     item.setToolTip(tooltip)
 
         self._table.setSortingEnabled(True)

@@ -15,7 +15,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
 from ... import APP_NAME, __copyright__
-from ..styles import KNX_GREEN, KNX_DARK_GREEN
+from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 
 _EULA_PATH = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "config", "EULA.txt")
@@ -66,7 +66,7 @@ class EulaDialog(QDialog):
         sub_lbl = QLabel(__copyright__)
         sub_lbl.setAlignment(Qt.AlignCenter)
         sub_lbl.setStyleSheet(
-            "color: rgba(255,255,255,0.70); font-size: 11px; background: transparent;"
+            "color: rgba(255,255,255,0.70); font-size: 12px; background: transparent;"
         )
         banner_layout.addWidget(sub_lbl)
 
@@ -84,14 +84,14 @@ class EulaDialog(QDialog):
             "Der Schaltknopf «Akzeptieren» wird nach dem Lesen aktiv."
         )
         hint_lbl.setWordWrap(True)
-        hint_lbl.setStyleSheet("color: #555; font-size: 11px;")
+        hint_lbl.setStyleSheet("color: #555; font-size: 12px;")
         content_layout.addWidget(hint_lbl)
 
         # EULA-Text
         self._text_edit = QTextEdit()
         self._text_edit.setReadOnly(True)
         self._text_edit.setStyleSheet(
-            "background: white; border: 1px solid #CCC; font-family: monospace; font-size: 11px;"
+            "background: white; border: 1px solid #CCC; font-family: monospace; font-size: 12px;"
         )
         self._text_edit.setPlainText(self._load_eula_text())
         content_layout.addWidget(self._text_edit, 1)
@@ -122,7 +122,7 @@ class EulaDialog(QDialog):
         self._btn_accept = QPushButton("Akzeptieren")
         self._btn_accept.setEnabled(False)
         self._btn_accept.setStyleSheet(
-            f"QPushButton {{ background-color: {KNX_GREEN}; color: white; "
+            f"QPushButton {{ background-color: {KNX_PRIMARY}; color: white; "
             f"font-weight: bold; padding: 8px 32px; border-radius: 4px; border: none; }}"
             f"QPushButton:disabled {{ background-color: #BBBBBB; color: #EEEEEE; }}"
             f"QPushButton:hover:enabled {{ background-color: {KNX_DARK_GREEN}; }}"

@@ -29,7 +29,7 @@ from .step10_export import Step10Export
 from .recompute_guard import RecomputeGuard
 
 from ...models.project import KnxProject
-from ..styles import KNX_GREEN, KNX_DARK_GREEN
+from ..styles import KNX_DARK_GREEN, KNX_PRIMARY, KNX_BLUE
 
 logger = logging.getLogger("knix_arranger.wizard_controller")
 
@@ -81,13 +81,13 @@ class WizardController(QDialog):
         header = QHBoxLayout()
         self._step_label = QLabel("")
         self._step_label.setStyleSheet(
-            f"font-size: 18px; font-weight: bold; color: {KNX_DARK_GREEN};"
+            f"font-size: 20px; font-weight: bold; color: {KNX_DARK_GREEN};"
         )
         header.addWidget(self._step_label)
         header.addStretch()
 
         self._step_info = QLabel("")
-        self._step_info.setStyleSheet("color: #808080;")
+        self._step_info.setStyleSheet("color: #666666;")
         header.addWidget(self._step_info)
 
         self._btn_help = QPushButton("Hilfe (F1)")
@@ -182,7 +182,7 @@ class WizardController(QDialog):
         QShortcut(QKeySequence("Alt+N"), self, self._go_next)
 
         self._btn_finish = QPushButton("Fertig")
-        self._btn_finish.setStyleSheet(f"background-color: {KNX_GREEN};")
+        self._btn_finish.setStyleSheet(f"background-color: {KNX_PRIMARY};")
         self._btn_finish.clicked.connect(self._finish)
         self._btn_finish.hide()
         nav.addWidget(self._btn_finish)
@@ -205,10 +205,10 @@ class WizardController(QDialog):
         # Zeile ist die Bedeutung von Grün/Orange/Grau nur per Tooltip
         # (Hover) erschliessbar.
         legend = QLabel(
-            f"<span style='color:{KNX_GREEN};'>&#9679;</span> Vollständig&nbsp;&nbsp;"
+            f"<span style='color: {KNX_PRIMARY};'>&#9679;</span> Vollständig&nbsp;&nbsp;"
             f"<span style='color:#FFA726;'>&#9679;</span> Teilweise / optional&nbsp;&nbsp;"
             f"<span style='color:#C0C0C0;'>&#9679;</span> Leer&nbsp;&nbsp;"
-            f"<span style='color:{KNX_DARK_GREEN};'>&#9679;</span> Aktueller Schritt"
+            f"<span style='color:{KNX_BLUE};'>&#9679;</span> Aktueller Schritt"
         )
         legend.setStyleSheet("font-size: 13px; color: #444;")
         legend.setAlignment(Qt.AlignCenter)
@@ -463,11 +463,12 @@ class WizardController(QDialog):
         self._btn_finish.setVisible(idx == NUM_STEPS - 1)
 
         _STATUS_STYLE = {
-            "complete": (KNX_GREEN, "white"),
+            "complete": (KNX_PRIMARY, "white"),
             # Dunkle Schrift auf hellen Status-Farben (Weiss hätte < 2:1 Kontrast)
             "partial":  ("#FFA726", "#1F1F1F"),
             "empty":    ("#C0C0C0", "#1F1F1F"),
-            "current":  (KNX_DARK_GREEN, "white"),
+            # Blau statt Dunkelgrün: vom Grün "vollständig" klar unterscheidbar
+            "current":  (KNX_BLUE, "white"),
         }
 
         for i, btn in enumerate(self._step_buttons):

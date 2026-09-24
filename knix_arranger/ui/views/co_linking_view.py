@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QFrame, QLineEdit,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor, QFont
+from PySide6.QtGui import QBrush, QColor
 
 logger = logging.getLogger("knix_arranger.co_linking_view")
 
@@ -117,10 +117,7 @@ class CoLinkingView(QWidget):
 
         # Titel
         title = QLabel("CO-Verknüpfung")
-        font = QFont()
-        font.setPointSize(14)
-        font.setBold(True)
-        title.setFont(font)
+        title.setObjectName("title")
         layout.addWidget(title)
 
         desc = QLabel(
@@ -130,7 +127,7 @@ class CoLinkingView(QWidget):
             "\"Verknüpfungen übernehmen\" in die Topologie schreiben."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #555; font-size: 11px;")
+        desc.setStyleSheet("color: #555; font-size: 12px;")
         layout.addWidget(desc)
 
         # Trennlinie
@@ -186,7 +183,7 @@ class CoLinkingView(QWidget):
 
         # Statuszeile
         self._status_label = QLabel("Kein Projekt geladen.")
-        self._status_label.setStyleSheet("font-size: 11px; color: #555;")
+        self._status_label.setStyleSheet("font-size: 12px; color: #555;")
         layout.addWidget(self._status_label)
 
         # Tabelle -- inhaltsbasierte Breite für alle Spalten (kein Stretch
@@ -215,7 +212,7 @@ class CoLinkingView(QWidget):
             "<span style='background:#FFAB91; padding:2px 6px;'>Gleiche GA mehrfach am Gerät</span>"
         )
         legend.setTextFormat(Qt.RichText)
-        legend.setStyleSheet("font-size: 10px;")
+        legend.setStyleSheet("font-size: 12px;")
         layout.addWidget(legend)
 
         # Button-Leiste

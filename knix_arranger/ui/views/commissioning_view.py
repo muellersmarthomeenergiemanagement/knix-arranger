@@ -70,8 +70,8 @@ class CommissioningView(QWidget):
         # ── Header ────────────────────────────────────────────────────────────
         hdr = QHBoxLayout()
         hdr.setContentsMargins(8, 6, 8, 4)
-        title = QLabel("<b>Inbetriebnahme-Checkliste</b>")
-        title.setStyleSheet("font-size: 14px;")
+        title = QLabel("Inbetriebnahme-Checkliste")
+        title.setObjectName("title")
         hdr.addWidget(title)
         hdr.addStretch()
 
@@ -174,7 +174,7 @@ class CommissioningView(QWidget):
         bulk_layout.addStretch()
 
         lbl_hint = QLabel("Notiz: direkt in Zelle tippen")
-        lbl_hint.setStyleSheet("color: #888; font-size: 10px;")
+        lbl_hint.setStyleSheet("color: #666666; font-size: 12px;")
         bulk_layout.addWidget(lbl_hint)
 
         right_layout.addWidget(bulk_bar)
@@ -537,7 +537,7 @@ class CommissioningView(QWidget):
             f"<span style='color:#1B5E20'>✓ {ok} OK</span>  "
             f"<span style='color:#B71C1C'>⚠ {defect} Mangel</span>  "
             f"<span style='color:#555'>– {na} n/a</span>  "
-            f"<span style='color:#888'>○ {total - done} offen</span>   "
+            f"<span style='color: #666666'>○ {total - done} offen</span>   "
         )
 
     # ── Aktionen ──────────────────────────────────────────────────────────────

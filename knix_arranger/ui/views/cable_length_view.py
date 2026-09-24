@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QSizePolicy,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor, QFont
+from PySide6.QtGui import QBrush, QColor
 
 logger = logging.getLogger("knix_arranger.cable_length_view")
 
@@ -141,10 +141,7 @@ class CableLengthView(QWidget):
         layout.setSpacing(8)
 
         title = QLabel("Leitungslängen")
-        font = QFont()
-        font.setPointSize(14)
-        font.setBold(True)
-        title.setFont(font)
+        title.setObjectName("title")
         layout.addWidget(title)
 
         desc = QLabel(
@@ -153,7 +150,7 @@ class CableLengthView(QWidget):
             "(Gesamt max. 1000 m, Stamm max. 700 m, Stichleitung max. 10 m)."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #555; font-size: 11px;")
+        desc.setStyleSheet("color: #555; font-size: 12px;")
         layout.addWidget(desc)
 
         line = QFrame()
@@ -162,7 +159,7 @@ class CableLengthView(QWidget):
         layout.addWidget(line)
 
         self._status_label = QLabel("Kein Projekt geladen.")
-        self._status_label.setStyleSheet("font-size: 11px; color: #555;")
+        self._status_label.setStyleSheet("font-size: 12px; color: #555;")
         layout.addWidget(self._status_label)
 
         # Tabelle
@@ -184,7 +181,7 @@ class CableLengthView(QWidget):
             "<span style='background:#FFCDD2; padding:2px 6px;'>Fehler</span>"
         )
         legend.setTextFormat(Qt.RichText)
-        legend.setStyleSheet("font-size: 10px;")
+        legend.setStyleSheet("font-size: 12px;")
         layout.addWidget(legend)
 
         # Buttons

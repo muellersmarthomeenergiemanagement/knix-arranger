@@ -52,8 +52,8 @@ class DaliConfigView(QWidget):
 
         layout = QVBoxLayout(self)
 
-        title = QLabel("<b>DALI-Konfiguration</b>")
-        title.setStyleSheet("font-size: 14px;")
+        title = QLabel("DALI-Konfiguration")
+        title.setObjectName("title")
         layout.addWidget(title)
 
         info = QLabel(
@@ -70,7 +70,7 @@ class DaliConfigView(QWidget):
             "und berechnen Sie die Topologie (Schritt 7)."
         )
         self._no_gw_label.setWordWrap(True)
-        self._no_gw_label.setStyleSheet("color: #888; font-style: italic; padding: 16px;")
+        self._no_gw_label.setStyleSheet("color: #666666; font-style: italic; padding: 16px;")
         layout.addWidget(self._no_gw_label)
 
         splitter = QSplitter(Qt.Horizontal)

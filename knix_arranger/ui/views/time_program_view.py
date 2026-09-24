@@ -189,8 +189,8 @@ class TimeProgramView(QWidget):
 
         # ── Header ─────────────────────────────────────────────────────────────
         hdr = QHBoxLayout()
-        title = QLabel("<b>Zeitsteuerung</b>")
-        title.setStyleSheet("font-size: 14px;")
+        title = QLabel("Zeitsteuerung")
+        title.setObjectName("title")
         hdr.addWidget(title)
         hdr.addStretch()
 

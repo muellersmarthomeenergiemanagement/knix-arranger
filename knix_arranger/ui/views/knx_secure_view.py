@@ -55,8 +55,8 @@ class KnxSecureView(QWidget):
 
         # ── Header ────────────────────────────────────────────────────────────
         hdr = QHBoxLayout()
-        title = QLabel("<b>KNX Secure – Zertifikats- und Zugangsdaten-Archiv</b>")
-        title.setStyleSheet("font-size: 14px;")
+        title = QLabel("KNX Secure – Zertifikats- und Zugangsdaten-Archiv")
+        title.setObjectName("title")
         hdr.addWidget(title)
         hdr.addStretch()
 
@@ -146,7 +146,7 @@ class KnxSecureView(QWidget):
             self._btn_unlock.setVisible(False)
         else:
             self._lock_status.setText("Kein Master-Passwort gesetzt")
-            self._lock_status.setStyleSheet("color: #9E9E9E;")
+            self._lock_status.setStyleSheet("color: #666666;")
             self._btn_unlock.setVisible(False)
 
     def _on_enable_toggled(self, checked: bool):
@@ -462,7 +462,7 @@ class KnxSecureView(QWidget):
                 fdsk_display = (info.fdsk[:8] + "…") if info.fdsk else "– eingeben"
             fdsk_item = QTableWidgetItem(fdsk_display)
             if not info.fdsk:
-                fdsk_item.setForeground(QColor("#9E9E9E"))
+                fdsk_item.setForeground(QColor("#757575"))
             self._dev_table.setItem(i, _COL_DEV_FDSK, fdsk_item)
 
         fit_columns(self._dev_table)

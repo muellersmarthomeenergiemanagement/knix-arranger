@@ -92,7 +92,7 @@ class Step09Functions(QWidget):
             "Hinweis: Das detaillierte Funktionsdefinitions-Formular für den Bauherrn\n"
             "kann im Menü 'Berichte' als Excel-Datei generiert werden."
         )
-        hint.setStyleSheet("color: #808080; padding: 10px;")
+        hint.setStyleSheet("color: #666666; padding: 10px;")
         layout.addWidget(hint)
 
     def on_enter(self):

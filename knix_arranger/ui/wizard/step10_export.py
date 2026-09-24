@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from ...models.project import KnxProject
 from ...services.csv_export_service import CsvExportService
-from ..styles import KNX_GREEN
+from ..styles import KNX_GREEN, KNX_PRIMARY
 from ..export_worker import run_export
 
 
@@ -55,7 +55,7 @@ class Step10Export(QWidget):
             "Gruppenadressen können direkt in ETS6 importiert werden:\n"
             "ETS6 → Topologie → Gerät → Gruppenadressen → Importieren → CSV wählen"
         )
-        ets_hint.setStyleSheet("color: #555; font-size: 11px; padding: 2px 0 6px 0;")
+        ets_hint.setStyleSheet("color: #555; font-size: 12px; padding: 2px 0 6px 0;")
         ets_hint.setWordWrap(True)
         ets_layout.addWidget(ets_hint)
 
@@ -92,7 +92,7 @@ class Step10Export(QWidget):
             "erzeugen kann. Die exportierte Datei kann nicht direkt in ETS6 geöffnet werden,\n"
             "eignet sich aber als Archiv oder für andere KNX-kompatible Werkzeuge."
         )
-        knxproj_hint.setStyleSheet("color: #888; font-size: 11px; padding: 2px 0 6px 0;")
+        knxproj_hint.setStyleSheet("color: #666666; font-size: 12px; padding: 2px 0 6px 0;")
         knxproj_hint.setWordWrap(True)
         knxproj_layout.addWidget(knxproj_hint)
 
@@ -125,7 +125,7 @@ class Step10Export(QWidget):
         self._success = QLabel("")
         self._success.setAlignment(Qt.AlignCenter)
         self._success.setStyleSheet(
-            f"font-size: 16px; font-weight: bold; color: {KNX_GREEN}; padding: 15px;"
+            f"font-size: 16px; font-weight: bold; color: {KNX_PRIMARY}; padding: 15px;"
         )
         layout.addWidget(self._success)
 

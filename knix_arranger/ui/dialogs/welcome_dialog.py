@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from ... import __version__, APP_NAME, __copyright__, __author__
-from ..styles import KNX_GREEN, KNX_DARK_GREEN
+from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 
 ACTION_NEW = "new"
 ACTION_OPEN = "open"
@@ -64,7 +64,7 @@ class WelcomeDialog(QDialog):
         tagline_lbl = QLabel("KNX-Projektplanungstool nach KNX Swiss Richtlinien 2024")
         tagline_lbl.setAlignment(Qt.AlignCenter)
         tagline_lbl.setStyleSheet(
-            "color: rgba(255,255,255,0.60); font-size: 11px; background: transparent;"
+            "color: rgba(255,255,255,0.60); font-size: 12px; background: transparent;"
         )
         banner_layout.addWidget(tagline_lbl)
 
@@ -95,7 +95,7 @@ class WelcomeDialog(QDialog):
         rights_layout.addWidget(company_lbl)
 
         copy_lbl = QLabel(__copyright__)
-        copy_lbl.setStyleSheet("color: #555; font-size: 11px; border: none;")
+        copy_lbl.setStyleSheet("color: #555; font-size: 12px; border: none;")
         rights_layout.addWidget(copy_lbl)
 
         rights_note = QLabel(
@@ -103,7 +103,7 @@ class WelcomeDialog(QDialog):
             "weder kopiert noch weitergegeben werden."
         )
         rights_note.setWordWrap(True)
-        rights_note.setStyleSheet("color: #888; font-size: 10px; border: none;")
+        rights_note.setStyleSheet("color: #666666; font-size: 12px; border: none;")
         rights_layout.addWidget(rights_note)
 
         content_layout.addWidget(rights_frame)
@@ -127,7 +127,7 @@ class WelcomeDialog(QDialog):
                 btn.setToolTip(path)
                 btn.setStyleSheet(
                     "QPushButton { text-align: left; border: none; "
-                    "padding: 6px 10px; color: #333; font-size: 11px; "
+                    "padding: 6px 10px; color: #333; font-size: 12px; "
                     "background: transparent; border-radius: 4px; }"
                     "QPushButton:hover { background-color: #F0F8F0; }"
                 )
@@ -147,7 +147,7 @@ class WelcomeDialog(QDialog):
         self._btn_new.setFixedHeight(52)
         self._btn_new.setStyleSheet(
             f"QPushButton {{ "
-            f"background-color: {KNX_GREEN}; color: white; "
+            f"background-color: {KNX_PRIMARY}; color: white; "
             f"font-size: 13px; font-weight: bold; "
             f"border-radius: 6px; border: none; text-align: left; padding-left: 16px; }}"
             f"QPushButton:hover {{ background-color: {KNX_DARK_GREEN}; }}"
@@ -180,7 +180,7 @@ class WelcomeDialog(QDialog):
 
         claude_lbl = QLabel("Erstellt mit ClaudeCode – Anthropic")
         claude_lbl.setStyleSheet(
-            "color: #AAAAAA; font-size: 10px; font-style: italic;"
+            "color: #666666; font-size: 12px; font-style: italic;"
         )
         footer_row.addWidget(claude_lbl)
 
@@ -188,7 +188,7 @@ class WelcomeDialog(QDialog):
 
         btn_cancel = QPushButton("Ohne Projekt fortfahren")
         btn_cancel.setStyleSheet(
-            "color: #888; border: none; font-size: 11px; "
+            "color: #666666; border: none; font-size: 12px; "
             "background: transparent; padding: 4px 8px;"
         )
         btn_cancel.clicked.connect(self.reject)

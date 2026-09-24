@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QGroupBox, QFormLayout, QAbstractItemView, QWidget,
 )
 from PySide6.QtCore import Qt
-from ..styles import KNX_GREEN
+from ..styles import KNX_GREEN, KNX_PRIMARY
 from ...models.gewerk import GewerkCatalog
 from ..column_utils import fit_columns
 
@@ -91,7 +91,7 @@ class GewerkTemplateDialog(QDialog):
 
         self._btn_save = QPushButton("Speichern")
         self._btn_save.setStyleSheet(
-            f"QPushButton {{ background-color: {KNX_GREEN}; color: white; "
+            f"QPushButton {{ background-color: {KNX_PRIMARY}; color: white; "
             f"padding: 6px 20px; font-weight: bold; }}"
         )
         self._btn_save.clicked.connect(self._on_save)

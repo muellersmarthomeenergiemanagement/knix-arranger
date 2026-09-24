@@ -84,7 +84,7 @@ class HelpView(QWidget):
         right = QVBoxLayout()
 
         self._help_title = QLabel("")
-        self._help_title.setStyleSheet("font-size: 18px; font-weight: bold; padding: 5px;")
+        self._help_title.setStyleSheet("font-size: 20px; font-weight: bold; padding: 5px;")
         right.addWidget(self._help_title)
 
         self._help_content = QTextBrowser()

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
-from ..styles import KNX_GREEN, KNX_DARK_GREEN
+from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 
 
 # ── Tourinhalt ─────────────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@ _TOUR_STEPS = [
             "<tr style='background:#E8F5E9;'><td style='padding:6px 12px; border-bottom:1px solid #C5E1A5;'>&#10003; &nbsp;Komplettes Revisionspaket und Bauherr-Anleitung erstellen</td></tr>"
             "<tr style='background:white;'><td style='padding:6px 12px; border-radius:0 0 4px 4px;'>&#10003; &nbsp;ETS6-kompatible CSV- und KNXPROJ-Dateien exportieren</td></tr>"
             "</table>"
-            "<p style='color:#666; font-size:11px;'>Diese kurze Tour dauert ca. 2 Minuten.</p>"
+            "<p style='color:#666; font-size: 12px;'>Diese kurze Tour dauert ca. 2 Minuten.</p>"
         ),
     },
     {
@@ -45,18 +45,18 @@ _TOUR_STEPS = [
             "<tr><td style='padding:8px;'>"
             "<div style='background:#1B5E20; color:white; border-radius:6px; padding:10px 14px;'>"
             "<b>Option 1 – Neues Projekt</b><br>"
-            "<span style='font-size:11px;'>Seitenleiste → Neues Projekt → 13-Schritt-Wizard</span>"
+            "<span style='font-size: 12px;'>Seitenleiste → Neues Projekt → 13-Schritt-Wizard</span>"
             "</div>"
             "</td></tr>"
-            "<tr><td style='padding:4px 8px; text-align:center; color:#888; font-size:20px;'>&#8597;</td></tr>"
+            "<tr><td style='padding:4px 8px; text-align:center; color: #666666; font-size: 20px;'>&#8597;</td></tr>"
             "<tr><td style='padding:8px;'>"
             "<div style='background:#1565C0; color:white; border-radius:6px; padding:10px 14px;'>"
             "<b>Option 2 – ETS6-Import</b><br>"
-            "<span style='font-size:11px;'>Datei → Import &nbsp;|&nbsp; CSV &nbsp;·&nbsp; XLSX &nbsp;·&nbsp; KNXPROJ</span>"
+            "<span style='font-size: 12px;'>Datei → Import &nbsp;|&nbsp; CSV &nbsp;·&nbsp; XLSX &nbsp;·&nbsp; KNXPROJ</span>"
             "</div>"
             "</td></tr>"
             "</table>"
-            "<p style='font-size:11px; color:#666;'>Beide Wege führen zur gleichen Projektübersicht. "
+            "<p style='font-size: 12px; color:#666;'>Beide Wege führen zur gleichen Projektübersicht. "
             "Der Wizard ist der empfohlene Einstieg für neue Projekte.</p>"
         ),
     },
@@ -65,7 +65,7 @@ _TOUR_STEPS = [
         "icon": "🧙",
         "content": (
             "<p>Der Wizard führt Sie strukturiert durch alle Planungsschritte:</p>"
-            "<table border='0' cellspacing='0' cellpadding='4' style='width:100%; border-collapse:collapse; font-size:11px;'>"
+            "<table border='0' cellspacing='0' cellpadding='4' style='width:100%; border-collapse:collapse; font-size: 12px;'>"
             "<tr style='background:#1B5E20; color:white;'>"
             "<td style='padding:5px 8px; width:26px;'><b>#</b></td>"
             "<td style='padding:5px 8px;'><b>Schritt</b></td>"
@@ -87,7 +87,7 @@ _TOUR_STEPS = [
         "icon": "⚡",
         "content": (
             "<p><b>Gewerke</b> sind das Herzstück: Sie beschreiben, welche Funktionen ein Raum hat.</p>"
-            "<table border='0' cellspacing='0' cellpadding='5' style='width:100%; border-collapse:collapse; font-size:12px; margin:8px 0;'>"
+            "<table border='0' cellspacing='0' cellpadding='5' style='width:100%; border-collapse:collapse; font-size: 12px; margin:8px 0;'>"
             "<tr style='background:#1B5E20; color:white;'>"
             "<td style='padding:5px 10px;'><b>Code</b></td>"
             "<td style='padding:5px 10px;'><b>Funktion</b></td>"
@@ -99,9 +99,9 @@ _TOUR_STEPS = [
             "<tr style='background:white;'><td style='padding:4px 10px;'><b>H</b></td><td style='padding:4px 10px;'>Heizung</td><td style='padding:4px 10px;'>Heizungsaktor + Thermostat GAs</td></tr>"
             "</table>"
             "<p style='margin-top:8px;'><b>Beispiel Wohnzimmer:</b></p>"
-            "<div style='background:#F9FBE7; border:1px solid #C5E1A5; border-radius:4px; padding:8px 12px; font-size:12px;'>"
+            "<div style='background:#F9FBE7; border:1px solid #C5E1A5; border-radius:4px; padding:8px 12px; font-size: 12px;'>"
             "L × 2 &nbsp;+&nbsp; LD × 1 &nbsp;+&nbsp; J × 2 &nbsp;+&nbsp; H × 1<br>"
-            "<span style='color:#555; font-size:11px;'>→ 1 Schaltaktor (2 Kan.) + 1 Dimmaktor + 1 Jalousieaktor (2 Kan.) + 1 Heizungsaktor</span>"
+            "<span style='color:#555; font-size: 12px;'>→ 1 Schaltaktor (2 Kan.) + 1 Dimmaktor + 1 Jalousieaktor (2 Kan.) + 1 Heizungsaktor</span>"
             "</div>"
         ),
     },
@@ -114,21 +114,21 @@ _TOUR_STEPS = [
             "<p><b>3-stufige GA-Struktur:</b></p>"
             "<table border='0' cellspacing='0' cellpadding='0' style='width:100%; margin:8px 0;'>"
             "<tr><td>"
-            "<div style='background:#1B5E20; color:white; padding:7px 12px; border-radius:4px; font-size:12px;'>"
+            "<div style='background:#1B5E20; color:white; padding:7px 12px; border-radius:4px; font-size: 12px;'>"
             "<b>Hauptgruppe (HG)</b> &nbsp; 0=Zentral &nbsp;|&nbsp; 1=KG &nbsp;|&nbsp; 2=EG &nbsp;|&nbsp; 3=OG1 …"
             "</div></td></tr>"
-            "<tr><td style='text-align:center; color:#888; font-size:16px; padding:2px;'>&#9660;</td></tr>"
+            "<tr><td style='text-align:center; color: #666666; font-size: 16px; padding:2px;'>&#9660;</td></tr>"
             "<tr><td>"
-            "<div style='background:#1565C0; color:white; padding:7px 12px; border-radius:4px; font-size:12px; margin-left:16px;'>"
+            "<div style='background:#1565C0; color:white; padding:7px 12px; border-radius:4px; font-size: 12px; margin-left:16px;'>"
             "<b>Mittelgruppe (MG)</b> &nbsp; 0=Licht &nbsp;|&nbsp; 1=Jalousie &nbsp;|&nbsp; 2=Heizung &nbsp;|&nbsp; 5=Lüftung …"
             "</div></td></tr>"
-            "<tr><td style='text-align:center; color:#888; font-size:16px; padding:2px;'>&#9660;</td></tr>"
+            "<tr><td style='text-align:center; color: #666666; font-size: 16px; padding:2px;'>&#9660;</td></tr>"
             "<tr><td>"
-            "<div style='background:#E3F2FD; color:#0D47A1; padding:7px 12px; border-radius:4px; font-size:12px; margin-left:32px; border:1px solid #BBDEFB;'>"
+            "<div style='background:#E3F2FD; color:#0D47A1; padding:7px 12px; border-radius:4px; font-size: 12px; margin-left:32px; border:1px solid #BBDEFB;'>"
             "<b>Untergruppe (UG)</b> &nbsp; Einzelne GA-Adressen in 5er-/10er-Blöcken"
             "</div></td></tr>"
             "</table>"
-            "<p style='font-size:12px; margin-top:8px;'>"
+            "<p style='font-size: 12px; margin-top:8px;'>"
             "<b>Variante A:</b> Rückmeldungen in gleicher MG (kompakt, EFH)<br>"
             "<b>Variante B:</b> Rückmeldungen in separater MG 6/7 (übersichtlich, MFH)"
             "</p>"
@@ -142,35 +142,35 @@ _TOUR_STEPS = [
             "<table border='0' cellspacing='0' cellpadding='0' style='width:100%; margin:10px 0;'>"
             "<tr><td style='padding:5px 0;'>"
             "<div style='display:inline-block; background:#1B5E20; color:white; border-radius:50%; "
-            "width:24px; height:24px; text-align:center; line-height:24px; font-weight:bold; font-size:12px;'>1</div>"
+            "width:24px; height:24px; text-align:center; line-height:24px; font-weight:bold; font-size: 12px;'>1</div>"
             "&nbsp;&nbsp;<b>Neues Projekt</b> in der Seitenleiste anklicken"
             "</td></tr>"
             "<tr><td style='padding:5px 0;'>"
             "<div style='display:inline-block; background:#1565C0; color:white; border-radius:50%; "
-            "width:24px; height:24px; text-align:center; line-height:24px; font-weight:bold; font-size:12px;'>2</div>"
+            "width:24px; height:24px; text-align:center; line-height:24px; font-weight:bold; font-size: 12px;'>2</div>"
             "&nbsp;&nbsp;<b>Projektname und Nummer</b> eingeben"
             "</td></tr>"
             "<tr><td style='padding:5px 0;'>"
             "<div style='display:inline-block; background:#1565C0; color:white; border-radius:50%; "
-            "width:24px; height:24px; text-align:center; line-height:24px; font-weight:bold; font-size:12px;'>3</div>"
+            "width:24px; height:24px; text-align:center; line-height:24px; font-weight:bold; font-size: 12px;'>3</div>"
             "&nbsp;&nbsp;<b>Vorlage wählen</b> oder leer starten"
             "</td></tr>"
             "<tr><td style='padding:5px 0;'>"
             "<div style='display:inline-block; background:#1565C0; color:white; border-radius:50%; "
-            "width:24px; height:24px; text-align:center; line-height:24px; font-weight:bold; font-size:12px;'>4</div>"
+            "width:24px; height:24px; text-align:center; line-height:24px; font-weight:bold; font-size: 12px;'>4</div>"
             "&nbsp;&nbsp;<b>Wizard starten</b> und Schritt für Schritt vorgehen"
             "</td></tr>"
             "<tr><td style='padding:5px 0;'>"
             "<div style='display:inline-block; background:#2E7D32; color:white; border-radius:50%; "
-            "width:24px; height:24px; text-align:center; line-height:24px; font-weight:bold; font-size:12px;'>5</div>"
+            "width:24px; height:24px; text-align:center; line-height:24px; font-weight:bold; font-size: 12px;'>5</div>"
             "&nbsp;&nbsp;<b>Export</b> erstellen – CSV, KNXPROJ, Revisionspaket"
             "</td></tr>"
             "</table>"
-            "<div style='background:#F9FBE7; border:1px solid #C5E1A5; border-radius:4px; padding:8px 12px; margin-top:8px; font-size:12px;'>"
+            "<div style='background:#F9FBE7; border:1px solid #C5E1A5; border-radius:4px; padding:8px 12px; margin-top:8px; font-size: 12px;'>"
             "&#128161; &nbsp;<b>Hilfe:</b> Jederzeit <b>F1</b> drücken oder den <b>?</b>-Button "
             "in jedem Wizard-Schritt nutzen."
             "</div>"
-            "<p style='color:#888; font-size:10px; margin-top:8px;'>Diese Tour über "
+            "<p style='color: #666666; font-size: 12px; margin-top:8px;'>Diese Tour über "
             "<i>Hilfe → Erste Schritte</i> jederzeit erneut aufrufen.</p>"
         ),
     },
@@ -233,7 +233,7 @@ class OnboardingTourDialog(QDialog):
         foot.addWidget(self._btn_back)
 
         self._btn_next = QPushButton("Weiter →")
-        self._btn_next.setStyleSheet(f"background-color: {KNX_GREEN}; color: white;")
+        self._btn_next.setStyleSheet(f"background-color: {KNX_PRIMARY}; color: white;")
         self._btn_next.clicked.connect(self._go_next)
         foot.addWidget(self._btn_next)
 
@@ -287,11 +287,11 @@ class OnboardingTourDialog(QDialog):
         # Dots einfärben
         for i, dot in enumerate(self._dots):
             if i == self._current:
-                dot.setStyleSheet(f"color: {KNX_GREEN}; font-size: 18px;")
+                dot.setStyleSheet(f"color: {KNX_PRIMARY}; font-size: 20px;")
             elif i < self._current:
-                dot.setStyleSheet("color: #90A4AE; font-size: 14px;")
+                dot.setStyleSheet("color: #90A4AE; font-size: 16px;")
             else:
-                dot.setStyleSheet("color: #CFD8DC; font-size: 14px;")
+                dot.setStyleSheet("color: #CFD8DC; font-size: 16px;")
 
         self._btn_back.setEnabled(self._current > 0)
 
@@ -303,7 +303,7 @@ class OnboardingTourDialog(QDialog):
         else:
             self._btn_next.setText("Weiter →")
             self._btn_next.setStyleSheet(
-                f"background-color: {KNX_GREEN}; color: white;"
+                f"background-color: {KNX_PRIMARY}; color: white;"
             )
 
     def _go_next(self):

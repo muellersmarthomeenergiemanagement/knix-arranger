@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QComboBox, QGroupBox, QGridLayout, QCheckBox,
 )
 from PySide6.QtCore import Qt
-from ..styles import KNX_GREEN, KNX_DARK_GREEN
+from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 from ...models.group_address import GroupAddress
 
 
@@ -44,7 +44,7 @@ class GaEditDialog(QDialog):
         addr_layout.addWidget(QLabel("Gruppenadresse:"), 0, 0)
         addr_label = QLabel(f"{ga.address}")
         addr_label.setStyleSheet(
-            f"font-weight: bold; font-size: 14px; color: {KNX_DARK_GREEN};"
+            f"font-weight: bold; font-size: 16px; color: {KNX_DARK_GREEN};"
         )
         addr_layout.addWidget(addr_label, 0, 1)
 
@@ -130,7 +130,7 @@ class GaEditDialog(QDialog):
 
         save_btn = QPushButton("Speichern")
         save_btn.setStyleSheet(
-            f"background-color: {KNX_GREEN}; color: white; "
+            f"background-color: {KNX_PRIMARY}; color: white; "
             f"font-weight: bold; padding: 6px 20px;"
         )
         save_btn.clicked.connect(self._save)

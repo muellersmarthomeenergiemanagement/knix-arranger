@@ -95,7 +95,7 @@ class _DeviceConfigDialog(QDialog):
             "Funktionen (welche GA dieses Gerät steuert) werden\n"
             "in Schritt 11 nach der GA-Generierung zugewiesen."
         )
-        hint.setStyleSheet("color: #808080; font-style: italic;")
+        hint.setStyleSheet("color: #666666; font-style: italic;")
         main.addWidget(hint)
 
         extra_layout = QHBoxLayout()
@@ -416,7 +416,7 @@ class Step05cDevices(QWidget):
                 placeholder = QTreeWidgetItem(self._tree, [
                     f"{room.number} {room.name}  (keine Geräte)", "", "", "",
                 ])
-                placeholder.setForeground(0, QBrush(QColor("#9E9E9E")))
+                placeholder.setForeground(0, QBrush(QColor("#757575")))
                 add_item = QTreeWidgetItem(placeholder, ["  + Gerät hinzufügen", "", "", ""])
                 add_item.setForeground(0, QBrush(QColor("#1565C0")))
                 add_item.setData(0, Qt.UserRole, ("add", room, None))

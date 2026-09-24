@@ -47,7 +47,7 @@ class ValidationView(QWidget):
             f"<span style='color:{COLOR_INFO}; font-weight:bold;'>Info</span> = zur Kenntnis"
         )
         legend.setTextFormat(Qt.RichText)
-        legend.setStyleSheet("font-size: 10px;")
+        legend.setStyleSheet("font-size: 12px;")
         layout.addWidget(legend)
 
         # Tabelle

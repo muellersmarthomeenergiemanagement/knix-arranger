@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QColor
+from PySide6.QtGui import QColor
 
 from ..dialogs.product_select_dialog import ProductSelectDialog
 import math
@@ -85,11 +85,7 @@ class MaterialListView(QWidget):
 
         # Titel
         title = QLabel("Materialliste")
-        title.setObjectName("sectionTitle")
-        bold = QFont()
-        bold.setPointSize(14)
-        bold.setBold(True)
-        title.setFont(bold)
+        title.setObjectName("title")
         layout.addWidget(title)
 
         info = QLabel(
@@ -193,7 +189,7 @@ class MaterialListView(QWidget):
             "<span style='color:#BF360C;'>&#9679;</span> Kanaldefizit (zu wenig Kanäle zugewiesen)&nbsp;&nbsp;"
             "<span style='color:#666666;'>&#9679;</span> Wizard-Platzhalter (noch kein Produkt zugewiesen)"
         )
-        legend.setStyleSheet("font-size: 11px; color: #666;")
+        legend.setStyleSheet("font-size: 12px; color: #666;")
         layout.addWidget(legend)
 
         # --- Tabelle ---

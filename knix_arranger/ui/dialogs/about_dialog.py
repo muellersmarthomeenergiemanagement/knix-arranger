@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from ... import __version__, APP_NAME, __copyright__
-from ..styles import KNX_GREEN, KNX_DARK_GREEN
+from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 
 
 class AboutDialog(QDialog):
@@ -34,7 +34,7 @@ class AboutDialog(QDialog):
         # Version
         version = QLabel(f"Version {__version__}")
         version.setAlignment(Qt.AlignCenter)
-        version.setStyleSheet("font-size: 14px; color: #808080;")
+        version.setStyleSheet("font-size: 16px; color: #666666;")
         layout.addWidget(version)
 
         # Copyright
@@ -57,7 +57,7 @@ class AboutDialog(QDialog):
         # KNX Swiss
         knx = QLabel("Basierend auf KNX Swiss Projektrichtlinien 2024")
         knx.setAlignment(Qt.AlignCenter)
-        knx.setStyleSheet(f"color: {KNX_GREEN}; font-weight: bold;")
+        knx.setStyleSheet(f"color: {KNX_PRIMARY}; font-weight: bold;")
         layout.addWidget(knx)
 
         # Schliessen

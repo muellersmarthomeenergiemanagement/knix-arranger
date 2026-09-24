@@ -22,7 +22,7 @@ class ExportDialog(QDialog):
 
         # Info
         info = QLabel(f"{ga_count} Gruppenadressen werden exportiert.")
-        info.setStyleSheet("font-size: 14px; font-weight: bold; padding: 5px;")
+        info.setStyleSheet("font-size: 16px; font-weight: bold; padding: 5px;")
         layout.addWidget(info)
 
         # Datei

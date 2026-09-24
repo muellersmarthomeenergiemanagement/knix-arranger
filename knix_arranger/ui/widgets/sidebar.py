@@ -159,7 +159,7 @@ class Sidebar(QWidget):
         label = QLabel(f"  {title}")
         label.setFixedHeight(22)
         label.setStyleSheet(
-            "color: rgba(255,255,255,140); font-size: 10px; "
+            "color: rgba(255,255,255,140); font-size: 12px; "
             "font-weight: bold; padding: 4px 0 1px 4px; "
             "background-color: transparent;"
         )

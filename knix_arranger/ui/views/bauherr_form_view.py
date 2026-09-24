@@ -147,7 +147,7 @@ class _SlotWidget(QWidget):
         # siehe _assign_grid_positions/FA-1502c).
         num_lbl = QLabel(slot_label)
         num_lbl.setStyleSheet(
-            "color: #9E9E9E; font-size: 8px; padding: 0; margin: 0;"
+            "color: #666666; font-size: 12px; padding: 0; margin: 0;"
         )
         num_lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         head_row.addWidget(num_lbl)
@@ -162,7 +162,7 @@ class _SlotWidget(QWidget):
         self._btn_delete.setToolTip("Diese Taste entfernen")
         self._btn_delete.setCursor(Qt.PointingHandCursor)
         self._btn_delete.setStyleSheet(
-            "QPushButton { color: #B71C1C; font-size: 9px; font-weight: bold; "
+            "QPushButton { color: #B71C1C; font-size: 12px; font-weight: bold; "
             "border: 1px solid #EF9A9A; border-radius: 2px; "
             "background: #FFEBEE; padding: 1px 6px; } "
             "QPushButton:hover { background: #FFCDD2; border-color: #B71C1C; }"
@@ -195,7 +195,7 @@ class _SlotWidget(QWidget):
             "(z.B. Dimmen zusätzlich zu Schalten)"
         )
         self._btn_add_ga.setStyleSheet(
-            "QPushButton { font-size: 8px; color: #1565C0; border: 1px dashed #90CAF9; "
+            "QPushButton { font-size: 12px; color: #1565C0; border: 1px dashed #90CAF9; "
             "border-radius: 2px; padding: 1px 4px; background: white; } "
             "QPushButton:hover { background: #E3F2FD; }"
         )
@@ -360,13 +360,13 @@ class _SlotWidget(QWidget):
         if has_value:
             self._combo.setStyleSheet(
                 f"background-color: {_C_ASSIGNED}; color: {_FONT_FN}; "
-                f"font-size: 10px; font-weight: bold; "
+                f"font-size: 12px; font-weight: bold; "
                 f"border: 1px solid #A5D6A7; border-radius: 2px; padding: 2px;"
             )
         else:
             self._combo.setStyleSheet(
                 f"background-color: {_C_WISH}; color: {_FONT_WISH}; "
-                f"font-size: 10px; border: 1px solid #E0C870; "
+                f"font-size: 12px; border: 1px solid #E0C870; "
                 f"border-radius: 2px; padding: 2px;"
             )
 
@@ -513,7 +513,7 @@ class _SlotWidget(QWidget):
             chip = QPushButton(f"{self._service._label_from_ga(extra.ga_designation)}  ✕")
             chip.setToolTip("Klicken zum Entfernen")
             chip.setStyleSheet(
-                "QPushButton { font-size: 8px; color: #37474F; background: #ECEFF1; "
+                "QPushButton { font-size: 12px; color: #37474F; background: #ECEFF1; "
                 "border: 1px solid #CFD8DC; border-radius: 8px; padding: 1px 6px; } "
                 "QPushButton:hover { background: #FFCDD2; }"
             )
@@ -587,7 +587,7 @@ class _TasterWidget(QFrame):
         hdr.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         hdr.setStyleSheet(
             f"background-color: {_C_HEADER}; color: {_FONT_HEADER}; "
-            f"font-size: 10px; font-weight: bold; border: none;"
+            f"font-size: 12px; font-weight: bold; border: none;"
         )
         layout.addWidget(hdr)
 
@@ -617,7 +617,7 @@ class _TasterWidget(QFrame):
 
             count_lbl = QLabel("Anzahl Tasten:")
             count_lbl.setStyleSheet(
-                "color: #546E7A; font-size: 9px; border: none;"
+                "color: #546E7A; font-size: 12px; border: none;"
             )
             count_layout.addWidget(count_lbl)
 
@@ -688,7 +688,7 @@ class _TasterWidget(QFrame):
         ann_lbl = QLabel("Anmerkung:")
         ann_lbl.setFixedWidth(72)
         ann_lbl.setStyleSheet(
-            "color: #546E7A; font-size: 8px; font-style: italic; border: none;"
+            "color: #546E7A; font-size: 12px; font-style: italic; border: none;"
         )
         ann_layout.addWidget(ann_lbl)
 
@@ -696,7 +696,7 @@ class _TasterWidget(QFrame):
         self._ann_edit.setPlaceholderText("Optionale Anmerkung des Bauherrn …")
         self._ann_edit.setStyleSheet(
             "background-color: #FFFDE7; border: 1px dotted #BDBDBD; "
-            "font-size: 9px; padding: 1px 4px; border-radius: 2px;"
+            "font-size: 12px; padding: 1px 4px; border-radius: 2px;"
         )
         self._ann_edit.setFixedHeight(22)
         self._ann_edit.setText(be.bauherr_annotation or "")
@@ -804,7 +804,7 @@ class BauherrFormView(QWidget):
 
         notes_lbl = QLabel("Anmerkungen zum Raum:")
         notes_lbl.setStyleSheet(
-            f"color: {KNX_BLUE}; font-weight: bold; font-size: 10px; border: none;"
+            f"color: {KNX_BLUE}; font-weight: bold; font-size: 12px; border: none;"
         )
         notes_layout.addWidget(notes_lbl)
 
@@ -814,7 +814,7 @@ class BauherrFormView(QWidget):
         )
         self._room_notes.setFixedHeight(70)
         self._room_notes.setStyleSheet(
-            "background-color: white; border: 1px dotted #BDBDBD; font-size: 9px;"
+            "background-color: white; border: 1px dotted #BDBDBD; font-size: 12px;"
         )
         self._room_notes.textChanged.connect(self._on_room_notes_changed)
         notes_layout.addWidget(self._room_notes)

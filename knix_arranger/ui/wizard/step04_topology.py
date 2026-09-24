@@ -22,7 +22,7 @@ _COLOR_COUPLER      = QColor("#1565C0")   # Dunkelblau: Koppler
 _COLOR_POWER        = QColor("#2E7D32")   # Dunkelgrün: Speisegerät
 _COLOR_ROOM         = QColor("#00838F")   # Dunkelcyan: Räume
 _COLOR_ASSIGNED     = QColor("#1B5E20")   # Sehr dunkelgrün: Produkt zugewiesen
-_COLOR_PLACEHOLDER  = QColor("#9E9E9E")   # Grau: Platzhalter
+_COLOR_PLACEHOLDER  = QColor("#757575")   # Grau: Platzhalter (4,6:1 auf Weiss)
 _COLOR_MANUAL       = QColor("#E65100")   # Orange: manuell hinzugefügtes Gerät
 _COLOR_PROGRAMMED   = QColor("#4527A0")   # Violett: physikalisch programmiert (Adresse fixiert)
 
@@ -304,7 +304,7 @@ class Step04Topology(QWidget):
             f"<span style='color:{_COLOR_PROGRAMMED.name()};'>&#9679;</span> programmiert (gesperrt)"
         )
         legend.setWordWrap(True)
-        legend.setStyleSheet("font-size: 10px; color: #666;")
+        legend.setStyleSheet("font-size: 12px; color: #666;")
         left.addWidget(legend)
 
         content.addLayout(left, 2)
@@ -342,7 +342,7 @@ class Step04Topology(QWidget):
         self._line_devices.setRange(0, 256)
         line_form.addRow("Geräteanzahl:", self._line_devices)
         self._line_power_supply = QLabel("")
-        self._line_power_supply.setStyleSheet("color: #808080;")
+        self._line_power_supply.setStyleSheet("color: #666666;")
         line_form.addRow("Speisegerät:", self._line_power_supply)
         self._btn_apply_line = QPushButton("Übernehmen")
         self._btn_apply_line.clicked.connect(self._apply_line_changes)

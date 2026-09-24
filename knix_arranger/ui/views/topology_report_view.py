@@ -91,13 +91,13 @@ class TopologyReportView(QWidget):
 
         icon = QLabel("ℹ️")
         icon.setAlignment(Qt.AlignCenter)
-        icon.setStyleSheet("font-size:28px;")
+        icon.setStyleSheet("font-size: 28px;")
         inner.addWidget(icon)
 
         text = QLabel(msg)
         text.setAlignment(Qt.AlignCenter)
         text.setWordWrap(True)
-        text.setStyleSheet("color:#5D4037; font-size:13px;")
+        text.setStyleSheet("color:#5D4037; font-size: 13px;")
         inner.addWidget(text)
 
         layout.addStretch()
@@ -443,7 +443,7 @@ class TopologyReportView(QWidget):
             if not search or search in co.name.lower() or search in co.object_function.lower()
         ]
 
-        grey = QColor("#888888")
+        grey = QColor("#757575")
         self._ko_table.setRowCount(len(cos))
         for i, co in enumerate(cos):
             has_ga = bool(co.connected_gas)

@@ -78,12 +78,12 @@ class TopologyView(QWidget):
         toolbar.addWidget(self._btn_collapse_all)
         toolbar.addStretch()
         hint = QLabel("Doppelklick: Einbauort bearbeiten  ·  Rechtsklick: weitere Optionen")
-        hint.setStyleSheet("color: #808080; font-style: italic;")
+        hint.setStyleSheet("color: #666666; font-style: italic;")
         toolbar.addWidget(hint)
         layout.addLayout(toolbar)
 
         self._legend = QLabel()
-        self._legend.setStyleSheet("font-size: 11px; color: #666;")
+        self._legend.setStyleSheet("font-size: 12px; color: #666;")
         self._update_legend()
         layout.addWidget(self._legend)
 

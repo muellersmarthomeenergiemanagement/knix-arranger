@@ -43,7 +43,7 @@ class ImportDialog(QDialog):
             "- ETS6 Topologie-Report mit Objekte (XLSX)\n"
             "- UTF-8 oder ANSI Kodierung"
         )
-        info.setStyleSheet("color: #808080; padding: 5px;")
+        info.setStyleSheet("color: #666666; padding: 5px;")
         layout.addWidget(info)
 
         # Log

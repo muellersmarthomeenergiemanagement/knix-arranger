@@ -16,11 +16,27 @@ KNX_RED = "#E74C3C"
 KNX_ORANGE = "#E67E22"
 KNX_YELLOW = "#F1C40F"
 
-# Statusfarben
-COLOR_ERROR = KNX_RED
-COLOR_WARNING = KNX_ORANGE
-COLOR_OK = KNX_GREEN
-COLOR_INFO = KNX_LIGHT_BLUE
+# Kontrastfarben für Schrift (WCAG AA: mind. 4,5:1 für normale Schrift).
+# Das KNX-Grün (#5EA126) erreicht mit weisser Schrift nur 3,2:1 und ist
+# deshalb nur noch für Akzente ohne Text gedacht (Fortschrittsbalken,
+# Rahmen, Symbole). Flächen mit Schrift und grüne Schrift nutzen KNX_PRIMARY.
+KNX_PRIMARY = "#427A1B"          # 5,2:1 mit Weiss
+KNX_PRIMARY_PRESSED = "#2F5714"  # 8,4:1 mit Weiss
+KNX_DANGER = "#C0392B"           # 5,4:1 mit Weiss (KNX_RED nur 3,8:1)
+TEXT_MUTED = "#666666"           # Hinweistexte, 5,7:1 auf Weiss
+
+# Schriftgrössen (px) -- nur diese Stufen verwenden
+FONT_SMALL = 12    # Hinweise, Legenden, Tabellen
+FONT_BODY = 13     # Standardtext, Buttons, Eingabefelder
+FONT_HEADING = 16  # Zwischentitel
+FONT_TITLE = 20    # Ansichtstitel
+
+# Statusfarben -- werden auch als Schriftfarbe verwendet (Validierung),
+# daher alle mit mind. 4,5:1 auf Weiss
+COLOR_ERROR = KNX_DANGER
+COLOR_WARNING = "#B35900"   # 4,8:1 (KNX_ORANGE nur 2,9:1)
+COLOR_OK = KNX_PRIMARY
+COLOR_INFO = "#1F6391"      # 6,5:1 (KNX_LIGHT_BLUE 4,3:1)
 
 # Gewerk-Farben für GA-Baumansicht
 GEWERK_COLORS = {
@@ -46,8 +62,12 @@ def get_main_stylesheet() -> str:
         border-bottom: 1px solid {KNX_MEDIUM_GRAY};
         padding: 2px;
     }}
+    QMenuBar::item {{
+        color: {KNX_DARK_GRAY};
+        padding: 4px 10px;
+    }}
     QMenuBar::item:selected {{
-        background-color: {KNX_GREEN};
+        background-color: {KNX_PRIMARY};
         color: white;
     }}
     QMenu {{
@@ -55,7 +75,7 @@ def get_main_stylesheet() -> str:
         border: 1px solid {KNX_MEDIUM_GRAY};
     }}
     QMenu::item:selected {{
-        background-color: {KNX_GREEN};
+        background-color: {KNX_PRIMARY};
         color: white;
     }}
 
@@ -68,53 +88,78 @@ def get_main_stylesheet() -> str:
 
     /* Sidebar-Buttons (ueber Property-Selektor) */
     QPushButton[cssClass="sidebar"] {{
-        background-color: #4E8C20;
+        background-color: {KNX_PRIMARY};
         color: white;
         text-align: left;
         padding: 5px 10px;
         border: 1px solid rgba(255, 255, 255, 50);
         border-radius: 3px;
-        font-size: 12px;
+        font-size: {FONT_BODY}px;
     }}
     QPushButton[cssClass="sidebar"]:hover {{
-        background-color: {KNX_GREEN};
+        background-color: {KNX_PRIMARY_PRESSED};
         color: white;
         border: 1px solid rgba(255, 255, 255, 120);
     }}
+    /* Aktive Ansicht: weiss hinterlegt statt hellgrün -- deutlich
+       erkennbar und mit 6,4:1 gut lesbar */
     QPushButton[cssClass="sidebar"]:checked {{
-        background-color: {KNX_GREEN};
-        color: white;
+        background-color: {KNX_WHITE};
+        color: {KNX_DARK_GREEN};
         font-weight: bold;
         border: 1px solid white;
     }}
 
-    /* Allgemeine Buttons */
+    /* Buttons in drei Stufen:
+       - Hauptaktion (Standard): grün gefüllt
+       - Zweitaktion (objectName "secondary"): weiss mit blauem Rahmen
+       - Link (objectName "link"): nur Text, für Nebenfunktionen
+       dazu "danger" für löschende Aktionen. */
     QPushButton {{
-        background-color: {KNX_GREEN};
+        background-color: {KNX_PRIMARY};
         color: white;
         border: none;
         border-radius: 4px;
         padding: 8px 16px;
-        font-size: 13px;
+        font-size: {FONT_BODY}px;
     }}
     QPushButton:hover {{
         background-color: {KNX_DARK_GREEN};
     }}
     QPushButton:pressed {{
-        background-color: {KNX_DARK_GREEN};
+        background-color: {KNX_PRIMARY_PRESSED};
     }}
     QPushButton:disabled {{
         background-color: {KNX_MEDIUM_GRAY};
         color: #505050;
     }}
     QPushButton#secondary {{
-        background-color: {KNX_BLUE};
+        background-color: {KNX_WHITE};
+        color: {KNX_BLUE};
+        border: 1px solid {KNX_BLUE};
+        padding: 7px 15px;
     }}
     QPushButton#secondary:hover {{
-        background-color: {KNX_LIGHT_BLUE};
+        background-color: #E8F0F7;
+    }}
+    QPushButton#secondary:pressed {{
+        background-color: #D4E3EF;
+    }}
+    QPushButton#link {{
+        background-color: transparent;
+        color: {KNX_BLUE};
+        padding: 2px 4px;
+        text-decoration: underline;
+    }}
+    QPushButton#link:hover {{
+        background-color: transparent;
+        color: {KNX_DARK_GRAY};
     }}
     QPushButton#danger {{
-        background-color: {KNX_RED};
+        background-color: {KNX_DANGER};
+    }}
+    QPushButton#danger:hover {{
+        background-color: #A93226;
     }}
     /* Die ID-Selektoren oben sind spezifischer als QPushButton:disabled --
        ohne diese Regel bliebe z.B. ein deaktivierter "Löschen"-Button rot
@@ -122,14 +167,19 @@ def get_main_stylesheet() -> str:
     QPushButton#secondary:disabled, QPushButton#danger:disabled {{
         background-color: {KNX_MEDIUM_GRAY};
         color: #505050;
+        border: none;
+    }}
+    QPushButton#link:disabled {{
+        background-color: transparent;
+        color: #808080;
     }}
 
     /* Tabellen */
     QTableWidget {{
         gridline-color: {KNX_MEDIUM_GRAY};
-        selection-background-color: {KNX_GREEN};
+        selection-background-color: {KNX_PRIMARY};
         selection-color: white;
-        font-size: 12px;
+        font-size: {FONT_SMALL}px;
     }}
     QHeaderView::section {{
         background-color: {KNX_LIGHT_GRAY};
@@ -140,11 +190,11 @@ def get_main_stylesheet() -> str:
 
     /* Baumansicht */
     QTreeWidget {{
-        font-size: 12px;
+        font-size: {FONT_SMALL}px;
         show-decoration-selected: 1;
     }}
     QTreeWidget::item:selected {{
-        background-color: {KNX_GREEN};
+        background-color: {KNX_PRIMARY};
         color: white;
     }}
 
@@ -153,14 +203,14 @@ def get_main_stylesheet() -> str:
         border: 1px solid {KNX_MEDIUM_GRAY};
         border-radius: 3px;
         padding: 5px;
-        font-size: 13px;
+        font-size: {FONT_BODY}px;
     }}
     QSpinBox {{
         border: 1px solid {KNX_MEDIUM_GRAY};
         border-radius: 3px;
         padding: 2px;
         padding-right: 20px;
-        font-size: 13px;
+        font-size: {FONT_BODY}px;
     }}
     QSpinBox::up-button {{
         subcontrol-origin: border;
@@ -205,15 +255,24 @@ def get_main_stylesheet() -> str:
         border: 2px solid {KNX_GREEN};
     }}
 
-    /* Labels */
+    /* Labels: Ansichtstitel, Zwischentitel, Einleitungstext, Hinweis */
     QLabel#title {{
-        font-size: 18px;
+        font-size: {FONT_TITLE}px;
         font-weight: bold;
         color: {KNX_DARK_GREEN};
     }}
-    QLabel#subtitle {{
-        font-size: 14px;
+    QLabel#heading {{
+        font-size: {FONT_HEADING}px;
+        font-weight: bold;
         color: {KNX_DARK_GRAY};
+    }}
+    QLabel#subtitle {{
+        font-size: {FONT_BODY}px;
+        color: {KNX_DARK_GRAY};
+    }}
+    QLabel#hint {{
+        font-size: {FONT_SMALL}px;
+        color: {TEXT_MUTED};
     }}
 
     /* Statusleiste */
@@ -232,7 +291,7 @@ def get_main_stylesheet() -> str:
         margin-right: 2px;
     }}
     QTabBar::tab:selected {{
-        background-color: {KNX_GREEN};
+        background-color: {KNX_PRIMARY};
         color: white;
     }}
 

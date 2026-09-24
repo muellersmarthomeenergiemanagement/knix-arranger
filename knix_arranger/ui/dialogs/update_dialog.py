@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtCore import QUrl
 
-from ..styles import KNX_GREEN, KNX_DARK_GREEN
+from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 from ...services.update_service import UpdateInfo
 
 
@@ -121,7 +121,7 @@ class UpdateDialog(QDialog):
         if update_info.download_url:
             btn_download = QPushButton("⬇  Download öffnen")
             btn_download.setStyleSheet(
-                f"background-color: {KNX_GREEN}; color: white; font-weight: bold;"
+                f"background-color: {KNX_PRIMARY}; color: white; font-weight: bold;"
             )
             btn_download.setToolTip(
                 f"Öffnet {update_info.download_url} im Standard-Browser"

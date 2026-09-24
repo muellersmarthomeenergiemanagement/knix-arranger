@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QPushButton, QFileDialog, QGroupBox,
 )
 from PySide6.QtCore import Qt, QStandardPaths
-from ..styles import KNX_GREEN, KNX_DARK_GREEN
+from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 
 
 def suggested_workspace_path() -> str:
@@ -62,7 +62,7 @@ class WorkspaceSetupDialog(QDialog):
         btn_row.addStretch()
         btn_use = QPushButton("Verwenden")
         btn_use.setStyleSheet(
-            f"QPushButton {{ background-color: {KNX_GREEN}; color: white; "
+            f"QPushButton {{ background-color: {KNX_PRIMARY}; color: white; "
             f"font-weight: bold; border-radius: 4px; border: none; "
             f"padding: 8px 24px; }}"
             f"QPushButton:hover {{ background-color: {KNX_DARK_GREEN}; }}"
