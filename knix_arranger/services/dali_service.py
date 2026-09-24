@@ -125,7 +125,10 @@ def _parse_lda_designation_for_grouping(desig: str) -> tuple[str, str] | None:
     """
     m = _LDA_PREFIX_RE.match(desig)
     if m:
-        return f"{m.group(1)}_{m.group(2)}", m.group(3).strip().upper()
+        # Klartext-Kommentar abtrennen: "E/A (Musikzimmer)" -> "E/A" --
+        # sonst wurde die Schalt-GA nicht als Schalten erkannt.
+        func = m.group(3).split("(", 1)[0].strip().upper()
+        return f"{m.group(1)}_{m.group(2)}", func
 
     key = _lda_dot_key(desig)
     if not key:
@@ -177,6 +180,11 @@ _LDA_FUNC_TO_SLOT = {
 }
 
 
+# Rückmelde-Funktionen: füllen ein Feld nur, solange kein Befehl dafür
+# bekannt ist, und bilden nie eine eigene Gruppe (siehe _assign_lda_slot).
+_LDA_FEEDBACK_FUNCS = {"RM WERT"}
+
+
 def _same_mirrored_target(addr_a: str, addr_b: str) -> bool:
     """True, wenn zwei GA-Adressen sich NUR in der Mittelgruppe unterscheiden
     (z.B. "2/0/5" vs "2/7/5"): das übliche Muster für eine Status-/Spiegel-
@@ -225,6 +233,23 @@ def _assign_lda_slot(lda_groups: dict[str, dict], key: str, func: str, ga_addr: 
     """
     slot = _LDA_FUNC_TO_SLOT.get(func)
     if slot is None:
+        return
+    fb_flag = f"_feedback_{slot}"
+    if func in _LDA_FEEDBACK_FUNCS:
+        # Rückmeldung (z.B. "RM WERT" neben "WERT"): nur als Ersatz, wenn
+        # das Feld noch leer ist -- früher kollidierte sie mit dem Befehls-
+        # Wert und erzeugte eine zweite, gleichnamige Gruppe.
+        entry = lda_groups.setdefault(key, {
+            "switch": "", "dim": "", "value": "", "name": "", "_base_key": key,
+        })
+        if not entry[slot]:
+            entry[slot] = ga_addr
+            entry[fb_flag] = True
+        return
+    if key in lda_groups and lda_groups[key].get(fb_flag):
+        # Befehl ersetzt eine zuvor als Ersatz eingetragene Rückmeldung
+        lda_groups[key][slot] = ga_addr
+        lda_groups[key][fb_flag] = False
         return
     target_key = key
     if key in lda_groups and lda_groups[key][slot] and lda_groups[key][slot] != ga_addr:
@@ -564,6 +589,23 @@ class DaliService:
                 },
             ]
         return items
+
+    def rederive_groups(self, project, dali_gw: DaliGateway) -> int:
+        """Ersetzt die Gruppen des Gateways durch eine neue Ableitung aus den
+        Gruppenadressen (wie beim Öffnen eines Projekts ohne Gruppen). Gibt
+        die Anzahl Gruppen zurück; -1, wenn das Gateway nicht mehr in der
+        Topologie ist."""
+        device = next(
+            (d for d in self.get_dali_gateways_from_topology(project)
+             if d.id == dali_gw.gateway_device_id),
+            None,
+        )
+        if device is None:
+            return -1
+        dali_gw.groups = []
+        count = self._derive_groups_from_import(dali_gw, device, project)
+        self.sync_groups_from_devices(dali_gw)
+        return count
 
     # ── Gruppen-Synchronisation (Hilfsmethode) ────────────────────────────────
 

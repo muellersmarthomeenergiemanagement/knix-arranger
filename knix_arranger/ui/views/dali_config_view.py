@@ -295,12 +295,46 @@ class DaliConfigView(QWidget):
             "Namen/GAs/EVG-Zuordnungen bleiben erhalten."
         )
         self._btn_resync_numbers.clicked.connect(self._resync_group_numbers)
+        self._btn_rederive_groups = QPushButton("Gruppen aus GAs neu ableiten")
+        self._btn_rederive_groups.setToolTip(
+            "Ersetzt die Gruppen dieses Gateways durch eine neue Ableitung aus "
+            "den LDA-Gruppenadressen bzw. den KO-Namen des Gateways."
+        )
+        self._btn_rederive_groups.clicked.connect(self._rederive_groups)
         btn_row.addWidget(self._btn_add_grp)
         btn_row.addWidget(self._btn_remove_grp)
         btn_row.addWidget(self._btn_resync_numbers)
+        btn_row.addWidget(self._btn_rederive_groups)
         btn_row.addStretch()
         layout.addLayout(btn_row)
         return w
+
+    def _rederive_groups(self):
+        gw = self._current_gw
+        if not gw or not self._project:
+            return
+        if gw.groups:
+            answer = QMessageBox.question(
+                self, "Gruppen neu ableiten",
+                f"Die {len(gw.groups)} bestehende(n) Gruppe(n) dieses Gateways "
+                "werden durch eine neue Ableitung aus den Gruppenadressen "
+                "ersetzt (inkl. Namen und GA-Zuordnung). Fortfahren?",
+            )
+            if answer != QMessageBox.Yes:
+                return
+        count = self._service.rederive_groups(self._project, gw)
+        self._project.touch()
+        self._populate_groups_table(gw)
+        if count < 0:
+            QMessageBox.warning(
+                self, "Gruppen neu ableiten",
+                "Das Gateway ist nicht mehr in der Topologie vorhanden.",
+            )
+        elif count == 0:
+            QMessageBox.information(
+                self, "Gruppen neu ableiten",
+                "Aus den Gruppenadressen liessen sich keine Gruppen ableiten.",
+            )
 
     def _populate_groups_table(self, gw: DaliGateway):
         self._service.sync_groups_from_devices(gw)
