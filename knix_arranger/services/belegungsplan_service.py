@@ -54,6 +54,16 @@ _ACTOR_TYPE_GEWERKE: dict[str, set[str]] = {
     "battery":       {"SP"},
 }
 
+def gewerke_for_actor_product(product: str) -> set[str]:
+    """Leitet die Gewerk-Codes eines Aktors/Gateways aus dem Gerätetyp-String ab
+    (z.B. "Modbus-KNX-Gateway 1-fach" → {"WP"})."""
+    p = (product or "").lower()
+    for actor_type_prefix, codes in _ACTOR_TYPE_GEWERKE.items():
+        if actor_type_prefix.lower() in p:
+            return codes
+    return set()
+
+
 # Alle Gewerk-Codes, die Aktorseite darstellen
 _ALL_ACTOR_GEWERKE: set[str] = {
     code for codes in _ACTOR_TYPE_GEWERKE.values() for code in codes
@@ -934,11 +944,7 @@ class BelegungsplanService:
     @staticmethod
     def _gewerke_for_device(product: str) -> set[str]:
         """Leitet die zugehörigen Gewerk-Codes aus dem Gerätetyp-String ab."""
-        p = product.lower()
-        for actor_type_prefix, codes in _ACTOR_TYPE_GEWERKE.items():
-            if actor_type_prefix.lower() in p:
-                return codes
-        return set()
+        return gewerke_for_actor_product(product)
 
     @staticmethod
     def _parse_channel_count(product: str) -> int:

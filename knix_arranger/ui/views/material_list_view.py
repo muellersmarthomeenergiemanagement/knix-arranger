@@ -23,6 +23,7 @@ from ...models.device import GEWERK_TO_SENSOR_TYPE, GEWERK_TO_ACTOR_TYPE
 from ...services.product_search_service import ProductSuggestion
 from ...services.topology_engine import TopologyEngine
 from ...services.material_list_export_service import MaterialListExportService
+from ...services.device_gewerk_service import describe_device_gewerke
 from ..icons import icon
 from ..styles import KNX_BLUE
 
@@ -43,6 +44,7 @@ def _flags_str(co: dict) -> str:
 _DEVICE_CATEGORY = {
     "actor":        "Aktor",
     "sensor":       "Sensor",
+    "gateway":      "Gateway / Schnittstellen",   # FA-1308
     "power_supply": "Netzteil",
     "other":        "Sonstiges",
 }
@@ -51,16 +53,17 @@ _DEVICE_CATEGORY = {
 _COL_QTY       = 0
 _COL_CAT       = 1
 _COL_TYPE      = 2
-_COL_MFR       = 3
-_COL_ORDER     = 4
-_COL_PRODNAME  = 5
-_COL_CHANNELS  = 6   # Kanal-Validierung: "zugewiesen / benötigt"
-_COL_GA        = 7   # GA-Bedarf aus KNXPROD-ComObjects (Min–Max je Gerät)
-_COL_LOCATION  = 8
-_COL_ADDR      = 9
-_COL_LINE      = 10
-_COL_SOURCE    = 11
-_NUM_COLS      = 12
+_COL_GEWERK    = 3   # Gewerk / Raum, für das Aktor bzw. Gateway geplant ist
+_COL_MFR       = 4
+_COL_ORDER     = 5
+_COL_PRODNAME  = 6
+_COL_CHANNELS  = 7   # Kanal-Validierung: "zugewiesen / benötigt"
+_COL_GA        = 8   # GA-Bedarf aus KNXPROD-ComObjects (Min–Max je Gerät)
+_COL_LOCATION  = 9
+_COL_ADDR      = 10
+_COL_LINE      = 11
+_COL_SOURCE    = 12
+_NUM_COLS      = 13
 
 
 class MaterialListView(QWidget):
@@ -78,6 +81,9 @@ class MaterialListView(QWidget):
         self._material_list: MaterialList | None = None
         self._preferred_manufacturers: list[str] = []
         self._addr_to_line: dict[str, str] = {}   # Cache: phys. Adresse → line.id
+        # Cache für die Gewerk-Spalte: phys. Adresse / device.id → (Device, Line)
+        self._device_by_addr: dict[str, tuple] = {}
+        self._device_by_id: dict[str, tuple] = {}
         self._build_ui()
 
     # ------------------------------------------------------------------ UI
@@ -184,7 +190,7 @@ class MaterialListView(QWidget):
         # --- Tabelle ---
         self._table = QTableWidget(0, _NUM_COLS)
         self._table.setHorizontalHeaderLabels([
-            "Anz.", "Kategorie", "Typ", "Hersteller",
+            "Anz.", "Kategorie", "Typ", "Gewerk / Raum", "Hersteller",
             "Bestellnummer", "Produktname", "Kanäle", "GA-Bedarf",
             "Einbauort", "Phys. Adresse", "Linie", "Quelle",
         ])
@@ -192,6 +198,7 @@ class MaterialListView(QWidget):
         hh.setSectionResizeMode(_COL_QTY,      QHeaderView.Fixed)
         hh.setSectionResizeMode(_COL_CAT,      QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(_COL_TYPE,     QHeaderView.Interactive)
+        hh.setSectionResizeMode(_COL_GEWERK,   QHeaderView.Interactive)
         hh.setSectionResizeMode(_COL_MFR,      QHeaderView.Interactive)
         hh.setSectionResizeMode(_COL_ORDER,    QHeaderView.Interactive)
         hh.setSectionResizeMode(_COL_PRODNAME, QHeaderView.Interactive)
@@ -204,6 +211,7 @@ class MaterialListView(QWidget):
         # Initiale Breiten für manuell anpassbare Spalten
         self._table.setColumnWidth(_COL_QTY,       40)
         self._table.setColumnWidth(_COL_TYPE,     160)
+        self._table.setColumnWidth(_COL_GEWERK,   200)
         self._table.setColumnWidth(_COL_MFR,      130)
         self._table.setColumnWidth(_COL_ORDER,    120)
         self._table.setColumnWidth(_COL_PRODNAME, 220)
@@ -374,15 +382,49 @@ class MaterialListView(QWidget):
             self._material_list.entries.append(entry)
 
     def _rebuild_addr_cache(self) -> None:
-        """Baut den physikalische-Adresse→line.id Cache einmalig auf."""
+        """Baut den physikalische-Adresse→line.id Cache einmalig auf
+        (sowie die Geräte-Caches für die Gewerk-Spalte)."""
         self._addr_to_line = {}
+        self._device_by_addr = {}
+        self._device_by_id = {}
         if not self._project:
             return
         for area in self._project.topology.areas:
             for line in area.lines:
                 for device in line.devices:
+                    self._device_by_id[device.id] = (device, line)
                     if device.physical_address:
                         self._addr_to_line[device.physical_address] = line.id
+                        self._device_by_addr[device.physical_address] = (device, line)
+
+    def _entry_gewerk_info(self, entries: list[MaterialEntry]) -> tuple[str, str]:
+        """(Kurztext, Tooltip) zur Gewerk-/Raumzuordnung der Geräte hinter
+        den Einträgen -- z.B. "WP Waermepumpe – U01 Technik"."""
+        if not self._project:
+            return "", ""
+        devices = []
+        for entry in entries:
+            found = [
+                self._device_by_addr[a] for a in entry.physical_addresses
+                if a in self._device_by_addr
+            ]
+            if not found and entry.device_id in self._device_by_id:
+                found = [self._device_by_id[entry.device_id]]
+            devices.extend(found)
+        if not devices:
+            return "", ""
+        room_by_id = {r.id: r for r in self._project.all_rooms}
+        return describe_device_gewerke(
+            devices, room_by_id, self._project.gewerk_catalog
+        )
+
+    def _product_dialog_title(self, entries: list[MaterialEntry],
+                              device_type: str) -> str:
+        """Titel des Produktauswahl-Dialogs inkl. Gewerk, damit beim Wählen
+        klar ist, wofür das Gerät geplant ist."""
+        gewerk_text, _ = self._entry_gewerk_info(entries)
+        title = f"Produkt für {device_type} auswählen" if device_type else "Produkt auswählen"
+        return f"{title} ({gewerk_text})" if gewerk_text else title
 
     @staticmethod
     def _device_category(device: Device) -> str:
@@ -545,10 +587,14 @@ class MaterialListView(QWidget):
                 ga_font.setItalic(True)
                 ga_item.setFont(ga_font)
 
+            gewerk_text, gewerk_tooltip = self._entry_gewerk_info([entry])
+            gewerk_item = QTableWidgetItem(gewerk_text)
+
             items = [
                 qty_item,
                 QTableWidgetItem(entry.category),
                 QTableWidgetItem(entry.device_type),
+                gewerk_item,
                 QTableWidgetItem(entry.manufacturer),
                 QTableWidgetItem(entry.order_number),
                 QTableWidgetItem(entry.product_name or entry.device_type),
@@ -589,6 +635,11 @@ class MaterialListView(QWidget):
                             "Wizard-Platzhalter: noch kein Produkt zugewiesen.\n"
                             "Doppelklick oder \"Produkt zuweisen\" verwenden."
                         )
+
+            # Vollständige Raumliste als Tooltip der Gewerk-Spalte (ersetzt
+            # in dieser Zelle den Status-Tooltip der Zeile)
+            if gewerk_tooltip:
+                gewerk_item.setToolTip(gewerk_tooltip)
 
             for col, item in enumerate(items):
                 # Nur Menge (Spalte 0) bei manuellen Einträgen editierbar
@@ -1036,6 +1087,7 @@ class MaterialListView(QWidget):
             topology=topology,
             parent=self,
         )
+        dialog.setWindowTitle(self._product_dialog_title([entry], entry.device_type))
         # Suche vorbelegen: falls in Schritt 5 für dasselbe Gewerk bereits ein
         # Produkt verknüpft wurde (GA-Generierung), dessen Bestellnummer als
         # praezisen Vorschlag nutzen - sonst den generischen Gerätetyp.
@@ -1200,6 +1252,7 @@ class MaterialListView(QWidget):
             topology=topology,
             parent=self,
         )
+        dialog.setWindowTitle(self._product_dialog_title(entries_to_assign, chosen_type))
         dialog._search_edit.setText(chosen_type)
 
         if not dialog.exec():

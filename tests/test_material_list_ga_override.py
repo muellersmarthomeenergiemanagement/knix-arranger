@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication
 from knix_arranger.models.material_list import MaterialEntry, MaterialList
 from knix_arranger.models.project import KnxProject
 from knix_arranger.models.topology import Topology, Area, Line, Device
-from knix_arranger.ui.views.material_list_view import MaterialListView
+from knix_arranger.ui.views.material_list_view import MaterialListView, _COL_GA
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -83,7 +83,7 @@ class TestView:
         assert entry.ga_min == 1500  # KNXPROD-Wert bleibt erhalten
         _select(view, entry)
         row = view._table.selectionModel().selectedRows()[0].row()
-        assert view._table.item(row, 7).text() == "40 (manuell)"
+        assert view._table.item(row, _COL_GA).text() == "40 (manuell)"
 
     def test_empty_input_restores_knxprod_value(self):
         view, entry = self._view()
