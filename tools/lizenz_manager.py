@@ -417,7 +417,11 @@ class LizenzManager(QMainWindow):
                 + "\n".join(mail_errors)
             )
         else:
-            self._set_status(f"{len(entries)} Outlook-Entwurf/-Entwürfe geöffnet.")
+            self._set_status(
+                f"{len(entries)} Outlook-Entwurf/-Entwürfe geöffnet. Falls kein Fenster "
+                "erscheint: Outlook › Entwürfe. Nach dem Senden prüfen, dass der "
+                "Postausgang leer ist."
+            )
 
     def _resend_existing_license(self):
         """Oeffnet einen Outlook-Entwurf fuer eine bereits erstellte .knxlic-Datei,

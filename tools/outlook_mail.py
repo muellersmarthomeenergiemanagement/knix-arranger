@@ -246,6 +246,14 @@ def create_license_draft(
     mail.Attachments.Add(str(Path(license_path).resolve()))
 
     if display:
+        # Entwurf immer auch in "Entwürfe" ablegen und das Fenster nach vorne
+        # holen -- sonst öffnet Outlook es teils unbemerkt hinter dem
+        # Lizenz-Manager und es sieht aus, als wäre nichts passiert.
+        mail.Save()
         mail.Display()
+        try:
+            mail.GetInspector.Activate()
+        except Exception:
+            pass  # Aktivieren ist nur Komfort; der Entwurf existiert trotzdem
     else:
         mail.Send()
