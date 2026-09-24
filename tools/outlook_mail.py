@@ -159,7 +159,7 @@ def build_license_mail_body(
         lines = [
             f"Guten Tag {customer}",
             "",
-            "Vielen Dank für Ihren Kauf von KNiX Arranger.",
+            "Vielen Dank für Ihr Interesse an KNiX Arranger.",
             "",
             "Ihre persönliche Lizenzdatei ist dieser E-Mail beigefügt.",
             "",
@@ -177,7 +177,7 @@ def build_license_mail_body(
         lines = [
             f"Hallo {customer}",
             "",
-            "Vielen Dank für Deinen Kauf von KNiX Arranger.",
+            "Vielen Dank für Dein Interesse an KNiX Arranger.",
             "",
             "Deine persönliche Lizenzdatei ist dieser E-Mail beigefügt.",
             "",
@@ -217,7 +217,7 @@ def _build_message_html(
         lines = [
             f"Guten Tag {customer_e}",
             "",
-            "Vielen Dank für Ihren Kauf von KNiX Arranger.",
+            "Vielen Dank für Ihr Interesse an KNiX Arranger.",
             "",
             "Ihre persönliche Lizenzdatei ist dieser E-Mail beigefügt.",
             "",
@@ -235,7 +235,7 @@ def _build_message_html(
         lines = [
             f"Hallo {customer_e}",
             "",
-            "Vielen Dank für Deinen Kauf von KNiX Arranger.",
+            "Vielen Dank für Dein Interesse an KNiX Arranger.",
             "",
             "Deine persönliche Lizenzdatei ist dieser E-Mail beigefügt.",
             "",

@@ -54,7 +54,7 @@ def send_license_email(
 
     body = f"""Guten Tag {customer}
 
-Vielen Dank für Ihren Kauf von KNiX Arranger.
+Vielen Dank für Ihr Interesse an KNiX Arranger.
 
 Ihre persönliche Lizenzdatei ist diesem E-Mail beigefügt.
 
