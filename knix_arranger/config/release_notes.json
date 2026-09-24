@@ -2,6 +2,26 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.18",
+      "date": "2026-09-24",
+      "neu": [
+        "Neue Seitenleiste: Die Ansichten sind nach Arbeitsablauf in Gruppen geordnet (Planung, Topologie & Geräte, Adressen & Logik, Angebot, Abschluss & Dokumentation) und haben Symbole. Gruppen lassen sich einzeln auf- und zuklappen; welche offen sind, bleibt nach einem Neustart erhalten. Der 13-Schritt-Wizard steht immer oben.",
+        "Lizenz per Copy-Paste: Im Lizenz-Dialog können Sie den Lizenzschlüssel aus der E-Mail über «Lizenzschlüssel einfügen…» übernehmen – alternativ zur angehängten Lizenzdatei."
+      ],
+      "verbessert": [
+        "Bessere Lesbarkeit: kontrastreichere Farben für Buttons, Auswahl und Hinweistexte, einheitliche Schriftgrössen und Titel in allen Ansichten.",
+        "Klare Button-Stufen: Hauptaktionen grün, Zweitaktionen weiss mit blauem Rahmen. Selten gebrauchte Aktionen finden Sie im Menü «Weitere» (Materialliste) bzw. «Katalog» (Produktauswahl).",
+        "Wizard Schritt 5 (Gewerke): Vorlagen, Kopieren/Einfügen und die automatische Erkennung sind einklappbar – die Raumtabelle bekommt deutlich mehr Platz.",
+        "Kleinere Bildschirme und Laptops mit Skalierung: Wizard-Schritte scrollen bei Platzmangel, statt Texte und Buttons zu stauchen. Spaltenüberschriften werden nicht mehr abgeschnitten.",
+        "Durchgehend korrekte Umlaute, interne Anforderungsnummern aus Titeln und Hinweisen entfernt."
+      ],
+      "behoben": [
+        "Wizard: Die Schrittnummern 1–13 in der Navigation waren nicht sichtbar; in Schritt 5 waren die Buttons in der Tabelle abgeschnitten.",
+        "Bei kleinen Fenstern waren in Schritt 5 und Schritt 13 Buttons gestaucht und Texte abgeschnitten; in der Materialliste überlappten Buttons und Filter.",
+        "Deaktivierte «Löschen»-Buttons waren rot auf rot kaum lesbar."
+      ]
+    },
+    {
       "version": "1.1.17",
       "date": "2026-09-23",
       "neu": [
