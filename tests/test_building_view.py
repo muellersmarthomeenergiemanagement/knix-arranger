@@ -466,3 +466,65 @@ def test_function_row_keeps_already_combined_import_ga_unchanged():
     room_item = _room_tree_item(bv, room)
     fa_item = room_item.child(0).child(0)
     assert fa_item.text(2) == "1/0/0  L.UG.01.1_ea  ( Technikraum )"
+
+
+def test_channel_tag_in_brackets_groups_objects_into_one_channel():
+    """Griesser JAX-9 (Chalet Franziska 1.1.11): jedes Objekt heisst anders,
+    der Kanal steht nur als Klammer-Tag im Namen ("Bedienung Storen (M1),
+    Endlage"). Vorher wurde jedes Objekt ein eigener Knoten "CO 2", "CO 3"..."""
+    from knix_arranger.models.topology import CommunicationObject
+
+    room = Room(number="01", name="Technikraum")
+    device = Device(physical_address="1.1.11", device_type="actor",
+                    product="JAX-9", room_id=room.id)
+    device.communication_objects = [
+        CommunicationObject(object_number=2, name="Bedienung Storen (M1), Endlage",
+                            connected_gas=["2/1/10", "0/1/115"]),
+        CommunicationObject(object_number=9, name="Sonnenschutz (M1), Rückmeldung Höhe",
+                            connected_gas=["2/6/12"]),
+        CommunicationObject(object_number=24, name="Bedienung Storen (M2), Endlage",
+                            connected_gas=["2/1/5"]),
+    ]
+    line = Line(line_number=1, devices=[device], assigned_room_ids=[room.id])
+    topology = Topology(areas=[Area(area_number=1, lines=[line])])
+    floor = Floor(name="EG", short_code="EG", apartments=[Apartment(name="EG", rooms=[room])])
+    areal = Areal(buildings=[Building(wings=[Wing(floors=[floor])])])
+
+    bv = BuildingView()
+    bv.set_areal(areal)
+    bv.set_topology(topology)
+
+    dev_item = _room_tree_item(bv, room).child(0)
+    channels = {dev_item.child(i).text(0): dev_item.child(i) for i in range(dev_item.childCount())}
+    assert set(channels) == {"Kanal M1", "Kanal M2"}
+    assert channels["Kanal M1"].childCount() == 3
+    assert channels["Kanal M1"].text(3) == "3 GA(s)"
+
+
+def test_objects_without_channel_grouped_by_function_or_shown_directly():
+    """Vitogate 200 (Chalet Franziska 1.1.32): 62 Datenpunkte ohne Kanal --
+    vorher je ein Knoten "CO n" mit einem einzigen Kind."""
+    from knix_arranger.models.topology import CommunicationObject
+
+    room = Room(number="01", name="Technik")
+    device = Device(physical_address="1.1.32", device_type="actor",
+                    product="Vitogate 200", room_id=room.id)
+    device.communication_objects = [
+        CommunicationObject(object_number=1, name="Raumtemperatur Soll HK1",
+                            object_function="Bedienung / Heizkreis A1/HK1", connected_gas=["0/2/101"]),
+        CommunicationObject(object_number=2, name="Red. Raumtemperatur Soll HK1",
+                            object_function="Bedienung / Heizkreis A1/HK1", connected_gas=["0/2/102"]),
+        CommunicationObject(object_number=8, name="Außentemperatur",
+                            object_function="Überblick / Anlage", connected_gas=["0/2/108"]),
+    ]
+    line = Line(line_number=1, devices=[device], assigned_room_ids=[room.id])
+    floor = Floor(name="UG", short_code="UG", apartments=[Apartment(name="UG", rooms=[room])])
+    bv = BuildingView()
+    bv.set_areal(Areal(buildings=[Building(wings=[Wing(floors=[floor])])]))
+    bv.set_topology(Topology(areas=[Area(area_number=1, lines=[line])]))
+
+    dev_item = _room_tree_item(bv, room).child(0)
+    assert dev_item.childCount() == 2
+    group, single = dev_item.child(0), dev_item.child(1)
+    assert group.text(0) == "Bedienung / Heizkreis A1/HK1" and group.childCount() == 2
+    assert single.text(0).startswith("Außentemperatur") and single.text(2) == "0/2/108"

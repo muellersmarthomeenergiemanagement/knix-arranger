@@ -17,7 +17,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from ...models.topology import Topology, Area, Line, Device
 from ...services.belegungsplan_service import (
-    _extract_channel_label, group_actor_rows_by_channel,
+    group_actor_rows_by_channel, group_cos_for_display,
     build_ga_by_designation, resolve_ga_display,
 )
 from ..column_utils import fit_columns
@@ -498,9 +498,9 @@ class TopologyView(QWidget):
     def _add_channel_items_from_cos(dev_item: QTreeWidgetItem, device: Device,
                                      ga_by_address: dict) -> None:
         """Kanalknoten direkt aus Device.communication_objects (ETS6-Import-
-        Fallback ohne Belegungsplan). Gruppierung per
-        _extract_channel_label(co.name) -- fällt auf die CO-Objektnummer
-        zurück, wenn kein Kanal aus dem Namen erkennbar ist.
+        Fallback ohne Belegungsplan). Gruppierung per group_cos_for_display --
+        Objekte ohne Kanal nach ETS-Funktion gebuendelt oder direkt unter dem
+        Geraet.
         """
         cos_with_ga = [co for co in sorted(device.communication_objects,
                                             key=lambda c: c.object_number)
@@ -508,17 +508,15 @@ class TopologyView(QWidget):
         if not cos_with_ga:
             return
 
-        channel_groups: dict[str, list] = {}
-        for co in cos_with_ga:
-            label = _extract_channel_label(co.name) or f"CO {co.object_number}"
-            channel_groups.setdefault(label, []).append(co)
-
-        for label, cos in channel_groups.items():
-            ga_count = sum(len(co.connected_gas) for co in cos)
-            ch_item = QTreeWidgetItem(dev_item, [
-                label, "", "", "", f"{ga_count} GA(s)",
-            ])
-            ch_item.setForeground(0, QColor("#616161"))
+        for label, cos in group_cos_for_display(cos_with_ga):
+            if label:
+                ga_count = sum(len(co.connected_gas) for co in cos)
+                ch_item = QTreeWidgetItem(dev_item, [
+                    label, "", "", "", f"{ga_count} GA(s)",
+                ])
+                ch_item.setForeground(0, QColor("#616161"))
+            else:
+                ch_item = dev_item  # Objekte ohne Kanal direkt unter dem Geraet
             for co in cos:
                 co_label = co.name or co.object_function
                 # Siehe _add_channel_items_from_rows: mehrere COs desselben

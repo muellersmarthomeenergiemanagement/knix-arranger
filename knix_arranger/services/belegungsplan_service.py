@@ -179,6 +179,12 @@ _CHANNEL_PREFIX_RE = re.compile(
     r'^(Kanal\s+\w+|Ausgang\s+\w+|Eingang\s+\w+)\b', re.IGNORECASE
 )
 _CHANNEL_LETTER_RE = re.compile(r'^([A-Za-z]{1,2}\d{0,2})\s*,\s*\S')
+# Kanal nur als Klammer-Tag im Namen, z.B. Griesser JAX-9: "Bedienung Storen
+# (M1), Endlage", "Sonnenschutz (M1), Rückmeldung Höhe" -- wie
+# gewerk_channel_matching._CHANNEL_TAG_RE.
+_CHANNEL_TAG_RE = re.compile(r'\(([A-Za-z]+\d+)\)')
+# Kanal am Namensende, z.B. Thermoantriebaktor: "Stellgröße, Kanal 1"
+_CHANNEL_SUFFIX_RE = re.compile(r',\s*(Kanal\s+\w+)\s*$', re.IGNORECASE)
 
 
 def _extract_channel_label(name: str) -> str:
@@ -195,7 +201,46 @@ def _extract_channel_label(name: str) -> str:
     m = _CHANNEL_LETTER_RE.match(name)
     if m:
         return f"Kanal {m.group(1)}"
+    m = _CHANNEL_SUFFIX_RE.search(name)
+    if m:
+        return m.group(1).strip()
+    m = _CHANNEL_TAG_RE.search(name)
+    if m:
+        return f"Kanal {m.group(1)}"
     return ""
+
+
+def group_cos_for_display(cos: list) -> list[tuple[str, list]]:
+    """Gliedert die Kommunikationsobjekte eines Geraets fuer die Baum-
+    ansichten (Gebaeudestruktur, Topologie): [(Knotenname, Objekte)].
+
+    Objekte mit erkennbarem Kanal (_extract_channel_label) bilden je Kanal
+    einen Knoten. Objekte ohne Kanal (Gateways wie Vitogate, geraeteweite
+    Status-/Szenenobjekte) werden nach ihrer ETS-Funktion gebuendelt, wenn
+    mindestens zwei sie teilen ("Bedienung / Heizkreis A1/HK1"); die
+    uebrigen stehen unter dem Namen "" und gehoeren direkt unter das Geraet
+    -- statt je eines Knotens "CO n" mit einem einzigen Kind."""
+    groups: dict[str, list] = {}
+    loose: list = []
+    for co in cos:
+        label = _extract_channel_label(co.name)
+        if label:
+            groups.setdefault(label, []).append(co)
+        else:
+            loose.append(co)
+    by_function: dict[str, list] = {}
+    for co in loose:
+        by_function.setdefault((co.object_function or "").strip(), []).append(co)
+    singles: list = []
+    for function, function_cos in by_function.items():
+        if function and len(function_cos) > 1 and function not in groups:
+            groups[function] = function_cos
+        else:
+            singles.extend(function_cos)
+    result = list(groups.items())
+    if singles:
+        result.append(("", sorted(singles, key=lambda co: co.object_number)))
+    return result
 
 
 def group_actor_rows_by_channel(rows: list[ActorRow]) -> list[tuple[str, list[ActorRow]]]:

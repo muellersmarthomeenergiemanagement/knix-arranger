@@ -12,7 +12,7 @@ from ...models.building import Areal, Building, Wing, Floor, Apartment, Room, Ve
 from ...models.topology import Topology
 from ...services.building_service import BuildingService
 from ...services.belegungsplan_service import (
-    _extract_channel_label, build_ga_by_designation, resolve_ga_display,
+    build_ga_by_designation, group_cos_for_display, resolve_ga_display,
 )
 from ..column_utils import fit_columns
 
@@ -397,7 +397,7 @@ class BuildingView(QWidget):
         TopologyView._add_sensor_function_items).
 
         Gruppiert Device.communication_objects nach physischem Kanal (siehe
-        _extract_channel_label), identisch zum CO-Fallback in
+        group_cos_for_display), identisch zum CO-Fallback in
         TopologyView._add_channel_items_from_cos. Zeigt nur, wenn echte COs
         vorliegen (ETS6-Import) -- für rein wizard-geplante Aktoren ohne COs
         bleibt der Aktor ein flaches Blatt, wie zuvor.
@@ -413,14 +413,12 @@ class BuildingView(QWidget):
         if self._ga_structure is not None:
             ga_by_address = {ga.address: ga for ga in self._ga_structure.all_addresses()}
 
-        channel_groups: dict[str, list] = {}
-        for co in cos_with_ga:
-            label = _extract_channel_label(co.name) or f"CO {co.object_number}"
-            channel_groups.setdefault(label, []).append(co)
-
-        for label, cos in channel_groups.items():
-            ga_count = sum(len(co.connected_gas) for co in cos)
-            ch_item = QTreeWidgetItem(dev_item, [label, "Kanal", "", f"{ga_count} GA(s)"])
+        for label, cos in group_cos_for_display(cos_with_ga):
+            if label:
+                ga_count = sum(len(co.connected_gas) for co in cos)
+                ch_item = QTreeWidgetItem(dev_item, [label, "Kanal", "", f"{ga_count} GA(s)"])
+            else:
+                ch_item = dev_item  # Objekte ohne Kanal direkt unter dem Geraet
             for co in cos:
                 for ga_addr in co.connected_gas:
                     ga_obj = ga_by_address.get(ga_addr)

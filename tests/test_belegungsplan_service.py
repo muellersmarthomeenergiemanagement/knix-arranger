@@ -675,3 +675,37 @@ class TestResolveGaDisplay:
     def test_empty_function_ga_stays_empty(self):
         lookup = build_ga_by_designation(GroupAddressStructure())
         assert resolve_ga_display("", lookup) == ""
+
+
+# ── Kanal-Gliederung der Kommunikationsobjekte (Baumansichten) ───────────────
+
+def test_channel_label_at_end_of_name():
+    from knix_arranger.services.belegungsplan_service import _extract_channel_label
+    assert _extract_channel_label("Stellgröße, Kanal 1") == "Kanal 1"
+    assert _extract_channel_label("Status Ventilstellung, Kanal 4") == "Kanal 4"
+    assert _extract_channel_label("Bedienung Storen (M1), Endlage") == "Kanal M1"
+    assert _extract_channel_label("Status Direktbetrieb") == ""
+
+
+def test_group_cos_for_display():
+    """Kanaele je Knoten; ohne Kanal nach ETS-Funktion gebuendelt (Vitogate),
+    einzelne Objekte direkt unter dem Geraet (Name "")."""
+    from knix_arranger.models.topology import CommunicationObject
+    from knix_arranger.services.belegungsplan_service import group_cos_for_display
+
+    def co(nr, name, function=""):
+        return CommunicationObject(object_number=nr, name=name, object_function=function,
+                                   connected_gas=[f"0/2/{nr}"])
+
+    cos = [
+        co(0, "Stellgröße, Kanal 1"), co(6, "Status Ventilstellung, Kanal 1"),
+        co(10, "HK1 Raumtemperatur Soll", "Bedienung / Heizkreis A1/HK1"),
+        co(11, "HK1 Red. Raumtemperatur Soll", "Bedienung / Heizkreis A1/HK1"),
+        co(20, "Außentemperatur", "Überblick / Anlage"),
+        co(30, "Sammelstörung", "Fehlermanagement"),
+    ]
+    groups = dict(group_cos_for_display(cos))
+    assert [c.object_number for c in groups["Kanal 1"]] == [0, 6]
+    assert [c.object_number for c in groups["Bedienung / Heizkreis A1/HK1"]] == [10, 11]
+    assert [c.object_number for c in groups[""]] == [20, 30]
+    assert list(groups)[-1] == ""
