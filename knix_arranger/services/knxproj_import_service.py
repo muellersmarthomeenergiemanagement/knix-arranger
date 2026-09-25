@@ -3,6 +3,8 @@ ETS6 KNXPROJ Import (FA-521 bis FA-526)
 Liest natives ETS6-Projektformat (.knxproj = ZIP mit XML).
 """
 from __future__ import annotations
+import base64
+import hashlib
 import logging
 import os
 import re
@@ -253,6 +255,34 @@ class KnxprojImportService:
         self._create_bedienelemente_from_topology(project.topology, project.areal)
         return project
 
+    @staticmethod
+    def _zip_password_candidates(password: str) -> list[bytes]:
+        """Moegliche ZIP-Passwoerter zum Projektpasswort: ETS6 verschluesselt
+        P-XXXX.zip mit einem abgeleiteten Schluessel (PBKDF2-HMAC-SHA256 ueber
+        das UTF-16-LE-Passwort, Salt "21.project.ets.knx.org", 65536
+        Iterationen, Base64 -- wie im Open-Source-Projekt xknxproject, mit
+        einem ETS6-Export geprueft). Aeltere Exporte verwenden das Passwort
+        unveraendert."""
+        derived = base64.b64encode(hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-16-le"),
+            b"21.project.ets.knx.org", 65536, 32,
+        ))
+        return [derived, password.encode("utf-8")]
+
+    def _find_zip_password(self, inner_data: bytes, password: str) -> bytes | None:
+        """Das ZIP-Passwort, mit dem sich project.xml lesen laesst, sonst None."""
+        import io
+        import pyzipper
+        for candidate in self._zip_password_candidates(password):
+            with pyzipper.AESZipFile(io.BytesIO(inner_data)) as probe:
+                probe.setpassword(candidate)
+                try:
+                    probe.read("project.xml")
+                    return candidate
+                except (RuntimeError, KeyError, zipfile.BadZipFile):
+                    continue
+        return None
+
     def _find_nested_zip_name(self, zf: zipfile.ZipFile) -> str | None:
         """Gibt den Namen der P-XXXX.zip im aeusseren ZIP zurueck, oder None."""
         for name in zf.namelist():
@@ -265,9 +295,10 @@ class KnxprojImportService:
     ) -> KnxProject:
         """
         Neueres ETS6-Format: Projektdaten in P-XXXX.zip innerhalb des aeusseren ZIP.
-        Wenn der innere ZIP AES-verschluesselt ist, wird der Schluessel vom
-        ETS6-Cloud-Lizenz-Zertifikat abgeleitet – das kann KNiX Arranger nicht
-        ohne Zugriff auf die ETS6-internen Schluessel entschluesseln.
+        Ist der innere ZIP AES-verschluesselt (Export mit Passwort), wird das
+        ZIP-Passwort aus dem Projektpasswort abgeleitet (siehe
+        _zip_password_candidates). Ein Cloud-Lizenz-Zertifikat im Archiv
+        spielt dafuer keine Rolle (mit ETS6 geprueft, 2026-09).
         """
         import io
 
@@ -288,21 +319,6 @@ class KnxprojImportService:
 
         pwd_bytes: bytes | None = None
         if is_encrypted:
-            # ETS6-Cloud-Lizenz-Zertifikat pruefen
-            cert_name = f"{project_id}.certificate"
-            has_cloud_cert = cert_name in outer_zf.namelist() and (
-                b"CloudLicense" in outer_zf.read(cert_name)
-            )
-            if has_cloud_cert:
-                raise KnxprojImportError(
-                    "Dieses Projekt ist mit der ETS6-Cloud-Lizenz verschluesselt.\n\n"
-                    "Der Verschluesselungsschluessel ist an Ihre ETS6-Installation "
-                    "gebunden und kann von KNiX Arranger nicht entschluesselt werden.\n\n"
-                    "Bitte exportieren Sie in ETS6:\n"
-                    "  - Gruppenadress-Report als XLSX\n"
-                    "  - Topologie-Report als XLSX\n"
-                    "und importieren Sie diese Dateien."
-                )
             if not password:
                 raise KnxprojPasswordRequired(project_id)
             try:
@@ -313,7 +329,9 @@ class KnxprojImportService:
                     "'pyzipper' benötigt (siehe requirements.txt)."
                 ) from exc
             inner_cls = pyzipper.AESZipFile
-            pwd_bytes = password.encode("utf-8")
+            pwd_bytes = self._find_zip_password(inner_data, password)
+            if pwd_bytes is None:
+                raise KnxprojPasswordWrong()
         else:
             # Nicht verschluesselt: normaler Import aus dem inneren ZIP
             try:
