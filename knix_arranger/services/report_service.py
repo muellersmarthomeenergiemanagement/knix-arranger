@@ -4,7 +4,6 @@ Erzeugt Validierungsberichte, GA-Listen und Projektuebersichten als PDF/Text.
 """
 from __future__ import annotations
 import logging
-import re
 from collections import defaultdict
 from datetime import datetime
 
@@ -22,6 +21,9 @@ from ..services.scene_addressing import (
 )
 from ..services.co_linking_service import CoLinkingService
 from ..services.naming_engine import NamingEngine
+from ..services.report_sorting import (
+    group_address_key, physical_address_key, room_order, sorted_rooms,
+)
 from ..utils.pdf_generator import PdfGenerator
 
 logger = logging.getLogger("knix_arranger.report_service")
@@ -96,9 +98,11 @@ class ReportService:
         pdf.add_separator()
 
         # Zusammenfassung
-        errors = [i for i in issues if i.level == "error"]
-        warnings = [i for i in issues if i.level == "warning"]
-        infos = [i for i in issues if i.level == "info"]
+        # Je Stufe nach Gruppenadresse, Meldungen ohne Adresse zuletzt
+        ordered = sorted(issues, key=lambda i: (group_address_key(i.address), i.rule_id))
+        errors = [i for i in ordered if i.level == "error"]
+        warnings = [i for i in ordered if i.level == "warning"]
+        infos = [i for i in ordered if i.level == "info"]
 
         pdf.add_heading("Zusammenfassung", level=2)
         ga_count = len(self.project.group_addresses.all_addresses())
@@ -183,11 +187,11 @@ class ReportService:
         pdf.add_separator()
 
         # Pro Hauptgruppe
-        for hg in structure.main_groups:
+        for hg in sorted(structure.main_groups, key=lambda h: h.number):
             hg_gas = sum(len(mg.group_addresses) for mg in hg.middle_groups)
             pdf.add_heading(f"HG {hg.number}: {hg.name} ({hg_gas} GAs)", level=2)
 
-            for mg in hg.middle_groups:
+            for mg in sorted(hg.middle_groups, key=lambda m: m.number):
                 if not mg.group_addresses:
                     continue
                 mg_name = mg_names.get(mg.number, mg.name)
@@ -258,16 +262,6 @@ class ReportService:
                             floor_by_room[room.id] = floor.name
                             zone_by_room[room.id] = apt.name
 
-        def _room_key(room):
-            floor = floor_by_room.get(room.id, "")
-            zone = zone_by_room.get(room.id, "")
-            num = 9999
-            if room.number:
-                m = re.search(r'\d+', room.number)
-                if m:
-                    num = int(m.group())
-            return (floor, zone, num, room.name)
-
         pdf = self._make_pdf("Räume nach Gewerken")
         pdf.add_heading("Räume nach Gewerken", level=1)
         pdf.add_paragraph(
@@ -277,7 +271,7 @@ class ReportService:
         pdf.add_separator()
 
         has_any = False
-        for room in sorted(self.project.all_rooms, key=_room_key):
+        for room in sorted_rooms(self.project.areal):
             # GAs für diesen Raum sammeln (über room_id und/oder verknüpfte Geräte)
             room_gas = {}
             for ga in structure.all_addresses():
@@ -504,14 +498,11 @@ class ReportService:
 
 
         def _dev_addr_key(dev):
-            try:
-                return tuple(int(p) for p in dev.physical_address.split("."))
-            except ValueError:
-                return (0, 0, 0)
+            return physical_address_key(dev.physical_address)
 
         first_area_with_content = True
 
-        for area in topo.areas:
+        for area in sorted(topo.areas, key=lambda a: a.area_number):
             # Fix 1: Bereiche ohne Geräte überspringen
             area_has_content = any(line.devices or line.assigned_room_ids for line in area.lines)
             if not area_has_content:
@@ -531,7 +522,7 @@ class ReportService:
             if area_info_parts:
                 pdf.add_paragraph("  ".join(area_info_parts))
 
-            for line in area.lines:
+            for line in sorted(area.lines, key=lambda l: l.line_number):
                 # Fix 1: Linien ohne Geräte und ohne Bedienelemente überspringen
                 line_rooms_with_bes = [
                     room_by_id[rid] for rid in line.assigned_room_ids
@@ -624,27 +615,13 @@ class ReportService:
 
         # ── Hilfsfunktionen für Sortierung ──────────────────────────────────
         def _addr_key(be):
-            try:
-                return tuple(int(p) for p in (be.participant_number or "").split("."))
-            except ValueError:
-                return (0, 0, 0)
+            return physical_address_key(be.participant_number)
 
-        def _room_key(room):
-            """Stockwerk → Zone → Raum-Nr. numerisch (leer/keine Zahl = zuletzt)."""
-            floor = floor_by_room.get(room.id, "")
-            zone  = zone_by_room.get(room.id, "")
-            num = 9999
-            if room.number:
-                m = re.search(r'\d+', room.number)
-                if m:
-                    num = int(m.group())
-            return (floor, zone, num, room.name)
-
-        sorted_rooms = sorted(project.all_rooms, key=_room_key)
+        rooms_in_order = sorted_rooms(project.areal)
 
         # ── Übersichtstabelle ────────────────────────────────────────────────
         summary_rows = []
-        for room in sorted_rooms:
+        for room in rooms_in_order:
             floor_name = floor_by_room.get(room.id, "")
             zone_name  = zone_by_room.get(room.id, "")
             room_label = f"{room.number} {room.name}".strip()
@@ -665,7 +642,7 @@ class ReportService:
             pdf.add_separator()
 
         has_any = False
-        for room in sorted_rooms:
+        for room in rooms_in_order:
             active_bes = [be for be in room.bedienelemente if not be.suppressed]
             if not active_bes:
                 continue
@@ -817,13 +794,7 @@ class ReportService:
                     if dev.device_type in target_types:
                         entries.append((area, line, dev))
 
-        def _addr_key(entry):
-            try:
-                return tuple(int(p) for p in entry[2].physical_address.split("."))
-            except ValueError:
-                return (0, 0, 0)
-
-        entries.sort(key=_addr_key)
+        entries.sort(key=lambda entry: physical_address_key(entry[2].physical_address))
 
         # ── Übersichtstabelle ────────────────────────────────────────────────
         summary_rows = []
@@ -1070,6 +1041,27 @@ class ReportService:
             None,
         )
 
+    def _scene_sort_key(self):
+        """Zentral, Zone, Wohnung, Raum; Raeume in Gebaeude-Reihenfolge,
+        Wohnungen/Zonen nach Name; darin nach Szenennummer. Vorher wurde nach
+        der internen Raum-ID sortiert -- die Raumreihenfolge war zufaellig."""
+        scope_rank = {"central": 0, "zone": 1, "apartment": 2, "room": 3}
+        order = room_order(self.project.areal)
+        names = {}
+        for building in self.project.areal.buildings:
+            for wing in building.wings:
+                for floor in wing.floors:
+                    for apartment in floor.apartments:
+                        names.setdefault(apartment.id, apartment.name or "")
+
+        def key(scene):
+            if scene.scope == "room":
+                target = (order.get(scene.scope_id, len(order)), "")
+            else:
+                target = (0, names.get(scene.scope_id, scene.scope_id or ""))
+            return (scope_rank.get(scene.scope, 4), target, scene.scene_number or 0, scene.name or "")
+        return key
+
     def generate_szenen_report(self, filepath: str):
         """
         Erzeugt einen Szenenreport als PDF (FA-1811): pro Szene ein
@@ -1114,7 +1106,7 @@ class ReportService:
             if row.gewerk_code:
                 gewerke_by_device_addr.setdefault(row.physical_address, set()).add(row.gewerk_code)
 
-        for scene in sorted(scenes, key=lambda s: (s.scope, s.scope_id, s.scene_number)):
+        for scene in sorted(scenes, key=self._scene_sort_key()):
             pdf.add_conditional_break(min_height=150)
             pdf.add_heading(f"{scene.name}  (Szene Nr. {scene.scene_number or '–'})", level=2)
 

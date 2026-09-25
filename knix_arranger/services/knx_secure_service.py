@@ -38,6 +38,17 @@ _PBKDF2_ITERATIONS = 100_000
 _SECURE_NAME_RE = re.compile(r"\bsecure\b", re.IGNORECASE)
 
 
+def sorted_device_infos(config: KnxSecureConfig) -> list[DeviceSecureInfo]:
+    """Geräte des Archivs nach physikalischer Adresse aufsteigend (numerisch:
+    1.1.9 vor 1.1.10); Geräte ohne gültige Adresse am Ende, nach Name."""
+    def key(info: DeviceSecureInfo):
+        try:
+            return (0, tuple(int(p) for p in info.physical_address.split(".")), "")
+        except (ValueError, AttributeError):
+            return (1, (), info.device_name or "")
+    return sorted(config.device_infos.values(), key=key)
+
+
 def is_secure_product_name(name: str) -> bool:
     """Produktname nennt KNX Secure ("KNX IO 511.1 secure") -- Notbehelf fuer
     XLSX-Importe, deren Reports keine Secure-Angabe je Geraet enthalten."""

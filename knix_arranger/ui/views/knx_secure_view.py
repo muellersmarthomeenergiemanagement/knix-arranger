@@ -26,7 +26,9 @@ from ...models.knx_secure import (
     KnxSecureConfig, GA_SECURITY_MODES, SECURE_MODES, SECURE_MODE_LABELS,
     is_valid_knx_key,
 )
-from ...services.knx_secure_service import KnxSecureService, KnxSecureWrongPassword
+from ...services.knx_secure_service import (
+    KnxSecureService, KnxSecureWrongPassword, sorted_device_infos,
+)
 from ..column_utils import fit_columns
 
 _COL_DEV_NAME   = 0
@@ -436,7 +438,7 @@ class KnxSecureView(QWidget):
         return w
 
     def _populate_devices_tab(self, cfg: KnxSecureConfig):
-        infos = list(cfg.device_infos.values())
+        infos = sorted_device_infos(cfg)
         self._dev_table.setRowCount(len(infos))
         locked = cfg.is_locked
         for i, info in enumerate(infos):

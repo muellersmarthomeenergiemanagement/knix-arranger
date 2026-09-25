@@ -180,3 +180,17 @@ class TestDeviceCertificates:
         )
         assert added == 0 and len(conflicts) == 1
         assert project.knx_secure.device_infos[device.id].fdsk == "11" * 16
+
+
+def test_device_infos_sorted_by_physical_address():
+    from knix_arranger.models.knx_secure import DeviceSecureInfo, KnxSecureConfig
+    from knix_arranger.services.knx_secure_service import sorted_device_infos
+
+    cfg = KnxSecureConfig()
+    for i, (addr, name) in enumerate([("1.1.10", "B"), ("", "Ohne Adresse"), ("1.1.9", "A"),
+                                      ("2.1.1", "C"), ("1.2.1", "D")]):
+        cfg.device_infos[str(i)] = DeviceSecureInfo(device_id=str(i), device_name=name,
+                                                    physical_address=addr)
+    assert [i.physical_address for i in sorted_device_infos(cfg)] == [
+        "1.1.9", "1.1.10", "1.2.1", "2.1.1", "",
+    ]

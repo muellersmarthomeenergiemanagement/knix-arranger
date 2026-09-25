@@ -15,6 +15,7 @@ from ..models.documentation import (
     ITEM_KIND_DEVICE, ITEM_KIND_FUNCTION, RESULT_OPEN,
 )
 from ..utils.pdf_generator import PdfGenerator
+from .report_sorting import physical_address_key, sorted_rooms
 from ..utils.excel_generator import ExcelGenerator, HAS_OPENPYXL
 
 logger = logging.getLogger("knix_arranger.documentation")
@@ -259,7 +260,8 @@ class DocumentationService:
         """Alle Räume mit aktuellen Funktionszuordnungen – aus einer Kopie,
         damit das Erzeugen von Checklisten das Projekt nicht verändert."""
         from .sensor_service import project_for_export
-        return project_for_export(self.project).all_rooms
+        export_project = project_for_export(self.project)
+        return sorted_rooms(export_project.areal)
 
     def export_checklists_pdf(self, filepath: str,
                               checklists: list[CommissioningChecklist] | None = None):
@@ -646,7 +648,7 @@ class DocumentationService:
         pdf.add_separator()
 
         # Pro Raum
-        rooms = self.project.all_rooms
+        rooms = sorted_rooms(self.project.areal)
         for room in rooms:
             active_bes = [be for be in room.bedienelemente if not be.suppressed]
             if not room.gewerk_assignments and not active_bes:
@@ -831,7 +833,7 @@ class DocumentationService:
         ist dann selbst ein Geheimnis und muss entsprechend vertraulich
         behandelt werden.
         """
-        from ..services.knx_secure_service import KnxSecureService
+        from ..services.knx_secure_service import KnxSecureService, sorted_device_infos
         from ..models.knx_secure import SECURE_MODE_LABELS
 
         cfg = self.project.knx_secure
@@ -896,7 +898,7 @@ class DocumentationService:
 
         pdf.add_separator()
         pdf.add_heading("Geräte", level=2)
-        infos = list(cfg.device_infos.values())
+        infos = sorted_device_infos(cfg)
         if not infos:
             pdf.add_paragraph("Keine Geräte im Archiv erfasst.")
         else:
@@ -933,6 +935,12 @@ class DocumentationService:
         """Erzeugt die DALI-Geräteliste für das Revisionspaket (FA-2805)."""
         from .dali_service import DaliService
         svc = DaliService()
+        # Gateways nach physikalischer Adresse (dali_configs ist nach
+        # Geraete-ID indiziert)
+        gateway_address = {
+            d.id: d.physical_address
+            for area in self.project.topology.areas for line in area.lines for d in line.devices
+        }
         pdf = self._make_pdf("DALI-Gerätekonfiguration")
         pdf.add_heading("DALI-Gerätekonfiguration", level=1)
         pdf.add_paragraph(f"Projekt: {self.project.name}")
@@ -941,7 +949,10 @@ class DocumentationService:
         if not self.project.dali_configs:
             pdf.add_paragraph("Keine DALI-Konfigurationen vorhanden.")
         else:
-            for gw_id, gw in self.project.dali_configs.items():
+            for gw_id, gw in sorted(
+                self.project.dali_configs.items(),
+                key=lambda item: physical_address_key(gateway_address.get(item[0], "")),
+            ):
                 pdf.add_separator()
                 pdf.add_heading(f"DALI-Gateway: {gw.name}", level=2)
                 pdf.add_paragraph(f"Device-ID: {gw_id}")

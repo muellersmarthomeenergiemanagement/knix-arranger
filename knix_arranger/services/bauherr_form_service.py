@@ -16,6 +16,7 @@ from datetime import datetime
 from ..models.project import KnxProject
 from ..models.building import Room, Bedienelement, FunctionAssignment, SensorFunktion
 from ..utils.excel_generator import ExcelGenerator, HAS_OPENPYXL
+from .report_sorting import sorted_rooms
 
 logger = logging.getLogger("knix_arranger.bauherr_form")
 
@@ -619,7 +620,7 @@ class BauherrFormService:
         )
         excel.add_empty_row()
 
-        rooms = self.project.all_rooms
+        rooms = sorted_rooms(self.project.areal)
         headers = ["Raum-Nr.", "Raumname", "Bedienelemente", "Gewerke"]
         rows = []
         for room in rooms:
