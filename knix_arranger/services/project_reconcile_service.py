@@ -242,15 +242,22 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
         _room_label(fc, nr) for fc, nr in (old_rooms_by_floor_nr.keys() - new_keys)
     ) + sorted(old_unnumbered_by_name.keys() - new_unnumbered_names)
 
-    if room_id_remap:
-        for area in new_project.topology.areas:
-            for line in area.lines:
-                line.assigned_room_ids = [
+    # Beim GA-/Gebaeude-Report-Import bleibt die Topologie bestehen (Linien
+    # tragen die alten Raum-IDs), link_rooms_to_lines() haengt die frischen
+    # an -- nach dem Remap stuende jeder Raum doppelt in der Linie. Deshalb
+    # Duplikate und IDs ohne Raum (entfernte Raeume) verwerfen.
+    new_room_ids = {r.id for r in new_project.all_rooms}
+    for area in new_project.topology.areas:
+        for line in area.lines:
+            line.assigned_room_ids = [
+                rid for rid in dict.fromkeys(
                     room_id_remap.get(rid, rid) for rid in line.assigned_room_ids
-                ]
-                for dev in line.devices:
-                    if dev.room_id in room_id_remap:
-                        dev.room_id = room_id_remap[dev.room_id]
+                )
+                if rid in new_room_ids
+            ]
+            for dev in line.devices:
+                if dev.room_id in room_id_remap:
+                    dev.room_id = room_id_remap[dev.room_id]
 
     # Manuell hinzugefügte Gruppenadressen (is_manual=True) übernehmen -- der
     # frische Import ersetzt new_project.group_addresses vollständig und kennt

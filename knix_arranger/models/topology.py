@@ -267,7 +267,9 @@ class Line:
             name=data.get("name", ""),
             coupler_address=data.get("coupler_address", ""),
             assigned_floor_ids=data.get("assigned_floor_ids", []),
-            assigned_room_ids=data.get("assigned_room_ids", []),
+            # Doppelte Eintraege (Re-Import-Fehler bis v1.1.19, siehe
+            # reconcile_reimport) beim Laden bereinigen
+            assigned_room_ids=list(dict.fromkeys(data.get("assigned_room_ids", []))),
             uv_location=data.get("uv_location", ""),
             device_count=data.get("device_count", 0),
             topology_form=data.get("topology_form", "Linie"),

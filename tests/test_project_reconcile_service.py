@@ -349,3 +349,26 @@ def test_same_room_number_on_different_floors_not_merged():
     assert new_dev_technik.room_id == old_technikraum.id
     assert new_dev_carnotzet.room_id == old_carnotzet.id
     assert new_dev_carnotzet.room_id != new_dev_technik.room_id
+
+
+def test_reimport_with_kept_topology_does_not_duplicate_line_rooms():
+    """GA-/Gebaeude-Report nach dem Topologie-Report: die Topologie bleibt
+    bestehen (Linie traegt die alte Raum-ID), die Gebaeudestruktur wird mit
+    frischen IDs neu abgeleitet und link_rooms_to_lines() haengt die frische
+    ID an. Nach dem Abgleich darf der Raum nur einmal in der Linie stehen."""
+    old_project, _, old_room = _project_with_device_and_room()
+    line = old_project.topology.areas[0].lines[0]
+    line.assigned_room_ids = [old_room.id, "entfernter-raum"]
+
+    new_project, _, new_room = _project_with_device_and_room()
+    new_project.topology = old_project.topology
+    line.assigned_room_ids.append(new_room.id)
+
+    reconcile_reimport(old_project, new_project)
+
+    assert line.assigned_room_ids == [old_room.id]
+
+
+def test_line_from_dict_removes_duplicate_rooms():
+    line = Line.from_dict({"line_number": 1, "assigned_room_ids": ["a", "b", "a", "b"]})
+    assert line.assigned_room_ids == ["a", "b"]
