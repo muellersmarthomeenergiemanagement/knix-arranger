@@ -2,6 +2,27 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.20",
+      "date": "2026-09-25",
+      "neu": [
+        "Wizard Schritt 5: «Kanäle…» verknüpft auch Mehrfach-Zuweisungen wie «Jalousie ×2» mit bestehenden Aktor-Kanälen – jedes Element (z. B. jeder Storen) erhält seinen eigenen Kanal. Der Dialog führt Element für Element durch; einzelne Elemente lassen sich überspringen.",
+        "Gewerke aus Topologie vorschlagen: Raum, Gewerk und Element werden aus den Bezeichnungen der Gruppenadressen gelesen (z. B. «J.OG.04.02_move» → Raum OG.04, Jalousie, Element 2). Mehrfach-Zuweisungen werden so automatisch mit den richtigen Aktor-Kanälen verknüpft; fehlende Zuweisungen entstehen mit passender Anzahl (z. B. «Licht ×3»)."
+      ],
+      "verbessert": [
+        "Einheitliche Herstellernamen: Hersteller werden über ihre offizielle KNX-Hersteller-ID erkannt. Schreibweisen wie «ABB AG - STOTZ-KONTAKT» oder «MDT technologies» erscheinen überall einheitlich als «ABB» bzw. «MDT»; bestehende Projekte und Kataloge werden beim Öffnen angepasst.",
+        "Aus ETS importierte Geräte finden ihren Eintrag im Produktkatalog. Bestellnummern werden dabei unabhängig von Leerzeichen, Punkten sowie Gross- und Kleinschreibung verglichen; die Produktsuche findet z. B. «GHQ6310049» auch als «GH Q631 0049».",
+        "Produktkatalog und Geräte speichern die ETS-Kennungen von Produkt und Applikation aus dem KNXPROD- und dem ETS-Import.",
+        "Gebäudestruktur und Topologie: Kommunikationsobjekte werden übersichtlich nach Kanal gruppiert, auch wenn der Kanal nur im Namen steht («Bedienung Storen (M1), Endlage», «Stellgröße, Kanal 1»). Geräte ohne Kanäle wie Heizungs-Gateways werden nach ETS-Funktion gegliedert statt als lange Liste einzelner Objekte.",
+        "Gewerke aus Topologie vorschlagen: Taster werden nicht mehr vorgeschlagen, und auf mehrere Objektnamen verteilte Kanäle (z. B. beim DALI-Gateway) erscheinen als eine Zeile.",
+        "Export nach ETS6: Der KNXPROJ-Export ist entfallen. ETS6 importiert nur Projektdateien, die ETS selbst signiert hat (mit ETS6 geprüft). Gruppenadressen gelangen weiterhin per CSV-Export nach ETS6."
+      ],
+      "behoben": [
+        "Passwortgeschützte ETS6-Projekte (.knxproj) liessen sich nicht importieren; teils erschien fälschlich der Hinweis, das Projekt sei an die ETS6-Cloud-Lizenz gebunden. Nach Eingabe des Projektpassworts werden sie jetzt direkt eingelesen.",
+        "Wizard Schritt 7: Nach dem Import eines Gruppenadress- oder Gebäude-Reports erschienen Räume in der Topologie doppelt. Bestehende Projekte werden beim Öffnen bereinigt.",
+        "Gewerke aus Topologie vorschlagen: Aktor-Kanäle wurden dem Raum des Verteilers statt dem Raum des Verbrauchers zugeordnet, meist mit falschem Gewerk."
+      ]
+    },
+    {
       "version": "1.1.19",
       "date": "2026-09-24",
       "neu": [
