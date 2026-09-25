@@ -31,7 +31,7 @@ _TOUR_STEPS = [
             "<tr style='background:#E8F5E9;'><td style='padding:6px 12px; border-bottom:1px solid #C5E1A5;'>&#10003; &nbsp;KNX-Busstruktur (Topologie) automatisch berechnen</td></tr>"
             "<tr style='background:white;'><td style='padding:6px 12px; border-bottom:1px solid #C5E1A5;'>&#10003; &nbsp;Alle Gruppenadressen nach KNX Swiss Richtlinien generieren</td></tr>"
             "<tr style='background:#E8F5E9;'><td style='padding:6px 12px; border-bottom:1px solid #C5E1A5;'>&#10003; &nbsp;Komplettes Revisionspaket und Bauherr-Anleitung erstellen</td></tr>"
-            "<tr style='background:white;'><td style='padding:6px 12px; border-radius:0 0 4px 4px;'>&#10003; &nbsp;ETS6-kompatible CSV- und KNXPROJ-Dateien exportieren</td></tr>"
+            "<tr style='background:white;'><td style='padding:6px 12px; border-radius:0 0 4px 4px;'>&#10003; &nbsp;Gruppenadressen als CSV für ETS6 exportieren</td></tr>"
             "</table>"
             "<p style='color:#666; font-size: 12px;'>Diese kurze Tour dauert ca. 2 Minuten.</p>"
         ),
@@ -78,7 +78,7 @@ _TOUR_STEPS = [
             "<tr style='background:#F1F8E9;'><td style='padding:4px 8px; border-bottom:1px solid #C5E1A5;'>6–8</td><td style='padding:4px 8px; border-bottom:1px solid #C5E1A5;'>Topologie + Aktoren</td><td style='padding:4px 8px; border-bottom:1px solid #C5E1A5;'>Linien, Koppler, Aktoren</td></tr>"
             "<tr style='background:white;'><td style='padding:4px 8px; border-bottom:1px solid #C5E1A5;'>9–10</td><td style='padding:4px 8px; border-bottom:1px solid #C5E1A5;'>Szenen + Gruppenadressen</td><td style='padding:4px 8px; border-bottom:1px solid #C5E1A5;'>Vollständige GA-Struktur</td></tr>"
             "<tr style='background:#F1F8E9;'><td style='padding:4px 8px; border-bottom:1px solid #C5E1A5;'>11–12</td><td style='padding:4px 8px; border-bottom:1px solid #C5E1A5;'>Sensoren + Funktionen</td><td style='padding:4px 8px; border-bottom:1px solid #C5E1A5;'>Bedienelemente + Tastenbelegung</td></tr>"
-            "<tr style='background:white;'><td style='padding:4px 8px;'><b>13</b></td><td style='padding:4px 8px;'><b>Export</b></td><td style='padding:4px 8px;'>CSV, KNXPROJ, Revisionspaket</td></tr>"
+            "<tr style='background:white;'><td style='padding:4px 8px;'><b>13</b></td><td style='padding:4px 8px;'><b>Export</b></td><td style='padding:4px 8px;'>CSV, Revisionspaket</td></tr>"
             "</table>"
         ),
     },
@@ -163,7 +163,7 @@ _TOUR_STEPS = [
             "<tr><td style='padding:5px 0;'>"
             "<div style='display:inline-block; background:#2E7D32; color:white; border-radius:50%; "
             "width:24px; height:24px; text-align:center; line-height:24px; font-weight:bold; font-size: 12px;'>5</div>"
-            "&nbsp;&nbsp;<b>Export</b> erstellen – CSV, KNXPROJ, Revisionspaket"
+            "&nbsp;&nbsp;<b>Export</b> erstellen – CSV, Revisionspaket"
             "</td></tr>"
             "</table>"
             "<div style='background:#F9FBE7; border:1px solid #C5E1A5; border-radius:4px; padding:8px 12px; margin-top:8px; font-size: 12px;'>"

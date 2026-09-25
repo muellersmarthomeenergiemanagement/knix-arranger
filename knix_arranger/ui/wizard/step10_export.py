@@ -47,13 +47,16 @@ class Step10Export(QWidget):
         summary_group.setLayout(summary_layout)
         layout.addWidget(summary_group)
 
-        # ── ETS6-Import (funktioniert) ────────────────────────────────
-        ets_group = QGroupBox("ETS6-Import (empfohlen)")
+        # ── Weg nach ETS6 ─────────────────────────────────────────────
+        # Eine .knxproj-Datei kann nur ETS selbst erzeugen (Projektsignatur,
+        # mit ETS6 getestet 2026-09) -- nach ETS6 fuehrt nur der GA-Import.
+        ets_group = QGroupBox("Weg nach ETS6")
         ets_layout = QVBoxLayout()
 
         ets_hint = QLabel(
-            "Gruppenadressen können direkt in ETS6 importiert werden:\n"
-            "ETS6 → Topologie → Gerät → Gruppenadressen → Importieren → CSV wählen"
+            "Gruppenadressen lassen sich in ETS6 importieren (Fenster Gruppenadressen →\n"
+            "Importieren → CSV-Datei wählen). Geräte und Topologie werden in ETS angelegt;\n"
+            "eine .knxproj-Datei kann nur ETS selbst erzeugen (Projektsignatur)."
         )
         ets_hint.setStyleSheet("color: #555; font-size: 12px; padding: 2px 0 6px 0;")
         ets_hint.setWordWrap(True)
@@ -82,31 +85,6 @@ class Step10Export(QWidget):
 
         ets_group.setLayout(ets_layout)
         layout.addWidget(ets_group)
-
-        # ── KNXPROJ-Archiv ────────────────────────────────────────────
-        knxproj_group = QGroupBox("KNXPROJ-Archiv (für andere KNX-Tools / Dokumentation)")
-        knxproj_layout = QVBoxLayout()
-
-        knxproj_hint = QLabel(
-            "Hinweis: ETS6 verlangt eine kryptographische Signatur, die nur ETS6 selbst\n"
-            "erzeugen kann. Die exportierte Datei kann nicht direkt in ETS6 geöffnet werden,\n"
-            "eignet sich aber als Archiv oder für andere KNX-kompatible Werkzeuge."
-        )
-        knxproj_hint.setStyleSheet("color: #666666; font-size: 12px; padding: 2px 0 6px 0;")
-        knxproj_hint.setWordWrap(True)
-        knxproj_layout.addWidget(knxproj_hint)
-
-        btn_knxproj = QPushButton("KNXPROJ exportieren (.knxproj)")
-        btn_knxproj.setToolTip(
-            "Enthält: Gruppenadressen, Topologie, Gebäudestruktur.\n"
-            "Nicht direkt in ETS6 öffnbar (fehlende ETS6-Signatur).\n"
-            "Geeignet für Archivierung und andere KNX-Werkzeuge."
-        )
-        btn_knxproj.clicked.connect(self._export_knxproj)
-        knxproj_layout.addWidget(btn_knxproj)
-
-        knxproj_group.setLayout(knxproj_layout)
-        layout.addWidget(knxproj_group)
 
         # ── Projekt speichern ─────────────────────────────────────────
         btn_save = QPushButton("Projekt speichern (.knxarr)")
@@ -196,37 +174,6 @@ class Step10Export(QWidget):
             self._success.setText("ETS-Belegungsplan erfolgreich exportiert!")
 
         run_export(self, "ETS-Belegungsplan wird erstellt…", do_export, on_success, self._worker_ref)
-
-    def _export_knxproj(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "KNXPROJ exportieren",
-            os.path.join(self._default_dir(), f"{self._project.name or 'projekt'}.knxproj"),
-            "ETS6-Projekt (*.knxproj)",
-        )
-        if not path:
-            return
-
-        project = self._project
-        from ..dialogs.knxproj_export_options import ask_product_refs
-        refs = ask_product_refs(self, project)
-        if refs is None:
-            return
-
-        def do_export():
-            from ...services.knxproj_export_service import KnxprojExportService
-            return KnxprojExportService().export(
-                project, path, product_refs=refs[0], product_data_folder=refs[1],
-            )
-
-        def on_success(summary):
-            self._log.append(f"KNXPROJ exportiert: {path}")
-            self._success.setText("KNXPROJ exportiert (Archiv).")
-            QMessageBox.information(
-                self, "KNXPROJ exportiert",
-                summary.as_text() + f"\n\nDatei: {path}",
-            )
-
-        run_export(self, "KNXPROJ-Archiv wird erstellt…", do_export, on_success, self._worker_ref)
 
     def _save_project(self):
         path, _ = QFileDialog.getSaveFileName(

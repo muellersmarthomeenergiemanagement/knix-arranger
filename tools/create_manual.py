@@ -293,8 +293,8 @@ def build():
          "Das Bauherr-Formular zeigt alle Bedienelemente und deren zugeordneten "
          "Funktionen – ideal als Grundlage für die Inbetriebnahme."),
         ("Schritt 13 – Export",
-         "Exportieren Sie das Projekt als CSV für ETS6, als natives .knxproj-Format "
-         "oder als Revisionspaket (PDF, Excel)."),
+         "Exportieren Sie die Gruppenadressen als CSV für ETS6 oder das Projekt "
+         "als Revisionspaket (PDF, Excel)."),
     ]
 
     for num, (title, desc) in enumerate(steps, 1):
@@ -318,7 +318,7 @@ def build():
         ("Zeitsteuerung",      "Wochenprogramme, Astrofunktionen, Feiertagskalender"),
         ("DALI-Konfiguration", "DALI-Gruppen und EVGs, automatisch aus importierten GAs ermittelt"),
         ("Validierung",        "Prüft das Projekt auf Fehler und Warnungen vor dem Export"),
-        ("Export",             "Revisionspaket, CSV, KNXPROJ, Belegungsplan, Kabelwege"),
+        ("Export",             "Revisionspaket, CSV, Belegungsplan, Kabelwege"),
     ]
 
     t4 = doc.add_table(rows=len(views), cols=2)

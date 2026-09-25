@@ -146,8 +146,8 @@ def build() -> Document:
         "Bauherren-Beratung können diese Funktionen gemeinsam mit dem Bauherrn "
         "am Bildschirm besprochen und dessen Wünsche je Taste direkt erfasst "
         "werden – die Grundlage für das unterschriftsreife Bauherr-Formular. "
-        "Am Ende steht der Export: als ETS6-kompatible CSV-Datei, als natives "
-        "KNXPROJ-Projekt oder als vollständiges Revisionspaket.")
+        "Am Ende steht der Export: als ETS6-kompatible CSV-Datei oder als "
+        "vollständiges Revisionspaket.")
 
     # ── 4 Funktionsumfang ─────────────────────────────────────────────────
     add_heading1(doc, "Funktionsumfang im Ueberblick")
@@ -254,10 +254,6 @@ def build() -> Document:
     add_bullet(doc,
         "CSV-Export: ETS6-kompatibler Gruppenadress-Export für den direkten "
         "Import in die ETS6 (Extras -> Gruppenadressbericht -> Import).")
-    add_bullet(doc,
-        "KNXPROJ-Export: natives ETS6-Projektformat mit Topologie und "
-        "Gruppenadressen für den vollständigen Projektimport in einem "
-        "Schritt.")
     add_bullet(doc,
         "Revisionspaket (ZIP): GA-Uebersicht als Excel-Datei, Topologie-Plan, "
         "Belegungsplan, Kabellängen-Report und Produktdatenblätter in einem "

@@ -723,12 +723,6 @@ def build_document() -> Document:
             ("CSV",
              "ETS6-kompatibler Gruppenadress-Export. "
              "Direkt in ETS6 importierbar (Extras → Gruppenadressbericht → Import)."),
-            ("KNXPROJ",
-             "Natives ETS6-Projektformat mit Topologie und Gruppenadressen. "
-             "Enthält derzeit noch keine gültige ETS-Projektsignatur (fehlendes "
-             "Hersteller-/ETS-Zertifikat) und lässt sich deshalb aktuell noch nicht "
-             "direkt in ETS6 re-importieren. Für den Rückweg nach ETS6 empfehlen wir "
-             "vorerst den CSV-Gruppenadress-Export."),
             ("Revisionspaket (ZIP)",
              "Vollständiges Dokumentationspaket: GA-Übersicht (XLSX), Topologie-Plan, "
              "Belegungsplan, Kabellängen-Report, Datenbläter."),
@@ -768,7 +762,7 @@ def build_document() -> Document:
              "Zum Nachschlagen während der Gewerke-Zuweisung (Schritt 5)."),
             ("Validierung",
              "Prüft das Projekt auf Fehler und Warnungen vor dem Export. "
-             "Empfohlen immer vor dem CSV/KNXPROJ-Export."),
+             "Empfohlen immer vor dem CSV-Export."),
             ("Szenen",
              "Szenen-Verwaltung ausserhalb des Wizards. "
              "Für Nachträge oder Korrekturen an Szenen."),

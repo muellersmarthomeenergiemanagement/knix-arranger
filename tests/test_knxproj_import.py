@@ -4,7 +4,6 @@ Nutzt die echte Referenzdatei 241114_Chalet.knxproj.
 """
 from __future__ import annotations
 import os
-import zipfile
 import xml.etree.ElementTree as ET
 import pytest
 from knix_arranger.services.knxproj_import_service import (
@@ -500,24 +499,14 @@ class TestExtractProductLibraries:
         assert siemens_products
         assert any(p["product_name"] == "Load Switch UP 511" for p in siemens_products)
 
-    def test_manufacturer_folder_copied_complete_with_signature(self, tmp_path):
-        """Die extrahierten Dateien dienen als Quelle fuer den Export mit
-        Produktreferenz: Herstellerordner vollstaendig (inkl. Baggages) und
-        mit M-XXXX.signature, byte-gleich zum Projekt."""
+    def test_excludes_baggages_stays_small(self, tmp_path):
+        """Baggages (Sprachdateien, ETS-PlugIn-Installer) machen ein Projekt
+        mit vielen Herstellern um Groessenordnungen groesser, ohne dass
+        KnxprodCatalogService sie je liest -- muessen ausgeschlossen bleiben."""
         svc = KnxprojImportService()
         written = svc.extract_product_libraries(CHALET, str(tmp_path))
-        with zipfile.ZipFile(CHALET) as src:
-            for path in written:
-                with zipfile.ZipFile(path) as lib:
-                    mfr = next(n.split("/")[0] for n in lib.namelist() if "/" in n)
-                    expected = {
-                        n for n in src.namelist()
-                        if (n.startswith(f"{mfr}/") and not n.endswith("/"))
-                        or n == f"{mfr}.signature"
-                    }
-                    names = set(lib.namelist()) - {"knx_master.xml"}
-                    assert names == expected
-                    assert all(lib.read(n) == src.read(n) for n in names)
+        total_size = sum(os.path.getsize(p) for p in written)
+        assert total_size < 20 * 1024 * 1024  # < 20 MB, Baggages allein waeren > 160 MB
 
     def test_missing_dest_folder_returns_empty(self, tmp_path):
         svc = KnxprojImportService()

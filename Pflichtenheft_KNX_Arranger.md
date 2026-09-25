@@ -1,7 +1,7 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.13
-**Datum:** 23.09.2026
+**Version:** 3.14
+**Datum:** 25.09.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
 **Status:** Entwurf
@@ -28,6 +28,7 @@
 | 3.11 | 05.04.2026 | M. Mueller / Claude AI | Sensorfunktion-Konzept eingefuehrt (FA-1410): Bedienelement.control_functions ersetzt durch Bedienelement.funktionen (Liste von SensorFunktion); eine SensorFunktion buendelt alle Primaer- und Rueckmelde-GAs einer Gewerk-Instanz; direkte GA-Zuweisung als degenerierte Einzelfunktion; Dialog zeigt eine Zeile pro logischer Steuereinheit; Abwaertskompatibilitaet durch automatische Migration alter control_functions-Daten |
 | 3.12 | 19.06.2026 | M. Mueller / Claude AI | Nachfuehrung auf Code-Stand v1.1.2: Wizard-Schrittstruktur auf 13 Schritte korrigiert (FA-1002: Tastereinheiten-Matrix, Szenen-Definition vor GA-Generierung); Workspace-Konzept fuer Projekt- und Berichtsablage neu dokumentiert (FA-3401 bis FA-3408); Bauherren-Beratungsansicht mit persistenten Anmerkungen ergaenzt (FA-1508 bis FA-1511); KNXPROJ-Passwortimport erweitert (FA-524, FA-525 ueberarbeitet: neueres ETS6-Containerformat, AES-Erkennung, ETS6-Cloud-Lizenz als nicht entschluesselbarer Sonderfall, Passwort-Dialog); ETS6 Gruppenadress-Report (XLSX) als eigenstaendiges Importformat ergaenzt (FA-519b); FA-854 um Zwischenablage-Import fuer Firmenlogo/Projektfoto ergaenzt |
 | 3.13 | 23.09.2026 | M. Mueller / Claude AI | Nachfuehrung auf Code-Stand v1.1.16: Uebernahme importierter Projekte in die Planung dokumentiert (FA-521b bis FA-521g: Verteiler-Raeume aus Einbauort, Funktionszuordnungen aus KO-Verknuepfungen, Kanal-Gewerk-Konflikte, Wiedererkennung importierter GAs, manuelle Kanal-Zuweisung, Gewerk-Vorschlaege mit Pruefdialog); Szenen-Erkennung aus ETS-Importen ergaenzt (FA-1808 bis FA-1810: Erkennung, Szenen-Schaltwerte, Szenen-Ausloeser); Internet-Produktvorschlag konkretisiert (FA-1303a bis FA-1303d: Online-Produktkatalog im Release-Repository, Zwischenspeicher, Vorrang eigener Importe); KNXPROD-Import praezisiert (FA-2304a bis FA-2304c: Applikationszuordnung aus Hardware.xml, zusammengefasste Objektvarianten, manueller GA-Bedarf); Lizenzschluessel per Copy-Paste (NFA-098a) |
+| 3.14 | 25.09.2026 | M. Mueller / Claude AI | KNXPROJ-Export entfallen (FA-2401 bis FA-2406 sowie die davon abhaengigen Teile von FA-2706, FA-2806, FA-3005, FA-3308c): ETS6 akzeptiert nur von ETS signierte Projektdateien, mit ETS6 getestet (ETS6- und ETS5-Format, Basis-Projekt mit Original-Signatur); Weg nach ETS6 ist der CSV-Gruppenadress-Export. Produktdaten ergaenzt (FA-2304d bis FA-2304f: KNX-Hersteller-ID als Schluessel mit einheitlichen Herstellernamen, Produktabgleich ueber normalisierte Bestellnummer, ETS-Kennungen der Produkte) |
 
 ---
 
@@ -189,7 +190,7 @@ Alle Anforderungen in diesem Pflichtenheft sind nach der MoSCoW-Methode priorisi
 | Produktkatalog lokal | FA-2303 | **(M)** | Geraeteauswahl aus validiertem KNX-Katalog |
 | KNXPROD-Import | FA-2304 | **(S)** | Herstellerdaten direkt einlesen |
 | Materialliste Export | FA-2307, FA-2308 | **(S)** | Offertanfrage und Revisionsunterlagen |
-| KNXPROJ-Export | FA-2401 bis FA-2406 | **(S)** | Direktimport in ETS ohne CSV-Umweg |
+| KNXPROJ-Export | FA-2401 bis FA-2406 | **entfallen** | ETS6 akzeptiert nur von ETS signierte Projekte (siehe 3.25) |
 | Sensor-Aktor-Matrix | FA-2501 bis FA-2505 | **(S)** | Vollstaendige Verlinkungsuebersicht fuer Programmierung und Doku |
 | Leitungslaengenberechnung | FA-2601 bis FA-2604 | **(S)** | Normkonformitaet sicherstellen (KNX TP Grenzwerte) |
 | KNX Secure | FA-2701 bis FA-2706 | **(C)** | Zukunftssicher, wachsende Marktanforderung |
@@ -1251,6 +1252,9 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 | FA-2304a | Die Kommunikationsobjekte eines Produkts muessen ueber die Zuordnung Produkt -> Applikationsprogramm aufgeloest werden. Fehlt die Zuordnung in Catalog.xml (z.B. bei aus einem .knxproj extrahierten Herstellerdateien), muss die Zuordnung aus Hardware.xml verwendet werden, sofern sie eindeutig ist. Liefern weder Hardware.xml noch der Katalogbaum eine Kategorie, wird sie aus dem Produktnamen abgeleitet (z.B. Gateway/Schnittstelle -> Infrastruktur, Taster-/Fensterschnittstelle -> Sensor). Dasselbe Produkt muss unabhaengig von der Importquelle dieselben Kommunikationsobjekte erhalten. |
 | FA-2304b | Per Parameter umschaltbare Varianten desselben Kommunikationsobjekts, die sich nur in der Objektgroesse unterscheiden, muessen als ein Objekt gefuehrt werden, damit der GA-Bedarf nicht vervielfacht wird. |
 | FA-2304c | Der Anwender muss den GA-Bedarf einer Materiallisten-Position von Hand festlegen und wieder auf den Wert aus der KNXPROD-Datei zuruecksetzen koennen (z.B. fuer frei belegbare Gateways, deren KNXPROD nur generische Objektplaetze enthaelt). Der manuelle Wert wird im Projekt gespeichert, als solcher gekennzeichnet und bleibt beim Neuaufbau der Materialliste aus der Topologie erhalten; bei Zuweisung eines anderen Produkts wird er verworfen. |
+| FA-2304d | Hersteller werden ueber die KNX-Hersteller-ID (M-XXXX) identifiziert. Das System fuehrt die offizielle KNX-Herstellerliste (aus knx_master.xml, aktualisierbar) und zeigt fuer jeden Hersteller einen einheitlichen Namen an, unabhaengig von der Schreibweise der Quelle (ETS-Import, KNXPROD-Datei, Online-Katalog, aeltere Projekte). Hersteller mit eigener ID (z.B. ABB und Busch-Jaeger) bleiben getrennt. Bestehende Projekte und Kataloge werden beim Laden vereinheitlicht. |
+| FA-2304e | Produkte werden ueber Hersteller-ID und Bestellnummer abgeglichen; Leerzeichen, Punkte und Gross-/Kleinschreibung der Bestellnummer sind dabei unerheblich. Bei Platzhalter-Bestellnummern (leer oder "Dummy") gehoert der Produktname zum Schluessel, damit verschiedene Platzhalterprodukte (z.B. Hilfsgeraete fuer die GA-Filter der Linienkoppler) erhalten bleiben. Aus ETS importierte Geraete finden so ihren Katalogeintrag. |
+| FA-2304f | Katalog und Geraete fuehren die ETS-Kennungen des Produkts (ProductRefId, Hardware2ProgramRefId, Applikationsprogramm-ID) aus KNXPROD- und ETS-Import. Vorhandene Katalogeintraege koennen aus KNXPROD-Dateien um die Kennungen ergaenzt werden, ohne andere Angaben zu veraendern. |
 
 #### FA-2307 -- Materialliste Export **(S)**
 
@@ -1261,14 +1265,16 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 
 ### 3.25 KNXPROJ-Export (FA-2400)
 
+> **Entfallen (25.09.2026).** ETS6 importiert nur Projektdateien mit gueltiger Projektsignatur (P-XXXX.signature/.certificate), die ausschliesslich ETS selbst mit dem Schluessel seiner Lizenz erzeugt. Mit ETS6 getestet und jeweils mit "Projektdatei hat keine gueltige Signatur" abgelehnt: Export im ETS6-Format (mit und ohne eingebettete, signierte Herstellerdaten), Export im ETS5-Format und Basis-Projekt-Modus (Signatur, Zertifikat und Herstellerdaten eines echten ETS6-Projekts unveraendert uebernommen, nur Projektinhalt neu). Der Export wurde deshalb aus der Anwendung entfernt. Weg nach ETS6: CSV-Gruppenadress-Export (FA-801); Geraete und Topologie werden in ETS angelegt. Eine Geraeteuebergabe waere nur ueber eine ETS-App (vgl. FA-3101 bis FA-3104) moeglich. Die Anforderungen bleiben zur Nachvollziehbarkeit stehen.
+
 | ID | Anforderung |
 |----|-------------|
-| FA-2401 | Das System muss die vollstaendige Projektstruktur als natives ETS-Projektformat (.knxproj) exportieren koennen. Das .knxproj-Format ist ein ZIP-Archiv mit XML-Dateien gemaess KNX-Standard (ETS6-Formatversion). **(S)** |
-| FA-2402 | Der KNXPROJ-Export muss folgende Projektbestandteile enthalten: Projektmetadaten (Name, Beschreibung, Datum), Gebaeudestruktur (Gebaeude, Fluegel, Stockwerke, Raeume), vollstaendige Gruppenadress-Hierarchie (Hauptgruppen, Mittelgruppen, Untergruppen mit Bezeichnung, DPT, Flags: Central, Unfiltered, Security), KNX-Topologie (Bereiche, Linien, Koppler mit physikalischen Adressen B.L.0). **(S)** |
-| FA-2403 | Fuer Geraete, die im Projekt aus dem lokalen Katalog (FA-2303) oder per KNXPROD-Import (FA-2304) bekannt sind, muss der Export die Geraete-Definitionen (Hersteller, Bestellnummer, physikalische Adresse, Einbauort) in die Topologie-Struktur der .knxproj-Datei einbetten. Applikationsprogramme koennen nicht automatisch generiert werden und muessen weiterhin in ETS geladen werden. **(S)** |
-| FA-2404 | CO-zu-GA-Verknuepfungen (FA-3000) muessen, sofern vorhanden, in den KNXPROJ-Export eingebunden werden, so dass in ETS die Kommunikationsobjekte bereits mit den korrekten Gruppenadressen verknuepft sind und keine manuelle Verlinkung mehr notwendig ist. **(S)** |
-| FA-2405 | Das System muss dem Benutzer vor dem Export eine Vollstaendigkeitsanzeige praesentieren: Welche Bestandteile sind im Export enthalten, welche fehlen (z.B. "Applikationsprogramme: nicht enthalten -- Geraete muessen in ETS programmiert werden", "CO-Verknuepfungen: 47 von 52 verknuepft"). **(S)** |
-| FA-2406 | Das System muss vor dem Export pruefen, ob alle zwingenden Felder vorhanden sind (Projektname, mindestens eine Gruppenadresse, mindestens eine Linie), und bei fehlenden Daten eine Warnung mit konkretem Hinweis ausgeben. Der Export muss trotz Warnungen nach Benutzerbestaetigung durchgefuehrt werden koennen. **(S)** |
+| FA-2401 | **Entfallen (25.09.2026, siehe 3.25).** Das System muss die vollstaendige Projektstruktur als natives ETS-Projektformat (.knxproj) exportieren koennen. Das .knxproj-Format ist ein ZIP-Archiv mit XML-Dateien gemaess KNX-Standard (ETS6-Formatversion). **(S)** |
+| FA-2402 | **Entfallen (25.09.2026, siehe 3.25).** Der KNXPROJ-Export muss folgende Projektbestandteile enthalten: Projektmetadaten (Name, Beschreibung, Datum), Gebaeudestruktur (Gebaeude, Fluegel, Stockwerke, Raeume), vollstaendige Gruppenadress-Hierarchie (Hauptgruppen, Mittelgruppen, Untergruppen mit Bezeichnung, DPT, Flags: Central, Unfiltered, Security), KNX-Topologie (Bereiche, Linien, Koppler mit physikalischen Adressen B.L.0). **(S)** |
+| FA-2403 | **Entfallen (25.09.2026, siehe 3.25).** Fuer Geraete, die im Projekt aus dem lokalen Katalog (FA-2303) oder per KNXPROD-Import (FA-2304) bekannt sind, muss der Export die Geraete-Definitionen (Hersteller, Bestellnummer, physikalische Adresse, Einbauort) in die Topologie-Struktur der .knxproj-Datei einbetten. Applikationsprogramme koennen nicht automatisch generiert werden und muessen weiterhin in ETS geladen werden. **(S)** |
+| FA-2404 | **Entfallen (25.09.2026, siehe 3.25).** CO-zu-GA-Verknuepfungen (FA-3000) muessen, sofern vorhanden, in den KNXPROJ-Export eingebunden werden, so dass in ETS die Kommunikationsobjekte bereits mit den korrekten Gruppenadressen verknuepft sind und keine manuelle Verlinkung mehr notwendig ist. **(S)** |
+| FA-2405 | **Entfallen (25.09.2026, siehe 3.25).** Das System muss dem Benutzer vor dem Export eine Vollstaendigkeitsanzeige praesentieren: Welche Bestandteile sind im Export enthalten, welche fehlen (z.B. "Applikationsprogramme: nicht enthalten -- Geraete muessen in ETS programmiert werden", "CO-Verknuepfungen: 47 von 52 verknuepft"). **(S)** |
+| FA-2406 | **Entfallen (25.09.2026, siehe 3.25).** Das System muss vor dem Export pruefen, ob alle zwingenden Felder vorhanden sind (Projektname, mindestens eine Gruppenadresse, mindestens eine Linie), und bei fehlenden Daten eine Warnung mit konkretem Hinweis ausgeben. Der Export muss trotz Warnungen nach Benutzerbestaetigung durchgefuehrt werden koennen. **(S)** |
 
 ---
 
@@ -1329,7 +1335,7 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 | FA-2703 | Das System muss fuer jede Gruppenadresse die Secure-Konfiguration (Feld "Security" gemaess FA-802) mit den Werten Auto / Ein / Aus verwalten koennen. Bei aktiviertem KNX Secure muss das System automatisch alle sicherheitsrelevanten Gruppenadressen (Schalten, Szenen, Zentralfunktionen) als "Ein" vorschlagen. **(C)** |
 | FA-2704 | Das System muss eine Secure-Geraetekompatibilitaetsliste fuehren: Fuer jedes Geraet im Projekt wird auf Basis der KNXPROD-Daten (FA-2304) angezeigt, ob es KNX Secure unterstuetzt. Nicht-Secure-faehige Geraete werden in der Topologie-Ansicht farblich markiert. **(C)** |
 | FA-2705 | Das System muss eine Secure-Kompatibilitaetspruefung durchfuehren und warnen, wenn eine Linie gemischte Geraete enthaelt (Secure und Non-Secure), da dies die Sicherheit der gesamten Linie kompromittiert. Die Warnung benennt die betroffenen Geraete konkret. **(C)** |
-| FA-2706 | Schluesselinformationen muessen im Projektformat (.knxarr) verschluesselt gespeichert werden (AES-128 oder gleichwertig). Im KNXPROJ-Export (FA-2400) muessen die Schluessel in die dafuer vorgesehenen XML-Felder des KNX-Standards eingebettet werden. **(C)** |
+| FA-2706 | Schluesselinformationen muessen im Projektformat (.knxarr) verschluesselt gespeichert werden (AES-128 oder gleichwertig). Die Einbettung in den KNXPROJ-Export (FA-2400) ist mit diesem entfallen. **(C)** |
 
 ---
 
@@ -1354,7 +1360,7 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 | FA-2803 | Das System muss pro DALI-Gateway die zugeordneten KNX-Gruppenadressen fuer die DALI-Steuerung abbilden: GA fuer Schalten (Broadcast und pro Gruppe), GA fuer Dimmen, GA fuer Szenenabruf, GA fuer Statusrueckmeldung (Ist-Wert, Stoerung). Diese GAs werden aus der automatisch generierten GA-Struktur (FA-400) uebernommen und dem DALI-Gateway zugeordnet. **(C)** |
 | FA-2804 | Das System muss DALI-Notbeleuchtung (Emergency Lighting, DALI Part 202/203) unterstuetzen: Kennzeichnung von EVGs als Notlicht-EVGs, Konfiguration des Betriebsmodus (Dauerlicht, Bereitschaft, Automatik), automatische Aufnahme in die Inbetriebnahme-Checkliste (FA-1901) mit spezifischen DALI-Notlicht-Pruefpunkten (Funktionstest, Dauerbetriebstest). **(C)** |
 | FA-2805 | Das System muss eine DALI-Geraete- und Gruppenliste pro Gateway generieren: DALI-Adresse, EVG-Typ, zugehoerige Gruppe(n), Einbauort/Raum, zugeordnete KNX-GAs. Diese Liste fliesst in die Revisionsunterlagen (FA-2100) ein. **(C)** |
-| FA-2806 | Das System muss die DALI-Konfiguration in den KNXPROJ-Export (FA-2400) einbinden, sofern das Exportformat DALI-spezifische XML-Felder gemaess KNX-Standard unterstuetzt. **(C)** |
+| FA-2806 | **Entfallen (25.09.2026, siehe 3.25).** Das System muss die DALI-Konfiguration in den KNXPROJ-Export (FA-2400) einbinden, sofern das Exportformat DALI-spezifische XML-Felder gemaess KNX-Standard unterstuetzt. **(C)** |
 
 ---
 
@@ -1413,7 +1419,7 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 |----|-------------|
 | FA-3003 | Das System muss dem Benutzer die vorgeschlagenen CO-GA-Verknuepfungen in einer Vorschau-Ansicht praesentieren, bevor sie uebernommen werden: Geraet, CO-Nummer, CO-Name, DPT, vorgeschlagene GA, Konfidenz (sicher / moegliche Uebereinstimmung / manuell pruefen). Der Benutzer muss einzelne Verknuepfungen korrigieren, entfernen oder manuell ergaenzen koennen. **(S)** |
 | FA-3004 | Das System muss fuer CO-GA-Verknuepfungen eine Kompatibilitaetspruefung durchfuehren: DPT des COs und DPT der GA muessen uebereinstimmen. DPT-Abweichungen werden als Warnung markiert. Nicht verknuepfte COs (kein passendes GA-Angebot) werden als Information aufgelistet. **(S)** |
-| FA-3005 | Die bestaetigen CO-GA-Verknuepfungen muessen in den KNXPROJ-Export (FA-2400) eingebunden werden, so dass in ETS die Verknuepfung bereits vollstaendig vorhanden ist. Die Verknuepfungen werden zusaetzlich in der Kreuzreferenz-Ansicht (FA-1011) und der Sensor-Aktor-Matrix (FA-2500) angezeigt. **(S)** |
+| FA-3005 | Die Einbindung der bestaetigten CO-GA-Verknuepfungen in den KNXPROJ-Export (FA-2400) ist mit diesem entfallen; sie dienen als Vorlage fuer die Programmierung in ETS. Die Verknuepfungen werden zusaetzlich in der Kreuzreferenz-Ansicht (FA-1011) und der Sensor-Aktor-Matrix (FA-2500) angezeigt. **(S)** |
 
 ---
 
@@ -1597,7 +1603,7 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 |----|-------------|
 | FA-3308a | Sobald mindestens ein aktives Zeitprogramm einen `SwitchPoint` mit `time_type = "ASTRO"` enthaelt, muss das System bei der GA-Generierung (FA-400) automatisch folgende GAs in HG 0 / MG 7 anlegen, sofern sie noch nicht vorhanden sind: `0/7/0 Uhrzeit und Datum` (DPT 19.001), `0/7/1 Sonnenaufgang` (DPT 1.001), `0/7/2 Sonnenuntergang` (DPT 1.001), `0/7/3 Daemmerung aktiv` (DPT 1.001). **(C)** |
 | FA-3308b | Diese Astro-GAs werden bei der Validierung (FA-600) speziell behandelt: Fehlt eine dieser GAs trotz vorhandener Astro-SwitchPoints, wird eine Warnung ausgegeben: "Astro-GAs in HG 0 / MG 7 fehlen -- bitte GA-Generierung erneut ausfuehren." **(C)** |
-| FA-3308c | Im CSV- und KNXPROJ-Export (FA-801, FA-2401) werden die Astro-GAs wie alle anderen Zentraladressen mit exportiert. **(C)** |
+| FA-3308c | Im CSV-Export (FA-801) werden die Astro-GAs wie alle anderen Zentraladressen mit exportiert. **(C)** |
 
 ### 3.35 Workspace- und Projektverwaltung (FA-3400)
 

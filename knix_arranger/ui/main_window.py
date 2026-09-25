@@ -181,17 +181,14 @@ class MainWindow(QMainWindow):
         knxprod_action.triggered.connect(self._import_knxprod_catalog)
         file_menu.addAction(knxprod_action)
 
-        export_action = QAction("CSV &Export...", self)
+        export_action = QAction("CSV &Export... (Gruppenadressen für ETS6)", self)
+        export_action.setToolTip(
+            "Gruppenadressen als CSV für den Import in ETS6. Eine .knxproj-Datei "
+            "kann nur ETS selbst erzeugen (Projektsignatur)."
+        )
         export_action.setShortcut(QKeySequence("Ctrl+E"))
         export_action.triggered.connect(self._export_csv)
         file_menu.addAction(export_action)
-
-        knxproj_export_action = QAction("KNXPROJ &Export... (.knxproj)", self)
-        knxproj_export_action.setToolTip(
-            "Exportiert das Projekt als natives ETS6-Projektformat (.knxproj)"
-        )
-        knxproj_export_action.triggered.connect(self._export_knxproj)
-        file_menu.addAction(knxproj_export_action)
 
         file_menu.addSeparator()
 
@@ -1998,34 +1995,6 @@ class MainWindow(QMainWindow):
                 self._status_bar.set_status(f"CSV exportiert: {dialog.filepath}")
             except Exception as e:
                 QMessageBox.critical(self, "Export-Fehler", str(e))
-
-    def _export_knxproj(self):
-        if not self._project:
-            self._status_bar.set_status("Kein Projekt zum Exportieren.")
-            return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "KNXPROJ exportieren",
-            f"{self._project.name or 'projekt'}.knxproj",
-            "ETS6-Projekt (*.knxproj)",
-        )
-        if not path:
-            return
-        from .dialogs.knxproj_export_options import ask_product_refs
-        refs = ask_product_refs(self, self._project)
-        if refs is None:
-            return
-        try:
-            from ..services.knxproj_export_service import KnxprojExportService
-            summary = KnxprojExportService().export(
-                self._project, path, product_refs=refs[0], product_data_folder=refs[1],
-            )
-            self._status_bar.set_status(f"KNXPROJ exportiert: {path}")
-            QMessageBox.information(
-                self, "KNXPROJ-Export abgeschlossen",
-                summary.as_text() + f"\n\nDatei: {path}",
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "Export-Fehler", str(e))
 
     def _validate(self):
         if not self._project:

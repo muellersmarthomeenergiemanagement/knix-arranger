@@ -432,7 +432,7 @@ class CoLinkingView(QWidget):
         QMessageBox.information(
             self, "CO-Verknüpfung abgeschlossen",
             f"{count} neue CO-GA-Verknüpfung(en) in die Topologie eingetragen.\n\n"
-            "Die Verknüpfungen sind beim nächsten KNXPROJ-Export enthalten."
+            "Die Verknüpfungen dienen als Vorlage für die Programmierung in ETS."
         )
         # Ansicht aktualisieren (bereits verknuepfte Eintraege blau markieren)
         self._refresh()

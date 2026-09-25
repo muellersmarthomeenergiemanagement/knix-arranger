@@ -125,11 +125,10 @@ class KnxprojImportService:
         P-XXXX.zip) -- deshalb genuegt ein einfacher erneuter Oeffnungsvorgang
         ohne Passwort, unabhaengig vom Ergebnis von import_knxproj().
 
-        Der Herstellerordner wird vollstaendig und unveraendert samt
-        M-XXXX.signature uebernommen (inkl. "Baggages"): die Dateien dienen
-        auch als Quelle fuer den KNXPROJ-Export mit Produktreferenz
-        (ManufacturerDataLibrary), und die Signatur gilt nur fuer den ganzen
-        Ordner.
+        Bewusst NUR Hardware.xml/Catalog.xml/App-Programm-XMLs uebernommen,
+        nicht die "Baggages"-Unterordner (Sprachdateien, ETS-PlugIn-Installer
+        etc.) -- die macht ein Projekt mit vielen Herstellern sonst um
+        Groessenordnungen groesser, ohne dass KnxprodCatalogService sie liest.
 
         Returns:
             Liste der geschriebenen Dateipfade (leer wenn dest_folder nicht
@@ -183,12 +182,15 @@ class KnxprojImportService:
         if hw_path not in namelist:
             return None
 
-        keep = [
+        app_prefix = f"{folder}/{folder}_A-"
+        keep = [hw_path]
+        cat_path = f"{folder}/Catalog.xml"
+        if cat_path in namelist:
+            keep.append(cat_path)
+        keep.extend(
             n for n in namelist
-            if n.startswith(f"{folder}/") and not n.endswith("/")
-        ]
-        if f"{folder}.signature" in namelist:
-            keep.append(f"{folder}.signature")
+            if n.startswith(app_prefix) and n.endswith(".xml")
+        )
         # knx_master.xml (Hersteller-ID -> Klartextname, KNX-Standardregister):
         # manche Hersteller tragen ihren eigenen Namen nicht redundant in
         # Catalog.xml ein (siehe KnxprodCatalogService._resolve_manufacturer_
