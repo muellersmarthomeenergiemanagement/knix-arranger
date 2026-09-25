@@ -1197,7 +1197,7 @@ class KnxprojImportService:
 
             device = Device(
                 physical_address=phys_addr,
-                manufacturer=mfr_id,
+                manufacturer_id=mfr_id,
                 order_number=order_num,
                 product=product_name,
                 application_program=hw2prog,

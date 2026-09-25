@@ -25,6 +25,8 @@ import zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
+from ..utils.manufacturers import canonical_manufacturer
+
 logger = logging.getLogger("knix_arranger.knxprod_catalog")
 
 # Mapping von KNX-ApplicationArea auf interne Kategorien (ProductSearchService)
@@ -111,6 +113,7 @@ class KnxprodProduct:
     channels: int
     category: str        # "actor" | "sensor" | "infrastructure"
     device_type: str     # abgeleitet aus Name/Kategorie
+    manufacturer_id: str = ""   # KNX-Hersteller-ID "M-XXXX" (Ordnername im Archiv)
     actor_type: str = ""
     sensor_type: str = ""
     com_objects: list[ComObjectInfo] = field(default_factory=list)
@@ -137,6 +140,7 @@ class KnxprodProduct:
             "actor_type": self.actor_type,
             "sensor_type": self.sensor_type,
             "manufacturer": self.manufacturer,
+            "manufacturer_id": self.manufacturer_id,
             "order_number": self.order_number,
             "product_name": self.product_name,
             "channels": self.channels,
@@ -181,7 +185,9 @@ class KnxprodCatalogService:
         }
 
         for folder in sorted(mfr_folders):
-            mfr_name = self._resolve_manufacturer_name(zf, folder, namelist)
+            mfr_name, mfr_id = canonical_manufacturer(
+                self._resolve_manufacturer_name(zf, folder, namelist), folder,
+            )
 
             # Hardware.xml, Catalog.xml lesen
             hardware_entries = self._parse_hardware_xml(zf, folder, namelist)
@@ -230,6 +236,7 @@ class KnxprodCatalogService:
 
                 prod = KnxprodProduct(
                     manufacturer=mfr_name,
+                    manufacturer_id=mfr_id,
                     order_number=order_number,
                     product_name=full_name or order_number,
                     channels=channels,

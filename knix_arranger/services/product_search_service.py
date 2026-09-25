@@ -10,6 +10,10 @@ import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ..utils.manufacturers import (
+    canonicalize_product, manufacturer_display_name, normalize_order_number, product_key,
+)
+
 if TYPE_CHECKING:
     from .knxprod_catalog_service import ComObjectInfo
 
@@ -34,6 +38,7 @@ def _user_catalog_path() -> str:
 class ProductSuggestion:
     """Produktvorschlag für Aktoren/Sensoren/Infrastruktur."""
     manufacturer: str = ""
+    manufacturer_id: str = ""  # KNX-Hersteller-ID "M-XXXX" ("" = unbekannt)
     order_number: str = ""
     product_name: str = ""
     channels: int = 0
@@ -81,7 +86,9 @@ class ProductSearchService:
         )
         if os.path.exists(catalog_path):
             with open(catalog_path, "r", encoding="utf-8") as f:
-                self._catalog = json.load(f).get("products", [])
+                self._catalog = [
+                    canonicalize_product(p) for p in json.load(f).get("products", [])
+                ]
             logger.info(f"Produktkatalog geladen: {len(self._catalog)} Produkte")
         else:
             logger.warning(f"Produktkatalog nicht gefunden: {catalog_path}")
@@ -92,10 +99,16 @@ class ProductSearchService:
         if os.path.exists(user_path):
             try:
                 with open(user_path, "r", encoding="utf-8") as f:
-                    self._user_products = json.load(f).get("products", [])
+                    loaded = json.load(f).get("products", [])
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Nutzereigener Produktkatalog konnte nicht gelesen werden: {e}")
-                self._user_products = []
+                loaded = []
+            # Aeltere Importe tragen den Hersteller in verschiedenen
+            # Schreibweisen ("ABB" / "ABB AG - STOTZ-KONTAKT"): beim
+            # Vereinheitlichen fallen solche Dubletten zusammen.
+            self._user_products = []
+            for prod in loaded:
+                self._upsert(self._user_products, canonicalize_product(prod))
             for prod in self._user_products:
                 self._upsert(self._catalog, prod)
                 self._online_keys.discard(self._key(prod))
@@ -104,17 +117,21 @@ class ProductSearchService:
 
     @staticmethod
     def _key(product: dict) -> tuple[str, str]:
-        return (product.get("manufacturer", ""), product.get("order_number", ""))
+        return product_key(
+            product.get("manufacturer", ""), product.get("order_number", ""),
+            product.get("product_name", ""),
+        )
 
     def _merge_online(self, products: list[dict]) -> None:
         """Übernimmt Online-Produkte in den Katalog. Eigene Importe des Nutzers
         mit gleichem Schlüssel haben Vorrang und bleiben unverändert."""
         user_keys = {self._key(p) for p in self._user_products}
         for prod in products:
+            prod = canonicalize_product(dict(prod))
             key = self._key(prod)
             if key in user_keys:
                 continue
-            self._upsert(self._catalog, dict(prod))
+            self._upsert(self._catalog, prod)
             self._online_keys.add(key)
 
     def _is_online(self, prod: dict) -> bool:
@@ -125,9 +142,9 @@ class ProductSearchService:
         """Fügt product zu target hinzu, oder ersetzt einen bestehenden Eintrag
         mit gleichem (manufacturer, order_number) -- verhindert Duplikate bei
         wiederholtem Import derselben KNXPROD-Datei."""
-        key = (product.get("manufacturer", ""), product.get("order_number", ""))
+        key = ProductSearchService._key(product)
         for i, existing in enumerate(target):
-            if (existing.get("manufacturer", ""), existing.get("order_number", "")) == key:
+            if ProductSearchService._key(existing) == key:
                 target[i] = product
                 return
         target.append(product)
@@ -159,6 +176,7 @@ class ProductSearchService:
 
             results.append(ProductSuggestion(
                 manufacturer=prod.get("manufacturer", ""),
+                manufacturer_id=prod.get("manufacturer_id", ""),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -175,7 +193,7 @@ class ProductSearchService:
 
         # Bevorzugte Hersteller zuerst (FA-1304)
         if preferred_manufacturers:
-            pref_lower = [m.lower() for m in preferred_manufacturers]
+            pref_lower = [manufacturer_display_name(m).lower() for m in preferred_manufacturers]
             results.sort(
                 key=lambda p: (
                     0 if p.manufacturer.lower() in pref_lower else 1,
@@ -202,6 +220,7 @@ class ProductSearchService:
 
             results.append(ProductSuggestion(
                 manufacturer=prod.get("manufacturer", ""),
+                manufacturer_id=prod.get("manufacturer_id", ""),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -217,7 +236,7 @@ class ProductSearchService:
             ))
 
         if preferred_manufacturers:
-            pref_lower = [m.lower() for m in preferred_manufacturers]
+            pref_lower = [manufacturer_display_name(m).lower() for m in preferred_manufacturers]
             results.sort(
                 key=lambda p: (
                     0 if p.manufacturer.lower() in pref_lower else 1,
@@ -244,6 +263,7 @@ class ProductSearchService:
 
             results.append(ProductSuggestion(
                 manufacturer=prod.get("manufacturer", ""),
+                manufacturer_id=prod.get("manufacturer_id", ""),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -259,7 +279,7 @@ class ProductSearchService:
             ))
 
         if preferred_manufacturers:
-            pref_lower = [m.lower() for m in preferred_manufacturers]
+            pref_lower = [manufacturer_display_name(m).lower() for m in preferred_manufacturers]
             results.sort(
                 key=lambda p: (
                     0 if p.manufacturer.lower() in pref_lower else 1,
@@ -285,6 +305,7 @@ class ProductSearchService:
         """
         results = []
         q = query.lower()
+        q_order = normalize_order_number(query)
 
         for prod in self._catalog:
             cat = prod.get("category", "")
@@ -292,7 +313,11 @@ class ProductSearchService:
                 continue
 
             name_hit = not q or q in prod.get("product_name", "").lower()
-            num_hit = not q or q in prod.get("order_number", "").lower()
+            num_hit = (
+                not q
+                or q in prod.get("order_number", "").lower()
+                or bool(q_order) and q_order in normalize_order_number(prod.get("order_number", ""))
+            )
             type_hit = (
                 not q
                 or q in prod.get("actor_type", "").lower()
@@ -306,6 +331,7 @@ class ProductSearchService:
 
             results.append(ProductSuggestion(
                 manufacturer=prod.get("manufacturer", ""),
+                manufacturer_id=prod.get("manufacturer_id", ""),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -323,7 +349,7 @@ class ProductSearchService:
             ))
 
         if preferred_manufacturers:
-            pref_lower = [m.lower() for m in preferred_manufacturers]
+            pref_lower = [manufacturer_display_name(m).lower() for m in preferred_manufacturers]
             results.sort(
                 key=lambda p: (
                     0 if p.manufacturer.lower() in pref_lower else 1,
@@ -365,6 +391,7 @@ class ProductSearchService:
         steht damit nach App-Neustart und in jedem Projekt zur Verfügung.
         Für mehrere Produkte auf einmal: add_products() (ein Schreibvorgang
         statt einem pro Produkt)."""
+        product = canonicalize_product(product)
         self._upsert(self._catalog, product)
         self._upsert(self._user_products, product)
         self._online_keys.discard(self._key(product))
@@ -375,13 +402,15 @@ class ProductSearchService:
         ein einziger Schreibvorgang statt einem pro Produkt (z.B. beim
         Import einer KNXPROD-Datei mit hunderten Produkten)."""
         for product in products:
+            product = canonicalize_product(product)
             self._upsert(self._catalog, product)
             self._upsert(self._user_products, product)
             self._online_keys.discard(self._key(product))
         if products:
             self._save_user_catalog()
 
-    def mark_superseded(self, manufacturer: str, order_number: str, superseded_by: str) -> None:
+    def mark_superseded(self, manufacturer: str, order_number: str, superseded_by: str,
+                        product_name: str = "") -> None:
         """Markiert ein Produkt als veraltet, ersetzt durch die Bestellnummer
         `superseded_by` (gleicher Hersteller). `superseded_by=""` hebt die
         Markierung wieder auf.
@@ -391,9 +420,9 @@ class ProductSearchService:
         dort dauerhaft mit der Markierung persistiert -- die schreibgeschützte
         Basis-Datei selbst bleibt unverändert.
         """
-        key = (manufacturer, order_number)
+        key = product_key(manufacturer, order_number, product_name)
         for prod in self._catalog:
-            if (prod.get("manufacturer", ""), prod.get("order_number", "")) == key:
+            if self._key(prod) == key:
                 prod["superseded_by"] = superseded_by
                 self._upsert(self._user_products, dict(prod))
                 self._online_keys.discard(key)
@@ -406,13 +435,16 @@ class ProductSearchService:
     def products_for_manufacturer(self, manufacturer: str) -> list[dict]:
         """Gibt alle Katalogeinträge eines Herstellers zurück (für die
         Nachfolgerauswahl beim Markieren als veraltet)."""
-        return [p for p in self._catalog if p.get("manufacturer", "") == manufacturer]
+        name = manufacturer_display_name(manufacturer)
+        return [p for p in self._catalog if p.get("manufacturer", "") == name]
 
-    def find_product(self, manufacturer: str, order_number: str) -> dict | None:
-        """Sucht einen Katalogeintrag nach (Hersteller, Bestellnummer)."""
-        key = (manufacturer, order_number)
+    def find_product(self, manufacturer: str, order_number: str,
+                     product_name: str = "") -> dict | None:
+        """Sucht einen Katalogeintrag nach (Hersteller, Bestellnummer); bei
+        Platzhalter-Bestellnummern ("Dummy") zusaetzlich nach Produktname."""
+        key = product_key(manufacturer, order_number, product_name)
         for prod in self._catalog:
-            if (prod.get("manufacturer", ""), prod.get("order_number", "")) == key:
+            if self._key(prod) == key:
                 return prod
         return None
 

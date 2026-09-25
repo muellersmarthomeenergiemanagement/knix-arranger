@@ -1170,6 +1170,7 @@ class MaterialListView(QWidget):
 
         def _apply(device: Device) -> None:
             device.manufacturer = prod.manufacturer
+            device.manufacturer_id = prod.manufacturer_id
             device.order_number = prod.order_number
             device.product_name = prod.product_name
             if prod.com_objects:

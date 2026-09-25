@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QColor
 from ...models.project import KnxProject
+from ...utils.manufacturers import canonical_manufacturer
 from ..column_utils import fit_columns
 
 
@@ -312,8 +313,11 @@ class DatasheetView(QWidget):
         ref = self._get_selected_ref()
         if not ref:
             return
+        manufacturer, mfr_id = canonical_manufacturer(self._prod_manufacturer.text())
         for src in ref.sources:
-            src.manufacturer = self._prod_manufacturer.text()
+            src.manufacturer = manufacturer
+            if hasattr(src, "manufacturer_id"):
+                src.manufacturer_id = mfr_id
             src.order_number = self._prod_order_nr.text()
             if hasattr(src, "product_name"):
                 src.product_name = self._prod_name.text()

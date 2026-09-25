@@ -165,6 +165,7 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
                 if old_dev.product_name:
                     new_dev.product_name = old_dev.product_name
                     new_dev.manufacturer = old_dev.manufacturer
+                    new_dev.manufacturer_id = old_dev.manufacturer_id
                     new_dev.order_number = old_dev.order_number
                 # Felder, die der Import liefern kann, aber nicht muss: neuen
                 # Wert übernehmen wenn vorhanden, sonst alten behalten

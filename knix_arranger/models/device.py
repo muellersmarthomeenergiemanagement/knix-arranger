@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import uuid
 
+from ..utils.manufacturers import manufacturer_display_name
+
 
 @dataclass
 class ProductInfo:
@@ -30,7 +32,7 @@ class ProductInfo:
     @classmethod
     def from_dict(cls, data: dict) -> ProductInfo:
         return cls(
-            manufacturer=data.get("manufacturer", ""),
+            manufacturer=manufacturer_display_name(data.get("manufacturer", "")),
             order_number=data.get("order_number", ""),
             product_name=data.get("product_name", ""),
             application_program=data.get("application_program", ""),

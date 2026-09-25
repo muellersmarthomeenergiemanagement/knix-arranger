@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 import re
 import uuid
 
+from ..utils.manufacturers import manufacturer_display_name
+
 
 def parse_channel_count(device_type: str) -> int:
     """Extrahiert die Kanalanzahl aus einem Gerätetyp-String.
@@ -160,7 +162,7 @@ class MaterialEntry:
             quantity=data.get("quantity", 1),
             category=data.get("category", "Sonstiges"),
             device_type=data.get("device_type", ""),
-            manufacturer=data.get("manufacturer", ""),
+            manufacturer=manufacturer_display_name(data.get("manufacturer", "")),
             order_number=data.get("order_number", ""),
             product_name=data.get("product_name", ""),
             unit_price=data.get("unit_price", 0.0),

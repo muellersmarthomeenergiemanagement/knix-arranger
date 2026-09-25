@@ -270,6 +270,7 @@ class TopologyEngine:
                         if device.manufacturer and device.physical_address:
                             manual_assignments[device.physical_address] = {
                                 "manufacturer": device.manufacturer,
+                                "manufacturer_id": device.manufacturer_id,
                                 "order_number": device.order_number,
                                 "product_name": device.product_name,
                             }
@@ -599,6 +600,7 @@ class TopologyEngine:
                         saved = manual_assignments.get(device.physical_address)
                         if saved:
                             device.manufacturer = saved["manufacturer"]
+                            device.manufacturer_id = saved.get("manufacturer_id", "")
                             device.order_number = saved["order_number"]
                             device.product_name = saved["product_name"]
 

@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import uuid
 
+from ..utils.manufacturers import manufacturer_display_name
+
 
 @dataclass
 class LineCoupler:
@@ -31,7 +33,7 @@ class LineCoupler:
     def from_dict(cls, data: dict) -> LineCoupler:
         return cls(
             id=data.get("id", str(uuid.uuid4())),
-            manufacturer=data.get("manufacturer", ""),
+            manufacturer=manufacturer_display_name(data.get("manufacturer", "")),
             order_number=data.get("order_number", ""),
             product_name=data.get("product_name", ""),
             physical_address=data.get("physical_address", ""),
@@ -63,7 +65,7 @@ class PowerSupply:
     def from_dict(cls, data: dict) -> PowerSupply:
         return cls(
             id=data.get("id", str(uuid.uuid4())),
-            manufacturer=data.get("manufacturer", ""),
+            manufacturer=manufacturer_display_name(data.get("manufacturer", "")),
             order_number=data.get("order_number", ""),
             product_name=data.get("product_name", ""),
             power_ma=data.get("power_ma", 0),
@@ -96,7 +98,7 @@ class Interface:
         return cls(
             id=data.get("id", str(uuid.uuid4())),
             interface_type=data.get("interface_type", ""),
-            manufacturer=data.get("manufacturer", ""),
+            manufacturer=manufacturer_display_name(data.get("manufacturer", "")),
             order_number=data.get("order_number", ""),
             product_name=data.get("product_name", ""),
             datasheets=data.get("datasheets", []),
@@ -456,7 +458,7 @@ class Bedienelement:
             element_type=element_type,
             channels=channels,
             participant_number=data.get("participant_number", ""),
-            manufacturer=data.get("manufacturer", ""),
+            manufacturer=manufacturer_display_name(data.get("manufacturer", "")),
             order_number=data.get("order_number", ""),
             product_name=data.get("product_name", ""),
             datasheets=data.get("datasheets", []),
@@ -726,7 +728,7 @@ class ActorAssignment:
         aa = cls(
             id=data.get("id", str(uuid.uuid4())),
             actor_type=data.get("actor_type", ""),
-            manufacturer=data.get("manufacturer", ""),
+            manufacturer=manufacturer_display_name(data.get("manufacturer", "")),
             order_number=data.get("order_number", ""),
             product_name=data.get("product_name", ""),
             datasheets=data.get("datasheets", []),

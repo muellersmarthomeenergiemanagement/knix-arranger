@@ -405,21 +405,34 @@ class TestManufacturerNameFallbackViaMasterFile:
         return path
 
     def test_manufacturer_name_resolved_from_master_file(self):
-        path = self._build_knxprod_manufacturer_only_in_master("M-0048", "Theben AG")
+        """Hersteller, der (noch) nicht im mitgelieferten KNX-Register steht:
+        Name kommt aus der knx_master.xml der Datei."""
+        path = self._build_knxprod_manufacturer_only_in_master("M-FFF0", "Neuer Hersteller AG")
         try:
             products = KnxprodCatalogService().import_file(path)
             assert len(products) == 1
-            assert products[0].manufacturer == "Theben AG"
+            assert products[0].manufacturer == "Neuer Hersteller AG"
+            assert products[0].manufacturer_id == "M-FFF0"
+        finally:
+            os.remove(path)
+
+    def test_known_manufacturer_gets_unified_name_and_id(self):
+        path = self._build_knxprod_manufacturer_only_in_master("M-0048", "Theben AG")
+        try:
+            products = KnxprodCatalogService().import_file(path)
+            assert products[0].manufacturer == "Theben"
+            assert products[0].manufacturer_id == "M-0048"
+            assert products[0].to_catalog_dict()["manufacturer_id"] == "M-0048"
         finally:
             os.remove(path)
 
     def test_manufacturer_falls_back_to_folder_id_without_master_entry(self):
         """Ohne Eintrag in knx_master.xml bleibt der bisherige Fallback
         (Ordner-ID) erhalten - kein Absturz, keine Fantasienamen."""
-        path = self._build_knxprod_manufacturer_only_in_master("M-0048", "Theben AG")
+        path = self._build_knxprod_manufacturer_only_in_master("M-FFF0", "Neuer Hersteller AG")
         fixed = path + ".2"
         try:
-            # Neues ZIP ohne den M-0048-Eintrag in knx_master.xml bauen
+            # Neues ZIP ohne den M-FFF0-Eintrag in knx_master.xml bauen
             with zipfile.ZipFile(path) as src, zipfile.ZipFile(fixed, "w") as dst:
                 for item in src.infolist():
                     data = src.read(item.filename)
@@ -431,7 +444,7 @@ class TestManufacturerNameFallbackViaMasterFile:
                     dst.writestr(item, data)
 
             products = KnxprodCatalogService().import_file(fixed)
-            assert products[0].manufacturer == "M-0048"
+            assert products[0].manufacturer == "M-FFF0"
         finally:
             os.remove(path)
             if os.path.exists(fixed):

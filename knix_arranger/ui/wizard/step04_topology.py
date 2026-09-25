@@ -1059,6 +1059,7 @@ class Step04Topology(QWidget):
 
         device = self._current_device
         device.manufacturer = prod.manufacturer
+        device.manufacturer_id = prod.manufacturer_id
         device.order_number = prod.order_number
         device.product_name = prod.product_name
 
@@ -1082,6 +1083,7 @@ class Step04Topology(QWidget):
 
         device = self._current_device
         device.manufacturer = ""
+        device.manufacturer_id = ""
         device.order_number = ""
         device.product_name = ""
 

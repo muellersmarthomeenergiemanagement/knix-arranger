@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import uuid
 
+from ..utils.manufacturers import manufacturer_display_name
+
 
 @dataclass
 class CompanyProfile:
@@ -93,7 +95,9 @@ class CompanyProfile:
             commissioning_base_hours=data.get("commissioning_base_hours", 2.0),
             minutes_documentation_per_device=data.get("minutes_documentation_per_device", 5.0),
             documentation_base_hours=data.get("documentation_base_hours", 1.0),
-            preferred_manufacturers=data.get("preferred_manufacturers", []),
+            preferred_manufacturers=list(dict.fromkeys(
+                manufacturer_display_name(m) for m in data.get("preferred_manufacturers", [])
+            )),
             payment_terms=data.get("payment_terms", "30 Tage netto"),
             quote_validity_days=data.get("quote_validity_days", 60),
         )

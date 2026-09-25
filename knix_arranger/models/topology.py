@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 import uuid
 
+from ..utils.manufacturers import canonical_manufacturer
+
 
 @dataclass
 class CommunicationObject:
@@ -94,7 +96,8 @@ class Device:
     """KNX-Busteilnehmer/Gerät auf einer Linie (FA-514)."""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     physical_address: str = ""    # Format B.L.T, z.B. "1.1.1"
-    manufacturer: str = ""
+    manufacturer: str = ""        # einheitlicher Anzeigename (utils.manufacturers)
+    manufacturer_id: str = ""     # KNX-Hersteller-ID "M-XXXX" ("" = unbekannt)
     order_number: str = ""
     product: str = ""             # Gerätetyp-Bezeichnung, z.B. "Schaltaktor 8-fach"
     product_name: str = ""        # Hersteller-Produktbezeichnung (nach manueller Zuweisung)
@@ -132,11 +135,20 @@ class Device:
     # geändert – auch nicht bei Topologie-Neuberechnungen.
     is_programmed: bool = False
 
+    def __post_init__(self) -> None:
+        # Hersteller als rohe ID ("M-0002", ETS-Import/aeltere Projekte) oder
+        # in beliebiger Schreibweise -> einheitlicher Name + ID.
+        if self.manufacturer or self.manufacturer_id:
+            self.manufacturer, self.manufacturer_id = canonical_manufacturer(
+                self.manufacturer, self.manufacturer_id,
+            )
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "physical_address": self.physical_address,
             "manufacturer": self.manufacturer,
+            "manufacturer_id": self.manufacturer_id,
             "order_number": self.order_number,
             "product": self.product,
             "product_name": self.product_name,
@@ -162,6 +174,7 @@ class Device:
             id=data.get("id", str(uuid.uuid4())),
             physical_address=data.get("physical_address", ""),
             manufacturer=data.get("manufacturer", ""),
+            manufacturer_id=data.get("manufacturer_id", ""),
             order_number=data.get("order_number", ""),
             product=data.get("product", ""),
             product_name=data.get("product_name", ""),

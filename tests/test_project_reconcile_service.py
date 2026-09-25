@@ -75,7 +75,8 @@ def test_reconcile_keeps_fresh_values_when_no_prior_assignment():
         product_name="", manufacturer="M-0002", order_number="ABC-123",
     )
     reconcile_reimport(old_project, new_project)
-    assert new_device.manufacturer == "M-0002"
+    assert new_device.manufacturer == "ABB"
+    assert new_device.manufacturer_id == "M-0002"
     assert new_device.order_number == "ABC-123"
 
 

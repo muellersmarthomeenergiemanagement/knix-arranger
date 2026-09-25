@@ -523,7 +523,8 @@ class ProductSelectDialog(QDialog):
             return
 
         if prod.superseded_by:
-            self._search_service.mark_superseded(prod.manufacturer, prod.order_number, "")
+            self._search_service.mark_superseded(prod.manufacturer, prod.order_number, "",
+                                                prod.product_name)
             self._refresh_results()
             return
 
@@ -557,7 +558,9 @@ class ProductSelectDialog(QDialog):
             return
 
         successor_order_number = candidates[labels.index(choice)].get("order_number", "")
-        self._search_service.mark_superseded(prod.manufacturer, prod.order_number, successor_order_number)
+        self._search_service.mark_superseded(
+            prod.manufacturer, prod.order_number, successor_order_number, prod.product_name,
+        )
         self._refresh_results()
 
     def _on_line_changed(self, index: int):

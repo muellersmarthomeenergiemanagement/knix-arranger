@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import date
 import uuid
 
+from ..utils.manufacturers import manufacturer_display_name
+
 
 def round_rappen(value: float) -> float:
     """Rundet einen Frankenbetrag auf 5-Rappen-Schritte (CH-Rundungsregel)."""
@@ -90,7 +92,7 @@ class QuotationItem:
     def from_dict(cls, data: dict) -> QuotationItem:
         return cls(
             position=data.get("position", 0),
-            manufacturer=data.get("manufacturer", ""),
+            manufacturer=manufacturer_display_name(data.get("manufacturer", "")),
             order_number=data.get("order_number", ""),
             product_name=data.get("product_name", ""),
             quantity=data.get("quantity", 1),

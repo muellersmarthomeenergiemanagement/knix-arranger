@@ -1,0 +1,3222 @@
+{
+ "source": "knx_master.xml",
+ "master_data_version": "253",
+ "manufacturers": {
+  "M-0001": {
+   "name": "Siemens",
+   "active": true
+  },
+  "M-0002": {
+   "name": "ABB AG - STOTZ-KONTAKT",
+   "active": true
+  },
+  "M-0004": {
+   "name": "Albrecht Jung",
+   "active": true
+  },
+  "M-0005": {
+   "name": "Bticino",
+   "active": true
+  },
+  "M-0006": {
+   "name": "Berker",
+   "active": true
+  },
+  "M-0007": {
+   "name": "ABB AG - BUSCH-JAEGER",
+   "active": true
+  },
+  "M-0008": {
+   "name": "GIRA Giersiepen",
+   "active": true
+  },
+  "M-0009": {
+   "name": "Hager Electro",
+   "active": true
+  },
+  "M-000A": {
+   "name": "Insta GmbH",
+   "active": true
+  },
+  "M-000B": {
+   "name": "LEGRAND Appareillage électrique",
+   "active": true
+  },
+  "M-000C": {
+   "name": "Merten",
+   "active": true
+  },
+  "M-000E": {
+   "name": "ABB SpA-SACE Division",
+   "active": true
+  },
+  "M-0016": {
+   "name": "Siedle & Söhne",
+   "active": true
+  },
+  "M-0018": {
+   "name": "Eberle",
+   "active": false
+  },
+  "M-0019": {
+   "name": "GEWISS",
+   "active": true
+  },
+  "M-001B": {
+   "name": "Albert Ackermann",
+   "active": false
+  },
+  "M-001C": {
+   "name": "Schupa GmbH",
+   "active": false
+  },
+  "M-001D": {
+   "name": "ABB SCHWEIZ",
+   "active": false
+  },
+  "M-001E": {
+   "name": "Feller",
+   "active": true
+  },
+  "M-001F": {
+   "name": "Glamox AS",
+   "active": true
+  },
+  "M-0020": {
+   "name": "DEHN & SÖHNE",
+   "active": true
+  },
+  "M-0021": {
+   "name": "CRABTREE",
+   "active": false
+  },
+  "M-0022": {
+   "name": "eVoKNX",
+   "active": true
+  },
+  "M-0024": {
+   "name": "Paul Hochköpper",
+   "active": false
+  },
+  "M-0025": {
+   "name": "Altenburger Electronic",
+   "active": false
+  },
+  "M-0029": {
+   "name": "Grässlin",
+   "active": false
+  },
+  "M-002A": {
+   "name": "Simon",
+   "active": true
+  },
+  "M-002C": {
+   "name": "VIMAR",
+   "active": true
+  },
+  "M-002D": {
+   "name": "Moeller Gebäudeautomation KG",
+   "active": false
+  },
+  "M-002E": {
+   "name": "Eltako",
+   "active": false
+  },
+  "M-0031": {
+   "name": "Bosch-Siemens Haushaltsgeräte",
+   "active": false
+  },
+  "M-0034": {
+   "name": "RITTO GmbH&Co.KG",
+   "active": false
+  },
+  "M-0035": {
+   "name": "Power Controls",
+   "active": false
+  },
+  "M-0037": {
+   "name": "ZUMTOBEL",
+   "active": true
+  },
+  "M-0038": {
+   "name": "HOLEC Systemen",
+   "active": false
+  },
+  "M-0039": {
+   "name": "Phoenix Contact",
+   "active": true
+  },
+  "M-003D": {
+   "name": "WAGO GmbH & Co.KG",
+   "active": true
+  },
+  "M-003E": {
+   "name": "knXpresso",
+   "active": false
+  },
+  "M-0042": {
+   "name": "Wieland Electric",
+   "active": true
+  },
+  "M-0043": {
+   "name": "Hermann Kleinhuis",
+   "active": false
+  },
+  "M-0045": {
+   "name": "Stiebel Eltron",
+   "active": true
+  },
+  "M-0047": {
+   "name": "Tehalit",
+   "active": false
+  },
+  "M-0048": {
+   "name": "Theben AG",
+   "active": true
+  },
+  "M-0049": {
+   "name": "Wilhelm Rutenbeck",
+   "active": false
+  },
+  "M-004B": {
+   "name": "Winkhaus",
+   "active": false
+  },
+  "M-004C": {
+   "name": "Robert Bosch",
+   "active": false
+  },
+  "M-004E": {
+   "name": "Somfy",
+   "active": true
+  },
+  "M-0050": {
+   "name": "Woertz",
+   "active": true
+  },
+  "M-0051": {
+   "name": "Viessmann Werke",
+   "active": true
+  },
+  "M-0052": {
+   "name": "IMI Hydronic Engineering",
+   "active": true
+  },
+  "M-0053": {
+   "name": "Joh. Vaillant",
+   "active": true
+  },
+  "M-0055": {
+   "name": "AMP Deutschland",
+   "active": false
+  },
+  "M-0059": {
+   "name": "Bosch Thermotechnik GmbH",
+   "active": true
+  },
+  "M-005A": {
+   "name": "SEF - ECOTEC",
+   "active": false
+  },
+  "M-005C": {
+   "name": "DORMA GmbH + Co. KG",
+   "active": false
+  },
+  "M-005D": {
+   "name": "WindowMaster A/S",
+   "active": true
+  },
+  "M-005E": {
+   "name": "Walther Werke",
+   "active": false
+  },
+  "M-005F": {
+   "name": "ORAS",
+   "active": false
+  },
+  "M-0061": {
+   "name": "Dätwyler",
+   "active": false
+  },
+  "M-0062": {
+   "name": "Electrak",
+   "active": false
+  },
+  "M-0063": {
+   "name": "Techem",
+   "active": false
+  },
+  "M-0064": {
+   "name": "Schneider Electric Industries SAS",
+   "active": true
+  },
+  "M-0065": {
+   "name": "WHD Wilhelm Huber + Söhne",
+   "active": false
+  },
+  "M-0066": {
+   "name": "Bischoff Elektronik",
+   "active": true
+  },
+  "M-0068": {
+   "name": "JEPAZ",
+   "active": false
+  },
+  "M-0069": {
+   "name": "RTS Automation",
+   "active": false
+  },
+  "M-006A": {
+   "name": "EIBMARKT GmbH",
+   "active": true
+  },
+  "M-006B": {
+   "name": "WAREMA Renkhoff SE",
+   "active": true
+  },
+  "M-006C": {
+   "name": "Eelectron",
+   "active": true
+  },
+  "M-006D": {
+   "name": "Belden Wire & Cable B.V.",
+   "active": true
+  },
+  "M-006E": {
+   "name": "Becker-Antriebe GmbH",
+   "active": true
+  },
+  "M-006F": {
+   "name": "J.Stehle+Söhne GmbH",
+   "active": false
+  },
+  "M-0070": {
+   "name": "AGFEO",
+   "active": true
+  },
+  "M-0071": {
+   "name": "Zennio",
+   "active": true
+  },
+  "M-0072": {
+   "name": "TAPKO Technologies",
+   "active": true
+  },
+  "M-0073": {
+   "name": "HDL",
+   "active": true
+  },
+  "M-0074": {
+   "name": "Uponor",
+   "active": true
+  },
+  "M-0075": {
+   "name": "se Lightmanagement AG",
+   "active": true
+  },
+  "M-0076": {
+   "name": "Arcus-eds",
+   "active": true
+  },
+  "M-0077": {
+   "name": "Intesis",
+   "active": true
+  },
+  "M-0078": {
+   "name": "Herholdt Controls srl",
+   "active": true
+  },
+  "M-0079": {
+   "name": "Niko-Zublin",
+   "active": false
+  },
+  "M-007A": {
+   "name": "Durable Technologies",
+   "active": false
+  },
+  "M-007B": {
+   "name": "Innoteam",
+   "active": false
+  },
+  "M-007C": {
+   "name": "ise GmbH",
+   "active": true
+  },
+  "M-007D": {
+   "name": "TEAM FOR TRONICS",
+   "active": false
+  },
+  "M-007E": {
+   "name": "CARRIER SAS",
+   "active": true
+  },
+  "M-007F": {
+   "name": "Remeha BV",
+   "active": false
+  },
+  "M-0080": {
+   "name": "ESYLUX",
+   "active": true
+  },
+  "M-0081": {
+   "name": "BASALTE",
+   "active": true
+  },
+  "M-0082": {
+   "name": "Vestamatic",
+   "active": false
+  },
+  "M-0083": {
+   "name": "MDT technologies",
+   "active": true
+  },
+  "M-0084": {
+   "name": "Warendorfer Küchen GmbH",
+   "active": false
+  },
+  "M-0085": {
+   "name": "GVS",
+   "active": true
+  },
+  "M-0086": {
+   "name": "Sitek",
+   "active": false
+  },
+  "M-0087": {
+   "name": "CONTROLtronic",
+   "active": true
+  },
+  "M-0088": {
+   "name": "function Technology",
+   "active": true
+  },
+  "M-0089": {
+   "name": "AMX",
+   "active": false
+  },
+  "M-008A": {
+   "name": "ELDAT",
+   "active": true
+  },
+  "M-008B": {
+   "name": "Panasonic",
+   "active": true
+  },
+  "M-008C": {
+   "name": "Pulse Technologies",
+   "active": false
+  },
+  "M-008D": {
+   "name": "Crestron",
+   "active": true
+  },
+  "M-008E": {
+   "name": "STEINEL professional",
+   "active": true
+  },
+  "M-008F": {
+   "name": "BILTON LED Lighting",
+   "active": true
+  },
+  "M-0090": {
+   "name": "denro AG",
+   "active": false
+  },
+  "M-0091": {
+   "name": "GePro",
+   "active": true
+  },
+  "M-0092": {
+   "name": "preussen automation",
+   "active": false
+  },
+  "M-0093": {
+   "name": "Zoppas Industries",
+   "active": false
+  },
+  "M-0094": {
+   "name": "MACTECH",
+   "active": true
+  },
+  "M-0095": {
+   "name": "TECHNO-TREND",
+   "active": false
+  },
+  "M-0096": {
+   "name": "FS Cables",
+   "active": true
+  },
+  "M-0097": {
+   "name": "Delta Dore",
+   "active": false
+  },
+  "M-0098": {
+   "name": "Eissound",
+   "active": false
+  },
+  "M-0099": {
+   "name": "Cisco",
+   "active": false
+  },
+  "M-009A": {
+   "name": "Dinuy",
+   "active": true
+  },
+  "M-009B": {
+   "name": "iKNiX",
+   "active": false
+  },
+  "M-009C": {
+   "name": "Rademacher Geräte-Elektronik GmbH",
+   "active": false
+  },
+  "M-009D": {
+   "name": "EGi Electroacustica General Iberica",
+   "active": true
+  },
+  "M-009E": {
+   "name": "Bes – Ingenium",
+   "active": true
+  },
+  "M-009F": {
+   "name": "ElabNET",
+   "active": true
+  },
+  "M-00A0": {
+   "name": "Blumotix",
+   "active": true
+  },
+  "M-00A1": {
+   "name": "Hunter Douglas",
+   "active": false
+  },
+  "M-00A2": {
+   "name": "APRICUM",
+   "active": true
+  },
+  "M-00A3": {
+   "name": "TIANSU Automation",
+   "active": true
+  },
+  "M-00A4": {
+   "name": "Bubendorff",
+   "active": false
+  },
+  "M-00A5": {
+   "name": "MBS GmbH",
+   "active": true
+  },
+  "M-00A6": {
+   "name": "Enertex Bayern GmbH",
+   "active": true
+  },
+  "M-00A7": {
+   "name": "BMS",
+   "active": true
+  },
+  "M-00A8": {
+   "name": "Sinapsi",
+   "active": true
+  },
+  "M-00A9": {
+   "name": "Embedded Systems SIA",
+   "active": true
+  },
+  "M-00AA": {
+   "name": "KNX1",
+   "active": false
+  },
+  "M-00AB": {
+   "name": "Tokka",
+   "active": false
+  },
+  "M-00AC": {
+   "name": "NanoSense",
+   "active": false
+  },
+  "M-00AD": {
+   "name": "PEAR Automation GmbH",
+   "active": false
+  },
+  "M-00AE": {
+   "name": "DGA",
+   "active": false
+  },
+  "M-00AF": {
+   "name": "Lutron",
+   "active": false
+  },
+  "M-00B0": {
+   "name": "AIRZONE – ALTRA",
+   "active": true
+  },
+  "M-00B1": {
+   "name": "Lithoss Design Switches",
+   "active": true
+  },
+  "M-00B2": {
+   "name": "3ATEL",
+   "active": true
+  },
+  "M-00B3": {
+   "name": "Philips Controls",
+   "active": false
+  },
+  "M-00B4": {
+   "name": "VELUX A/S",
+   "active": true
+  },
+  "M-00B5": {
+   "name": "LOYTEC",
+   "active": true
+  },
+  "M-00B6": {
+   "name": "Ekinex S.p.A.",
+   "active": true
+  },
+  "M-00B7": {
+   "name": "SIRLAN Technologies",
+   "active": false
+  },
+  "M-00B8": {
+   "name": "ProKNX SAS",
+   "active": true
+  },
+  "M-00B9": {
+   "name": "IT GmbH",
+   "active": true
+  },
+  "M-00BA": {
+   "name": "RENSON",
+   "active": true
+  },
+  "M-00BB": {
+   "name": "HEP Group",
+   "active": false
+  },
+  "M-00BC": {
+   "name": "Balmart",
+   "active": false
+  },
+  "M-00BD": {
+   "name": "GFS GmbH",
+   "active": false
+  },
+  "M-00BE": {
+   "name": "Schenker Storen AG",
+   "active": true
+  },
+  "M-00BF": {
+   "name": "Algodue Elettronica S.r.L.",
+   "active": false
+  },
+  "M-00C0": {
+   "name": "ABB France",
+   "active": true
+  },
+  "M-00C1": {
+   "name": "maintronic",
+   "active": true
+  },
+  "M-00C2": {
+   "name": "Vantage",
+   "active": true
+  },
+  "M-00C3": {
+   "name": "Foresis",
+   "active": false
+  },
+  "M-00C4": {
+   "name": "Research & Production Association SEM",
+   "active": false
+  },
+  "M-00C5": {
+   "name": "Weinzierl Engineering GmbH",
+   "active": true
+  },
+  "M-00C6": {
+   "name": "Möhlenhoff Wärmetechnik GmbH",
+   "active": false
+  },
+  "M-00C7": {
+   "name": "PKC-GROUP Oyj",
+   "active": false
+  },
+  "M-00C8": {
+   "name": "B.E.G.",
+   "active": true
+  },
+  "M-00C9": {
+   "name": "Elsner Elektronik GmbH",
+   "active": true
+  },
+  "M-00CA": {
+   "name": "Siemens Building Technologies (HK/China) Ltd.",
+   "active": false
+  },
+  "M-00CC": {
+   "name": "Eutrac",
+   "active": false
+  },
+  "M-00CD": {
+   "name": "Gustav Hensel GmbH & Co. KG",
+   "active": false
+  },
+  "M-00CE": {
+   "name": "GARO AB",
+   "active": false
+  },
+  "M-00CF": {
+   "name": "Waldmann Lichttechnik",
+   "active": false
+  },
+  "M-00D0": {
+   "name": "SCHÜCO",
+   "active": true
+  },
+  "M-00D1": {
+   "name": "EMU",
+   "active": true
+  },
+  "M-00D2": {
+   "name": "JNet Systems AG",
+   "active": false
+  },
+  "M-00D3": {
+   "name": "Total Solution GmbH",
+   "active": true
+  },
+  "M-00D6": {
+   "name": "O.Y.L. Electronics",
+   "active": false
+  },
+  "M-00D7": {
+   "name": "Galax System",
+   "active": false
+  },
+  "M-00D8": {
+   "name": "Disch",
+   "active": false
+  },
+  "M-00D9": {
+   "name": "Aucoteam",
+   "active": false
+  },
+  "M-00DA": {
+   "name": "Luxmate Controls",
+   "active": false
+  },
+  "M-00DB": {
+   "name": "Danfoss",
+   "active": false
+  },
+  "M-00DC": {
+   "name": "AST GmbH",
+   "active": false
+  },
+  "M-00DE": {
+   "name": "WILA Leuchten",
+   "active": false
+  },
+  "M-00DF": {
+   "name": "b+b Automations- und Steuerungstechnik",
+   "active": true
+  },
+  "M-00E1": {
+   "name": "Lingg & Janke",
+   "active": true
+  },
+  "M-00E3": {
+   "name": "Sauter",
+   "active": true
+  },
+  "M-00E4": {
+   "name": "SIMU",
+   "active": false
+  },
+  "M-00E8": {
+   "name": "Theben HTS AG",
+   "active": true
+  },
+  "M-00E9": {
+   "name": "Amann GmbH",
+   "active": false
+  },
+  "M-00EA": {
+   "name": "BERG Energiekontrollsysteme GmbH",
+   "active": false
+  },
+  "M-00EB": {
+   "name": "Hüppe Form Sonnenschutzsysteme GmbH",
+   "active": false
+  },
+  "M-00ED": {
+   "name": "Oventrop KG",
+   "active": true
+  },
+  "M-00EE": {
+   "name": "Griesser AG",
+   "active": true
+  },
+  "M-00EF": {
+   "name": "IPAS GmbH",
+   "active": true
+  },
+  "M-00F0": {
+   "name": "elero GmbH",
+   "active": true
+  },
+  "M-00F1": {
+   "name": "Ardan Production and Industrial Controls Ltd.",
+   "active": false
+  },
+  "M-00F2": {
+   "name": "Metec Meßtechnik GmbH",
+   "active": false
+  },
+  "M-00F3": {
+   "name": "BÜRK MOBATIME",
+   "active": false
+  },
+  "M-00F4": {
+   "name": "ELKA-Elektronik GmbH",
+   "active": false
+  },
+  "M-00F5": {
+   "name": "ELEKTROANLAGEN D. NAGEL",
+   "active": false
+  },
+  "M-00F6": {
+   "name": "Tridonic Bauelemente GmbH",
+   "active": false
+  },
+  "M-00F8": {
+   "name": "Stengler Gesellschaft",
+   "active": false
+  },
+  "M-00F9": {
+   "name": "Schneider Electric (MG)",
+   "active": false
+  },
+  "M-00FA": {
+   "name": "KNX Association",
+   "active": true
+  },
+  "M-00FB": {
+   "name": "VIVO",
+   "active": false
+  },
+  "M-00FC": {
+   "name": "Hugo Müller GmbH & Co KG",
+   "active": true
+  },
+  "M-00FD": {
+   "name": "Siemens HVAC",
+   "active": true
+  },
+  "M-00FE": {
+   "name": "APT",
+   "active": false
+  },
+  "M-0100": {
+   "name": "HighDom",
+   "active": false
+  },
+  "M-0101": {
+   "name": "Top Services",
+   "active": false
+  },
+  "M-0102": {
+   "name": "ambiHome",
+   "active": true
+  },
+  "M-0103": {
+   "name": "DATEC electronic AG",
+   "active": true
+  },
+  "M-0104": {
+   "name": "ABUS Security-Center",
+   "active": true
+  },
+  "M-0105": {
+   "name": "Lite-Puter",
+   "active": true
+  },
+  "M-0106": {
+   "name": "Tantron Electronic",
+   "active": true
+  },
+  "M-0107": {
+   "name": "Interra",
+   "active": true
+  },
+  "M-0108": {
+   "name": "DKX Tech",
+   "active": false
+  },
+  "M-0109": {
+   "name": "Viatron",
+   "active": false
+  },
+  "M-010A": {
+   "name": "Nautibus",
+   "active": false
+  },
+  "M-010B": {
+   "name": "ON Semiconductor",
+   "active": true
+  },
+  "M-010C": {
+   "name": "Longchuang",
+   "active": false
+  },
+  "M-010D": {
+   "name": "Air-On AG",
+   "active": false
+  },
+  "M-010E": {
+   "name": "ib-company GmbH",
+   "active": false
+  },
+  "M-010F": {
+   "name": "Sation Factory",
+   "active": false
+  },
+  "M-0110": {
+   "name": "Agentilo GmbH",
+   "active": true
+  },
+  "M-0111": {
+   "name": "Makel Elektrik",
+   "active": true
+  },
+  "M-0112": {
+   "name": "Helios Ventilatoren",
+   "active": true
+  },
+  "M-0113": {
+   "name": "Otto Solutions Pte Ltd",
+   "active": false
+  },
+  "M-0114": {
+   "name": "Airmaster",
+   "active": false
+  },
+  "M-0115": {
+   "name": "Vallox GmbH",
+   "active": true
+  },
+  "M-0116": {
+   "name": "Dalitek",
+   "active": true
+  },
+  "M-0117": {
+   "name": "ASIN",
+   "active": false
+  },
+  "M-0118": {
+   "name": "Bridges Intelligence Technology Inc.",
+   "active": false
+  },
+  "M-0119": {
+   "name": "ARBONIA",
+   "active": true
+  },
+  "M-011A": {
+   "name": "KERMI",
+   "active": true
+  },
+  "M-011B": {
+   "name": "PROLUX",
+   "active": true
+  },
+  "M-011C": {
+   "name": "ClicHome",
+   "active": false
+  },
+  "M-011D": {
+   "name": "COMMAX",
+   "active": false
+  },
+  "M-011E": {
+   "name": "EAE",
+   "active": true
+  },
+  "M-011F": {
+   "name": "Tense",
+   "active": true
+  },
+  "M-0120": {
+   "name": "Seyoung Electronics",
+   "active": false
+  },
+  "M-0121": {
+   "name": "Lifedomus",
+   "active": false
+  },
+  "M-0122": {
+   "name": "EUROtronic Technology GmbH",
+   "active": false
+  },
+  "M-0123": {
+   "name": "tci",
+   "active": true
+  },
+  "M-0124": {
+   "name": "Rishun Electronic",
+   "active": true
+  },
+  "M-0125": {
+   "name": "Zipato",
+   "active": true
+  },
+  "M-0126": {
+   "name": "cm-security GmbH & Co KG",
+   "active": false
+  },
+  "M-0127": {
+   "name": "Qing Cables",
+   "active": true
+  },
+  "M-0128": {
+   "name": "WOLF",
+   "active": true
+  },
+  "M-0129": {
+   "name": "Coster Tecnologie Elettroniche S.p.A.",
+   "active": false
+  },
+  "M-012A": {
+   "name": "E.G.E",
+   "active": false
+  },
+  "M-012B": {
+   "name": "NETxAutomation",
+   "active": true
+  },
+  "M-012C": {
+   "name": "tecalor",
+   "active": true
+  },
+  "M-012D": {
+   "name": "Urmet Electronics (Huizhou) Ltd.",
+   "active": true
+  },
+  "M-012E": {
+   "name": "Peiying Building Control",
+   "active": false
+  },
+  "M-012F": {
+   "name": "BPT S.p.A. a Socio Unico",
+   "active": false
+  },
+  "M-0130": {
+   "name": "Kanontec - KanonBUS",
+   "active": true
+  },
+  "M-0131": {
+   "name": "ISER Tech",
+   "active": false
+  },
+  "M-0132": {
+   "name": "Fineline",
+   "active": false
+  },
+  "M-0133": {
+   "name": "CP Electronics Ltd",
+   "active": true
+  },
+  "M-0134": {
+   "name": "Niko-Servodan A/S",
+   "active": true
+  },
+  "M-0135": {
+   "name": "Simon",
+   "active": false
+  },
+  "M-0136": {
+   "name": "GM modular pvt. Ltd.",
+   "active": true
+  },
+  "M-0137": {
+   "name": "FU CHENG Intelligence",
+   "active": false
+  },
+  "M-0138": {
+   "name": "NexKon",
+   "active": false
+  },
+  "M-0139": {
+   "name": "FEEL s.r.l",
+   "active": true
+  },
+  "M-013A": {
+   "name": "Not Assigned",
+   "active": false
+  },
+  "M-013B": {
+   "name": "Shenzhen Fanhai Sanjiang Electronics Co., Ltd.",
+   "active": false
+  },
+  "M-013C": {
+   "name": "Jiuzhou Greeble",
+   "active": false
+  },
+  "M-013D": {
+   "name": "Aumüller Aumatic GmbH",
+   "active": true
+  },
+  "M-013E": {
+   "name": "Etman Electric",
+   "active": false
+  },
+  "M-013F": {
+   "name": "Black Nova",
+   "active": true
+  },
+  "M-0140": {
+   "name": "ZidaTech AG",
+   "active": true
+  },
+  "M-0141": {
+   "name": "IDGS bvba",
+   "active": false
+  },
+  "M-0142": {
+   "name": "dakanimo",
+   "active": true
+  },
+  "M-0143": {
+   "name": "Trebor Automation AB",
+   "active": true
+  },
+  "M-0144": {
+   "name": "Satel sp. z o.o.",
+   "active": true
+  },
+  "M-0145": {
+   "name": "Russound, Inc.",
+   "active": false
+  },
+  "M-0146": {
+   "name": "Midea Heating & Ventilating Equipment CO LTD",
+   "active": true
+  },
+  "M-0147": {
+   "name": "Consorzio Terranuova",
+   "active": false
+  },
+  "M-0148": {
+   "name": "Wolf Heiztechnik GmbH",
+   "active": true
+  },
+  "M-0149": {
+   "name": "SONTEC",
+   "active": true
+  },
+  "M-014A": {
+   "name": "Belcom Cables Ltd.",
+   "active": true
+  },
+  "M-014B": {
+   "name": "Guangzhou SeaWin Electrical Technologies Co., Ltd.",
+   "active": true
+  },
+  "M-014C": {
+   "name": "Acrel",
+   "active": true
+  },
+  "M-014D": {
+   "name": "KWC Aquarotter GmbH",
+   "active": true
+  },
+  "M-014E": {
+   "name": "Orion Systems",
+   "active": false
+  },
+  "M-014F": {
+   "name": "Schrack Technik GmbH",
+   "active": true
+  },
+  "M-0150": {
+   "name": "INSPRID",
+   "active": true
+  },
+  "M-0151": {
+   "name": "Sunricher",
+   "active": true
+  },
+  "M-0152": {
+   "name": "Menred automation system(shanghai) Co.,Ltd.",
+   "active": false
+  },
+  "M-0153": {
+   "name": "Aurex",
+   "active": true
+  },
+  "M-0154": {
+   "name": "Josef Barthelme GmbH & Co. KG",
+   "active": true
+  },
+  "M-0155": {
+   "name": "Architecture Numerique",
+   "active": false
+  },
+  "M-0156": {
+   "name": "UP GROUP",
+   "active": false
+  },
+  "M-0157": {
+   "name": "Teknos-Avinno",
+   "active": true
+  },
+  "M-0158": {
+   "name": "Ningbo Dooya Mechanic & Electronic Technology",
+   "active": true
+  },
+  "M-0159": {
+   "name": "Thermokon Sensortechnik GmbH",
+   "active": true
+  },
+  "M-015A": {
+   "name": "BELIMO Automation AG",
+   "active": true
+  },
+  "M-015B": {
+   "name": "Zehnder Group International AG",
+   "active": true
+  },
+  "M-015C": {
+   "name": "sks Kinkel Elektronik",
+   "active": false
+  },
+  "M-015D": {
+   "name": "ECE Wurmitzer GmbH",
+   "active": false
+  },
+  "M-015E": {
+   "name": "LARS",
+   "active": false
+  },
+  "M-015F": {
+   "name": "URC",
+   "active": true
+  },
+  "M-0160": {
+   "name": "LightControl",
+   "active": true
+  },
+  "M-0161": {
+   "name": "ShenZhen YM",
+   "active": true
+  },
+  "M-0162": {
+   "name": "MEAN WELL Enterprises Co. Ltd.",
+   "active": true
+  },
+  "M-0163": {
+   "name": "OSix",
+   "active": true
+  },
+  "M-0164": {
+   "name": "AYPRO Technology",
+   "active": true
+  },
+  "M-0165": {
+   "name": "Hefei Ecolite Software",
+   "active": false
+  },
+  "M-0166": {
+   "name": "Enno",
+   "active": false
+  },
+  "M-0167": {
+   "name": "OHOSURE",
+   "active": true
+  },
+  "M-0168": {
+   "name": "Garefowl",
+   "active": true
+  },
+  "M-0169": {
+   "name": "GEZE",
+   "active": false
+  },
+  "M-016A": {
+   "name": "LG Electronics Inc.",
+   "active": false
+  },
+  "M-016B": {
+   "name": "SMC interiors",
+   "active": true
+  },
+  "M-016C": {
+   "name": "Not Assigned",
+   "active": false
+  },
+  "M-016D": {
+   "name": "SCS Cable",
+   "active": false
+  },
+  "M-016E": {
+   "name": "Hoval",
+   "active": true
+  },
+  "M-016F": {
+   "name": "CANST",
+   "active": false
+  },
+  "M-0170": {
+   "name": "HangZhou Berlin",
+   "active": true
+  },
+  "M-0171": {
+   "name": "EVN-Lichttechnik",
+   "active": true
+  },
+  "M-0172": {
+   "name": "rutec",
+   "active": true
+  },
+  "M-0173": {
+   "name": "Finder",
+   "active": true
+  },
+  "M-0174": {
+   "name": "GENERAL Inc.",
+   "active": true
+  },
+  "M-0175": {
+   "name": "ZF Friedrichshafen AG",
+   "active": true
+  },
+  "M-0176": {
+   "name": "Crealed",
+   "active": false
+  },
+  "M-0177": {
+   "name": "Miles Magic Automation Private Limited",
+   "active": false
+  },
+  "M-0178": {
+   "name": "E+",
+   "active": true
+  },
+  "M-0179": {
+   "name": "Italcond",
+   "active": true
+  },
+  "M-017A": {
+   "name": "SATION",
+   "active": true
+  },
+  "M-017B": {
+   "name": "NewBest",
+   "active": true
+  },
+  "M-017C": {
+   "name": "GDS DIGITAL SYSTEMS",
+   "active": true
+  },
+  "M-017D": {
+   "name": "Iddero",
+   "active": true
+  },
+  "M-017E": {
+   "name": "MBNLED",
+   "active": true
+  },
+  "M-017F": {
+   "name": "VITRUM",
+   "active": false
+  },
+  "M-0180": {
+   "name": "ekey biometric systems GmbH",
+   "active": true
+  },
+  "M-0181": {
+   "name": "AMC",
+   "active": true
+  },
+  "M-0182": {
+   "name": "TRILUX GmbH & Co. KG",
+   "active": true
+  },
+  "M-0183": {
+   "name": "WExcedo",
+   "active": false
+  },
+  "M-0184": {
+   "name": "VEMER SPA",
+   "active": true
+  },
+  "M-0185": {
+   "name": "Alexander Bürkle GmbH & Co KG",
+   "active": true
+  },
+  "M-0186": {
+   "name": "Citron",
+   "active": true
+  },
+  "M-0187": {
+   "name": "Shenzhen HeGuang",
+   "active": true
+  },
+  "M-0188": {
+   "name": "Not Assigned",
+   "active": false
+  },
+  "M-0189": {
+   "name": "TRANE B.V.B.A",
+   "active": false
+  },
+  "M-018A": {
+   "name": "CAREL",
+   "active": true
+  },
+  "M-018B": {
+   "name": "Prolite Controls",
+   "active": false
+  },
+  "M-018C": {
+   "name": "BOSMER",
+   "active": false
+  },
+  "M-018D": {
+   "name": "EUCHIPS",
+   "active": true
+  },
+  "M-018E": {
+   "name": "connect (Thinka connect)",
+   "active": true
+  },
+  "M-018F": {
+   "name": "PEAKnx a DOGAWIST company",
+   "active": true
+  },
+  "M-0190": {
+   "name": "ACEMATIC",
+   "active": true
+  },
+  "M-0191": {
+   "name": "ELAUSYS",
+   "active": true
+  },
+  "M-0192": {
+   "name": "ITK Engineering AG",
+   "active": true
+  },
+  "M-0193": {
+   "name": "INTEGRA METERING AG",
+   "active": true
+  },
+  "M-0194": {
+   "name": "FMS Hospitality Pte Ltd",
+   "active": false
+  },
+  "M-0195": {
+   "name": "Nuvo",
+   "active": false
+  },
+  "M-0196": {
+   "name": "u::Lux GmbH",
+   "active": false
+  },
+  "M-0197": {
+   "name": "Brumberg Leuchten",
+   "active": true
+  },
+  "M-0198": {
+   "name": "Lime",
+   "active": true
+  },
+  "M-0199": {
+   "name": "Great Empire International Group Co., Ltd.",
+   "active": true
+  },
+  "M-019A": {
+   "name": "Kavoshpishro Asia",
+   "active": true
+  },
+  "M-019B": {
+   "name": "V2 SpA",
+   "active": false
+  },
+  "M-019C": {
+   "name": "Johnson Controls",
+   "active": true
+  },
+  "M-019D": {
+   "name": "Arkud",
+   "active": false
+  },
+  "M-019E": {
+   "name": "iRidi Ltd.",
+   "active": true
+  },
+  "M-019F": {
+   "name": "bsmart",
+   "active": true
+  },
+  "M-01A0": {
+   "name": "BAB TECHNOLOGIE GmbH",
+   "active": true
+  },
+  "M-01A1": {
+   "name": "NICE Spa",
+   "active": true
+  },
+  "M-01A2": {
+   "name": "Redfish Group Pty Ltd",
+   "active": false
+  },
+  "M-01A3": {
+   "name": "SABIANA spa",
+   "active": true
+  },
+  "M-01A4": {
+   "name": "Ubee Interactive Europe",
+   "active": false
+  },
+  "M-01A5": {
+   "name": "Rexel",
+   "active": true
+  },
+  "M-01A6": {
+   "name": "Ges Teknik A.S.",
+   "active": false
+  },
+  "M-01A7": {
+   "name": "Ave S.p.A.",
+   "active": true
+  },
+  "M-01A8": {
+   "name": "Zhuhai Ltech Technology Co., Ltd.",
+   "active": false
+  },
+  "M-01A9": {
+   "name": "ARCOM",
+   "active": true
+  },
+  "M-01AA": {
+   "name": "VIA Technologies, Inc.",
+   "active": true
+  },
+  "M-01AB": {
+   "name": "FEELSMART.",
+   "active": true
+  },
+  "M-01AC": {
+   "name": "SUPCON",
+   "active": true
+  },
+  "M-01AD": {
+   "name": "MANIC",
+   "active": true
+  },
+  "M-01AE": {
+   "name": "TDE GmbH",
+   "active": true
+  },
+  "M-01AF": {
+   "name": "Nanjing Shufan Information technology Co.,Ltd.",
+   "active": true
+  },
+  "M-01B0": {
+   "name": "EWTech",
+   "active": false
+  },
+  "M-01B1": {
+   "name": "Kluger Automation",
+   "active": true
+  },
+  "M-01B2": {
+   "name": "JoongAng Control",
+   "active": true
+  },
+  "M-01B3": {
+   "name": "GreenControls Technology Sdn. Bhd.",
+   "active": true
+  },
+  "M-01B4": {
+   "name": "IME S.p.a.",
+   "active": true
+  },
+  "M-01B5": {
+   "name": "SiChuan HaoDing",
+   "active": true
+  },
+  "M-01B6": {
+   "name": "Mindjaga Ltd.",
+   "active": true
+  },
+  "M-01B7": {
+   "name": "RuiLi Smart Control",
+   "active": true
+  },
+  "M-01B8": {
+   "name": "CODESYS GmbH",
+   "active": true
+  },
+  "M-01B9": {
+   "name": "Moorgen Deutschland GmbH",
+   "active": true
+  },
+  "M-01BA": {
+   "name": "CULLMANN TECH",
+   "active": false
+  },
+  "M-01BB": {
+   "name": "eyrise B.V",
+   "active": true
+  },
+  "M-01BC": {
+   "name": "Dobnel",
+   "active": true
+  },
+  "M-01BD": {
+   "name": "myGEKKO",
+   "active": true
+  },
+  "M-01BE": {
+   "name": "Ergo3 Sarl",
+   "active": true
+  },
+  "M-01BF": {
+   "name": "STmicroelectronics International N.V.",
+   "active": true
+  },
+  "M-01C0": {
+   "name": "cjc systems",
+   "active": true
+  },
+  "M-01C1": {
+   "name": "Sudoku",
+   "active": false
+  },
+  "M-01C3": {
+   "name": "AZ e-lite Pte Ltd",
+   "active": false
+  },
+  "M-01C4": {
+   "name": "Arlight",
+   "active": true
+  },
+  "M-01C5": {
+   "name": "Grünbeck Wasseraufbereitung GmbH",
+   "active": false
+  },
+  "M-01C6": {
+   "name": "Module Electronic",
+   "active": true
+  },
+  "M-01C7": {
+   "name": "KOPLAT",
+   "active": true
+  },
+  "M-01C8": {
+   "name": "Guangzhou Letour Life Technology Co., Ltd",
+   "active": true
+  },
+  "M-01C9": {
+   "name": "ILEVIA",
+   "active": true
+  },
+  "M-01CA": {
+   "name": "LN SYSTEMTEQ",
+   "active": true
+  },
+  "M-01CB": {
+   "name": "Hisense SmartHome",
+   "active": false
+  },
+  "M-01CC": {
+   "name": "Flink Automation System",
+   "active": false
+  },
+  "M-01CD": {
+   "name": "xxter bv",
+   "active": true
+  },
+  "M-01CE": {
+   "name": "lynxus technology",
+   "active": true
+  },
+  "M-01CF": {
+   "name": "ROBOT S.A.",
+   "active": true
+  },
+  "M-01D0": {
+   "name": "Shenzhen Atte Smart Life Co.,Ltd.",
+   "active": true
+  },
+  "M-01D1": {
+   "name": "Noblesse",
+   "active": true
+  },
+  "M-01D2": {
+   "name": "Advanced Devices",
+   "active": true
+  },
+  "M-01D3": {
+   "name": "Atrina Building Automation Co. Ltd",
+   "active": true
+  },
+  "M-01D4": {
+   "name": "Guangdong Daming Laffey electric Co., Ltd.",
+   "active": true
+  },
+  "M-01D5": {
+   "name": "Westerstrand Urfabrik AB",
+   "active": true
+  },
+  "M-01D6": {
+   "name": "Control4 Corporate",
+   "active": true
+  },
+  "M-01D7": {
+   "name": "Ontrol",
+   "active": true
+  },
+  "M-01D8": {
+   "name": "Starnet",
+   "active": true
+  },
+  "M-01D9": {
+   "name": "BETA CAVI",
+   "active": true
+  },
+  "M-01DA": {
+   "name": "Hangzhou YiYue Technology Co., Ltd.",
+   "active": true
+  },
+  "M-01DB": {
+   "name": "Vivaldi srl",
+   "active": true
+  },
+  "M-01DC": {
+   "name": "Gree Electric Appliances,Inc. of Zhuhai",
+   "active": true
+  },
+  "M-01DD": {
+   "name": "HWISCON",
+   "active": true
+  },
+  "M-01DE": {
+   "name": "Shanghai ELECON Intelligent Technology Co., Ltd.",
+   "active": true
+  },
+  "M-01DF": {
+   "name": "Kampmann",
+   "active": true
+  },
+  "M-01E0": {
+   "name": "Impolux GmbH / LEDIMAX",
+   "active": true
+  },
+  "M-01E1": {
+   "name": "Evaux",
+   "active": false
+  },
+  "M-01E2": {
+   "name": "Webro Cables & Connectors Limited",
+   "active": true
+  },
+  "M-01E3": {
+   "name": "Shanghai E-tech Solution",
+   "active": true
+  },
+  "M-01E4": {
+   "name": "Guangzhou HOKO Electric Co.,Ltd.",
+   "active": true
+  },
+  "M-01E5": {
+   "name": "LAMMIN HIGH TECH CO.,LTD",
+   "active": true
+  },
+  "M-01E6": {
+   "name": "Shenzhen Merrytek Technology Co., Ltd",
+   "active": true
+  },
+  "M-01E7": {
+   "name": "I-Luxus",
+   "active": true
+  },
+  "M-01E8": {
+   "name": "Elmos Semiconductor AG",
+   "active": true
+  },
+  "M-01E9": {
+   "name": "EmCom Technology Inc",
+   "active": true
+  },
+  "M-01EA": {
+   "name": "project innovations GmbH",
+   "active": false
+  },
+  "M-01EB": {
+   "name": "Itc",
+   "active": true
+  },
+  "M-01EC": {
+   "name": "ABB LV Installation Materials Company Ltd, Beijing",
+   "active": true
+  },
+  "M-01ED": {
+   "name": "Maico",
+   "active": true
+  },
+  "M-01EF": {
+   "name": "ELAN SRL",
+   "active": true
+  },
+  "M-01F0": {
+   "name": "MinhHa Technology co.,Ltd",
+   "active": true
+  },
+  "M-01F1": {
+   "name": "Zhejiang Tianjie Industrial CORP.",
+   "active": true
+  },
+  "M-01F2": {
+   "name": "iAutomation Pty Limited",
+   "active": true
+  },
+  "M-01F3": {
+   "name": "Extron",
+   "active": true
+  },
+  "M-01F4": {
+   "name": "Freedompro",
+   "active": true
+  },
+  "M-01F5": {
+   "name": "1Home",
+   "active": true
+  },
+  "M-01F6": {
+   "name": "EOS Saunatechnik GmbH",
+   "active": true
+  },
+  "M-01F7": {
+   "name": "KUSATEK GmbH",
+   "active": false
+  },
+  "M-01F8": {
+   "name": "Alexander Maier GmbH",
+   "active": true
+  },
+  "M-01F9": {
+   "name": "AUTOMATISMI BENINCA S.P.A.",
+   "active": true
+  },
+  "M-01FA": {
+   "name": "Blendom",
+   "active": false
+  },
+  "M-01FB": {
+   "name": "Madel Air Technical diffusion",
+   "active": false
+  },
+  "M-01FC": {
+   "name": "NIKO",
+   "active": true
+  },
+  "M-01FD": {
+   "name": "Bosch Rexroth AG",
+   "active": true
+  },
+  "M-0200": {
+   "name": "C&M Products",
+   "active": false
+  },
+  "M-0201": {
+   "name": "Hörmann KG Verkaufsgesellschaft",
+   "active": true
+  },
+  "M-0202": {
+   "name": "Shanghai Rajayasa co.,LTD",
+   "active": false
+  },
+  "M-0203": {
+   "name": "SUZUKI",
+   "active": true
+  },
+  "M-0204": {
+   "name": "Silent Gliss International Ltd.",
+   "active": true
+  },
+  "M-0205": {
+   "name": "BEE Controls (ADGSC Group)",
+   "active": true
+  },
+  "M-0206": {
+   "name": "xDTecGmbH",
+   "active": true
+  },
+  "M-0207": {
+   "name": "OSRAM",
+   "active": true
+  },
+  "M-0208": {
+   "name": "Lebenor",
+   "active": true
+  },
+  "M-0209": {
+   "name": "automaneng",
+   "active": true
+  },
+  "M-020A": {
+   "name": "Honeywell Automation Control Solutions(China)CoLtd",
+   "active": true
+  },
+  "M-020B": {
+   "name": "Hangzhou binthen Intelligence Technology Co.,Ltd",
+   "active": true
+  },
+  "M-020C": {
+   "name": "ETA Heiztechnik",
+   "active": true
+  },
+  "M-020D": {
+   "name": "DIVUS GmbH",
+   "active": true
+  },
+  "M-020E": {
+   "name": "Nanjing Taijiesai Intelligent Technology Co. Ltd.",
+   "active": true
+  },
+  "M-020F": {
+   "name": "Lunatone",
+   "active": true
+  },
+  "M-0210": {
+   "name": "ZHEJIANG SCTECH BUILDING INTELLIGENT",
+   "active": true
+  },
+  "M-0211": {
+   "name": "Foshan Qite Technology Co., Ltd.",
+   "active": false
+  },
+  "M-0212": {
+   "name": "NOKE",
+   "active": true
+  },
+  "M-0213": {
+   "name": "LANDCOM",
+   "active": true
+  },
+  "M-0214": {
+   "name": "Stork AS",
+   "active": true
+  },
+  "M-0215": {
+   "name": "Hangzhou Shendu Technology Co., Ltd.",
+   "active": true
+  },
+  "M-0216": {
+   "name": "CoolAutomation",
+   "active": true
+  },
+  "M-0217": {
+   "name": "Aprstern",
+   "active": false
+  },
+  "M-0218": {
+   "name": "sonnen",
+   "active": true
+  },
+  "M-0219": {
+   "name": "DNAKE",
+   "active": true
+  },
+  "M-021A": {
+   "name": "Neuberger Gebäudeautomation GmbH",
+   "active": true
+  },
+  "M-021B": {
+   "name": "Stiliger",
+   "active": true
+  },
+  "M-021C": {
+   "name": "Berghof Automation GmbH",
+   "active": true
+  },
+  "M-021D": {
+   "name": "Total Automation and controls GmbH",
+   "active": true
+  },
+  "M-021E": {
+   "name": "DOVIT",
+   "active": true
+  },
+  "M-021F": {
+   "name": "Instalighting GmbH",
+   "active": true
+  },
+  "M-0220": {
+   "name": "UNI-TEC",
+   "active": false
+  },
+  "M-0221": {
+   "name": "CasaTunes",
+   "active": true
+  },
+  "M-0222": {
+   "name": "EMT",
+   "active": false
+  },
+  "M-0223": {
+   "name": "Senfficient",
+   "active": true
+  },
+  "M-0224": {
+   "name": "Aurolite electrical panyu guangzhou limited",
+   "active": true
+  },
+  "M-0225": {
+   "name": "ABB Xiamen Smart Technology Co., Ltd.",
+   "active": true
+  },
+  "M-0226": {
+   "name": "Samson Electric Wire",
+   "active": true
+  },
+  "M-0227": {
+   "name": "T-Touching",
+   "active": true
+  },
+  "M-0228": {
+   "name": "Core Smart Home",
+   "active": true
+  },
+  "M-0229": {
+   "name": "GreenConnect Solutions SA",
+   "active": true
+  },
+  "M-022A": {
+   "name": "ELETTRONICA CONDUTTORI",
+   "active": true
+  },
+  "M-022B": {
+   "name": "MKFC",
+   "active": false
+  },
+  "M-022C": {
+   "name": "Automation+",
+   "active": true
+  },
+  "M-022D": {
+   "name": "blue and red",
+   "active": true
+  },
+  "M-022E": {
+   "name": "frogblue",
+   "active": true
+  },
+  "M-022F": {
+   "name": "LUXIO",
+   "active": true
+  },
+  "M-0230": {
+   "name": "App Tech",
+   "active": true
+  },
+  "M-0231": {
+   "name": "sensortec AG",
+   "active": true
+  },
+  "M-0232": {
+   "name": "nysa technology & solutions",
+   "active": true
+  },
+  "M-0233": {
+   "name": "FARADITE",
+   "active": true
+  },
+  "M-0234": {
+   "name": "Optimus",
+   "active": true
+  },
+  "M-0235": {
+   "name": "KTS s.r.l.",
+   "active": true
+  },
+  "M-0236": {
+   "name": "Ramcro SPA",
+   "active": true
+  },
+  "M-0237": {
+   "name": "Wuhan WiseCreate Universe Technology Co., Ltd",
+   "active": true
+  },
+  "M-0238": {
+   "name": "BEMI Smart Home Ltd",
+   "active": true
+  },
+  "M-0239": {
+   "name": "Ardomus",
+   "active": true
+  },
+  "M-023A": {
+   "name": "ChangXing",
+   "active": true
+  },
+  "M-023B": {
+   "name": "E-Controls",
+   "active": false
+  },
+  "M-023C": {
+   "name": "AIB Technology",
+   "active": true
+  },
+  "M-023D": {
+   "name": "NVC",
+   "active": true
+  },
+  "M-023E": {
+   "name": "Kbox",
+   "active": true
+  },
+  "M-023F": {
+   "name": "CNS",
+   "active": true
+  },
+  "M-0240": {
+   "name": "Tyba",
+   "active": true
+  },
+  "M-0241": {
+   "name": "Atrel",
+   "active": true
+  },
+  "M-0242": {
+   "name": "Simon Electric (China) Co., LTD",
+   "active": true
+  },
+  "M-0243": {
+   "name": "Kordz Group",
+   "active": true
+  },
+  "M-0244": {
+   "name": "ND Electric",
+   "active": true
+  },
+  "M-0245": {
+   "name": "Controlium",
+   "active": true
+  },
+  "M-0246": {
+   "name": "FAMO GmbH & Co. KG",
+   "active": true
+  },
+  "M-0247": {
+   "name": "CDN Smart",
+   "active": true
+  },
+  "M-0248": {
+   "name": "Heston",
+   "active": true
+  },
+  "M-0249": {
+   "name": "ESLA CONEXIONES S.L.",
+   "active": true
+  },
+  "M-024A": {
+   "name": "Weishaupt",
+   "active": true
+  },
+  "M-024B": {
+   "name": "ASTRUM TECHNOLOGY",
+   "active": false
+  },
+  "M-024C": {
+   "name": "WUERTH ELEKTRONIK STELVIO KONTEK S.p.A.",
+   "active": true
+  },
+  "M-024D": {
+   "name": "NANOTECO corporation",
+   "active": true
+  },
+  "M-024E": {
+   "name": "Nietian",
+   "active": true
+  },
+  "M-024F": {
+   "name": "Guangzhou Sumsir Intelligent Technology Co., Ltd",
+   "active": true
+  },
+  "M-0250": {
+   "name": "ORBIS TECNOLOGIA ELECTRICA SA",
+   "active": true
+  },
+  "M-0251": {
+   "name": "Nanjing Zhongyi IoT Technology Co., Ltd.",
+   "active": true
+  },
+  "M-0252": {
+   "name": "Anlips",
+   "active": true
+  },
+  "M-0253": {
+   "name": "GUANGDONG PAK CORPORATION CO., LTD",
+   "active": false
+  },
+  "M-0254": {
+   "name": "BVK Technology",
+   "active": true
+  },
+  "M-0255": {
+   "name": "Solomio srl",
+   "active": true
+  },
+  "M-0256": {
+   "name": "Domotica Labs",
+   "active": false
+  },
+  "M-0257": {
+   "name": "NVC International",
+   "active": true
+  },
+  "M-0258": {
+   "name": "BA",
+   "active": true
+  },
+  "M-0259": {
+   "name": "Iris Ceramica Group",
+   "active": false
+  },
+  "M-025A": {
+   "name": "Wireeo",
+   "active": true
+  },
+  "M-025B": {
+   "name": "nvclighting",
+   "active": true
+  },
+  "M-025C": {
+   "name": "Jinan Tian Da Sheng Information Technology Co.",
+   "active": true
+  },
+  "M-025D": {
+   "name": "Armiti trading",
+   "active": true
+  },
+  "M-025E": {
+   "name": "ELEK",
+   "active": true
+  },
+  "M-025F": {
+   "name": "Accordia sa",
+   "active": true
+  },
+  "M-0260": {
+   "name": "OURICAN",
+   "active": true
+  },
+  "M-0261": {
+   "name": "INLIWOSE",
+   "active": true
+  },
+  "M-0262": {
+   "name": "Bosch (Shanghai) Smart Life Technology Ltd.",
+   "active": true
+  },
+  "M-0263": {
+   "name": "SHK KNX",
+   "active": true
+  },
+  "M-0264": {
+   "name": "Ampio",
+   "active": true
+  },
+  "M-0265": {
+   "name": "Mingxing Wisdom",
+   "active": true
+  },
+  "M-0266": {
+   "name": "ALTEN SW GmbH",
+   "active": true
+  },
+  "M-0267": {
+   "name": "V.Y.C.srl",
+   "active": true
+  },
+  "M-0268": {
+   "name": "TERMINUS GROUP",
+   "active": false
+  },
+  "M-0269": {
+   "name": "Wonderful City Technology",
+   "active": false
+  },
+  "M-026A": {
+   "name": "QbicTechnology",
+   "active": true
+  },
+  "M-026B": {
+   "name": "Embedded Automation Equipment (Shanghai) Limited",
+   "active": true
+  },
+  "M-026C": {
+   "name": "onework",
+   "active": true
+  },
+  "M-026D": {
+   "name": "PL LINK",
+   "active": false
+  },
+  "M-026E": {
+   "name": "Fasel GmbH Elektronik",
+   "active": true
+  },
+  "M-026F": {
+   "name": "GoldenHome Smart",
+   "active": true
+  },
+  "M-0270": {
+   "name": "Goldmedal",
+   "active": true
+  },
+  "M-0271": {
+   "name": "Can'nX",
+   "active": true
+  },
+  "M-0273": {
+   "name": "EGI - Earth Goodness",
+   "active": true
+  },
+  "M-0274": {
+   "name": "Viega GmbH & Co. KG",
+   "active": true
+  },
+  "M-0275": {
+   "name": "Fredon Digital Buildings",
+   "active": true
+  },
+  "M-0276": {
+   "name": "Helukabel (Thailand) Co.,Ltd.",
+   "active": true
+  },
+  "M-0277": {
+   "name": "SICS",
+   "active": true
+  },
+  "M-0278": {
+   "name": "MEX Electric Technology (Shanghai) Co., Ltd",
+   "active": true
+  },
+  "M-0279": {
+   "name": "SUMAMO",
+   "active": true
+  },
+  "M-027A": {
+   "name": "SVIT",
+   "active": true
+  },
+  "M-027B": {
+   "name": "tecget",
+   "active": true
+  },
+  "M-027C": {
+   "name": "Xeropoint",
+   "active": false
+  },
+  "M-027D": {
+   "name": "Honeywell Building Technologies",
+   "active": true
+  },
+  "M-027E": {
+   "name": "ComfortClick",
+   "active": true
+  },
+  "M-027F": {
+   "name": "DORBAS ELECTRIC",
+   "active": true
+  },
+  "M-0280": {
+   "name": "REMKO GmbH & Co. KG",
+   "active": true
+  },
+  "M-0281": {
+   "name": "Shenzhen Congxun Intelligent Technology Co., LTD",
+   "active": true
+  },
+  "M-0282": {
+   "name": "ANDAS",
+   "active": true
+  },
+  "M-0283": {
+   "name": "Hefei Chuang Yue Intelligent Technology Co.,LTD",
+   "active": true
+  },
+  "M-0284": {
+   "name": "Larfe",
+   "active": true
+  },
+  "M-0285": {
+   "name": "Dongguan Muhcci Electrical",
+   "active": true
+  },
+  "M-0286": {
+   "name": "Sdeke",
+   "active": true
+  },
+  "M-0287": {
+   "name": "ARIGO Software GmbH",
+   "active": true
+  },
+  "M-0288": {
+   "name": "Feishelec",
+   "active": true
+  },
+  "M-0289": {
+   "name": "GORDIC",
+   "active": true
+  },
+  "M-028A": {
+   "name": "Delta Electronics",
+   "active": true
+  },
+  "M-028B": {
+   "name": "Shanghai Lewin Intelligent Technology Co.,Ltd.",
+   "active": true
+  },
+  "M-028C": {
+   "name": "KG-POWER",
+   "active": true
+  },
+  "M-028D": {
+   "name": "Zhejiang Moorgen Group Co.,Ltd",
+   "active": true
+  },
+  "M-028E": {
+   "name": "Guangdong Kanway",
+   "active": true
+  },
+  "M-0290": {
+   "name": "RAMIREZ Engineering GmbH",
+   "active": true
+  },
+  "M-0291": {
+   "name": "Zhongshan Taiyang IMP&EXP. CO LTD",
+   "active": true
+  },
+  "M-0292": {
+   "name": "Vihan electric pvt ltd",
+   "active": true
+  },
+  "M-0293": {
+   "name": "Splendid Minds GmbH",
+   "active": true
+  },
+  "M-0294": {
+   "name": "Estada",
+   "active": true
+  },
+  "M-0295": {
+   "name": "zhongyunxinzhikonggujituanyouxiangongsi",
+   "active": true
+  },
+  "M-0296": {
+   "name": "Stuhl Regelsysteme GmbH",
+   "active": true
+  },
+  "M-0297": {
+   "name": "Shenzhen Gluck Technology Co., LTD",
+   "active": true
+  },
+  "M-0298": {
+   "name": "Gaimex",
+   "active": true
+  },
+  "M-0299": {
+   "name": "B3 International S.R.L",
+   "active": true
+  },
+  "M-029A": {
+   "name": "MM Electro",
+   "active": true
+  },
+  "M-029B": {
+   "name": "CASCODA",
+   "active": true
+  },
+  "M-029C": {
+   "name": "Xiamen Intretech Inc.",
+   "active": true
+  },
+  "M-029D": {
+   "name": "KiloElec Technology",
+   "active": true
+  },
+  "M-029E": {
+   "name": "Inyx",
+   "active": true
+  },
+  "M-029F": {
+   "name": "Smart Building Services GmbH",
+   "active": true
+  },
+  "M-02A0": {
+   "name": "BSS GmbH",
+   "active": true
+  },
+  "M-02A1": {
+   "name": "Lumi Electronics",
+   "active": true
+  },
+  "M-02A2": {
+   "name": "OjeaElectronics",
+   "active": true
+  },
+  "M-02A3": {
+   "name": "Smart Node",
+   "active": true
+  },
+  "M-02A4": {
+   "name": "NEXhome",
+   "active": true
+  },
+  "M-02A5": {
+   "name": "Huoteng Wulian (Jiangsu) Co., Ltd",
+   "active": true
+  },
+  "M-02A6": {
+   "name": "Raylogic Control Systems Pvt Ltd",
+   "active": true
+  },
+  "M-02A7": {
+   "name": "Bits & Bytes",
+   "active": true
+  },
+  "M-02A8": {
+   "name": "KFV (SIEGENIA GRUPPE)",
+   "active": true
+  },
+  "M-02A9": {
+   "name": "Symcon",
+   "active": true
+  },
+  "M-02AA": {
+   "name": "I.Trust",
+   "active": true
+  },
+  "M-02AB": {
+   "name": "DRD-Technics",
+   "active": true
+  },
+  "M-02AC": {
+   "name": "LENGEN",
+   "active": false
+  },
+  "M-02AD": {
+   "name": "Shenzhen EXC-LED Technology Co.,LTD",
+   "active": false
+  },
+  "M-02AE": {
+   "name": "Vibroxx-FZCO",
+   "active": true
+  },
+  "M-02AF": {
+   "name": "Suzhou Hongyun Intelligent TechnologyCo., Ltd",
+   "active": true
+  },
+  "M-02B0": {
+   "name": "Passiv Energie GmbH",
+   "active": true
+  },
+  "M-02B1": {
+   "name": "Payne Technologies Ltd",
+   "active": false
+  },
+  "M-02B2": {
+   "name": "Guangdong Yozewit Intelligent Technology Co.,Ltd.",
+   "active": true
+  },
+  "M-02B3": {
+   "name": "SEXANKA",
+   "active": true
+  },
+  "M-02B4": {
+   "name": "Securi-Flex Ltd",
+   "active": true
+  },
+  "M-02B5": {
+   "name": "BOKE",
+   "active": true
+  },
+  "M-02B7": {
+   "name": "SBR System Technical",
+   "active": true
+  },
+  "M-02B8": {
+   "name": "Shenzhen EastKame Technology Co., Ltd.",
+   "active": true
+  },
+  "M-02B9": {
+   "name": "BOLATU",
+   "active": true
+  },
+  "M-02BA": {
+   "name": "RECBER KABLO A.S.",
+   "active": true
+  },
+  "M-02BB": {
+   "name": "ILite-Knx",
+   "active": true
+  },
+  "M-02BC": {
+   "name": "LAZZEN",
+   "active": true
+  },
+  "M-02BD": {
+   "name": "MOX CONTROL IT (CHINA) LIMITED",
+   "active": false
+  },
+  "M-02BE": {
+   "name": "CLOWIRE",
+   "active": true
+  },
+  "M-02BF": {
+   "name": "NINGBO QIYUAN LIGHTING TECH CO.,LTD",
+   "active": true
+  },
+  "M-02C0": {
+   "name": "NS Touch",
+   "active": true
+  },
+  "M-02C1": {
+   "name": "ROOMIO",
+   "active": true
+  },
+  "M-02C2": {
+   "name": "Atouch",
+   "active": true
+  },
+  "M-02C3": {
+   "name": "Panasonic Life Solutions India Pvt. Ltd",
+   "active": true
+  },
+  "M-02C4": {
+   "name": "WallYons",
+   "active": true
+  },
+  "M-02C5": {
+   "name": "Zimmex",
+   "active": true
+  },
+  "M-02C6": {
+   "name": "Rhombus Europe",
+   "active": true
+  },
+  "M-02C7": {
+   "name": "Turing-Think",
+   "active": true
+  },
+  "M-02C8": {
+   "name": "Michoi",
+   "active": true
+  },
+  "M-02C9": {
+   "name": "CAV SMART(GUANGZHOU)CO.,LTD",
+   "active": true
+  },
+  "M-02CA": {
+   "name": "Helkama Bica Oy",
+   "active": false
+  },
+  "M-02CB": {
+   "name": "ModuLyte",
+   "active": true
+  },
+  "M-02CC": {
+   "name": "Consolinno Energy GmbH",
+   "active": true
+  },
+  "M-02CD": {
+   "name": "SCHIDERON ELECTRIC (ASIA) LIMITED",
+   "active": true
+  },
+  "M-02CE": {
+   "name": "3R",
+   "active": true
+  },
+  "M-02CF": {
+   "name": "Arklyfe",
+   "active": true
+  },
+  "M-02D0": {
+   "name": "Foshan Haydn Technology Lighting Co.,Ltd.",
+   "active": true
+  },
+  "M-02D1": {
+   "name": "KNXES COMPANY LIMITED",
+   "active": true
+  },
+  "M-02D2": {
+   "name": "akubela",
+   "active": true
+  },
+  "M-02D3": {
+   "name": "NingBo Yinzhou ShengRuiJie Electronics Co. Ltd.",
+   "active": true
+  },
+  "M-02D4": {
+   "name": "Shenzhen Haizhichuang Technology Co., Ltd",
+   "active": true
+  },
+  "M-02D5": {
+   "name": "Shenzhen easydetek technology Co.Ltd",
+   "active": true
+  },
+  "M-02D6": {
+   "name": "Mutlusan Electric",
+   "active": true
+  },
+  "M-02D7": {
+   "name": "Hangzhou BroadLink Technology Co.,Ltd.",
+   "active": true
+  },
+  "M-02D8": {
+   "name": "Marley Deutschland GmbH",
+   "active": true
+  },
+  "M-02D9": {
+   "name": "Creatrol",
+   "active": true
+  },
+  "M-02DA": {
+   "name": "EUTELSAT",
+   "active": true
+  },
+  "M-02DB": {
+   "name": "TECNIKABEL",
+   "active": true
+  },
+  "M-02DC": {
+   "name": "Atios AG",
+   "active": true
+  },
+  "M-02DD": {
+   "name": "SmartLicht",
+   "active": true
+  },
+  "M-02DE": {
+   "name": "Beijing Bevone Electric Co. Ltd.",
+   "active": true
+  },
+  "M-02DF": {
+   "name": "ELSMART",
+   "active": true
+  },
+  "M-02E0": {
+   "name": "Middle East Specialized Cables Co. (MESC)",
+   "active": true
+  },
+  "M-02E1": {
+   "name": "HANGZHOU SANYUAN CABLE CO., LTD",
+   "active": true
+  },
+  "M-02E2": {
+   "name": "Beijing HaiLin Control Technology Inc.",
+   "active": true
+  },
+  "M-02E3": {
+   "name": "HangZhou Snowyi Technology Co.,LTD.",
+   "active": true
+  },
+  "M-02E4": {
+   "name": "Xiamen E-Top Controls Technology Co.,Ltd",
+   "active": true
+  },
+  "M-02E5": {
+   "name": "Vitrum Design",
+   "active": true
+  },
+  "M-02E6": {
+   "name": "DETRONS",
+   "active": true
+  },
+  "M-02E7": {
+   "name": "Zhejiang FORICK, Intelligent Technology Co., LTD",
+   "active": true
+  },
+  "M-02E8": {
+   "name": "Varni Digital Private Limited",
+   "active": true
+  },
+  "M-02E9": {
+   "name": "3a entreprise aps",
+   "active": true
+  },
+  "M-02EA": {
+   "name": "Italiana Conduttori srl",
+   "active": true
+  },
+  "M-02EB": {
+   "name": "Xiamen Leelen Technology Co.,Ltd.",
+   "active": true
+  },
+  "M-02EC": {
+   "name": "LedNX",
+   "active": true
+  },
+  "M-02ED": {
+   "name": "ebelong",
+   "active": true
+  },
+  "M-02EE": {
+   "name": "Astra-LED AG",
+   "active": true
+  },
+  "M-02EF": {
+   "name": "Wonderful Hi-Tech Co., Ltd.",
+   "active": true
+  },
+  "M-02F0": {
+   "name": "REXLiTE Ai Integrations CO.,LTD",
+   "active": true
+  },
+  "M-02F1": {
+   "name": "Allorado",
+   "active": true
+  },
+  "M-02F2": {
+   "name": "FUZHOU MILI TECHNOLOGY CO., LTD",
+   "active": true
+  },
+  "M-02F3": {
+   "name": "Maxtreen building technology co.,ltd",
+   "active": true
+  },
+  "M-02F4": {
+   "name": "Hysine",
+   "active": true
+  },
+  "M-02F5": {
+   "name": "SANTAN",
+   "active": true
+  },
+  "M-02F6": {
+   "name": "Huixiangju IoT Technology (Shanghai) Co., Ltd",
+   "active": true
+  },
+  "M-02F7": {
+   "name": "Shanghai Benkong Electronic Technology Co.,Ltd",
+   "active": true
+  },
+  "M-02F8": {
+   "name": "Polar Bear Design",
+   "active": true
+  },
+  "M-02F9": {
+   "name": "Elessan NV",
+   "active": true
+  },
+  "M-02FA": {
+   "name": "MIR",
+   "active": true
+  },
+  "M-02FB": {
+   "name": "Zhejiang Misilin Technology Co., Ltd",
+   "active": true
+  },
+  "M-02FC": {
+   "name": "LEAX CONTROLS CO., LTD.",
+   "active": true
+  },
+  "M-02FD": {
+   "name": "alcad",
+   "active": true
+  },
+  "M-02FE": {
+   "name": "GUANG DONG REMAC SMART TECHNOLOGY CO., LTD",
+   "active": true
+  },
+  "M-0301": {
+   "name": "Taos Electric Co., Ltd",
+   "active": true
+  },
+  "M-0303": {
+   "name": "Konstantin Bobic Systemintegration",
+   "active": true
+  },
+  "M-0304": {
+   "name": "Asay Q",
+   "active": true
+  },
+  "M-0305": {
+   "name": "LAPP",
+   "active": true
+  },
+  "M-0306": {
+   "name": "ZEROBIT DYNAMIC",
+   "active": true
+  },
+  "M-0307": {
+   "name": "havells",
+   "active": true
+  },
+  "M-0308": {
+   "name": "intuis-Elec",
+   "active": true
+  },
+  "M-0309": {
+   "name": "taskit GmbH",
+   "active": true
+  },
+  "M-030A": {
+   "name": "Coster Group",
+   "active": true
+  },
+  "M-030B": {
+   "name": "NXP Semiconductor",
+   "active": true
+  },
+  "M-030C": {
+   "name": "CogCons",
+   "active": true
+  },
+  "M-030D": {
+   "name": "Micro Tek Srl (F.M.C trade mark)",
+   "active": true
+  },
+  "M-030E": {
+   "name": "Orenda Electric",
+   "active": true
+  },
+  "M-030F": {
+   "name": "ERSE KABLO",
+   "active": true
+  },
+  "M-0310": {
+   "name": "prado europe bv",
+   "active": true
+  },
+  "M-0311": {
+   "name": "e2s GbR",
+   "active": true
+  },
+  "M-0312": {
+   "name": "UnitLink",
+   "active": true
+  },
+  "M-0313": {
+   "name": "ONNA",
+   "active": true
+  },
+  "M-0314": {
+   "name": "CENTERSVET LLC",
+   "active": true
+  },
+  "M-0315": {
+   "name": "Adveco Technology Co., Ltd.",
+   "active": true
+  },
+  "M-0316": {
+   "name": "Fr. Lürssen Werft",
+   "active": true
+  },
+  "M-0317": {
+   "name": "mylyr",
+   "active": true
+  },
+  "M-0318": {
+   "name": "HYUNDAI HT",
+   "active": true
+  },
+  "M-0319": {
+   "name": "Guangdong Yuejingrun Technology Co.,Ltd",
+   "active": true
+  },
+  "M-031A": {
+   "name": "SMATEK ELECTRONICS LIMITED",
+   "active": true
+  },
+  "M-031B": {
+   "name": "Anytek Electronic Technology (SZ) Co., Ltd.",
+   "active": true
+  },
+  "M-031C": {
+   "name": "Morelinks Smart Home",
+   "active": true
+  },
+  "M-031D": {
+   "name": "Cirtx GmbH",
+   "active": true
+  },
+  "M-031E": {
+   "name": "QLITE",
+   "active": true
+  },
+  "M-031F": {
+   "name": "Zhongshan Illus LIghting Co.,Ltd",
+   "active": true
+  },
+  "M-0320": {
+   "name": "Hangzhou Konke Information Technology Co., Ltd.",
+   "active": true
+  },
+  "M-0321": {
+   "name": "Shanghai Fante Digital Technology Co., Ltd",
+   "active": true
+  },
+  "M-0322": {
+   "name": "Confio Technologies Pvt. Ltd",
+   "active": true
+  },
+  "M-0323": {
+   "name": "Sonic Technologies",
+   "active": true
+  },
+  "M-0324": {
+   "name": "Shanghai Innovatech Information Technology Co., Lt",
+   "active": true
+  },
+  "M-0325": {
+   "name": "ABI Sicherheitssysteme GmbH",
+   "active": true
+  },
+  "M-0326": {
+   "name": "RYT",
+   "active": true
+  },
+  "M-0327": {
+   "name": "Auriga Systems",
+   "active": true
+  },
+  "M-0328": {
+   "name": "Alzinger&Vogel Softwareentwicklungs GmbH",
+   "active": true
+  },
+  "M-0329": {
+   "name": "Gianfranco Smart Solutions Ltd",
+   "active": true
+  },
+  "M-032A": {
+   "name": "Rogerwell Control System Limited",
+   "active": true
+  },
+  "M-032B": {
+   "name": "Shanghai YUKON Automation Technologies Co., Ltd.",
+   "active": true
+  },
+  "M-032C": {
+   "name": "Tecco Pty Ltd",
+   "active": true
+  },
+  "M-032D": {
+   "name": "A-LAN Technologie",
+   "active": true
+  },
+  "M-032E": {
+   "name": "Voltan Technology",
+   "active": true
+  },
+  "M-032F": {
+   "name": "Baerwinkel & Strasser GmbH",
+   "active": true
+  },
+  "M-0330": {
+   "name": "Caterlux",
+   "active": true
+  },
+  "M-0331": {
+   "name": "evotec solution ltd",
+   "active": true
+  },
+  "M-0332": {
+   "name": "NanTong JingXi",
+   "active": true
+  },
+  "M-0333": {
+   "name": "Enervon Technology",
+   "active": true
+  },
+  "M-0334": {
+   "name": "structured cable products",
+   "active": true
+  },
+  "M-0335": {
+   "name": "Jiwu (Fuzhou) Technology Co., Ltd.",
+   "active": true
+  },
+  "M-0336": {
+   "name": "Foshan Brisdom Technology Co., Ltd.",
+   "active": true
+  },
+  "M-0337": {
+   "name": "YUEQING ZHONGYI ELECTRIC CO., LTD.",
+   "active": true
+  },
+  "M-0338": {
+   "name": "HYUNDAI",
+   "active": true
+  },
+  "M-0339": {
+   "name": "Qingdao Hisense TransTech Co.,Ltd.",
+   "active": true
+  },
+  "M-033A": {
+   "name": "SPECIALCAVI BALDASSARI SRL",
+   "active": true
+  },
+  "M-033B": {
+   "name": "Ospa Apparatebau Pauser GmbH & Co. KG",
+   "active": true
+  },
+  "M-033C": {
+   "name": "PLH",
+   "active": true
+  },
+  "M-033D": {
+   "name": "HANGZHOU ZION COMMUNICATION CO.,LTD",
+   "active": true
+  },
+  "M-033E": {
+   "name": "Weiyi Technology (Zhejiang) Co., Ltd",
+   "active": true
+  },
+  "M-033F": {
+   "name": "AUTERAS",
+   "active": true
+  },
+  "M-0340": {
+   "name": "OSUM Smart",
+   "active": true
+  },
+  "M-0341": {
+   "name": "TEKNOLINE",
+   "active": true
+  },
+  "M-0342": {
+   "name": "HIMEL HONG KONG LIMITED",
+   "active": true
+  },
+  "M-0343": {
+   "name": "Micronic Korea Co., Ltd.",
+   "active": true
+  },
+  "M-0344": {
+   "name": "Robustel Limited",
+   "active": true
+  },
+  "M-0345": {
+   "name": "Lexa LIFESTYLE",
+   "active": true
+  },
+  "M-0346": {
+   "name": "Casambi Technologies Oy",
+   "active": true
+  },
+  "M-0347": {
+   "name": "BELCAB UK LTD",
+   "active": true
+  },
+  "M-0348": {
+   "name": "Channel Smart Buildings",
+   "active": true
+  },
+  "M-0349": {
+   "name": "Nanjing Kleven Electronic Technology Co., Ltd",
+   "active": true
+  },
+  "M-034A": {
+   "name": "Zhejiang Chatnow New Material Technology Co., Ltd",
+   "active": true
+  },
+  "M-034B": {
+   "name": "Occhio GmbH",
+   "active": true
+  },
+  "M-034C": {
+   "name": "Instell",
+   "active": true
+  },
+  "M-034D": {
+   "name": "VOKA Vogtländisches Kabelwerk GmbH",
+   "active": true
+  },
+  "M-034E": {
+   "name": "Qingdao Maisi Intelligent Technology Co.,Ltd",
+   "active": true
+  },
+  "M-034F": {
+   "name": "Chongqing Mexin Messon Doors Industry Co., Ltd.,",
+   "active": true
+  },
+  "M-0350": {
+   "name": "Holfmann Culture Art Co.,LTD",
+   "active": true
+  },
+  "M-0351": {
+   "name": "Guangzhou Baite IoT Technology Co., Ltd",
+   "active": true
+  },
+  "M-0352": {
+   "name": "OWL Automata",
+   "active": true
+  },
+  "M-0353": {
+   "name": "Automated Pty Ltd",
+   "active": true
+  },
+  "M-0354": {
+   "name": "HIKVISION",
+   "active": true
+  },
+  "M-0355": {
+   "name": "Wiren Board",
+   "active": true
+  },
+  "M-0356": {
+   "name": "DEGSON TECHNOLOGY CO LTD.",
+   "active": true
+  },
+  "M-0357": {
+   "name": "Shenzhen Hongshengxu Intelligent Tech Co., Ltd.",
+   "active": true
+  },
+  "M-0358": {
+   "name": "ITQAN SMART",
+   "active": true
+  },
+  "M-0359": {
+   "name": "YUNCH",
+   "active": true
+  },
+  "M-035A": {
+   "name": "Lumi Vietnam",
+   "active": true
+  },
+  "M-035B": {
+   "name": "Arcola AI Limited",
+   "active": true
+  },
+  "M-035C": {
+   "name": "Zhejiang Dooya Intelligent Technology Co., Ltd.",
+   "active": true
+  },
+  "M-035D": {
+   "name": "HUARUI",
+   "active": true
+  },
+  "M-035E": {
+   "name": "CAMCOM Cables NETHERLANDS",
+   "active": true
+  },
+  "M-035F": {
+   "name": "BI-TECH Electronics",
+   "active": true
+  },
+  "M-0360": {
+   "name": "BELFAST CABLES UK SOLUTIONS LTD",
+   "active": true
+  },
+  "M-0361": {
+   "name": "KAYBE NETWORKING LLP",
+   "active": true
+  }
+ }
+}

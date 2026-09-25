@@ -16,9 +16,11 @@ Befehle:
         ersetzt, das Feld "updated" wird auf heute gesetzt.
         Kommunikationsobjekte werden nicht uebernommen (Dateigroesse: mit
         ihnen wird der Katalog schnell mehrere hundert MB gross; ausserdem
-        sind es Herstellerdaten). ga_min/ga_max bleiben erhalten. Eintraege
-        mit unaufgeloestem Hersteller-Code ("M-0002" statt "ABB") werden
-        uebersprungen -- sie sind Duplikate aelterer Importe.
+        sind es Herstellerdaten). ga_min/ga_max bleiben erhalten.
+        Herstellernamen werden vereinheitlicht (knix_arranger/utils/
+        manufacturers.py), gleiche Produkte in verschiedenen Schreibweisen
+        fallen dabei zusammen. Eintraege, deren Hersteller-Code ("M-XXXX")
+        nicht im KNX-Register steht, werden uebersprungen.
 
 Danach die Datei ins Release-Repository committen und pushen.
 """
@@ -33,6 +35,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from knix_arranger.services.online_catalog_service import validate_products  # noqa: E402
 from knix_arranger.services.product_search_service import _user_catalog_path  # noqa: E402
+from knix_arranger.utils.manufacturers import (  # noqa: E402
+    canonicalize_product, manufacturer_display_name, product_key,
+)
 
 
 _MANUFACTURER_CODE = re.compile(r"M-[0-9A-Fa-f]{4}")
@@ -62,18 +67,18 @@ def pruefen(path: Path) -> int:
             if not validate_products([prod])[0]:
                 print(f"  Eintrag {i + 1}: {json.dumps(prod, ensure_ascii=False)[:120]}")
         return 1
-    keys = [(p["manufacturer"], p["order_number"]) for p in valid]
+    keys = [product_key(p["manufacturer"], p["order_number"], p.get("product_name", "")) for p in valid]
     dupes = {k for k in keys if keys.count(k) > 1}
     for m, o in sorted(dupes):
-        print(f"  Doppelt: {m} {o}")
+        print(f"  Doppelt: {manufacturer_display_name(m)} {o}")
     return 1 if dupes else 0
 
 
 def uebernehmen(path: Path, hersteller: list[str]) -> int:
     user_path = Path(_user_catalog_path())
-    own = _load(user_path).get("products", [])
+    own = [canonicalize_product(p) for p in _load(user_path).get("products", [])]
     if hersteller:
-        wanted = {h.lower() for h in hersteller}
+        wanted = {manufacturer_display_name(h).lower() for h in hersteller}
         own = [p for p in own if p.get("manufacturer", "").lower() in wanted]
     codes = [p for p in own if _MANUFACTURER_CODE.fullmatch(p.get("manufacturer", ""))]
     own = [_for_online(p) for p in own
@@ -86,11 +91,19 @@ def uebernehmen(path: Path, hersteller: list[str]) -> int:
         return 1
 
     data = _load(path)
-    products = data.get("products", [])
-    index = {(p.get("manufacturer"), p.get("order_number")): i for i, p in enumerate(products)}
+    products = []
+    index: dict[tuple[str, str], int] = {}
+    for p in data.get("products", []):
+        p = canonicalize_product(p)
+        key = product_key(p.get("manufacturer", ""), p.get("order_number", ""), p.get("product_name", ""))
+        if key in index:
+            products[index[key]] = p
+        else:
+            index[key] = len(products)
+            products.append(p)
     added = replaced = 0
     for prod in own:
-        key = (prod["manufacturer"], prod["order_number"])
+        key = product_key(prod["manufacturer"], prod["order_number"], prod.get("product_name", ""))
         if key in index:
             products[index[key]] = prod
             replaced += 1

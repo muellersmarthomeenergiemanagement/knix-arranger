@@ -26,6 +26,8 @@ from .dali_config import DaliGateway
 from .knx_secure import KnxSecureConfig
 from .time_program import TimeProgram, ProjectLocation
 
+from ..utils.manufacturers import manufacturer_display_name
+
 
 @dataclass
 class ProjectConfig:
@@ -49,7 +51,9 @@ class ProjectConfig:
             mg_variant=data.get("mg_variant", "A"),
             topology_mode=data.get("topology_mode", "TP-256"),
             backbone_type=data.get("backbone_type", "TP"),
-            preferred_manufacturers=data.get("preferred_manufacturers", []),
+            preferred_manufacturers=list(dict.fromkeys(
+                manufacturer_display_name(m) for m in data.get("preferred_manufacturers", [])
+            )),
         )
 
 
