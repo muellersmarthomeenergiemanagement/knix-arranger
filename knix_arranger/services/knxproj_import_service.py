@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 from typing import Optional
 
 from ..models.project import KnxProject
+from ..utils.rtf import rtf_to_text
 from ..models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
@@ -1272,7 +1273,7 @@ class KnxprojImportService:
                 order_number=order_num,
                 product=product_name,
                 application_program=hw2prog,
-                installation_location=di.get("InstallationHints", ""),
+                installation_location=rtf_to_text(di.get("InstallationHints", "")),
                 serial_number=_knx_serial(di.get("SerialNumber", "")),
                 device_type=dev_type or "other",
                 # Alle aus ETS importierten Geräte gelten als programmiert:

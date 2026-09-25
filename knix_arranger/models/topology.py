@@ -8,6 +8,7 @@ from typing import Optional
 import uuid
 
 from ..utils.manufacturers import canonical_manufacturer
+from ..utils.rtf import rtf_to_text
 
 
 @dataclass
@@ -202,7 +203,8 @@ class Device:
             product=data.get("product", ""),
             product_name=data.get("product_name", ""),
             application_program=data.get("application_program", ""),
-            installation_location=data.get("installation_location", ""),
+            # RTF aus aelteren ETS-Importen (InstallationHints) beim Laden bereinigen
+            installation_location=rtf_to_text(data.get("installation_location", "")),
             button_configuration=data.get("button_configuration", ""),
             serial_number=data.get("serial_number", ""),
             datasheets=data.get("datasheets", []),
