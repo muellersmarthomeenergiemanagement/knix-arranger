@@ -1058,10 +1058,7 @@ class Step04Topology(QWidget):
             return
 
         device = self._current_device
-        device.manufacturer = prod.manufacturer
-        device.manufacturer_id = prod.manufacturer_id
-        device.order_number = prod.order_number
-        device.product_name = prod.product_name
+        device.apply_product(prod)
 
         # Detail-Panel aktualisieren
         self._device_mfr_lbl.setText(device.manufacturer)
@@ -1082,10 +1079,7 @@ class Step04Topology(QWidget):
             return
 
         device = self._current_device
-        device.manufacturer = ""
-        device.manufacturer_id = ""
-        device.order_number = ""
-        device.product_name = ""
+        device.apply_product(None)
 
         self._device_mfr_lbl.setText("–")
         self._device_order_lbl.setText("–")

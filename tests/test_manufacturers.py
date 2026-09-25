@@ -131,3 +131,48 @@ class TestCatalogUnification:
         names = {r.product_name for r in svc.search_all(query="dummy") if r.manufacturer == "Feller"}
         assert names == {"Dummy", "Dummy Secure"}
         assert svc.find_product("Feller", "Dummy", "Dummy Secure")["category"] == "infrastructure"
+
+    def test_fill_ets_ids_keeps_other_fields(self):
+        self._write_user_catalog([
+            {"category": "actor", "manufacturer": "MDT technologies",
+             "order_number": "AKS-0816.03", "product_name": "Schaltaktor 8-fach",
+             "superseded_by": "AKS-0816.04"},
+        ])
+        svc = ProductSearchService()
+        filled = svc.fill_ets_ids([
+            {"category": "actor", "manufacturer": "MDT", "manufacturer_id": "M-0083",
+             "order_number": "AKS-0816.03", "product_name": "Neuer Name",
+             "product_ref_id": "M-0083_H-1_P-2", "hw2prog_id": "M-0083_H-1_HP-3",
+             "application_program_id": "M-0083_A-3"},
+            {"category": "actor", "manufacturer": "MDT", "order_number": "NICHT-VORHANDEN"},
+        ])
+        assert filled == 1
+        prod = svc.find_product("MDT", "AKS-0816.03")
+        assert prod["product_name"] == "Schaltaktor 8-fach"
+        assert prod["superseded_by"] == "AKS-0816.04"
+        assert prod["hw2prog_id"] == "M-0083_H-1_HP-3"
+        assert svc.find_product("MDT", "NICHT-VORHANDEN") is None
+        hit = next(r for r in svc.search_all(query="AKS-0816.03"))
+        assert hit.product_ref_id == "M-0083_H-1_P-2"
+
+        with open(_user_catalog_path(), "r", encoding="utf-8") as f:
+            assert json.load(f)["products"][0]["application_program_id"] == "M-0083_A-3"
+
+
+class TestDeviceEtsIds:
+    def test_round_trip(self):
+        d = Device(manufacturer="MDT", product_ref_id="M-0083_H-1_P-2", hw2prog_id="M-0083_H-1_HP-3")
+        restored = Device.from_dict(d.to_dict())
+        assert restored.product_ref_id == "M-0083_H-1_P-2"
+        assert restored.hw2prog_id == "M-0083_H-1_HP-3"
+
+    def test_apply_product_and_clear(self):
+        from knix_arranger.services.product_search_service import ProductSuggestion
+        d = Device()
+        d.apply_product(ProductSuggestion(
+            manufacturer="MDT", manufacturer_id="M-0083", order_number="AKS-0816.03",
+            product_name="Schaltaktor", product_ref_id="P", hw2prog_id="HP",
+        ))
+        assert (d.manufacturer_id, d.product_ref_id, d.hw2prog_id) == ("M-0083", "P", "HP")
+        d.apply_product(None)
+        assert (d.manufacturer, d.order_number, d.product_ref_id, d.hw2prog_id) == ("", "", "", "")

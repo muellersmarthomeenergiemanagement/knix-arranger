@@ -39,6 +39,11 @@ class ProductSuggestion:
     """Produktvorschlag für Aktoren/Sensoren/Infrastruktur."""
     manufacturer: str = ""
     manufacturer_id: str = ""  # KNX-Hersteller-ID "M-XXXX" ("" = unbekannt)
+    # ETS-Kennungen aus dem KNXPROD-Import ("" = unbekannt, z.B. aeltere
+    # Katalogeintraege vor dem Neuimport)
+    product_ref_id: str = ""
+    hw2prog_id: str = ""
+    application_program_id: str = ""
     order_number: str = ""
     product_name: str = ""
     channels: int = 0
@@ -177,6 +182,9 @@ class ProductSearchService:
             results.append(ProductSuggestion(
                 manufacturer=prod.get("manufacturer", ""),
                 manufacturer_id=prod.get("manufacturer_id", ""),
+                product_ref_id=prod.get("product_ref_id", ""),
+                hw2prog_id=prod.get("hw2prog_id", ""),
+                application_program_id=prod.get("application_program_id", ""),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -221,6 +229,9 @@ class ProductSearchService:
             results.append(ProductSuggestion(
                 manufacturer=prod.get("manufacturer", ""),
                 manufacturer_id=prod.get("manufacturer_id", ""),
+                product_ref_id=prod.get("product_ref_id", ""),
+                hw2prog_id=prod.get("hw2prog_id", ""),
+                application_program_id=prod.get("application_program_id", ""),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -264,6 +275,9 @@ class ProductSearchService:
             results.append(ProductSuggestion(
                 manufacturer=prod.get("manufacturer", ""),
                 manufacturer_id=prod.get("manufacturer_id", ""),
+                product_ref_id=prod.get("product_ref_id", ""),
+                hw2prog_id=prod.get("hw2prog_id", ""),
+                application_program_id=prod.get("application_program_id", ""),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -332,6 +346,9 @@ class ProductSearchService:
             results.append(ProductSuggestion(
                 manufacturer=prod.get("manufacturer", ""),
                 manufacturer_id=prod.get("manufacturer_id", ""),
+                product_ref_id=prod.get("product_ref_id", ""),
+                hw2prog_id=prod.get("hw2prog_id", ""),
+                application_program_id=prod.get("application_program_id", ""),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -408,6 +425,35 @@ class ProductSearchService:
             self._online_keys.discard(self._key(product))
         if products:
             self._save_user_catalog()
+
+    ETS_ID_FIELDS = ("manufacturer_id", "product_ref_id", "hw2prog_id", "application_program_id")
+
+    def fill_ets_ids(self, products: list[dict]) -> int:
+        """Ergaenzt bei vorhandenen eigenen Katalogeintraegen nur die
+        ETS-Kennungen aus frisch gelesenen KNXPROD-Produkten (gleicher
+        Hersteller/Bestellnummer). Alles andere bleibt unveraendert (z.B.
+        "veraltet"-Markierung, Preis, URL). Gibt die Anzahl ergaenzter
+        Eintraege zurueck."""
+        ids_by_key = {}
+        for p in products:
+            p = canonicalize_product(dict(p))
+            ids_by_key[self._key(p)] = {f: p.get(f, "") for f in self.ETS_ID_FIELDS}
+        filled = 0
+        for target in (self._user_products, self._catalog):
+            for prod in target:
+                ids = ids_by_key.get(self._key(prod))
+                if not ids:
+                    continue
+                changed = False
+                for field_name, value in ids.items():
+                    if value and not prod.get(field_name):
+                        prod[field_name] = value
+                        changed = True
+                if changed and target is self._user_products:
+                    filled += 1
+        if filled:
+            self._save_user_catalog()
+        return filled
 
     def mark_superseded(self, manufacturer: str, order_number: str, superseded_by: str,
                         product_name: str = "") -> None:

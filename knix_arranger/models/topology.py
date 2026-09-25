@@ -98,6 +98,10 @@ class Device:
     physical_address: str = ""    # Format B.L.T, z.B. "1.1.1"
     manufacturer: str = ""        # einheitlicher Anzeigename (utils.manufacturers)
     manufacturer_id: str = ""     # KNX-Hersteller-ID "M-XXXX" ("" = unbekannt)
+    # ETS-Kennungen des Produkts (aus ETS-Import oder KNXPROD-Katalog), Grundlage
+    # fuer ProductRefId/Hardware2ProgramRefId beim Projekt-Export
+    product_ref_id: str = ""
+    hw2prog_id: str = ""
     order_number: str = ""
     product: str = ""             # Gerätetyp-Bezeichnung, z.B. "Schaltaktor 8-fach"
     product_name: str = ""        # Hersteller-Produktbezeichnung (nach manueller Zuweisung)
@@ -143,12 +147,24 @@ class Device:
                 self.manufacturer, self.manufacturer_id,
             )
 
+    def apply_product(self, prod) -> None:
+        """Uebernimmt Hersteller, Bestellnummer, Produktname und ETS-Kennungen
+        aus einem Katalogprodukt (ProductSuggestion); None loescht sie."""
+        self.manufacturer = prod.manufacturer if prod else ""
+        self.manufacturer_id = prod.manufacturer_id if prod else ""
+        self.order_number = prod.order_number if prod else ""
+        self.product_name = prod.product_name if prod else ""
+        self.product_ref_id = prod.product_ref_id if prod else ""
+        self.hw2prog_id = prod.hw2prog_id if prod else ""
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "physical_address": self.physical_address,
             "manufacturer": self.manufacturer,
             "manufacturer_id": self.manufacturer_id,
+            "product_ref_id": self.product_ref_id,
+            "hw2prog_id": self.hw2prog_id,
             "order_number": self.order_number,
             "product": self.product,
             "product_name": self.product_name,
@@ -175,6 +191,8 @@ class Device:
             physical_address=data.get("physical_address", ""),
             manufacturer=data.get("manufacturer", ""),
             manufacturer_id=data.get("manufacturer_id", ""),
+            product_ref_id=data.get("product_ref_id", ""),
+            hw2prog_id=data.get("hw2prog_id", ""),
             order_number=data.get("order_number", ""),
             product=data.get("product", ""),
             product_name=data.get("product_name", ""),

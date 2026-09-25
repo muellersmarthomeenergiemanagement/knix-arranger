@@ -426,6 +426,17 @@ class TestManufacturerNameFallbackViaMasterFile:
         finally:
             os.remove(path)
 
+    def test_ets_ids_kept_for_export(self):
+        path = self._build_knxprod_manufacturer_only_in_master("M-0048", "Theben AG")
+        try:
+            prod = KnxprodCatalogService().import_file(path)[0]
+            entry = prod.to_catalog_dict()
+            assert entry["product_ref_id"] == "P1"
+            assert entry["hw2prog_id"] == "H2P1"
+            assert entry["application_program_id"] == "APP1"
+        finally:
+            os.remove(path)
+
     def test_manufacturer_falls_back_to_folder_id_without_master_entry(self):
         """Ohne Eintrag in knx_master.xml bleibt der bisherige Fallback
         (Ordner-ID) erhalten - kein Absturz, keine Fantasienamen."""

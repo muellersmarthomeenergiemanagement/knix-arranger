@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from ..models.project import KnxProject
 from ..models.group_address import GroupAddress, MainGroup, MiddleGroup
 from ..models.building import Room
+from ..utils.manufacturers import product_key
 
 
 @dataclass
@@ -163,6 +164,14 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
                 # Hardware-Werte aus dem Import die zugewiesenen Produktdaten
                 # überschreiben
                 if old_dev.product_name:
+                    # ETS-Kennungen: bei gleichem Produkt die frisch
+                    # importierten (echten) behalten, sonst die der Zuweisung
+                    if (product_key(old_dev.manufacturer_id or old_dev.manufacturer,
+                                    old_dev.order_number)
+                            != product_key(new_dev.manufacturer_id or new_dev.manufacturer,
+                                           new_dev.order_number)):
+                        new_dev.product_ref_id = old_dev.product_ref_id
+                        new_dev.hw2prog_id = old_dev.hw2prog_id
                     new_dev.product_name = old_dev.product_name
                     new_dev.manufacturer = old_dev.manufacturer
                     new_dev.manufacturer_id = old_dev.manufacturer_id

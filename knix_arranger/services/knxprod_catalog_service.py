@@ -114,6 +114,11 @@ class KnxprodProduct:
     category: str        # "actor" | "sensor" | "infrastructure"
     device_type: str     # abgeleitet aus Name/Kategorie
     manufacturer_id: str = ""   # KNX-Hersteller-ID "M-XXXX" (Ordnername im Archiv)
+    # ETS-Kennungen fuer den Projekt-Export (DeviceInstance ProductRefId /
+    # Hardware2ProgramRefId) und die zugehoerige Applikation
+    product_ref_id: str = ""
+    hw2prog_id: str = ""
+    application_program_id: str = ""
     actor_type: str = ""
     sensor_type: str = ""
     com_objects: list[ComObjectInfo] = field(default_factory=list)
@@ -150,6 +155,9 @@ class KnxprodProduct:
             "ga_min": self.ga_min,
             "ga_max": self.ga_max,
             "secure_supported": self.secure_supported,
+            "product_ref_id": self.product_ref_id,
+            "hw2prog_id": self.hw2prog_id,
+            "application_program_id": self.application_program_id,
         }
 
 
@@ -237,6 +245,9 @@ class KnxprodCatalogService:
                 prod = KnxprodProduct(
                     manufacturer=mfr_name,
                     manufacturer_id=mfr_id,
+                    product_ref_id=hw.get("product_ref_id", ""),
+                    hw2prog_id=hw2prog_id,
+                    application_program_id=app_id,
                     order_number=order_number,
                     product_name=full_name or order_number,
                     channels=channels,
@@ -355,6 +366,7 @@ class KnxprodCatalogService:
 
                     entries.append({
                         "id": product.get("Id", hw_id),
+                        "product_ref_id": product.get("Id", ""),
                         "name": product.get("Text", hw_name),
                         "order_number": order_number,
                         "channels": channels,

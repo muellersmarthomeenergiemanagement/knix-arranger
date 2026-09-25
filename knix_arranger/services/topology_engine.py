@@ -271,6 +271,8 @@ class TopologyEngine:
                             manual_assignments[device.physical_address] = {
                                 "manufacturer": device.manufacturer,
                                 "manufacturer_id": device.manufacturer_id,
+                                "product_ref_id": device.product_ref_id,
+                                "hw2prog_id": device.hw2prog_id,
                                 "order_number": device.order_number,
                                 "product_name": device.product_name,
                             }
@@ -601,6 +603,8 @@ class TopologyEngine:
                         if saved:
                             device.manufacturer = saved["manufacturer"]
                             device.manufacturer_id = saved.get("manufacturer_id", "")
+                            device.product_ref_id = saved.get("product_ref_id", "")
+                            device.hw2prog_id = saved.get("hw2prog_id", "")
                             device.order_number = saved["order_number"]
                             device.product_name = saved["product_name"]
 
