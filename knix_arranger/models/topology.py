@@ -102,6 +102,8 @@ class Device:
     # fuer ProductRefId/Hardware2ProgramRefId beim Projekt-Export
     product_ref_id: str = ""
     hw2prog_id: str = ""
+    # KNX Secure-faehig (aus ETS-Import, KNXPROD-Katalog oder Produktzuweisung)
+    secure_supported: bool = False
     order_number: str = ""
     product: str = ""             # Gerätetyp-Bezeichnung, z.B. "Schaltaktor 8-fach"
     product_name: str = ""        # Hersteller-Produktbezeichnung (nach manueller Zuweisung)
@@ -156,6 +158,7 @@ class Device:
         self.product_name = prod.product_name if prod else ""
         self.product_ref_id = prod.product_ref_id if prod else ""
         self.hw2prog_id = prod.hw2prog_id if prod else ""
+        self.secure_supported = bool(prod and prod.secure_supported)
 
     def to_dict(self) -> dict:
         return {
@@ -165,6 +168,7 @@ class Device:
             "manufacturer_id": self.manufacturer_id,
             "product_ref_id": self.product_ref_id,
             "hw2prog_id": self.hw2prog_id,
+            "secure_supported": self.secure_supported,
             "order_number": self.order_number,
             "product": self.product,
             "product_name": self.product_name,
@@ -193,6 +197,7 @@ class Device:
             manufacturer_id=data.get("manufacturer_id", ""),
             product_ref_id=data.get("product_ref_id", ""),
             hw2prog_id=data.get("hw2prog_id", ""),
+            secure_supported=data.get("secure_supported", False),
             order_number=data.get("order_number", ""),
             product=data.get("product", ""),
             product_name=data.get("product_name", ""),

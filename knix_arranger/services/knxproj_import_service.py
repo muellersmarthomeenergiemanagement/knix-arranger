@@ -51,6 +51,26 @@ class KnxprojPasswordWrong(Exception):
     """Das angegebene Passwort ist falsch."""
 
 
+def _knx_serial(value: str) -> str:
+    """ETS speichert Seriennummern Base64-kodiert ("AMUBCIo5"); KNiX fuehrt
+    sie wie der XLSX-Import als "00C5:01088A39" (Hersteller:Nummer)."""
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except (ValueError, TypeError):
+        return ""
+    if len(raw) != 6:
+        return ""
+    return f"{raw[:2].hex().upper()}:{raw[2:].hex().upper()}"
+
+
+def _supports_secure(elem: ET.Element) -> bool:
+    """Hardware/Product-Attribut SupportsTPSecure oder SupportsIPSecure."""
+    return any(
+        elem.get(attr, "").lower() == "true"
+        for attr in ("SupportsTPSecure", "SupportsIPSecure")
+    )
+
+
 class KnxprojImportService:
     """
     Importiert ETS6-Projektdateien (.knxproj) gemaess FA-521 bis FA-526.
@@ -61,6 +81,16 @@ class KnxprojImportService:
     - Gebaeudestruktur (Locations)
     - Topologie (Bereiche, Linien, Geraete, KOs)
     """
+
+    def __init__(self):
+        # KNX Secure-faehige Applikationen/Produkte des gerade gelesenen
+        # Archivs (gefuellt beim Lesen der Hersteller-XMLs)
+        self._secure_app_ids: set[str] = set()
+        self._secure_product_ids: set[str] = set()
+        # KNX-Secure-Geraetezertifikate aus project.xml: Seriennummer
+        # ("00C5:01088A39") -> FDSK (32 Hex-Zeichen). ETS legt den FDSK dort
+        # im Klartext ab (mit dem Geraeteaufkleber verglichen, 2026-09).
+        self.device_certificates: dict[str, str] = {}
 
     def import_knxproj(self, filepath: str, password: str | None = None) -> KnxProject:
         """
@@ -409,7 +439,21 @@ class KnxprojImportService:
             modified = info.get("LastModified", "")
             if modified:
                 project.modified = modified[:10]
+        self._read_device_certificates(root)
         return project
+
+    def _read_device_certificates(self, root: ET.Element) -> None:
+        """Liest <DeviceCertificate SerialNumber=… FDSK=…> (Base64) aus project.xml."""
+        for elem in root.iter():
+            if not elem.tag.endswith("DeviceCertificate"):
+                continue
+            serial = _knx_serial(elem.get("SerialNumber", ""))
+            try:
+                fdsk = base64.b64decode(elem.get("FDSK", ""), validate=True)
+            except (ValueError, TypeError):
+                continue
+            if serial and len(fdsk) == 16:
+                self.device_certificates[serial] = fdsk.hex().upper()
 
     def _find_installation(self, root: ET.Element) -> ET.Element:
         """Sucht Installation-Element, probiert bekannte Namespaces."""
@@ -464,6 +508,7 @@ class KnxprojImportService:
             modified = info.get("LastModified", "")
             if modified:
                 project.modified = modified[:10]  # nur Datum
+        self._read_device_certificates(root)
         return project
 
     # ------------------------------------------------------------------
@@ -490,12 +535,15 @@ class KnxprojImportService:
             except KnxprojImportError:
                 continue
             for hw in root.findall(".//k:Hardware", _NSM):
+                hw_secure = _supports_secure(hw)
                 for product in hw.findall("k:Products/k:Product", _NSM):
                     pid = product.get("Id", "")
                     name = product.get("Text", "") or hw.get("Name", "")
                     order = product.get("OrderNumber", "")
                     if pid:
                         lookup[pid] = (name, order, folder)
+                        if hw_secure or _supports_secure(product):
+                            self._secure_product_ids.add(pid)
         return lookup
 
     # ------------------------------------------------------------------
@@ -530,6 +578,9 @@ class KnxprojImportService:
             except KnxprojImportError:
                 continue
             self._extract_app_co_refs(root, lookup)
+            for app in root.iter(_tag("ApplicationProgram")):
+                if app.get("IsSecureEnabled", "").lower() == "true":
+                    self._secure_app_ids.add(app.get("Id", ""))
         logger.debug(f"App-CO-Lookup: {len(lookup)} ComObjectRef-Einträge aus {sum(1 for n in zf.namelist() if pattern.match(n))} App-Programmen")
         return lookup
 
@@ -1222,6 +1273,7 @@ class KnxprojImportService:
                 product=product_name,
                 application_program=hw2prog,
                 installation_location=di.get("InstallationHints", ""),
+                serial_number=_knx_serial(di.get("SerialNumber", "")),
                 device_type=dev_type or "other",
                 # Alle aus ETS importierten Geräte gelten als programmiert:
                 # Ihre physikalische Adresse wurde per ETS-Download ins Gerät
@@ -1229,6 +1281,13 @@ class KnxprojImportService:
                 # Speisegeräte (power_supply) haben keine echte Busadresse →
                 # kein is_programmed.
                 is_programmed=(dev_type != "power_supply"),
+                # KNX Secure: in ETS als Secure eingerichtet (<Security>) oder
+                # laut Applikation/Hardware Secure-faehig
+                secure_supported=(
+                    di.find("k:Security", _NSM) is not None
+                    or ap_id in self._secure_app_ids
+                    or prod_ref in self._secure_product_ids
+                ),
             )
 
             # Kommunikationsobjekte (ComObjectInstanceRefs)

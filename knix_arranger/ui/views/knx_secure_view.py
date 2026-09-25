@@ -563,20 +563,12 @@ class KnxSecureView(QWidget):
             )
             return
 
-        secure_map: dict[str, bool] = {}
-        for entry in mat_list.entries:
-            if entry.device_id:
-                secure_map[entry.device_id] = entry.secure_supported
-
+        # Dieselbe Ableitung wie beim Öffnen der Ansicht (Gerät, Materialliste,
+        # Produktname) -- nur die Materialliste zu lesen würde Secure-Geräte
+        # aus dem ETS-Import wieder auf "Nein" setzen.
         cfg = self._project.knx_secure
-        updated = 0
-        for area in self._project.topology.areas:
-            for line in area.lines:
-                for dev in line.devices:
-                    if dev.id in secure_map:
-                        if dev.id in cfg.device_infos:
-                            cfg.device_infos[dev.id].secure_supported = secure_map[dev.id]
-                            updated += 1
+        updated = sum(1 for entry in mat_list.entries if entry.device_id)
+        self._service.update_device_compatibility(cfg, self._project)
 
         self._populate_devices_tab(cfg)
 

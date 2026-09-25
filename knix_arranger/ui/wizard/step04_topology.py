@@ -1119,6 +1119,7 @@ class Step04Topology(QWidget):
                 entry.manufacturer = device.manufacturer
                 entry.order_number = device.order_number
                 entry.product_name = device.product_name
+                entry.secure_supported = device.secure_supported
                 break
 
     # --- Manuelles Gerät hinzufügen / entfernen ---

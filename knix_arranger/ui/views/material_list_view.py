@@ -1107,6 +1107,7 @@ class MaterialListView(QWidget):
         entry.order_number = prod.order_number
         entry.product_name = prod.product_name
         entry.assigned_channels = prod.channels
+        entry.secure_supported = prod.secure_supported
         entry.ga_min = prod.ga_min
         entry.ga_max = prod.ga_max
         entry.ga_override = None  # gehörte zum bisherigen Produkt
@@ -1287,6 +1288,7 @@ class MaterialListView(QWidget):
             entry.order_number = prod.order_number
             entry.product_name = prod.product_name
             entry.assigned_channels = prod.channels
+            entry.secure_supported = prod.secure_supported
             entry.ga_min = prod.ga_min
             entry.ga_max = prod.ga_max
             entry.ga_override = None  # gehörte zum bisherigen Produkt

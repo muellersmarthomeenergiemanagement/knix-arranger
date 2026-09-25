@@ -164,6 +164,12 @@ class KnxprodProduct:
 class KnxprodCatalogService:
     """Liest Produktdaten aus .knxprod-Dateien (FA-2304)."""
 
+    def __init__(self):
+        # Applikationen mit IsSecureEnabled="true" (KNX Secure, FA-2705) --
+        # manche Hersteller (z.B. Weinzierl) setzen SupportsTPSecure an der
+        # Hardware nicht, nur an der Applikation.
+        self._secure_app_ids: set[str] = set()
+
     def import_file(self, filepath: str) -> list[KnxprodProduct]:
         """
         Importiert Produkte aus einer KNXPROD-Datei.
@@ -206,6 +212,7 @@ class KnxprodCatalogService:
             # Applikationsprogramm-XMLs und Hardware2Program-Mapping lesen
             hw2prog_map = self._parse_hw2prog_map(zf, folder, namelist)
             app_comobjects = self._parse_app_programs(zf, folder, namelist)
+            secure_app_ids = self._secure_app_ids
 
             for hw in hardware_entries:
                 # Produktname aus Catalog.xml ergänzen
@@ -256,7 +263,9 @@ class KnxprodCatalogService:
                     actor_type=device_type if category == "actor" else "",
                     sensor_type=device_type if category == "sensor" else "",
                     com_objects=com_objects,
-                    secure_supported=hw.get("secure_supported", False),
+                    secure_supported=(
+                        hw.get("secure_supported", False) or app_id in secure_app_ids
+                    ),
                 )
                 products.append(prod)
 
@@ -502,6 +511,8 @@ class KnxprodCatalogService:
             for elem in root.iter():
                 if elem.tag.endswith("ApplicationProgram"):
                     app_id = elem.get("Id", app_id)
+                    if elem.get("IsSecureEnabled", "").lower() == "true":
+                        self._secure_app_ids.add(app_id)
                     break
 
             com_objects = self._extract_com_objects(root)

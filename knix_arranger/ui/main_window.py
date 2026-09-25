@@ -69,6 +69,7 @@ from ..services.knxproj_import_service import (
     KnxprojPasswordRequired, KnxprojPasswordWrong,
 )
 from ..services.project_reconcile_service import reconcile_reimport
+from ..services.knx_secure_service import KnxSecureService
 from ..services.undo_manager import UndoManager, ObjectStateCommand
 from ..services.project_bus import ProjectBus
 from ..services.recalc_service import RecalcService
@@ -1894,6 +1895,35 @@ class MainWindow(QMainWindow):
         self._project.topology = project.topology
         self._project.areal = project.areal
 
+        # KNX Secure: Gerätezertifikate (FDSK) und das beim Import eingegebene
+        # ETS6-Projektpasswort ins Secure-Archiv übernehmen -- nur bei
+        # entsperrtem Archiv, ein gesperrtes wird nicht angefasst.
+        secure_suffix = ""
+        secure_cfg = self._project.knx_secure
+        if importer.device_certificates or password:
+            if secure_cfg.is_locked:
+                secure_suffix = (
+                    " | KNX-Secure-Archiv gesperrt: Zertifikate nicht übernommen "
+                    "(entsperren und erneut importieren)"
+                )
+            else:
+                n_certs, cert_conflicts = KnxSecureService().apply_device_certificates(
+                    secure_cfg, self._project, importer.device_certificates,
+                )
+                if password and not secure_cfg.ets_project_password:
+                    secure_cfg.ets_project_password = password
+                if n_certs:
+                    secure_cfg.enabled = True
+                    secure_suffix = f" | {n_certs} Secure-Zertifikat(e) übernommen"
+                if cert_conflicts:
+                    secure_suffix += f" | {len(cert_conflicts)} FDSK-Abweichung(en)"
+                    QMessageBox.warning(
+                        self, "KNX Secure: abweichende Zertifikate",
+                        "Diese Geräte haben im KNX-Secure-Archiv bereits einen anderen "
+                        "FDSK als im ETS-Projekt. Er wurde nicht überschrieben:\n\n"
+                        + "\n".join(cert_conflicts),
+                    )
+
         # GAs, die durch den Abgleich wieder zu einer bestehenden Gewerk-Zuweisung
         # gehören, mit deren assignment_id verknüpfen (verhindert Duplikat-Blöcke
         # bei der nächsten Neugenerierung, FA-521e).
@@ -1949,7 +1979,7 @@ class MainWindow(QMainWindow):
             f"KNXPROJ importiert: {ga_count} GAs | "
             f"{n_areas} Bereiche, {n_lines} Linien, {n_dev} Geräte | "
             f"{n_rooms} Räume | {reconcile_diff.summary_line()}"
-            f"{scenes_suffix}{products_suffix}."
+            f"{scenes_suffix}{products_suffix}{secure_suffix}."
         )
 
         # Warnung wenn Geräte/Räume aus dem bisherigen Projekt nicht mehr

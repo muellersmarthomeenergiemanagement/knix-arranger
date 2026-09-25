@@ -19,6 +19,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 
 from ..models.knx_secure import KnxSecureConfig, DeviceSecureInfo
@@ -32,6 +33,15 @@ _SECURE_FUNCTION_KEYWORDS = frozenset([
 ])
 
 _PBKDF2_ITERATIONS = 100_000
+
+
+_SECURE_NAME_RE = re.compile(r"\bsecure\b", re.IGNORECASE)
+
+
+def is_secure_product_name(name: str) -> bool:
+    """Produktname nennt KNX Secure ("KNX IO 511.1 secure") -- Notbehelf fuer
+    XLSX-Importe, deren Reports keine Secure-Angabe je Geraet enthalten."""
+    return bool(_SECURE_NAME_RE.search(name or ""))
 
 
 class KnxSecureWrongPassword(Exception):
@@ -128,12 +138,47 @@ class KnxSecureService:
                         )
                     info = config.device_infos[device.id]
                     info.device_name = dev_name
-                    # Secure-Unterstützung aus Materialliste lesen
+                    # Secure-Unterstützung: Gerät (ETS-Import/Produktzuweisung),
+                    # Materialliste oder -- bei XLSX-Importen ohne Produktdaten
+                    # der einzige Hinweis -- "secure" im Produktnamen
                     mat = mat_map.get(device.id)
-                    if mat:
-                        info.secure_supported = getattr(mat, "secure_supported", False)
+                    info.secure_supported = (
+                        device.secure_supported
+                        or bool(mat and getattr(mat, "secure_supported", False))
+                        or is_secure_product_name(device.product_name or device.product)
+                    )
 
         return list(config.device_infos.values())
+
+    def apply_device_certificates(
+        self, config: KnxSecureConfig, project, certificates: dict[str, str],
+    ) -> tuple[int, list[str]]:
+        """Übernimmt Gerätezertifikate (Seriennummer -> FDSK hex) aus dem
+        ETS-Import über die Seriennummer der Geräte ins Archiv. Ein bereits
+        erfasster, abweichender FDSK wird nicht überschrieben, sondern als
+        Konflikt gemeldet. Rückgabe: (übernommen, Konflikt-Texte). Das Archiv
+        muss entsperrt sein (config.is_locked == False)."""
+        if not certificates:
+            return 0, []
+        self.update_device_compatibility(config, project)
+        added, conflicts = 0, []
+        for area in project.topology.areas:
+            for line in area.lines:
+                for device in line.devices:
+                    fdsk = certificates.get(device.serial_number)
+                    if not fdsk:
+                        continue
+                    info = config.device_infos[device.id]
+                    info.secure_supported = True
+                    if not info.fdsk:
+                        info.fdsk = fdsk
+                        added += 1
+                    elif info.fdsk.upper() != fdsk:
+                        conflicts.append(
+                            f"{device.physical_address} {info.device_name}: erfasster FDSK "
+                            f"weicht vom ETS-Projekt ab (nicht überschrieben)"
+                        )
+        return added, conflicts
 
     # ── Mischlinien-Prüfung (FA-2705) ─────────────────────────────────────────
 

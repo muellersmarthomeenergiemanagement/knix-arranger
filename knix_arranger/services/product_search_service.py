@@ -44,6 +44,7 @@ class ProductSuggestion:
     product_ref_id: str = ""
     hw2prog_id: str = ""
     application_program_id: str = ""
+    secure_supported: bool = False   # KNX Secure-faehig (FA-2705)
     order_number: str = ""
     product_name: str = ""
     channels: int = 0
@@ -185,6 +186,7 @@ class ProductSearchService:
                 product_ref_id=prod.get("product_ref_id", ""),
                 hw2prog_id=prod.get("hw2prog_id", ""),
                 application_program_id=prod.get("application_program_id", ""),
+                secure_supported=prod.get("secure_supported", False),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -232,6 +234,7 @@ class ProductSearchService:
                 product_ref_id=prod.get("product_ref_id", ""),
                 hw2prog_id=prod.get("hw2prog_id", ""),
                 application_program_id=prod.get("application_program_id", ""),
+                secure_supported=prod.get("secure_supported", False),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -278,6 +281,7 @@ class ProductSearchService:
                 product_ref_id=prod.get("product_ref_id", ""),
                 hw2prog_id=prod.get("hw2prog_id", ""),
                 application_program_id=prod.get("application_program_id", ""),
+                secure_supported=prod.get("secure_supported", False),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -349,6 +353,7 @@ class ProductSearchService:
                 product_ref_id=prod.get("product_ref_id", ""),
                 hw2prog_id=prod.get("hw2prog_id", ""),
                 application_program_id=prod.get("application_program_id", ""),
+                secure_supported=prod.get("secure_supported", False),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
