@@ -11,6 +11,13 @@ Kernfunktion erkannt) wird ein Vorschlag erzeugt -- mehrdeutige oder
 schwache Treffer (nur RM/STOERUNG/SPERREN) werden bewusst verworfen statt
 geraten, siehe _PRIMARY_FUNCTIONS.
 
+Raum, Gewerk und Element kommen bevorzugt aus den Bezeichnungen der am
+Kanal haengenden GAs ("J.OG.04.02_move" -> Raum OG.04, Jalousie, Element 2
+-- dieselbe Zaehlung wie GewerkService.derive_gewerk_assignments, die aus
+denselben Bezeichnungen "J ×2" ableitet). Nur ohne auswertbare Bezeichnung
+gilt der Raum des Geraets -- bei Aktoren ist das meist der Verteiler, nicht
+der Raum des Verbrauchers.
+
 Wie bei scene_detection_service.py: reine Erkennungsfunktion, haengt
 selbst nichts an `project` an, der Aufrufer (UI) committet nach Review.
 """
@@ -24,6 +31,7 @@ from .address_generator import AddressGenerator
 from .gewerk_channel_matching import (
     group_channels_by_name, match_channel_to_schema, all_linked_ga_ids,
 )
+from .gewerk_service import GewerkService
 
 # Gewerk-Codes, fuer die _FUNCTION_KEYWORDS (gewerk_channel_matching.py)
 # tatsaechlich aussagekraeftige Stichworte enthaelt -- Licht-Familie,
@@ -80,9 +88,17 @@ class GewerkSuggestion:
     # Codes in diesem Raum (siehe find_reusable_assignment) -- wird beim
     # Uebernehmen befuellt statt eine zweite, doppelte Zeile anzulegen.
     existing_assignment: GewerkAssignment | None = None
+    # Element innerhalb der Zuweisung (1-basiert), z.B. 2 fuer den zweiten
+    # Storen bei "J ×2" -- aus der GA-Bezeichnung, sonst 1.
+    element_nr: int = 1
+    # Raum/Gewerk/Element stammen aus den GA-Bezeichnungen (sonst: Raum des
+    # Geraets und bestes Schema)
+    from_designation: bool = False
 
 
-def find_reusable_assignment(room: Room, gewerk_code: str) -> GewerkAssignment | None:
+def find_reusable_assignment(
+    room: Room, gewerk_code: str, element_nr: int = 1,
+) -> GewerkAssignment | None:
     """Eine bereits vorhandene, aber noch unverknüpfte GewerkAssignment
     desselben Codes in diesem Raum -- typischerweise von der
     Bezeichnungs-basierten Gewerk-Ableitung beim Import angelegt
@@ -92,15 +108,69 @@ def find_reusable_assignment(room: Room, gewerk_code: str) -> GewerkAssignment |
     Ohne diese Wiederverwendung würde ein Vorschlag hier eine zweite,
     für den Nutzer verwirrende Zuweisung desselben Gewerks im selben Raum
     anlegen, statt die bereits vorhandene mit dem echten Kanal zu
-    vervollständigen."""
+    vervollständigen. Bei Mehrfach-Zuweisungen ("J ×2") muss das Element
+    existieren und noch unverknüpft sein."""
     for assignment in room.gewerk_assignments:
         if (
             assignment.gewerk_code == gewerk_code
-            and assignment.count == 1
-            and not assignment.linked_ga_ids
+            and element_nr <= assignment.count
+            and not assignment.all_element_links().get(element_nr)
         ):
             return assignment
     return None
+
+
+def assignment_for_suggestion(
+    room: Room, gewerk_code: str, element_nr: int = 1,
+) -> tuple[GewerkAssignment, int]:
+    """Zuweisung und Element, in die ein uebernommener Vorschlag geschrieben
+    wird: eine passende unverknuepfte (find_reusable_assignment), sonst eine
+    Zuweisung desselben Gewerks, die um das Element erweitert wird ("L ×2"
+    -> "L ×3" fuer Element 3), sonst eine neue mit Anzahl = Element-Nr.
+    Neue Zuweisungen werden dem Raum angehaengt."""
+    assignment = find_reusable_assignment(room, gewerk_code, element_nr)
+    if assignment:
+        return assignment, element_nr
+    for candidate in room.gewerk_assignments:
+        if candidate.gewerk_code == gewerk_code and element_nr > candidate.count:
+            candidate.count = element_nr
+            return candidate, element_nr
+    assignment = GewerkAssignment(gewerk_code=gewerk_code, count=element_nr)
+    room.gewerk_assignments.append(assignment)
+    return assignment, element_nr
+
+
+def _designation_targets(project) -> dict[str, tuple[Room, str, int]]:
+    """GA-id -> (Raum, Gewerk-Code, Element-Nr.) aus der Bezeichnung.
+
+    Element-Nr. ist die Position der Element-Kennung unter allen Kennungen
+    desselben Raums/Gewerks (".01", ".02" -> 1, 2), genau wie die Anzahl in
+    GewerkService.derive_gewerk_assignments gezaehlt wird. Zentraladressen
+    (HG 0) und kombinierte Adressierung ("L.OG.05.02+04") bleiben aussen vor."""
+    room_index = GewerkService._build_room_index(project.areal)
+    parsed: dict[str, tuple[tuple[str, str], str, str]] = {}
+    elements: dict[tuple[tuple[str, str], str], set[str]] = {}
+    for ga in project.group_addresses.all_addresses():
+        if ga.main_group == 0 or not ga.designation:
+            continue
+        matched = GewerkService._match_ga_designation(ga.designation)
+        if not matched:
+            continue
+        code, floor_code, room_nr, elem_nr, is_combined = matched
+        if is_combined or (floor_code, room_nr) not in room_index:
+            continue
+        key = (floor_code, room_nr)
+        parsed[ga.id] = (key, code, elem_nr)
+        elements.setdefault((key, code), set()).add(elem_nr)
+
+    order = {
+        group: {nr: i + 1 for i, nr in enumerate(sorted(nrs, key=int))}
+        for group, nrs in elements.items()
+    }
+    return {
+        ga_id: (room_index[key], code, order[(key, code)][elem_nr])
+        for ga_id, (key, code, elem_nr) in parsed.items()
+    }
 
 
 def suggest_gewerk_assignments(project) -> tuple[list[GewerkSuggestion], list[str]]:
@@ -133,21 +203,32 @@ def suggest_gewerk_assignments(project) -> tuple[list[GewerkSuggestion], list[st
         for line in area.lines
         for d in line.devices
     ]
+    targets = _designation_targets(project)
 
     skipped_no_room = 0
     for device in all_devices:
-        if not device.communication_objects:
+        # Taster senden auf dieselben GAs wie der Aktor -- ihr Vorschlag
+        # wuerde dasselbe Element ein zweites Mal belegen.
+        if not device.communication_objects or device.device_type == "sensor":
             continue
-        if not device.room_id:
-            skipped_no_room += 1
-            continue
-        room = rooms_by_id.get(device.room_id)
-        if not room:
-            skipped_no_room += 1
-            continue
+        device_room =rooms_by_id.get(device.room_id) if device.room_id else None
+        missing_room = False
 
         for channel_name, cos in group_channels_by_name(device).items():
             if _channel_already_linked(cos, ga_by_address, already_linked):
+                continue
+
+            target = _channel_target(cos, ga_by_address, targets)
+            if target:
+                suggestion = _suggest_from_designation(
+                    device, channel_name, cos, target, project, gen, ga_by_address,
+                )
+                if suggestion:
+                    suggestions.append(suggestion)
+                    continue
+
+            if not device_room:
+                missing_room = True
                 continue
 
             best_code, best_matched = _best_match(cos, schema_cache, ga_by_address)
@@ -155,17 +236,95 @@ def suggest_gewerk_assignments(project) -> tuple[list[GewerkSuggestion], list[st
                 continue
 
             suggestions.append(GewerkSuggestion(
-                device=device, channel_name=channel_name, room=room,
+                device=device, channel_name=channel_name, room=device_room,
                 gewerk_code=best_code, matched=best_matched,
                 schema_function_count=_non_reserve_function_count(schema_cache[best_code]),
-                existing_assignment=find_reusable_assignment(room, best_code),
+                existing_assignment=find_reusable_assignment(device_room, best_code),
             ))
+        if missing_room:
+            skipped_no_room += 1
 
     if skipped_no_room:
         warnings.append(
             f"{skipped_no_room} Gerät(e) ohne erkannten Raum wurden übersprungen."
         )
-    return suggestions, warnings
+    return _merge_same_target(suggestions), warnings
+
+
+def _merge_same_target(suggestions: list[GewerkSuggestion]) -> list[GewerkSuggestion]:
+    """Ein Vorschlag je (Raum, Gewerk, Element) aus der Bezeichnung.
+
+    Manche Geraete teilen einen Kanal in mehrere ComObject-Namen auf (DALI-
+    Gateway: "G7, Schalten," / "G7, Dimmen," ...) -- Vorschlaege desselben
+    Geraets werden zu einem zusammengefasst. Zielen verschiedene Geraete
+    auf dasselbe Element, bleibt der mit den meisten erkannten Funktionen.
+    Vorschlaege ohne Bezeichnungs-Ziel (Raum des Geraets) bleiben
+    unveraendert."""
+    result: list[GewerkSuggestion] = []
+    by_target: dict[tuple, GewerkSuggestion] = {}
+    for s in suggestions:
+        if not s.from_designation:
+            result.append(s)
+            continue
+        key = (s.room.id, s.gewerk_code, s.element_nr)
+        kept = by_target.get(key)
+        if kept is None:
+            by_target[key] = s
+            result.append(s)
+        elif kept.device is s.device:
+            kept.matched = {**s.matched, **kept.matched}
+            kept.channel_name = f"{kept.channel_name} / {s.channel_name}"
+        elif len(s.matched) > len(kept.matched):
+            result[result.index(kept)] = s
+            by_target[key] = s
+    return result
+
+
+def _channel_target(
+    cos, ga_by_address: dict[str, GroupAddress],
+    targets: dict[str, tuple[Room, str, int]],
+) -> tuple[Room, str, int] | None:
+    """Eindeutiges (Raum, Gewerk, Element) des Kanals aus den Bezeichnungen
+    seiner GAs -- None, wenn keine auswertbar ist oder sie sich
+    widersprechen (z.B. Kanal steuert zwei Raeume)."""
+    found = {
+        (id(t[0]), t[1], t[2]): t
+        for co in cos for addr in co.connected_gas
+        if addr in ga_by_address and (t := targets.get(ga_by_address[addr].id))
+    }
+    if len(found) != 1:
+        return None
+    return next(iter(found.values()))
+
+
+def _suggest_from_designation(
+    device, channel_name, cos, target, project, gen, ga_by_address,
+) -> GewerkSuggestion | None:
+    """Vorschlag mit Raum/Gewerk/Element aus der Bezeichnung. Das Gewerk
+    muss erkennbar sein (_MATCHABLE_CODES) und mindestens eine
+    Kernfunktion des Kanals zu dessen Schema passen."""
+    room, code, element_nr = target
+    gewerk = project.gewerk_catalog.get(code)
+    if code not in _MATCHABLE_CODES or not gewerk:
+        return None
+    schema = gen._get_block_schema(gewerk, assignment=None, is_feedback=False)
+    if not schema:
+        return None
+    matched = {
+        function: ga_by_address[co.connected_gas[0]]
+        for function, co in match_channel_to_schema(cos, schema).items()
+        if co.connected_gas and co.connected_gas[0] in ga_by_address
+    }
+    if not matched.keys() & _PRIMARY_FUNCTIONS:
+        return None
+    return GewerkSuggestion(
+        device=device, channel_name=channel_name, room=room,
+        gewerk_code=code, matched=matched,
+        schema_function_count=_non_reserve_function_count(schema),
+        existing_assignment=find_reusable_assignment(room, code, element_nr),
+        element_nr=element_nr,
+        from_designation=True,
+    )
 
 
 def _channel_already_linked(

@@ -17,7 +17,7 @@ from knix_arranger.models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
 from knix_arranger.services.gewerk_suggestion_service import (
-    suggest_gewerk_assignments, find_reusable_assignment,
+    suggest_gewerk_assignments, find_reusable_assignment, assignment_for_suggestion,
 )
 
 
@@ -249,12 +249,103 @@ class TestSuggestGewerkAssignments:
         assert len(suggestions) == 1
         assert suggestions[0].existing_assignment is placeholder
 
-    def test_multi_count_placeholder_is_not_offered_for_reuse(self):
-        """count>1 kann `linked_ga_ids` nicht eindeutig einem Element
-        zuordnen (gleiche Einschränkung wie beim manuellen Kanal-Dialog,
-        FA-521f) -- so eine Zuweisung wird nicht wiederverwendet."""
+    def test_multi_count_placeholder_is_reused_per_free_element(self):
+        """Mehrfach-Zuweisungen werden je Element wiederverwendet, solange
+        das Element existiert und noch unverknüpft ist."""
         project, room = _project_with_room()
         multi = GewerkAssignment(gewerk_code="L", count=3)
         room.gewerk_assignments.append(multi)
 
-        assert find_reusable_assignment(room, "L") is None
+        assert find_reusable_assignment(room, "L", 2) is multi
+        multi.element_links(2)["E/A"] = "x"
+        assert find_reusable_assignment(room, "L", 2) is None
+        assert find_reusable_assignment(room, "L", 4) is None
+
+
+# ── Raum/Gewerk/Element aus der GA-Bezeichnung ───────────────────────────────
+
+def _jalousie_channel(address, channel, gas, device_type="actor"):
+    """Jalousieaktor-Kanal im Verteiler (Raum des Geraets != Raum des Storen)."""
+    device = Device(physical_address=address, product="JAX-9", device_type=device_type)
+    device.communication_objects = [
+        CommunicationObject(name=channel, object_function="Auf/Ab", connected_gas=[gas[0]]),
+        CommunicationObject(name=channel, object_function="Stopp", connected_gas=[gas[1]]),
+    ]
+    return device
+
+
+def _project_with_two_blinds():
+    """Wie Chalet Franziska OG.04: "J ×2" aus den Bezeichnungen, Storen 1 an
+    1.1.5 M9, Storen 2 an 1.1.4 M7, beide Aktoren im Verteiler."""
+    project, room = _project_with_room()
+    verteiler = Room(number="", name="Verteiler")
+    project.areal.buildings[0].wings[0].floors[0].apartments[0].rooms.append(verteiler)
+    placeholder = GewerkAssignment(gewerk_code="J", count=2)
+    room.gewerk_assignments.append(placeholder)
+    for sub, name in ((35, "J.EG.01.01_move"), (36, "J.EG.01.01_step"),
+                      (40, "J.EG.01.02_move"), (41, "J.EG.01.02_step")):
+        _add_ga(project, f"3/1/{sub}", name)
+    second = _jalousie_channel("1.1.4", "M7", ["3/1/40", "3/1/41"])
+    first = _jalousie_channel("1.1.5", "M9", ["3/1/35", "3/1/36"])
+    second.room_id = first.room_id = verteiler.id
+    area = Area(area_number=1)
+    area.lines.append(Line(line_number=1, devices=[second, first]))
+    project.topology.areas.append(area)
+    return project, room, placeholder
+
+
+class TestSuggestionsFromDesignation:
+    def test_room_and_element_come_from_designation(self):
+        project, room, placeholder = _project_with_two_blinds()
+        suggestions, _ = suggest_gewerk_assignments(project)
+
+        by_channel = {s.channel_name: s for s in suggestions}
+        assert set(by_channel) == {"M7", "M9"}
+        assert by_channel["M9"].room is room and by_channel["M9"].element_nr == 1
+        assert by_channel["M7"].room is room and by_channel["M7"].element_nr == 2
+        assert all(s.existing_assignment is placeholder for s in suggestions)
+
+    def test_sensors_are_not_suggested(self):
+        project, room, _ = _project_with_two_blinds()
+        taster = _jalousie_channel("1.1.47", "Taste 2", ["3/1/40", "3/1/41"], "sensor")
+        project.topology.areas[0].lines[0].devices.append(taster)
+        suggestions, _ = suggest_gewerk_assignments(project)
+        assert {s.device.physical_address for s in suggestions} == {"1.1.4", "1.1.5"}
+
+    def test_split_channel_of_one_device_is_merged(self):
+        """DALI-Gateway: ein Kanal auf mehrere ComObject-Namen verteilt."""
+        project, room = _project_with_room()
+        _add_ga(project, "2/0/65", "L.EG.01.01_ea")
+        _add_ga(project, "2/0/66", "L.EG.01.01_dim")
+        gateway = Device(physical_address="1.1.8", device_type="gateway")
+        gateway.communication_objects = [
+            CommunicationObject(name="G7, Schalten,", object_function="Schalten",
+                                connected_gas=["2/0/65"]),
+            CommunicationObject(name="G7, Dimmen,", object_function="Dimmen",
+                                connected_gas=["2/0/66"]),
+        ]
+        _wire_device_into_project(project, gateway)
+        suggestions, _ = suggest_gewerk_assignments(project)
+        assert len(suggestions) == 1
+        assert set(suggestions[0].matched) == {"E/A", "DIM"}
+        assert suggestions[0].channel_name == "G7, Schalten, / G7, Dimmen,"
+
+
+class TestAssignmentForSuggestion:
+    def test_reuses_free_element(self):
+        project, room, placeholder = _project_with_two_blinds()
+        assert assignment_for_suggestion(room, "J", 2) == (placeholder, 2)
+
+    def test_extends_count_for_higher_element(self):
+        project, room = _project_with_room()
+        existing = GewerkAssignment(gewerk_code="L", count=1, linked_ga_ids={"E/A": "x"})
+        room.gewerk_assignments.append(existing)
+        assert assignment_for_suggestion(room, "L", 3) == (existing, 3)
+        assert existing.count == 3
+
+    def test_new_assignment_counts_up_to_element(self):
+        project, room = _project_with_room()
+        assignment, element = assignment_for_suggestion(room, "L", 2)
+        assert (assignment.count, element) == (2, 2)
+        assert room.gewerk_assignments == [assignment]
+        assert assignment_for_suggestion(room, "L", 1) == (assignment, 1)

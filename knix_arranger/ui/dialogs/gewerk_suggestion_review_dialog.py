@@ -15,13 +15,12 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from ...models.building import GewerkAssignment
 from ...services.address_generator import AddressGenerator
 from ...services.gewerk_channel_matching import (
     group_channels_by_name, match_channel_to_schema,
 )
 from ...services.gewerk_suggestion_service import (
-    GewerkSuggestion, _MATCHABLE_CODES, find_reusable_assignment,
+    GewerkSuggestion, _MATCHABLE_CODES, assignment_for_suggestion, find_reusable_assignment,
 )
 from ..column_utils import fit_columns
 
@@ -115,6 +114,8 @@ class GewerkSuggestionReviewDialog(QDialog):
             self._table.setItem(i, _COL_CHECK, check_item)
 
             room_text = f"{s.room.number} {s.room.name}".strip()
+            if s.element_nr > 1 or (s.existing_assignment and s.existing_assignment.count > 1):
+                room_text += f"  (Element {s.element_nr})"
             self._table.setItem(i, _COL_ROOM, QTableWidgetItem(room_text))
 
             device_text = f"{s.device.physical_address} ({s.device.manufacturer} {s.device.product})".strip()
@@ -161,7 +162,10 @@ class GewerkSuggestionReviewDialog(QDialog):
             self._set_functions_cell(row, entry)
             return
 
-        cos = group_channels_by_name(s.device).get(s.channel_name, [])
+        # Zusammengefasste Vorschlaege tragen "Kanal A / Kanal B" (siehe
+        # gewerk_suggestion_service._merge_same_target)
+        channels = group_channels_by_name(s.device)
+        cos = [co for name in s.channel_name.split(" / ") for co in channels.get(name, [])]
         matched_cos = match_channel_to_schema(cos, schema)
         matched_gas = {
             function: self._ga_by_address[co.connected_gas[0]]
@@ -174,7 +178,7 @@ class GewerkSuggestionReviewDialog(QDialog):
             1 for e in schema.entries if not e.is_reserve and e.function
         )
         s.schema_function_count = entry["schema_function_count"]
-        entry["existing_assignment"] = find_reusable_assignment(s.room, code)
+        entry["existing_assignment"] = find_reusable_assignment(s.room, code, s.element_nr)
         self._set_functions_cell(row, entry)
 
     def _on_accept(self):
@@ -193,11 +197,8 @@ class GewerkSuggestionReviewDialog(QDialog):
             # fuer dasselbe Gewerk im selben Raum anzulegen. Erneut prüfen
             # statt nur den beim Öffnen gecachten Wert zu nehmen, falls
             # zwischenzeitlich (durch eine andere Zeile) bereits verbraucht.
-            assignment = find_reusable_assignment(s.room, code)
-            if not assignment:
-                assignment = GewerkAssignment(gewerk_code=code, count=1)
-                s.room.gewerk_assignments.append(assignment)
-            assignment.linked_ga_ids.update(
+            assignment, element_nr = assignment_for_suggestion(s.room, code, s.element_nr)
+            assignment.element_links(element_nr).update(
                 {function: ga.id for function, ga in matched.items()}
             )
             for function, ga in matched.items():
@@ -206,7 +207,7 @@ class GewerkSuggestionReviewDialog(QDialog):
                 ga.gewerk_code = code
                 ga.room_number = s.room.number
                 ga.room_id = s.room.id
-                ga.element_number = 1
+                ga.element_number = element_nr
                 ga.function_name = function
             self.applied_count += 1
 
