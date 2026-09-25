@@ -28,7 +28,9 @@ from uuid import uuid4
 
 from ..utils.manufacturers import manufacturer_display_name
 from ..utils.validators import is_valid_ga
-from .manufacturer_data_service import ManufacturerDataLibrary, manufacturer_of
+from .manufacturer_data_service import (
+    ETS5_NAMESPACE, ManufacturerDataLibrary, manufacturer_of,
+)
 
 logger = logging.getLogger("knix_arranger.knxproj_export")
 
@@ -190,20 +192,30 @@ class KnxprojExportService:
         )
         return summary
 
-    def export_ets5_compat(self, project, filepath: str) -> ExportSummary:
+    def export_ets5_compat(
+        self, project, filepath: str,
+        product_refs: str = PRODUCT_REFS_NONE, product_data_folder: str = "",
+    ) -> ExportSummary:
         """
         Exportiert als ETS5-kompatibles .knxproj (Namespace project/20).
 
         ETS5-Projekte haben keine kryptographische Signaturpflicht.
         ETS6 kann ETS5-Projekte ueber 'Datei → Importieren' laden.
         DeviceInstances liegen direkt in Line (kein Segment-Element).
+        Produktreferenz wie bei export(); eingebettet werden nur
+        Herstellerdaten im ETS5-Format (project/20).
         """
         warnings = self._validate(project)
         summary = ExportSummary(warnings=warnings)
+        chosen_sources = self._plan_product_refs(
+            project, product_refs, product_data_folder, summary, ETS5_NAMESPACE,
+        )
         project_id = f"P-{uuid4().hex[:4].upper()}"
 
-        exporter = _Ets5Exporter(project_id)
+        exporter = _Ets5Exporter(project_id, self._ref_device_ids)
         with zipfile.ZipFile(filepath, "w", zipfile.ZIP_DEFLATED) as zf:
+            if chosen_sources:
+                ManufacturerDataLibrary.write(zf, chosen_sources, set())
             zf.writestr(f"{project_id}/project.xml", exporter.project_xml(project))
             main_xml, summary = exporter.main_xml(project, summary)
             zf.writestr(f"{project_id}/0.xml", main_xml)
@@ -216,7 +228,8 @@ class KnxprojExportService:
 
     _ref_device_ids: set[str] = set()
 
-    def _plan_product_refs(self, project, mode: str, folder: str, summary: ExportSummary):
+    def _plan_product_refs(self, project, mode: str, folder: str, summary: ExportSummary,
+                           only_namespace: str = ""):
         """Legt fest, welche Geraete eine Produktreferenz bekommen, und waehlt
         bei PRODUCT_REFS_EMBEDDED die Herstellerdaten-Quellen aus."""
         self._ref_device_ids = set()
@@ -234,7 +247,7 @@ class KnxprojExportService:
         needed: dict[str, set[str]] = {}
         for d in devices:
             needed.setdefault(manufacturer_of(d.hw2prog_id), set()).add(d.hw2prog_id)
-        chosen = ManufacturerDataLibrary(folder).choose(needed)
+        chosen = ManufacturerDataLibrary(folder).choose(needed, only_namespace)
         self._ref_device_ids = {
             d.id for d in devices
             if d.hw2prog_id in chosen.get(manufacturer_of(d.hw2prog_id), _NO_SOURCE).hw2prog_ids
@@ -635,9 +648,10 @@ def _sub5(parent: ET.Element, tag: str, **attribs) -> ET.Element:
 class _Ets5Exporter:
     """Erstellt ETS5-kompatible XML-Inhalte (Namespace project/20)."""
 
-    def __init__(self, project_id: str):
+    def __init__(self, project_id: str, ref_device_ids: set[str] | None = None):
         self._pid = project_id
         self._puid = _PuidCounter(1)
+        self._ref_device_ids = ref_device_ids or set()
 
     def _xml_header(self, root: ET.Element) -> str:
         return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(
@@ -750,6 +764,9 @@ class _Ets5Exporter:
                         "Address": str(dev_addr),
                         "Name":    device.product_name or device.product or "Unbekannt",
                     }
+                    if device.id in self._ref_device_ids:
+                        dev_attribs["ProductRefId"] = device.product_ref_id
+                        dev_attribs["Hardware2ProgramRefId"] = device.hw2prog_id
                     if device.manufacturer:
                         dev_attribs["Description"] = device.manufacturer
                     _sub5(line_elem, "DeviceInstance", **dev_attribs)

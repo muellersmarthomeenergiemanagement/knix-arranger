@@ -24,6 +24,7 @@ from dataclasses import dataclass
 logger = logging.getLogger("knix_arranger.manufacturer_data")
 
 ETS6_NAMESPACE = "http://knx.org/xml/project/23"
+ETS5_NAMESPACE = "http://knx.org/xml/project/20"
 
 _HW2PROG_ID = re.compile(rb'<Hardware2Program\s[^>]*?\bId="([^"]+)"')
 _NAMESPACE = re.compile(rb'xmlns="([^"]+)"')
@@ -107,13 +108,18 @@ class ManufacturerDataLibrary:
             logger.warning(f"Herstellerdaten in {path} nicht lesbar: {e}")
             return []
 
-    def choose(self, needed: dict[str, set[str]]) -> dict[str, ManufacturerSource]:
+    def choose(
+        self, needed: dict[str, set[str]], only_namespace: str = "",
+    ) -> dict[str, ManufacturerSource]:
         """Je Hersteller die beste Quelle fuer die benoetigten
         Hardware2Program-Kennungen: vollstaendige Abdeckung vor teilweiser,
         signiert vor unsigniert (aeltere Extraktionen ohne Signatur), ETS6-
-        Format vor aelterem, kleiner vor groesser."""
+        Format vor aelterem, kleiner vor groesser. only_namespace beschraenkt
+        auf ein Format (ETS5-Export: nur project/20)."""
         by_mfr: dict[str, list[ManufacturerSource]] = {}
         for src in self.sources():
+            if only_namespace and src.namespace != only_namespace:
+                continue
             by_mfr.setdefault(src.mfr_id, []).append(src)
         chosen: dict[str, ManufacturerSource] = {}
         for mfr, ids in needed.items():

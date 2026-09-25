@@ -150,3 +150,28 @@ class TestExportProductRefs:
                                       product_data_folder=str(lib))
         with zipfile.ZipFile(out) as zo:
             assert b'Version="215"' in zo.read("knx_master.xml")
+
+
+class TestEts5ExportProductRefs:
+    def test_embeds_only_ets5_format(self, tmp_path):
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        _knxprod(lib / "ets6.knxprod")
+        project, _, _ = _project_with_refs()
+        out = str(tmp_path / "p.knxproj")
+        summary = KnxprojExportService().export_ets5_compat(
+            project, out, product_refs=PRODUCT_REFS_EMBEDDED, product_data_folder=str(lib),
+        )
+        assert summary.product_ref_count == 0
+
+        _knxprod(lib / "ets5.knxprod", ns=_NS20)
+        summary = KnxprojExportService().export_ets5_compat(
+            project, out, product_refs=PRODUCT_REFS_EMBEDDED, product_data_folder=str(lib),
+        )
+        assert summary.product_ref_count == 1
+        with zipfile.ZipFile(out) as zo:
+            assert zo.read("M-0083.signature") == b"SIG-ets5.knxprod"
+            name = next(n for n in zo.namelist() if n.endswith("/0.xml"))
+            root = ET.fromstring(zo.read(name))
+        dev = next(e for e in root.iter(f"{{{_NS20}}}DeviceInstance") if e.get("Address") == "1")
+        assert dev.get("Hardware2ProgramRefId") == HP_A
