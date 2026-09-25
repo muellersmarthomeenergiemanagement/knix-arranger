@@ -2,6 +2,20 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.21",
+      "date": "2026-09-25",
+      "neu": [
+        "KNX Secure: Beim Import eines ETS6-Projekts werden die Geräte-Zertifikate (FDSK) und das Projektpasswort direkt ins KNX-Secure-Archiv übernommen – ein Abtippen der Aufkleber entfällt. Bereits erfasste, abweichende Schlüssel werden nicht überschrieben, sondern gemeldet."
+      ],
+      "verbessert": [
+        "KNX Secure: Secure-fähige Geräte werden zuverlässig erkannt – aus den Secure-Angaben des ETS-Projekts, dem Produktkatalog und dem Produktnamen.",
+        "Berichte einheitlich sortiert: Physikalische Adressen und Gruppenadressen numerisch (1.1.9 vor 1.1.10), der KNX-Secure-Bericht nach physikalischer Adresse. Räume erscheinen in der Reihenfolge der Gebäudestruktur (UG, EG, OG, DG statt alphabetisch nach Stockwerk), Räume ohne Nummer am Ende des Stockwerks. Szenen nach Geltungsbereich und Raum."
+      ],
+      "behoben": [
+        "ETS-Import: Der Einbauort wurde als RTF-Rohtext («{\\rtf1\\ansi…») übernommen. Er erscheint jetzt als Klartext; bestehende Projekte werden beim Öffnen bereinigt."
+      ]
+    },
+    {
       "version": "1.1.20",
       "date": "2026-09-25",
       "neu": [
