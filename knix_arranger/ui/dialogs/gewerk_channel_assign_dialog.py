@@ -6,12 +6,16 @@ Dreistufig: Gerät wählen -> Kanal wählen -> Vorschau/Korrektur der
 automatisch erkannten Funktions-Zuordnung (services/gewerk_channel_matching.py)
 vor der Übernahme. Einzelne Slots lassen sich über den bereits vorhandenen
 GaPickerDialog korrigieren oder leeren.
+
+Bei Anzahl > 1 (z.B. "J ×2") laufen die drei Stufen je Element einmal durch,
+jedes Element bekommt seinen eigenen Kanal; einzelne Elemente lassen sich
+ueberspringen.
 """
 from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QTableWidget, QTableWidgetItem, QPushButton, QHeaderView,
-    QAbstractItemView, QDialogButtonBox, QStackedWidget, QWidget,
+    QAbstractItemView, QStackedWidget, QWidget,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QBrush
@@ -45,8 +49,9 @@ _COLOR_ALREADY_OTHER = QColor("#FFF9C4")  # Gelb: Kanal bereits einem anderen Ge
 class GewerkChannelAssignDialog(QDialog):
     """Verknüpft eine GewerkAssignment mit einem bestehenden Aktor-Kanal.
 
-    Ergebnis nach Accepted: `self.linked_ga_ids` ({function: GroupAddress.id}),
-    vom Aufrufer in `assignment.linked_ga_ids` zu übernehmen (siehe
+    Ergebnis nach Accepted: `self.linked_by_element` ({Element-Nr:
+    {function: GroupAddress.id}}), nur fuer bearbeitete Elemente; vom
+    Aufrufer in `assignment.element_links(nr)` zu übernehmen (siehe
     step05_gewerke.py._assign_channel).
     """
 
@@ -58,7 +63,9 @@ class GewerkChannelAssignDialog(QDialog):
         self._room = room
         self._assignment = assignment
         self._gewerk = gewerk
-        self.linked_ga_ids: dict[str, str] = {}
+        self._count = max(1, assignment.count)
+        self._element = 1
+        self.linked_by_element: dict[int, dict[str, str]] = {}
 
         gen = AddressGenerator(project.gewerk_catalog, variant=project.config.mg_variant)
         self._schema = gen._get_block_schema(gewerk, assignment=assignment, is_feedback=False)
@@ -72,6 +79,11 @@ class GewerkChannelAssignDialog(QDialog):
         info = QLabel(title)
         info.setStyleSheet("color: #555;")
         layout.addWidget(info)
+        self._element_label = QLabel()
+        self._element_label.setStyleSheet("font-weight: bold;")
+        self._element_label.setVisible(self._count > 1)
+        layout.addWidget(self._element_label)
+        self._update_element_label()
 
         self._stack = QStackedWidget()
         layout.addWidget(self._stack, 1)
@@ -129,6 +141,13 @@ class GewerkChannelAssignDialog(QDialog):
         v.addWidget(self._device_table, 1)
 
         row = QHBoxLayout()
+        self._btn_skip = QPushButton("Element überspringen")
+        self._btn_skip.setToolTip(
+            "Dieses Element nicht verknüpfen (bestehende Verknüpfung bleibt)."
+        )
+        self._btn_skip.clicked.connect(self._next_element)
+        self._btn_skip.setVisible(self._count > 1)
+        row.addWidget(self._btn_skip)
         row.addStretch()
         btn_next = QPushButton("Weiter…")
         btn_next.clicked.connect(self._on_device_chosen)
@@ -138,6 +157,11 @@ class GewerkChannelAssignDialog(QDialog):
         row.addWidget(btn_cancel)
         v.addLayout(row)
         return page
+
+    def _update_element_label(self):
+        self._element_label.setText(
+            f"{self._gewerk.name} {self._element} von {self._count}"
+        )
 
     def _all_devices(self) -> list[Device]:
         return [
@@ -268,23 +292,32 @@ class GewerkChannelAssignDialog(QDialog):
         ga_by_address = {
             ga.address: ga for ga in self._project.group_addresses.all_addresses()
         }
-        own_ids = set(self._assignment.linked_ga_ids.values())
+        # GA-id -> Element dieser Zuweisung (gespeichert oder in diesem
+        # Dialog bereits gewaehlt)
+        own_elements: dict[str, int] = {}
+        for nr, links in self._assignment.all_element_links().items():
+            own_elements.update({ga_id: nr for ga_id in links.values()})
+        for nr, links in self.linked_by_element.items():
+            own_elements.update({ga_id: nr for ga_id in links.values()})
         all_linked = all_linked_ga_ids(self._project)
         other_hits: set[str] = set()
-        own_hit = False
+        own_hits: set[int] = set()
         for co in cos:
             for addr in co.connected_gas:
                 ga = ga_by_address.get(addr)
                 if not ga:
                     continue
-                if ga.id in own_ids:
-                    own_hit = True
+                if ga.id in own_elements:
+                    own_hits.add(own_elements[ga.id])
                 elif ga.id in all_linked:
                     gewerk_code, room_number = all_linked[ga.id]
                     other_hits.add(f"{gewerk_code} Raum {room_number}")
         if other_hits:
             return f"⚠ bereits verwendet: {', '.join(sorted(other_hits))}", _COLOR_ALREADY_OTHER
-        if own_hit:
+        if own_hits:
+            if self._count > 1:
+                elements = ", ".join(str(nr) for nr in sorted(own_hits))
+                return f"✓ bereits Element {elements} zugeordnet", _COLOR_ALREADY_OWN
             return "✓ bereits dieser Zuweisung zugeordnet", _COLOR_ALREADY_OWN
         return "", None
 
@@ -322,12 +355,22 @@ class GewerkChannelAssignDialog(QDialog):
         btn_back.clicked.connect(lambda: self._stack.setCurrentIndex(1))
         row.addWidget(btn_back)
         row.addStretch()
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        row.addWidget(buttons)
+        self._btn_finish = QPushButton()
+        self._btn_finish.setDefault(True)
+        self._btn_finish.clicked.connect(self._on_accept)
+        row.addWidget(self._btn_finish)
+        btn_cancel = QPushButton("Abbrechen")
+        btn_cancel.clicked.connect(self.reject)
+        row.addWidget(btn_cancel)
         v.addLayout(row)
+        self._update_finish_button()
         return page
+
+    def _update_finish_button(self):
+        if self._element < self._count:
+            self._btn_finish.setText(f"Weiter mit Element {self._element + 1}")
+        else:
+            self._btn_finish.setText("Übernehmen")
 
     def _run_matching(self):
         cos = self._channels.get(self._selected_channel, [])
@@ -378,7 +421,21 @@ class GewerkChannelAssignDialog(QDialog):
         self._refresh_preview()
 
     def _on_accept(self):
-        self.linked_ga_ids = {
-            function: ga.id for function, ga in self._matched.items()
-        }
-        self.accept()
+        links = {function: ga.id for function, ga in self._matched.items()}
+        if links:
+            self.linked_by_element[self._element] = links
+        self._next_element()
+
+    def _next_element(self):
+        """Naechstes Element beginnen, nach dem letzten den Dialog schliessen."""
+        if self._element >= self._count:
+            self.accept()
+            return
+        self._element += 1
+        self._selected_device = None
+        self._selected_channel = ""
+        self._matched = {}
+        self._update_element_label()
+        self._update_finish_button()
+        self._device_table.clearSelection()
+        self._stack.setCurrentIndex(0)

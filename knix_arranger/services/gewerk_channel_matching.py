@@ -87,8 +87,9 @@ def all_linked_ga_ids(project) -> dict[str, tuple[str, str]]:
     result: dict[str, tuple[str, str]] = {}
     for room in project.all_rooms:
         for assignment in room.gewerk_assignments:
-            for ga_id in assignment.linked_ga_ids.values():
-                result[ga_id] = (assignment.gewerk_code, room.number)
+            for links in assignment.all_element_links().values():
+                for ga_id in links.values():
+                    result[ga_id] = (assignment.gewerk_code, room.number)
     return result
 
 

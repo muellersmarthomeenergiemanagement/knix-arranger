@@ -348,20 +348,22 @@ class AddressGenerator:
 
         def place_new_block(home_mg_num, gewerk, assignment, schema, id_key,
                             room, room_number_ga, room_desc,
-                            skip_functions: frozenset = frozenset()) -> None:
+                            skip_by_element: dict[int, frozenset] | None = None) -> None:
             """Hängt einen neuen/veränderten Block an; wechselt bei Überlauf
             automatisch in die nächste freie MG derselben HG.
 
-            `skip_functions` überspringt Funktions-Slots, die bereits manuell
-            mit einer bestehenden GA verknüpft sind (FA-521f, siehe
-            assignment.linked_ga_ids) -- die verknüpfte GA existiert schon
-            (is_manual=True) und wird vom Aufrufer separat erhalten, hier
-            darf keine zweite GA für dieselbe Funktion entstehen."""
+            `skip_by_element` überspringt je Element die Funktions-Slots, die
+            bereits manuell mit einer bestehenden GA verknüpft sind (FA-521f,
+            siehe assignment.element_links) -- die verknüpfte GA existiert
+            schon (is_manual=True) und wird vom Aufrufer separat erhalten,
+            hier darf keine zweite GA für dieselbe Funktion entstehen."""
+            skip_by_element = skip_by_element or {}
             target = get_or_create_mg(home_mg_num)
             cursor = next_free.get(target.number, 0)
             needed = schema.block_size * assignment.count
             placed = 0
             for element_nr in range(1, assignment.count + 1):
+                skip_functions = skip_by_element.get(element_nr, frozenset())
                 for entry in schema.entries:
                     if entry.function and entry.function in skip_functions:
                         continue
@@ -423,28 +425,38 @@ class AddressGenerator:
             for room, assignment, gewerk, room_number_ga, room_desc in mg_data[mg_num]:
                 schema = self._get_block_schema(gewerk, assignment=assignment, is_feedback=False)
 
-                # Manuell verknuepfte Funktions-Slots (nur count==1, siehe
+                # Manuell verknuepfte Funktions-Slots je Element (siehe
                 # step05_gewerke._assign_channel): deren GA existiert bereits
                 # (is_manual=True) und bleibt von dieser Generierung komplett
                 # unberuehrt -- weder Neuplatzierung noch Umbenennung. Ein
                 # verwaister Verweis (GA zwischenzeitlich geloescht) wird
-                # bereinigt und faellt auf automatische Generierung zurueck.
-                skip_functions: frozenset = frozenset()
-                if assignment.count == 1 and assignment.linked_ga_ids:
+                # bereinigt und faellt auf automatische Generierung zurueck,
+                # ebenso Verknuepfungen von Elementen jenseits der Anzahl.
+                skip_by_element: dict[int, frozenset] = {}
+                for element_nr, links in assignment.all_element_links().items():
+                    if element_nr > assignment.count:
+                        links.clear()
+                        warnings.append(
+                            f"'{gewerk.name}' (Raum {room.number}): Kanal-"
+                            f"Verknüpfung von Element {element_nr} entfernt "
+                            f"(Anzahl ist {assignment.count})."
+                        )
+                        continue
                     stale = [
-                        fn for fn, ga_id in assignment.linked_ga_ids.items()
+                        fn for fn, ga_id in links.items()
                         if ga_id not in existing_ga_by_id
                     ]
                     for fn in stale:
-                        del assignment.linked_ga_ids[fn]
+                        del links[fn]
                         warnings.append(
                             f"'{gewerk.name}' (Raum {room.number}): manuell "
                             f"verknüpfte GA für Funktion '{fn}' nicht mehr "
                             f"gefunden -- wird automatisch neu generiert."
                         )
-                    skip_functions = frozenset(assignment.linked_ga_ids.keys())
+                    if links:
+                        skip_by_element[element_nr] = frozenset(links.keys())
 
-                if skip_functions:
+                if skip_by_element:
                     # Ganz oder teilweise manuell verknuepft: nie reuse_block
                     # (positionelles Matching waere bei importierten GAs
                     # unsicher, siehe Plan-Begruendung) -- nur die
@@ -458,7 +470,7 @@ class AddressGenerator:
                     place_new_block(
                         mg_num, gewerk, assignment, schema, assignment.id,
                         room, room_number_ga, room_desc,
-                        skip_functions=skip_functions,
+                        skip_by_element=skip_by_element,
                     )
                     continue
 

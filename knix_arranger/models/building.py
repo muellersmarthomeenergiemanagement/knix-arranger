@@ -296,12 +296,26 @@ class GewerkAssignment:
     #  "excluded_co_numbers": list[int]}  # ComObject-Nummern ohne GA (Integrator-Auswahl)
     linked_product: dict | None = None
     # Manuelle Verknüpfung mit bereits importierten Gruppenadressen (FA-521f):
-    # Schema-Funktion (z.B. "E/A") -> GroupAddress.id einer bestehenden GA.
-    # Nur für count==1 unterstützt. Die referenzierte GA bekommt is_manual=True
-    # (siehe address_generator.place_block_with_manual_links) und wird von der
-    # Generierung NIE neu platziert oder umbenannt – nur unbefüllte Slots
+    # Schema-Funktion (z.B. "E/A") -> GroupAddress.id einer bestehenden GA,
+    # für Element 1. Die referenzierte GA bekommt is_manual=True und wird von
+    # der Generierung NIE neu platziert oder umbenannt – nur unbefüllte Slots
     # werden wie gewohnt automatisch generiert.
     linked_ga_ids: dict[str, str] = field(default_factory=dict)
+    # Dasselbe für die Elemente 2..count (z.B. zweiter Storen bei "J ×2"),
+    # je Element ein eigener Aktor-Kanal. Zugriff über element_links().
+    linked_ga_ids_by_element: dict[int, dict[str, str]] = field(default_factory=dict)
+
+    def element_links(self, element_nr: int) -> dict[str, str]:
+        """Verknüpfte GAs eines Elements (1-basiert), veränderbar."""
+        if element_nr == 1:
+            return self.linked_ga_ids
+        return self.linked_ga_ids_by_element.setdefault(element_nr, {})
+
+    def all_element_links(self) -> dict[int, dict[str, str]]:
+        """Alle Elemente mit mindestens einer Verknüpfung."""
+        result = {1: self.linked_ga_ids} if self.linked_ga_ids else {}
+        result.update({nr: links for nr, links in self.linked_ga_ids_by_element.items() if links})
+        return dict(sorted(result.items()))
 
     def to_dict(self) -> dict:
         return {
@@ -314,6 +328,9 @@ class GewerkAssignment:
             "extra_entries": self.extra_entries,
             "linked_product": self.linked_product,
             "linked_ga_ids": self.linked_ga_ids,
+            "linked_ga_ids_by_element": {
+                str(nr): links for nr, links in self.linked_ga_ids_by_element.items() if links
+            },
         }
 
     @classmethod
@@ -336,6 +353,9 @@ class GewerkAssignment:
         obj.extra_entries = data.get("extra_entries", [])
         obj.linked_product = data.get("linked_product")
         obj.linked_ga_ids = data.get("linked_ga_ids", {})
+        obj.linked_ga_ids_by_element = {
+            int(nr): links for nr, links in data.get("linked_ga_ids_by_element", {}).items()
+        }
         return obj
 
 

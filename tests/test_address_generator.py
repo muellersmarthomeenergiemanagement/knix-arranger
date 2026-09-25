@@ -1453,26 +1453,55 @@ class TestManualGaLinking:
         assert "E/A" not in assignment.linked_ga_ids
         assert any("E/A" in w for w in structure.warnings)
 
-    def test_multi_count_assignment_ignores_linked_ga_ids(self, simple_efh, gewerk_catalog):
-        """v1-Einschraenkung: manuelle Verknuepfung ist nur fuer count==1
-        vorgesehen (siehe step05_gewerke.py -- der Button ist fuer
-        Mehrfach-Zuweisungen deaktiviert). Der Generator ignoriert
-        linked_ga_ids bei count>1 defensiv, statt falsch zuzuordnen."""
+    def test_multi_count_links_are_skipped_per_element(self, simple_efh, gewerk_catalog):
+        """Bei count>1 hat jedes Element seine eigenen Verknuepfungen: nur
+        die verknuepften Slots des jeweiligen Elements entfallen."""
+        from knix_arranger.models.building import GewerkAssignment
+        from knix_arranger.models.group_address import (
+            GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
+        )
+
+        room = next(r for r in simple_efh.all_rooms if r.name == "Schlafzimmer")
+        existing = GroupAddressStructure()
+        hg = MainGroup(number=2, name="EG")
+        mg = MiddleGroup(number=0, name="Licht")
+        ga_2_ea = GroupAddress(main_group=2, middle_group=0, sub_group=60,
+                               designation="L.E01.02_ea", is_manual=True)
+        ga_2_rm = GroupAddress(main_group=2, middle_group=0, sub_group=61,
+                               designation="L.E01.02_rm", is_manual=True)
+        mg.group_addresses.extend([ga_2_ea, ga_2_rm])
+        hg.middle_groups.append(mg)
+        existing.main_groups.append(hg)
+
+        assignment = GewerkAssignment(gewerk_code="L", count=2)
+        assignment.element_links(2).update({"E/A": ga_2_ea.id, "RM": ga_2_rm.id})
+        room.gewerk_assignments.append(assignment)
+
+        gen = AddressGenerator(gewerk_catalog, variant="A")
+        structure = gen.generate(simple_efh, existing=existing)
+
+        light_gas = self._light_gas(structure, hg_number=2)
+        by_element = {}
+        for ga in light_gas:
+            by_element.setdefault(ga.element_number, set()).add(ga.function_name)
+        assert by_element[1] == {"E/A", "DIM", "WERT", "RM", "RM WERT"}
+        assert by_element[2] == {"DIM", "WERT", "RM WERT"}
+
+    def test_links_beyond_count_are_removed(self, simple_efh, gewerk_catalog):
         from knix_arranger.models.building import GewerkAssignment
         from knix_arranger.models.group_address import GroupAddressStructure
 
         room = next(r for r in simple_efh.all_rooms if r.name == "Schlafzimmer")
-        assignment = GewerkAssignment(
-            gewerk_code="L", count=2,
-            linked_ga_ids={"E/A": "irrelevant-id"},
-        )
+        assignment = GewerkAssignment(gewerk_code="L", count=1)
+        assignment.element_links(2)["E/A"] = "irgendeine-id"
         room.gewerk_assignments.append(assignment)
 
         gen = AddressGenerator(gewerk_catalog, variant="A")
         structure = gen.generate(simple_efh, existing=GroupAddressStructure())
 
-        light_gas = self._light_gas(structure, hg_number=2)
-        assert len(light_gas) == 10  # 2 Elemente x 5 Slots, alles frisch generiert
+        assert assignment.all_element_links() == {}
+        assert len(self._light_gas(structure, hg_number=2)) == 5
+        assert any("Element 2" in w for w in structure.warnings)
 
 
 class TestAstroGasSurviveRegeneration:

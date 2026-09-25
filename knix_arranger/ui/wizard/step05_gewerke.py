@@ -511,28 +511,33 @@ class Step05Gewerke(QWidget):
                 action_layout.addWidget(btn_product)
 
                 if self._project.topology.is_imported:
-                    n_linked = len(ga.linked_ga_ids)
-                    btn_channel = QPushButton(
-                        f"✓ Kanal ({n_linked})" if n_linked else "Kanal…"
-                    )
-                    btn_channel.setStyleSheet(_ROW_BUTTON_STYLE)
-                    if ga.count == 1:
-                        btn_channel.setToolTip(
-                            "Diese Zuweisung mit einem bestehenden Aktor-Kanal "
-                            "verknüpfen (importierte GAs wiederverwenden statt "
-                            "neue zu generieren)."
-                            + (f"\n{n_linked} Funktion(en) bereits verknüpft." if n_linked else "")
-                        )
-                        btn_channel.clicked.connect(
-                            lambda checked, r=room, g=ga: self._assign_channel(r, g)
-                        )
+                    links = {
+                        nr: fns for nr, fns in ga.all_element_links().items()
+                        if nr <= ga.count
+                    }
+                    n_functions = sum(len(fns) for fns in links.values())
+                    if ga.count > 1:
+                        label = f"✓ Kanal ({len(links)}/{ga.count})" if links else "Kanäle…"
                     else:
-                        btn_channel.setEnabled(False)
-                        btn_channel.setToolTip(
-                            "Manuelle Kanal-Zuweisung ist nur für Zuweisungen mit "
-                            "Anzahl 1 möglich (Mehrfach-Zuweisungen lassen sich "
-                            "nicht eindeutig einem Aktor-Kanal zuordnen)."
+                        label = f"✓ Kanal ({n_functions})" if n_functions else "Kanal…"
+                    btn_channel = QPushButton(label)
+                    btn_channel.setStyleSheet(_ROW_BUTTON_STYLE)
+                    tooltip = (
+                        "Diese Zuweisung mit einem bestehenden Aktor-Kanal "
+                        "verknüpfen (importierte GAs wiederverwenden statt "
+                        "neue zu generieren)."
+                    )
+                    if ga.count > 1:
+                        tooltip += (
+                            f"\nJedes der {ga.count} Elemente erhält seinen "
+                            f"eigenen Kanal; {len(links)} bereits verknüpft."
                         )
+                    elif n_functions:
+                        tooltip += f"\n{n_functions} Funktion(en) bereits verknüpft."
+                    btn_channel.setToolTip(tooltip)
+                    btn_channel.clicked.connect(
+                        lambda checked, r=room, g=ga: self._assign_channel(r, g)
+                    )
                     action_layout.addWidget(btn_channel)
 
                 btn_del = QPushButton("X")
@@ -928,28 +933,35 @@ class Step05Gewerke(QWidget):
         dlg = GewerkChannelAssignDialog(self._project, room, ga, gewerk, parent=self)
         if dlg.exec() != QDialog.Accepted:
             return
-        if not dlg.linked_ga_ids:
+        if not dlg.linked_by_element:
             return
 
         ga_by_id = {
             g.id: g for g in self._project.group_addresses.all_addresses()
         }
-        for function, ga_id in dlg.linked_ga_ids.items():
-            linked = ga_by_id.get(ga_id)
-            if not linked:
-                continue
-            linked.is_manual = True
-            linked.assignment_id = ""  # bewusst leer, siehe Plan-Begründung
-            linked.gewerk_code = ga.gewerk_code
-            linked.room_number = room.number
-            linked.room_id = room.id
-            linked.element_number = 1
-            linked.function_name = function
-        ga.linked_ga_ids.update(dlg.linked_ga_ids)
+        n_functions = 0
+        for element_nr, links in dlg.linked_by_element.items():
+            for function, ga_id in links.items():
+                linked = ga_by_id.get(ga_id)
+                if not linked:
+                    continue
+                linked.is_manual = True
+                linked.assignment_id = ""  # bewusst leer, siehe Plan-Begründung
+                linked.gewerk_code = ga.gewerk_code
+                linked.room_number = room.number
+                linked.room_id = room.id
+                linked.element_number = element_nr
+                linked.function_name = function
+                n_functions += 1
+            ga.element_links(element_nr).update(links)
         self._refresh_table()
+        elements = (
+            f" für {len(dlg.linked_by_element)} von {ga.count} Elementen"
+            if ga.count > 1 else ""
+        )
         QMessageBox.information(
             self, "Kanal zugewiesen",
-            f"{len(dlg.linked_ga_ids)} Funktion(en) mit bestehenden Gruppenadressen "
+            f"{n_functions} Funktion(en){elements} mit bestehenden Gruppenadressen "
             f"verknüpft. Fehlende Funktionen werden beim nächsten Generieren "
             f"automatisch ergänzt.",
         )
