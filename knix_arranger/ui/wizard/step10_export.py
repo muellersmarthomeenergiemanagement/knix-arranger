@@ -207,10 +207,16 @@ class Step10Export(QWidget):
             return
 
         project = self._project
+        from ..dialogs.knxproj_export_options import ask_product_refs
+        refs = ask_product_refs(self, project)
+        if refs is None:
+            return
 
         def do_export():
             from ...services.knxproj_export_service import KnxprojExportService
-            return KnxprojExportService().export(project, path)
+            return KnxprojExportService().export(
+                project, path, product_refs=refs[0], product_data_folder=refs[1],
+            )
 
         def on_success(summary):
             self._log.append(f"KNXPROJ exportiert: {path}")

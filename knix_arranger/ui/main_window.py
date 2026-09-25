@@ -2010,9 +2010,15 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
+        from .dialogs.knxproj_export_options import ask_product_refs
+        refs = ask_product_refs(self, self._project)
+        if refs is None:
+            return
         try:
             from ..services.knxproj_export_service import KnxprojExportService
-            summary = KnxprojExportService().export(self._project, path)
+            summary = KnxprojExportService().export(
+                self._project, path, product_refs=refs[0], product_data_folder=refs[1],
+            )
             self._status_bar.set_status(f"KNXPROJ exportiert: {path}")
             QMessageBox.information(
                 self, "KNXPROJ-Export abgeschlossen",

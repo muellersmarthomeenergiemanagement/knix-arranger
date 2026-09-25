@@ -26,7 +26,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import uuid4
 
+from ..utils.manufacturers import manufacturer_display_name
 from ..utils.validators import is_valid_ga
+from .manufacturer_data_service import ManufacturerDataLibrary, manufacturer_of
 
 logger = logging.getLogger("knix_arranger.knxproj_export")
 
@@ -36,6 +38,12 @@ _NS_PREFIX = f"{{{_NS}}}"
 
 # Namespace als Standard-Namespace registrieren, damit ET keine ns0:-Prefixe generiert
 ET.register_namespace("", _NS)
+
+
+# Produktreferenz im ETS6-Export (siehe KnxprojExportService.export)
+PRODUCT_REFS_NONE = "none"
+PRODUCT_REFS_ONLY = "refs"
+PRODUCT_REFS_EMBEDDED = "embedded"
 
 
 def _el(tag: str, **attribs) -> ET.Element:
@@ -72,6 +80,9 @@ class ExportSummary:
     device_count: int = 0
     co_link_count: int = 0
     missing_co_devices: int = 0     # Geraete ohne CO-Verknuepfung
+    # Produktreferenz (ProductRefId/Hardware2ProgramRefId)
+    product_ref_count: int = 0
+    embedded_manufacturers: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def as_text(self) -> str:
@@ -81,6 +92,11 @@ class ExportSummary:
             f"Geplante CO-GA-Verknüpfungen:  {self.co_link_count}"
             "  (Referenz; in ETS6 manuell einzutragen)",
         ]
+        if self.product_ref_count:
+            lines.append(f"Geräte mit Produktreferenz:    {self.product_ref_count}")
+        if self.embedded_manufacturers:
+            lines.append("Eingebettete Herstellerdaten:")
+            lines.extend(f"  - {m}" for m in self.embedded_manufacturers)
         if self.missing_co_devices:
             lines.append(
                 f"Aktoren ohne CO-Plan:          {self.missing_co_devices}  "
@@ -93,6 +109,13 @@ class ExportSummary:
         return "\n".join(lines)
 
 
+class _NoSource:
+    hw2prog_ids: frozenset[str] = frozenset()
+
+
+_NO_SOURCE = _NoSource()
+
+
 class KnxprojExportService:
     """
     Exportiert ein KnxProject als .knxproj-Datei (FA-2401 bis FA-2406).
@@ -103,7 +126,8 @@ class KnxprojExportService:
     """
 
     def export(
-        self, project, filepath: str, base_project: str | None = None
+        self, project, filepath: str, base_project: str | None = None,
+        product_refs: str = PRODUCT_REFS_NONE, product_data_folder: str = "",
     ) -> ExportSummary:
         """
         Hauptmethode: Erstellt die .knxproj-ZIP-Datei.
@@ -114,9 +138,16 @@ class KnxprojExportService:
         base_project: Optionaler Pfad zu einer bestehenden ETS6-.knxproj-Datei.
                       Deren Signatur/Zertifikat-Dateien werden uebernommen,
                       damit ETS6 die Datei als legitim erkennt (Basis-Projekt-Modus).
+        product_refs: PRODUCT_REFS_NONE (bisheriges Verhalten), PRODUCT_REFS_ONLY
+                      (ProductRefId/Hardware2ProgramRefId ohne Herstellerdaten)
+                      oder PRODUCT_REFS_EMBEDDED (nur Geraete, deren
+                      Herstellerdaten aus product_data_folder eingebettet werden).
         """
         warnings = self._validate(project)
         summary = ExportSummary(warnings=warnings)
+        chosen_sources = self._plan_product_refs(
+            project, product_refs, product_data_folder, summary,
+        )
 
         if base_project:
             project_id = self._read_project_id(base_project)
@@ -139,6 +170,10 @@ class KnxprojExportService:
         with zipfile.ZipFile(filepath, "w", zipfile.ZIP_DEFLATED) as zf_out:
             if base_project:
                 self._copy_base_files(base_project_source, zf_out, project_id)
+            if chosen_sources:
+                ManufacturerDataLibrary.write(
+                    zf_out, chosen_sources, set(zf_out.namelist()),
+                )
 
             zf_out.writestr(
                 f"{project_id}/project.xml",
@@ -178,6 +213,52 @@ class KnxprojExportService:
             f"({summary.ga_count} GAs, {summary.device_count} Geraete)"
         )
         return summary
+
+    _ref_device_ids: set[str] = set()
+
+    def _plan_product_refs(self, project, mode: str, folder: str, summary: ExportSummary):
+        """Legt fest, welche Geraete eine Produktreferenz bekommen, und waehlt
+        bei PRODUCT_REFS_EMBEDDED die Herstellerdaten-Quellen aus."""
+        self._ref_device_ids = set()
+        if mode == PRODUCT_REFS_NONE:
+            return {}
+        devices = [
+            d for a in project.topology.areas for l in a.lines for d in l.devices
+            if d.product_ref_id and d.hw2prog_id and manufacturer_of(d.hw2prog_id)
+        ]
+        if mode == PRODUCT_REFS_ONLY:
+            self._ref_device_ids = {d.id for d in devices}
+            summary.product_ref_count = len(devices)
+            return {}
+
+        needed: dict[str, set[str]] = {}
+        for d in devices:
+            needed.setdefault(manufacturer_of(d.hw2prog_id), set()).add(d.hw2prog_id)
+        chosen = ManufacturerDataLibrary(folder).choose(needed)
+        self._ref_device_ids = {
+            d.id for d in devices
+            if d.hw2prog_id in chosen.get(manufacturer_of(d.hw2prog_id), _NO_SOURCE).hw2prog_ids
+        }
+        summary.product_ref_count = len(self._ref_device_ids)
+        for mfr, src in sorted(chosen.items()):
+            fmt = "ETS6" if src.is_ets6 else "ETS5"
+            signed = "" if src.signed else ", ohne Signatur"
+            summary.embedded_manufacturers.append(
+                f"{manufacturer_display_name(mfr)}: {os.path.basename(src.path)} "
+                f"({fmt}{signed}, {src.size / 2**20:.1f} MB)"
+            )
+        missing = [
+            d for d in devices if d.id not in self._ref_device_ids
+        ] + [
+            d for a in project.topology.areas for l in a.lines for d in l.devices
+            if d.order_number and not (d.product_ref_id and d.hw2prog_id)
+        ]
+        if missing:
+            summary.warnings.append(
+                f"{len(missing)} Geräte ohne Produktreferenz (keine ETS-Kennungen "
+                f"oder keine passenden Herstellerdaten in „Produkte KNX“)."
+            )
+        return chosen
 
     def _read_project_id(self, base_project: str) -> str | None:
         """Liest die Projekt-ID (z.B. 'P-06C2') aus einer bestehenden .knxproj-Datei."""
@@ -452,6 +533,9 @@ class KnxprojExportService:
                         "Name":    device.product_name or device.product or "Unbekannt",
                         "Puid":    puid.next(),
                     }
+                    if device.id in self._ref_device_ids:
+                        dev_attribs["ProductRefId"] = device.product_ref_id
+                        dev_attribs["Hardware2ProgramRefId"] = device.hw2prog_id
                     if device.manufacturer:
                         dev_attribs["Description"] = device.manufacturer
                     if device.installation_location:
