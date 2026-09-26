@@ -64,7 +64,7 @@ class ExcelGenerator:
         ws = self._current_sheet
         nc = self._num_cols
 
-        header_font = Font(name="Arial", size=14, bold=True, color=WHITE_HEX)
+        header_font = Font(name="Inter", size=14, bold=True, color=WHITE_HEX)
         header_fill = PatternFill(start_color=KNX_GREEN_HEX,
                                   end_color=KNX_GREEN_HEX, fill_type="solid")
         ws.merge_cells(start_row=self._row, start_column=1,
@@ -77,7 +77,7 @@ class ExcelGenerator:
         ws.row_dimensions[self._row].height = 26
         self._row += 1
 
-        info_font = Font(name="Arial", size=9, italic=True,
+        info_font = Font(name="Inter", size=9, italic=True,
                          color=KNX_DARK_GREEN_HEX)
         info_fill = PatternFill(start_color=MEDIUM_GRAY_HEX,
                                 end_color=MEDIUM_GRAY_HEX, fill_type="solid")
@@ -116,7 +116,7 @@ class ExcelGenerator:
             font_color, fill_color = KNX_DARK_GREEN_HEX, KNX_LIGHT_BLUE_HEX
             font_size, row_h, indent = 10, 17, 2
 
-        font = Font(name="Arial", size=font_size, bold=True, color=font_color)
+        font = Font(name="Inter", size=font_size, bold=True, color=font_color)
         fill = PatternFill(start_color=fill_color, end_color=fill_color,
                            fill_type="solid")
         ws.merge_cells(start_row=self._row, start_column=1,
@@ -134,7 +134,7 @@ class ExcelGenerator:
         ws.merge_cells(start_row=self._row, start_column=1,
                        end_row=self._row, end_column=self._num_cols)
         cell = ws.cell(row=self._row, column=1, value=text)
-        cell.font = Font(name="Arial", size=9, italic=True,
+        cell.font = Font(name="Inter", size=9, italic=True,
                          color=KNX_DARK_GREEN_HEX)
         cell.alignment = Alignment(indent=2, vertical="center")
         ws.row_dimensions[self._row].height = 15
@@ -165,10 +165,10 @@ class ExcelGenerator:
         ws = self._current_sheet
         border = _thin_border()
 
-        header_font = Font(name="Arial", size=9, bold=True, color=WHITE_HEX)
+        header_font = Font(name="Inter", size=9, bold=True, color=WHITE_HEX)
         header_fill = PatternFill(start_color=KNX_BLUE_HEX,
                                   end_color=KNX_BLUE_HEX, fill_type="solid")
-        row_font = Font(name="Arial", size=9)
+        row_font = Font(name="Inter", size=9)
         alt_fill = PatternFill(start_color=LIGHT_GRAY_HEX,
                                end_color=LIGHT_GRAY_HEX, fill_type="solid")
 

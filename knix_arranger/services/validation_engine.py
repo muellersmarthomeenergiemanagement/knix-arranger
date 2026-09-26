@@ -8,6 +8,7 @@ import logging
 from ..models.group_address import GroupAddressStructure, GroupAddress
 from ..models.gewerk import GewerkCatalog
 from ..utils.validators import is_valid_ga, is_valid_designation
+from .dpt_suggestion import suggest_dpt
 
 logger = logging.getLogger("knix_arranger.validation")
 
@@ -16,12 +17,18 @@ class ValidationIssue:
     """Ein Validierungsproblem."""
 
     def __init__(self, level: str, rule_id: str, message: str,
-                 address: str = "", suggestion: str = ""):
+                 address: str = "", suggestion: str = "",
+                 designation: str = "", details: dict | None = None):
         self.level = level        # "error", "warning", "info"
         self.rule_id = rule_id
         self.message = message
         self.address = address
         self.suggestion = suggestion
+        # Für den Bericht: GA-Bezeichnung und regelspezifische Werte
+        # (z.B. {"expected": …, "actual": …}), damit Tabellen eigene
+        # Spalten statt eines zusammengesetzten Meldungstexts zeigen.
+        self.designation = designation
+        self.details = details or {}
 
     def to_dict(self) -> dict:
         return {
@@ -30,6 +37,8 @@ class ValidationIssue:
             "message": self.message,
             "address": self.address,
             "suggestion": self.suggestion,
+            "designation": self.designation,
+            "details": dict(self.details),
         }
 
 
@@ -134,6 +143,7 @@ class ValidationEngine:
                     "Adresse 0/0/0 ist KNX-Systemadresse und darf nicht verwendet werden",
                     ga.address,
                     "Verwenden Sie 0/0/1 als erste Zentraladresse",
+                    designation=ga.designation,
                 ))
                 continue
             if ga.central == "true":
@@ -143,6 +153,7 @@ class ValidationEngine:
                     "error", "FA-601",
                     f"Ungültige Gruppenadresse: {ga.address}",
                     ga.address,
+                    designation=ga.designation,
                 ))
         return issues
 
@@ -161,6 +172,8 @@ class ValidationEngine:
                     f"('{ga.designation}' und '{seen[key].designation}')",
                     key,
                     "Eine der beiden Adressen muss geändert werden.",
+                    designation=ga.designation,
+                    details={"other": seen[key].designation},
                 ))
             else:
                 seen[key] = ga
@@ -181,11 +194,14 @@ class ValidationEngine:
             if ga.is_placeholder:
                 continue
             if not ga.datapoint_type:
+                proposal = suggest_dpt(ga.designation, ga.function_name)
                 issues.append(ValidationIssue(
                     "warning", "FA-604",
                     f"Fehlender Datenpunkttyp für: {ga.designation}",
                     ga.address,
-                    f"Vorschlag: {expected_dpts.get(ga.function_name, 'unbekannt')}",
+                    f"DPT-Vorschlag: {proposal}" if proposal else "",
+                    designation=ga.designation,
+                    details={"dpt": proposal},
                 ))
             elif ga.function_name in expected_dpts:
                 expected = expected_dpts[ga.function_name]
@@ -195,6 +211,9 @@ class ValidationEngine:
                         f"Unerwarteter DPT für {ga.function_name}: "
                         f"{ga.datapoint_type} (erwartet: {expected})",
                         ga.address,
+                        f"DPT auf {expected} ändern",
+                        designation=ga.designation,
+                        details={"actual": ga.datapoint_type, "expected": expected},
                     ))
         return issues
 
@@ -212,6 +231,7 @@ class ValidationEngine:
                         f"'{ga.designation}'",
                         ga.address,
                         "Erwartetes Format: GEWERK_RAUM_NR FUNKTION (Klartext)",
+                        designation=ga.designation,
                     ))
         return issues
 
@@ -237,11 +257,20 @@ class ValidationEngine:
                             f"Gewerk {ga.gewerk_code} in falscher MG: "
                             f"{ga.middle_group} (erwartet: {gewerk.middle_group})",
                             ga.address,
+                            f"GA nach MG {gewerk.middle_group} verschieben "
+                            f"oder Gewerk korrigieren",
+                            designation=ga.designation,
+                            details={"gewerk": ga.gewerk_code,
+                                     "actual": ga.middle_group,
+                                     "expected": gewerk.middle_group},
                         ))
         return issues
 
     def _check_block_integrity(self, structure: GroupAddressStructure) -> list[ValidationIssue]:
-        """FA-605: Prüft Adressblock-Integritaet (keine Luecken)."""
+        """FA-605: Prüft Adressblock-Integritaet (keine Luecken).
+
+        Nur ein Hinweis: In importierten Projekten sind Lücken meist gewollt
+        (Reserve-Adressen, Gliederung nach Räumen)."""
         issues = []
         for hg in structure.main_groups:
             for mg in hg.middle_groups:
@@ -254,10 +283,12 @@ class ValidationEngine:
                         gap_start = gas[i].sub_group + 1
                         gap_end = gas[i + 1].sub_group - 1
                         issues.append(ValidationIssue(
-                            "warning", "FA-605",
+                            "info", "FA-605",
                             f"Lücke in MG {hg.number}/{mg.number}: "
                             f"Adressen {gap_start}-{gap_end} fehlen",
                             f"{hg.number}/{mg.number}/{gap_start}",
+                            details={"mg": f"{hg.number}/{mg.number}",
+                                     "start": gap_start, "end": gap_end},
                         ))
         return issues
 
@@ -277,6 +308,7 @@ class ValidationEngine:
                         f"HG {hg.number}: Licht-Adressen in MG 0 vorhanden, "
                         f"aber keine Rückmeldungen in MG 6",
                         f"{hg.number}/6/0",
+                        "Rückmelde-GAs in MG 6 anlegen",
                     ))
             # Finde MG 1 und MG 7 (Jalousie)
             mg1 = next((m for m in hg.middle_groups if m.number == 1), None)
@@ -288,5 +320,6 @@ class ValidationEngine:
                         f"HG {hg.number}: Jalousie-Adressen in MG 1 vorhanden, "
                         f"aber keine Rückmeldungen in MG 7",
                         f"{hg.number}/7/0",
+                        "Rückmelde-GAs in MG 7 anlegen",
                     ))
         return issues

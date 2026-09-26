@@ -1,7 +1,7 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.14
-**Datum:** 25.09.2026
+**Version:** 3.15
+**Datum:** 26.09.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
 **Status:** Entwurf
@@ -29,6 +29,7 @@
 | 3.12 | 19.06.2026 | M. Mueller / Claude AI | Nachfuehrung auf Code-Stand v1.1.2: Wizard-Schrittstruktur auf 13 Schritte korrigiert (FA-1002: Tastereinheiten-Matrix, Szenen-Definition vor GA-Generierung); Workspace-Konzept fuer Projekt- und Berichtsablage neu dokumentiert (FA-3401 bis FA-3408); Bauherren-Beratungsansicht mit persistenten Anmerkungen ergaenzt (FA-1508 bis FA-1511); KNXPROJ-Passwortimport erweitert (FA-524, FA-525 ueberarbeitet: neueres ETS6-Containerformat, AES-Erkennung, ETS6-Cloud-Lizenz als nicht entschluesselbarer Sonderfall, Passwort-Dialog); ETS6 Gruppenadress-Report (XLSX) als eigenstaendiges Importformat ergaenzt (FA-519b); FA-854 um Zwischenablage-Import fuer Firmenlogo/Projektfoto ergaenzt |
 | 3.13 | 23.09.2026 | M. Mueller / Claude AI | Nachfuehrung auf Code-Stand v1.1.16: Uebernahme importierter Projekte in die Planung dokumentiert (FA-521b bis FA-521g: Verteiler-Raeume aus Einbauort, Funktionszuordnungen aus KO-Verknuepfungen, Kanal-Gewerk-Konflikte, Wiedererkennung importierter GAs, manuelle Kanal-Zuweisung, Gewerk-Vorschlaege mit Pruefdialog); Szenen-Erkennung aus ETS-Importen ergaenzt (FA-1808 bis FA-1810: Erkennung, Szenen-Schaltwerte, Szenen-Ausloeser); Internet-Produktvorschlag konkretisiert (FA-1303a bis FA-1303d: Online-Produktkatalog im Release-Repository, Zwischenspeicher, Vorrang eigener Importe); KNXPROD-Import praezisiert (FA-2304a bis FA-2304c: Applikationszuordnung aus Hardware.xml, zusammengefasste Objektvarianten, manueller GA-Bedarf); Lizenzschluessel per Copy-Paste (NFA-098a) |
 | 3.14 | 25.09.2026 | M. Mueller / Claude AI | KNXPROJ-Export entfallen (FA-2401 bis FA-2406 sowie die davon abhaengigen Teile von FA-2706, FA-2806, FA-3005, FA-3308c): ETS6 akzeptiert nur von ETS signierte Projektdateien, mit ETS6 getestet (ETS6- und ETS5-Format, Basis-Projekt mit Original-Signatur); Weg nach ETS6 ist der CSV-Gruppenadress-Export. Produktdaten ergaenzt (FA-2304d bis FA-2304f: KNX-Hersteller-ID als Schluessel mit einheitlichen Herstellernamen, Produktabgleich ueber normalisierte Bestellnummer, ETS-Kennungen der Produkte). Passwortgeschuetzter Import korrigiert (FA-525b/c: abgeleitetes ZIP-Passwort, Cloud-Lizenz-Zertifikat kein Hinderungsgrund) |
+| 3.15 | 26.09.2026 | M. Mueller / Claude AI | Validierungsbericht Gruppenadressen neu gegliedert (FA-901): je Stufe ein Abschnitt, je Regel Bedeutung, Massnahme und eigene Spalten, DPT-Vorschlag aus der Bezeichnung (FA-604), Luecken nur noch als Hinweis (FA-605), viele Bezeichnungs-Hinweise als Beispielliste (FA-610). Einheitliches PDF-Layout (FA-858): Firmenschrift Inter mitgeliefert, farbiger Abschnittsbalken, Fortsetzungstitel bei Seitenumbruch. Projektzusammenfassung zaehlt Gewerke importierter Projekte aus der Topologie (FA-903), Anzahlen in Schritt 5 aus der Topologie uebernehmbar (FA-903a). Topologie-Bericht mit Prinzipschema, Kennzahlen je Linie und Geraetelisten nach Linie und nach Einbauort (FA-904); Spannungsversorgungen ohne ETS-Adresse als B.L.- (FA-516); Bericht Bedienelemente und Sensoren nach Stockwerk/Raum mit Tastenplan (FA-906); PDF-Lesezeichen in allen Berichten; Bauherr-Formular nur mit Bedienelementen, Stockwerk bei mehrdeutigen Raumnummern, Einlesen ueber Blattname und Geraeteadresse (FA-1501/1503); Theben thePixa & Co. als Praesenzmelder erkannt |
 
 ---
 
@@ -126,7 +127,7 @@ Alle Anforderungen in diesem Pflichtenheft sind nach der MoSCoW-Methode priorisi
 | Reorganisation | FA-701 bis FA-706 | **(M)** | Kernfunktionalitaet |
 | CSV-Export | FA-801 bis FA-805 | **(M)** | Kernfunktionalitaet |
 | Personalisierung | FA-851 bis FA-854 | **(S)** | Professionelle Berichte |
-| Personalisierung auf Berichten | FA-855 bis FA-857 | **(S)** | Professionelle Berichte |
+| Personalisierung auf Berichten | FA-855 bis FA-858 | **(S)** | Professionelle Berichte |
 | Berichtswesen Basis | FA-901, FA-902 | **(M)** | Kernfunktionalitaet |
 | Berichtswesen erweitert | FA-903 bis FA-905 | **(S)** | Erweiterte Dokumentation |
 | GUI Basis | FA-1001, FA-1002, FA-1003, FA-1004, FA-1008 | **(M)** | Grundlegende Bedienbarkeit |
@@ -604,8 +605,8 @@ Nach einem Import (KNXPROJ oder XLSX-Reports) soll das Projekt im Wizard weiterg
 | FA-601 | Das System muss pruefen, ob jede Gruppenadresse eine gueltige Adresse im Format H/M/S besitzt (H: 0-31, M: 0-7, S: 0-255). |
 | FA-602 | Das System muss doppelte Gruppenadressen erkennen und als Fehler melden. |
 | FA-603 | Das System muss pruefen, ob der zugewiesene Datenpunkttyp (DPT) zur Funktion passt (z.B. E/A erwartet DPST-1-x, WERT erwartet DPST-5-1). |
-| FA-604 | Das System muss fehlende Datenpunkttypen erkennen und Vorschlaege basierend auf der Funktion machen. |
-| FA-605 | Das System muss Luecken in der Adressierung erkennen (z.B. unvollstaendige 5er-/10er-Bloecke). |
+| FA-604 | Das System muss fehlende Datenpunkttypen erkennen und Vorschlaege basierend auf der Funktion machen. Ohne Funktion wird der DPT aus typischen Bestandteilen der Bezeichnung abgeleitet (_ea, _status, Temp, Helligkeit, Szene, Ventil ...); ist nichts eindeutig erkennbar, bleibt der Vorschlag leer. |
+| FA-605 | Das System muss Luecken in der Adressierung erkennen (z.B. unvollstaendige 5er-/10er-Bloecke). Luecken werden als Hinweis gemeldet, da sie in importierten Projekten meist gewollte Reserven sind. |
 | FA-606 | Das System muss die Konsistenz der Namensgebung pruefen: Geraete gleichen Typs muessen gleiche Bezeichnungsmuster verwenden. |
 | FA-607 | Das System muss pruefen, ob die Mittelgruppen-Zuordnung korrekt ist (z.B. Licht-Gewerke in Mittelgruppe 0, Jalousie in Mittelgruppe 1). |
 | FA-608 | Das System muss bei Variante B pruefen, ob zu jedem Schalt-Element die zugehoerigen Rueckmeldungen in MG 6 (Licht) bzw. MG 7 (Jalousie) vorhanden sind und identische Untergruppenadressen haben. |
@@ -676,16 +677,19 @@ Nach einem Import (KNXPROJ oder XLSX-Reports) soll das Projekt im Wizard weiterg
 | FA-855 | Alle generierten Berichte und Dokumentationen muessen einen Kopfbereich (Header) mit Firmenlogo, Firmenname, Projektname und Bearbeitungsdatum enthalten. |
 | FA-856 | Alle generierten Berichte muessen einen Fussbereich (Footer) mit Anwendername, Funktion, Kontaktdaten und Seitennummerierung enthalten. |
 | FA-857 | Das Topologie-Prinzipschema (FA-904) muss ein Titelfeld mit Firmenlogo, Projektangaben und Bearbeiterinformationen enthalten. |
+| FA-858 | Alle PDF-Dokumente (Berichte, Offerten, Exporte) und Excel-Berichte muessen die Firmenschrift Inter verwenden; die Schrift wird mit der Anwendung ausgeliefert. PDF-Berichte markieren jeden Abschnitt mit einem farbigen Balken am linken Rand und wiederholen bei einem Seitenumbruch innerhalb einer Tabelle Abschnitt und Unterabschnitt als Fortsetzungstitel. **(S)** |
 
 ### 3.10 Berichtswesen und Dokumentation (FA-900)
 
 | ID | Anforderung |
 |----|-------------|
-| FA-901 | Das System muss einen Validierungsbericht generieren koennen, der alle Fehler, Warnungen und Informationen auflistet. |
+| FA-901 | Das System muss einen Validierungsbericht Gruppenadressen generieren koennen, der alle Fehler, Warnungen und Hinweise auflistet: Zusammenfassung mit Uebersicht nach Regel, danach je Stufe ein Abschnitt (Balken rot/orange/blau) und je Regel ein Block mit Bedeutung, Massnahme und regelspezifischen Spalten. Betreffen Bezeichnungs-Hinweise (FA-610) mehr als die Haelfte aller GAs, werden nur 20 Beispiele aufgefuehrt. |
 | FA-902 | Jeder Berichtseintrag muss die betroffene Gruppenadresse, den Fehlertyp und einen Loesungsvorschlag enthalten. |
-| FA-903 | Das System muss eine Projektzusammenfassung/Statistik ausgeben: Gebaeudestruktur, Anzahl Bereiche/Linien, Gewerke-Verteilung, Anzahl Gruppenadressen pro Mittelgruppe, Fehler und Warnungen. |
-| FA-904 | Das System muss ein Prinzipschema der Topologie als druckbares Dokument/Grafik exportieren koennen (fuer die Projektdokumentation gemaess KNX Swiss Kap. 8/15). |
+| FA-903 | Das System muss eine Projektzusammenfassung/Statistik ausgeben: Gebaeudestruktur, Anzahl Bereiche/Linien, Gewerke-Verteilung, Anzahl Gruppenadressen pro Mittelgruppe, Fehler und Warnungen. Bei importierten Projekten zaehlt die Gewerke-Verteilung die von Aktoren/Gateways gesteuerten Elemente (Element = Gewerk, Stockwerk, Raum und Element-Nr. aus der Bezeichnung einer mit einem Aktor verbundenen GA); Gewerke ohne Aktoren aus der Gewerk-Zuweisung. Zentraladressen = Anzahl GAs in HG 0. |
+| FA-903a | In Schritt 5 (Gewerke) muss der Anwender die Anzahlen je Raum und Gewerk aus diesen gesteuerten Elementen uebernehmen koennen: Vorschau der Aenderungen, bestehende Zuweisungen bleiben erhalten (nur Anzahl), Hinweis auf Raeume, die in der Gebaeudestruktur fehlen. |
+| FA-904 | Das System muss ein Prinzipschema der Topologie als druckbares Dokument/Grafik exportieren koennen (fuer die Projektdokumentation gemaess KNX Swiss Kap. 8/15). Der Topologie-Bericht enthaelt: Schema (Bereiche, Linien mit Koppler, Auslastungsbalken und Geraetezahlen), Kennzahlen je Linie, Geraeteliste je Linie (Adresse, Geraet mit Hersteller/Bestell-/Seriennummer als zweite Zeile, Typ, Einbauort) und Geraeteliste je Einbauort (Verteiler zuerst). |
 | FA-905 | Alle Berichte und exportierten Dokumente muessen die Firmenprofil- und Projektdaten gemaess FA-855 bis FA-857 enthalten. |
+| FA-906 | Das System muss einen Bericht "Bedienelemente und Sensoren" erzeugen, gegliedert nach Stockwerk und Raum (jeder Raum auf neuer Seite): Uebersicht mit Seitenzahlen und PDF-Lesezeichen (Stockwerk, Raum, Geraet); je Bedienelement (vom Bauherrn bedienbar: Tastereinheit, Raumthermostat, Touchpanel, Raumbediengeraet) eine Karte mit Tastenplan (Gewerk oder Szene je Taste) und einer Zeile je Taste mit allen Gruppenadressen und LED-Rueckmeldung; danach die Sensoren des Raums (Praesenz-/Bewegungsmelder, Wasser-/Rauchmelder, Kontakte, Fuehler ...) kompakt mit Gruppenadressen, inkl. Topologie-Sensoren mit Raumzuordnung, die nicht als Bedienelement erfasst sind. |
 
 ### 3.11 Benutzeroberflaeche (FA-1000)
 

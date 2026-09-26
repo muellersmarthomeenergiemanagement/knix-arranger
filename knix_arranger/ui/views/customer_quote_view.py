@@ -1267,8 +1267,15 @@ class CustomerQuoteView(QWidget):
             pass
 
         # ── Seite anlegen (A4) ──
+        from ...utils.fonts import register_fonts, font_name, text_length
         doc = fitz.open()
-        page = doc.new_page(width=595, height=842)
+
+        def add_page():
+            pg = doc.new_page(width=595, height=842)
+            register_fonts(pg)
+            return pg
+
+        page = add_page()
 
         LM = 70       # left margin
         RM = 525      # right margin (595 - 70)
@@ -1280,10 +1287,9 @@ class CustomerQuoteView(QWidget):
         LIGHT_GRAY = (0.93, 0.93, 0.93)
 
         def text(px, py, txt, size=10, bold=False, color=BLACK, align="left"):
-            fname = "hebo" if bold else "helv"
             page.insert_text(
                 fitz.Point(px, py), txt,
-                fontname=fname, fontsize=size, color=color,
+                fontname=font_name(bold), fontsize=size, color=color,
             )
 
         def hline(py, x0=LM, x1=RM, width=0.5, color=(0.7, 0.7, 0.7)):
@@ -1301,7 +1307,7 @@ class CustomerQuoteView(QWidget):
         def new_page_if_needed(cur_y, needed=60):
             nonlocal page
             if cur_y + needed > 790:
-                page = doc.new_page(width=595, height=842)
+                page = add_page()
                 return 60
             return cur_y
 
@@ -1383,13 +1389,9 @@ class CustomerQuoteView(QWidget):
             aligns = align or ["left"] * len(headers)
             bold_labels = bold_labels or set()
 
-            def fname_for(bold):
-                return "hebo" if bold else "helv"
-
             def fit(cell_str, c_idx, bold):
                 max_w = xs[c_idx + 1] - xs[c_idx] - 6
-                fn = fname_for(bold)
-                if fitz.get_text_length(cell_str, fontname=fn, fontsize=fontsize) <= max_w:
+                if text_length(cell_str, fontsize, bold) <= max_w:
                     return cell_str
                 # "…" (U+2026) fehlt im PyMuPDF-Basis-14-Helvetica und würde
                 # als falsches Glyph gerendert -- ASCII-Punkte sind sicher.
@@ -1398,7 +1400,7 @@ class CustomerQuoteView(QWidget):
                 while lo < hi:
                     mid = (lo + hi + 1) // 2
                     cand = cell_str[:mid].rstrip() + ell
-                    if fitz.get_text_length(cand, fontname=fn, fontsize=fontsize) <= max_w:
+                    if text_length(cand, fontsize, bold) <= max_w:
                         lo = mid
                     else:
                         hi = mid - 1
@@ -1406,7 +1408,7 @@ class CustomerQuoteView(QWidget):
 
             def cell_x(c_idx, cell_str, bold):
                 if aligns[c_idx] == "right":
-                    w = fitz.get_text_length(cell_str, fontname=fname_for(bold), fontsize=fontsize)
+                    w = text_length(cell_str, fontsize, bold)
                     return xs[c_idx + 1] - 5 - w
                 return xs[c_idx] + 3
 
@@ -1422,7 +1424,7 @@ class CustomerQuoteView(QWidget):
 
             for r_idx, row in enumerate(rows):
                 if cur_y + row_h + 2 > 790:
-                    page = doc.new_page(width=595, height=842)
+                    page = add_page()
                     cur_y = draw_header(60)
                 is_bold_row = bool(row) and str(row[0]) in bold_labels
                 if r_idx % 2 == 1:
@@ -1540,10 +1542,10 @@ class CustomerQuoteView(QWidget):
         if doc.page_count > 1:
             for i, pg in enumerate(doc):
                 label = f"Seite {i + 1} von {doc.page_count}"
-                w = fitz.get_text_length(label, fontname="helv", fontsize=8)
+                w = text_length(label, 8)
                 pg.insert_text(
                     fitz.Point(RM - w, 815), label,
-                    fontname="helv", fontsize=8, color=(0.5, 0.5, 0.5),
+                    fontname=font_name(), fontsize=8, color=(0.5, 0.5, 0.5),
                 )
 
         if not filepath.endswith(".pdf"):

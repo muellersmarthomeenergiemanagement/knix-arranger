@@ -185,3 +185,61 @@ class TestSignatureBlock:
         assert any(v == "Ort, Datum:" for v in values)
         assert any(v == "Unterschrift Bauherr:" for v in values)
         wb.close()
+
+
+class TestNurBedienelementeUndEindeutigeRaeume:
+    """Sensoren gehören nicht ins Bauherr-Formular; Raumnummern wie "00"
+    kommen in importierten Projekten auf mehreren Stockwerken vor."""
+
+    def _two_floor_project(self):
+        from knix_arranger.models.building import SensorFunktion
+        halle = Room(number="00", name="Halle")
+        galerie = Room(number="00", name="Galerie")
+        halle.bedienelemente = [
+            Bedienelement(element_type="Tastereinheit", participant_number="1.1.50",
+                          is_auto=False, funktionen=[SensorFunktion(label="Licht")]),
+            Bedienelement(element_type="Wassermelder", participant_number="1.1.33"),
+        ]
+        galerie.bedienelemente = [
+            Bedienelement(element_type="Tastereinheit", participant_number="1.1.53",
+                          is_auto=False, funktionen=[SensorFunktion(label="Licht")]),
+        ]
+        floors = []
+        for name, room in (("OG", halle), ("DG", galerie)):
+            floor = Floor(name=name, short_code=name)
+            floor.apartments = [Apartment(rooms=[room])]
+            floors.append(floor)
+        project = KnxProject(name="Import")
+        project.areal = Areal(buildings=[Building(wings=[Wing(floors=floors)])])
+        return project, halle, galerie
+
+    def test_blattnamen_mit_stockwerk_und_ohne_sensoren(self, tmp_path):
+        from openpyxl import load_workbook
+        project, _halle, _galerie = self._two_floor_project()
+        path = str(tmp_path / "f.xlsx")
+        BauherrFormService(project).generate_form(path)
+        wb = load_workbook(path)
+        assert "OG 00 Halle" in wb.sheetnames
+        assert "DG 00 Galerie" in wb.sheetnames
+        text = " ".join(str(c.value) for row in wb["OG 00 Halle"].iter_rows() for c in row if c.value)
+        assert "1.1.50" in text and "1.1.33" not in text      # Wassermelder fehlt
+        overview = {r[0]: r for r in wb["Funktionsdefinition"].iter_rows(values_only=True) if r and r[0]}
+        assert overview["OG 00"][2] == "1"                     # nur das Bedienelement
+
+    def test_einlesen_trifft_richtigen_raum(self, tmp_path):
+        from openpyxl import load_workbook
+        project, halle, galerie = self._two_floor_project()
+        path = str(tmp_path / "f.xlsx")
+        BauherrFormService(project).generate_form(path)
+
+        wb = load_workbook(path)
+        ws = wb["DG 00 Galerie"]
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value.startswith("T1  "):
+                    cell.value = "T1  Leselicht"
+        wb.save(path)
+
+        BauherrFormService(project).import_form(path)
+        assert galerie.bedienelemente[0].funktionen[0].label == "Leselicht"
+        assert halle.bedienelemente[0].funktionen[0].label == "Licht"

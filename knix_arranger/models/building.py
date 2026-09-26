@@ -404,6 +404,15 @@ _TASTER_NFACH_CHANNELS: dict[str, int] = {
 }
 
 
+# Bedienelemente im engeren Sinn: Geräte, die der Bauherr selbst bedient
+# (Tasten, Display, Einstellrad). Alle übrigen element_types (Präsenz-/
+# Bewegungsmelder, Wasser-/Rauchmelder, Kontakte, Fühler, Wetterstation …)
+# sind Sensoren – intern ebenfalls als Bedienelement-Objekt modelliert.
+OPERABLE_ELEMENT_TYPES = frozenset({
+    "Tastereinheit", "Raumthermostat", "Touchpanel", "Raumbediengerät",
+})
+
+
 @dataclass
 class Bedienelement:
     """Bedienelement (Taster, Thermostat, Sensor, ...) in einem Raum (FA-1404).
@@ -413,6 +422,19 @@ class Bedienelement:
     """
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     element_type: str = ""        # z.B. "Tastereinheit", "Raumthermostat", "Präsenzmelder"
+
+    @property
+    def is_operable(self) -> bool:
+        """Vom Bauherrn bedienbar (Taster, Thermostat …), sonst Sensor."""
+        return self.element_type in OPERABLE_ELEMENT_TYPES
+
+    def is_shown(self, imported: bool) -> bool:
+        """In Berichten/Formularen aufführen? Gelöschte nie; in importierten
+        Projekten auch keine automatischen Vorschläge ohne Adresse – das
+        sind Wizard-Ableitungen aus den Gewerken, keine Geräte aus der ETS."""
+        if self.suppressed:
+            return False
+        return not (imported and self.is_auto and not self.participant_number)
     channels: int = 1             # Anzahl Kanäle (produktabhängig, z.B. 1, 2, 4, 6, 8)
     participant_number: str = ""  # Linienteilnehmernummer (physikalische Adresse)
     manufacturer: str = ""

@@ -2,7 +2,7 @@
 PDF-Erzeugung (NFA-050, FA-855–857)
 Erzeugt Berichte mit Firmenprofil-Header (Logo, Firma, Projekt)
 und Footer (Bearbeiter, Seite X/Y) auf jeder Seite.
-Schrift: Inter (falls installiert), sonst Helvetica.
+Schrift: Inter (mitgeliefert, siehe utils/fonts.py), sonst Helvetica.
 Verwendet PyMuPDF wenn verfügbar, sonst Textformat.
 """
 from __future__ import annotations
@@ -21,24 +21,34 @@ except ImportError:
     logger.info("PyMuPDF nicht installiert. PDF-Export nutzt Textformat.")
 
 
-# ── Inter-Font suchen ─────────────────────────────────────────────────────────
+from .fonts import (
+    INTER_REGULAR as _INTER_REGULAR, INTER_BOLD as _INTER_BOLD,
+    register_fonts as _register_fonts, text_length as _text_length,
+)
 
-def _find_font(names: list[str]) -> str:
-    dirs = [
-        "C:/Windows/Fonts",
-        os.path.expanduser("~/AppData/Local/Microsoft/Windows/Fonts"),
-        os.path.join(os.path.dirname(__file__), "..", "assets", "fonts"),
-    ]
-    for d in dirs:
-        for name in names:
-            p = os.path.join(d, name)
-            if os.path.exists(p):
-                return p
-    return ""
+# Akzentfarben für den Abschnittsbalken am linken Rand
+ACCENT_DEFAULT = (0.37, 0.63, 0.15)   # KNX-Grün
+ACCENT_ERROR   = (0.80, 0.16, 0.16)   # Rot
+ACCENT_WARNING = (0.93, 0.55, 0.05)   # Orange
+ACCENT_INFO    = (0.16, 0.45, 0.75)   # Blau
 
 
-_INTER_REGULAR = _find_font(["Inter-Regular.ttf", "Inter_Regular.ttf", "Inter.ttf"])
-_INTER_BOLD    = _find_font(["Inter-Bold.ttf", "Inter-SemiBold.ttf", "Inter_Bold.ttf"])
+class PageRef:
+    """Platzhalter in einer Tabellenzelle für die Seitenzahl eines Ankers
+    (add_anchor). Wird beim Speichern in einem zweiten Durchlauf ersetzt."""
+
+    def __init__(self, key: str):
+        self.key = key
+
+
+def _cell_text(cell) -> str:
+    """Tabellenzelle als einfacher Text (Tupel = Haupttext + Zusatz)."""
+    if isinstance(cell, PageRef):
+        return ""
+    if isinstance(cell, tuple):
+        main, sub = cell
+        return f"{main} – {sub}" if sub else str(main)
+    return str(cell)
 
 
 class PdfGenerator:
@@ -97,9 +107,17 @@ class PdfGenerator:
         self._blocks: list[dict] = []
         self._client_profile = None   # ClientProfile für Deckblatt
 
-        # Font-Objekte für Breitenberechnung (lazy)
-        self._fitz_font_reg:  Any = None
-        self._fitz_font_bold: Any = None
+        # Laufender Abschnitt beim Rendern (Akzentbalken, Fortsetzungstitel)
+        self._sec_title = ""
+        self._sub_title = ""
+        self._accent: tuple | None = None
+        self._bar_y0 = 0.0
+        self._cur_page: Any = None
+
+    @property
+    def content_width(self) -> float:
+        """Nutzbare Breite zwischen den Seitenrändern in Punkten."""
+        return float(self.PAGE_W - 2 * self.MARGIN)
 
     # ── Font-Hilfsmethoden ────────────────────────────────────────────────────
 
@@ -117,20 +135,7 @@ class PdfGenerator:
         """Gibt die Textbreite in Punkten zurück."""
         if not HAS_PYMUPDF:
             return len(text) * fontsize * 0.52
-        if bold:
-            if self._fitz_font_bold is None:
-                self._fitz_font_bold = (
-                    fitz.Font(fontfile=_INTER_BOLD)
-                    if _INTER_BOLD else fitz.Font(fontname="hebo")
-                )
-            return self._fitz_font_bold.text_length(text, fontsize)
-        else:
-            if self._fitz_font_reg is None:
-                self._fitz_font_reg = (
-                    fitz.Font(fontfile=_INTER_REGULAR)
-                    if _INTER_REGULAR else fitz.Font(fontname="helv")
-                )
-            return self._fitz_font_reg.text_length(text, fontsize)
+        return _text_length(text, fontsize, bold)
 
     def _txt(self, page, point, text: str, fontsize: float,
              bold: bool = False, color=(0, 0, 0)):
@@ -148,17 +153,49 @@ class PdfGenerator:
 
     # ── Inhalt hinzufügen ─────────────────────────────────────────────────────
 
-    def add_heading(self, text: str, level: int = 1):
-        self._blocks.append({"type": "heading", "text": text, "level": level})
+    def add_heading(self, text: str, level: int = 1, accent: tuple | None = None):
+        """Überschrift. Level 2 beginnt einen Abschnitt mit farbigem Balken am
+        linken Rand (accent, Standard KNX-Grün); Level 3 ist ein Unterabschnitt.
+        Beide erscheinen als Fortsetzungstitel, wenn eine Tabelle umbricht."""
+        self._blocks.append({"type": "heading", "text": text, "level": level,
+                             "accent": accent})
+
+    def add_anchor(self, key: str) -> None:
+        """Merkt sich die aktuelle Seite unter key (für PageRef in Tabellen)."""
+        self._blocks.append({"type": "anchor", "key": key})
+
+    def add_card_header(self, title: str, detail: str = "", bookmark: str = "") -> None:
+        """Kopfband einer Gerätekarte: fetter Titel, darunter graue Details.
+        bookmark: Eintrag im PDF-Inhaltsverzeichnis (Ebene unter der
+        letzten Überschrift)."""
+        self._blocks.append({"type": "card_header", "title": title,
+                             "detail": detail, "bookmark": bookmark})
+
+    def add_button_plan(self, rows: list[dict]) -> None:
+        """Tastenplan eines Tasters, so wie er an der Wand aussieht.
+
+        rows: je Tastenpaar {"number": int, "cells": [(Titel, Detail), ...]}
+        mit einer Zelle (ganze Taste) oder zwei Zellen (links, rechts);
+        eine leere Zelle ist ("", "")."""
+        self._blocks.append({"type": "button_plan", "rows": rows})
+
+    def add_note(self, label: str, text: str):
+        """Kurzer Erläuterungstext mit fettem Präfix, z.B. 'Massnahme: …'."""
+        self._blocks.append({"type": "note", "label": label, "text": text})
 
     def add_paragraph(self, text: str):
         self._blocks.append({"type": "paragraph", "text": text})
 
     def add_table(self, headers: list[str], rows: list[list[str]],
-                  col_widths: list[float] | None = None):
-        """col_widths: optionale absolute Spaltenbreiten in Punkten (Summe = PAGE_W - 2*MARGIN)."""
+                  col_widths: list[float] | None = None,
+                  align: list[str] | None = None):
+        """col_widths: optionale Spaltenbreiten – absolut in Punkten
+        (Summe = content_width) oder als Anteile (Summe = 1.0).
+        align: je Spalte "left" oder "right"."""
+        if col_widths and sum(col_widths) <= 1.001:
+            col_widths = [f * self.content_width for f in col_widths]
         self._blocks.append({"type": "table", "headers": headers, "rows": rows,
-                              "col_widths": col_widths})
+                              "col_widths": col_widths, "align": align})
 
     def add_separator(self):
         self._blocks.append({"type": "separator"})
@@ -170,9 +207,14 @@ class PdfGenerator:
         """Seitenumbruch nur wenn weniger als min_height Punkte auf der Seite verbleiben."""
         self._blocks.append({"type": "conditional_break", "min_height": min_height})
 
-    def add_topology_diagram(self, topology) -> None:
-        """Zeichnet ein Baumdiagramm der KNX-Topologie (Bereiche → Linien → Geräte)."""
-        self._blocks.append({"type": "topology_diagram", "topology": topology})
+    def add_topology_schema(self, areas: list[dict]) -> None:
+        """Prinzipschema der Topologie: je Bereich ein Balken, darunter die
+        Linien als Kästen mit Koppler, Auslastung und Gerätezahlen.
+
+        areas: [{"title": str, "info": str, "lines": [{"title": str,
+        "coupler": str, "count": int, "max": int, "stats": [(Label, Anzahl)]}]}]
+        """
+        self._blocks.append({"type": "topology_schema", "areas": areas})
 
     def add_link(self, text: str, url: str):
         """Fügt einen klickbaren Hyperlink ein (blau, unterstrichen)."""
@@ -182,6 +224,10 @@ class PdfGenerator:
 
     def save(self, filepath: str):
         if HAS_PYMUPDF:
+            self._anchors: dict[str, int] = {}
+            if any(b["type"] == "anchor" for b in self._blocks):
+                # Erster Durchlauf nur zum Ermitteln der Seitenzahlen
+                self._save_pdf(None)
             self._save_pdf(filepath)
         else:
             self._save_text(filepath)
@@ -214,16 +260,34 @@ class PdfGenerator:
                 lines += [f"{prefix} {block['text']}", ""]
             elif btype == "paragraph":
                 lines += [block["text"], ""]
+            elif btype == "note":
+                lines += [f"{block['label']} {block['text']}", ""]
+            elif btype == "card_header":
+                lines += [f"== {block['title']}", block["detail"], ""]
+            elif btype == "button_plan":
+                for row in block["rows"]:
+                    cells = " | ".join(" ".join(p for p in c if p) or "–" for c in row["cells"])
+                    lines.append(f"  Taste {row['number']}: {cells}")
+                lines.append("")
             elif btype == "separator":
                 lines += ["-" * 60, ""]
             elif btype == "page_break":
                 lines += ["", "=" * 70, ""]
             elif btype == "link":
                 lines += [f"  -> {block['text']}  [ {block['url']} ]", ""]
+            elif btype == "topology_schema":
+                for area in block["areas"]:
+                    lines.append(f"[{area['title']}]  {area['info']}")
+                    for ln in area["lines"]:
+                        stats = ", ".join(f"{k} {v}" for k, v in ln["stats"])
+                        lines.append(f"  {ln['title']} ({ln['coupler']}): "
+                                     f"{ln['count']}/{ln['max']} Geräte – {stats}")
+                    lines.append("")
             elif btype == "table":
-                hdrs, rows = block["headers"], block["rows"]
+                hdrs = block["headers"]
+                rows = [[_cell_text(c) for c in r] for r in block["rows"]]
                 widths = [
-                    max(len(str(h)), *(len(str(r[i])) if i < len(r) else 0 for r in rows))
+                    max([len(str(h))] + [len(str(r[i])) if i < len(r) else 0 for r in rows])
                     for i, h in enumerate(hdrs)
                 ]
                 row_line = " | ".join(str(h).ljust(w) for h, w in zip(hdrs, widths))
@@ -243,8 +307,13 @@ class PdfGenerator:
 
     # ── PDF mit PyMuPDF ───────────────────────────────────────────────────────
 
-    def _save_pdf(self, filepath: str):
+    def _save_pdf(self, filepath: str | None):
         doc = fitz.open()
+        self._sec_title = self._sub_title = ""
+        self._accent = None
+        self._cur_page = None
+        self._toc: list[list] = []
+        cover_offset = 1 if self._client_profile is not None else 0
 
         # Deckblatt (falls Kundenprofil vorhanden)
         if self._client_profile is not None:
@@ -278,24 +347,50 @@ class PdfGenerator:
                 fs        = fs_map.get(level, 9)
                 space     = space_map.get(level, 4)
                 min_after = min_after_map.get(level, 20)
+                if level <= 2:
+                    self._close_section_bar(y)
+                    self._accent = None
                 y += space
                 if y + fs + min_after > bottom:
                     page, y = self._new_page(doc)
+                if level <= 2:
+                    self._sec_title = text if level == 2 else ""
+                    self._sub_title = ""
+                    self._accent = (block.get("accent") or ACCENT_DEFAULT) if level == 2 else None
+                    self._bar_y0 = y - fs
+                elif level == 3:
+                    self._sub_title = text
                 self._txt(page, fitz.Point(self.MARGIN, y), text, fs, bold=True)
+                self._add_bookmark(level, text, len(doc))
                 y += fs + 5
 
             elif btype == "paragraph":
                 text = block["text"]
                 fs   = 9
-                avail_w  = self.PAGE_W - 2 * self.MARGIN
-                max_chars = max(1, int(avail_w / (fs * 0.52)))
-                chunks = [text[i:i + max_chars] for i in range(0, max(len(text), 1), max_chars)]
+                avail_w = self.content_width
+                chunks = [
+                    line
+                    for part in text.split("\n")
+                    for line in self._wrap_cell(part, avail_w, fs)
+                ]
                 for chunk in chunks:
                     if y + fs + 4 > bottom:
                         page, y = self._new_page(doc)
                     self._txt(page, fitz.Point(self.MARGIN, y), chunk, fs)
                     y += fs + 4
                 y += 2
+
+            elif btype == "note":
+                page, y = self._draw_note(doc, page, y, block["label"], block["text"])
+
+            elif btype == "anchor":
+                self._anchors[block["key"]] = len(doc) - cover_offset
+
+            elif btype == "card_header":
+                page, y = self._draw_card_header(doc, page, y, block)
+
+            elif btype == "button_plan":
+                page, y = self._draw_button_plan(doc, page, y, block["rows"])
 
             elif btype == "conditional_break":
                 bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
@@ -323,148 +418,257 @@ class PdfGenerator:
                 })
                 y += fs + 6
 
-            elif btype == "topology_diagram":
-                page, y = self._draw_topology_diagram(doc, page, y, block["topology"])
+            elif btype == "topology_schema":
+                page, y = self._draw_topology_schema(doc, page, y, block["areas"])
 
             elif btype == "table":
                 page, y = self._draw_table(doc, page, y, block["headers"], block["rows"],
-                                           block.get("col_widths"))
+                                           block.get("col_widths"), block.get("align"))
+
+        self._close_section_bar(y)
 
         # Footer auf Content-Seiten (nicht auf Deckblatt = Seite 0)
-        cover_offset = 1 if self._client_profile is not None else 0
         total = len(doc) - cover_offset
         for i, pg in enumerate(doc):
             if i < cover_offset:
                 continue
             self._draw_footer(pg, i + 1 - cover_offset, total)
 
+        if filepath is None:
+            doc.close()
+            return
+        if self._toc:
+            try:
+                doc.set_toc(self._toc)
+            except Exception as exc:          # Lesezeichen sind nur Komfort
+                logger.debug(f"PDF-Lesezeichen nicht gesetzt: {exc}")
         doc.save(filepath)
         doc.close()
         logger.info(f"PDF gespeichert: {filepath}")
 
+    def _add_bookmark(self, level: int, title: str, page_no: int) -> None:
+        """PDF-Lesezeichen; Ebenen dürfen nur um 1 tiefer springen."""
+        prev = self._toc[-1][0] if self._toc else 0
+        self._toc.append([max(1, min(level, prev + 1)), title, page_no])
+
     def _new_page(self, doc) -> tuple:
-        """Neue Seite; registriert Inter-Fonts und zeichnet Header."""
+        """Neue Seite; registriert Inter-Fonts und zeichnet Header.
+        Ein laufender Abschnittsbalken wird auf der alten Seite bis zum
+        Inhaltsende gezogen und auf der neuen Seite fortgesetzt."""
+        self._close_section_bar(self.PAGE_H - self.MARGIN - self.FOOTER_H)
         page = doc.new_page(width=self.PAGE_W, height=self.PAGE_H)
-        if _INTER_REGULAR:
-            try:
-                page.insert_font(fontname="inter", fontfile=_INTER_REGULAR)
-            except Exception:
-                pass
-        if _INTER_BOLD:
-            try:
-                page.insert_font(fontname="inter-bo", fontfile=_INTER_BOLD)
-            except Exception:
-                pass
+        _register_fonts(page)
         y = self._draw_header(page)
+        self._cur_page = page
+        self._bar_y0 = y - 8
         return page, y
+
+    # ── Abschnitte ────────────────────────────────────────────────────────────
+
+    def _close_section_bar(self, y_end: float) -> None:
+        """Zeichnet den Akzentbalken des laufenden Abschnitts auf der
+        aktuellen Seite (vom Abschnittsbeginn bzw. Seitenanfang bis y_end)."""
+        if self._accent is None or self._cur_page is None or y_end <= self._bar_y0:
+            return
+        x = self.MARGIN - 12
+        self._cur_page.draw_rect(
+            fitz.Rect(x, self._bar_y0, x + 3, y_end),
+            color=None, fill=self._accent,
+        )
+
+    def _draw_continuation_title(self, page, y: float) -> float:
+        """Fortsetzungstitel über einer umgebrochenen Tabelle."""
+        parts = [p for p in (self._sec_title, self._sub_title) if p]
+        if not parts:
+            return y
+        fs = 8.5
+        label = "  –  ".join(parts) + "  (Fortsetzung)"
+        label = self._wrap_cell(label, self.content_width, fs)[0]
+        color = self._accent or (0.3, 0.3, 0.3)
+        self._txt(page, fitz.Point(self.MARGIN, y + fs - 4), label, fs,
+                  bold=True, color=color)
+        return y + fs + 6
+
+    def _draw_note(self, doc, page, y: float, label: str, text: str) -> tuple:
+        """Fettes Präfix, danach umgebrochener Text mit hängendem Einzug."""
+        fs = 8.5
+        line_h = fs + 3.5
+        bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
+        label_w = self._tw(label + " ", fs, bold=True) if label else 0.0
+        lines = self._wrap_cell(text, self.content_width - label_w, fs)
+        y += 4
+        for i, line in enumerate(lines):
+            if y + line_h > bottom:
+                page, y = self._new_page(doc)
+            if i == 0 and label:
+                self._txt(page, fitz.Point(self.MARGIN, y), label, fs,
+                          bold=True, color=(0.2, 0.2, 0.2))
+            self._txt(page, fitz.Point(self.MARGIN + label_w, y), line, fs,
+                      color=(0.3, 0.3, 0.3))
+            y += line_h
+        return page, y + 2
 
     # ── Tabellen ──────────────────────────────────────────────────────────────
 
-    def _draw_topology_diagram(self, doc, page, y: float, topology) -> tuple:
-        """Zeichnet ein Baumdiagramm der KNX-Topologie."""
-        if not HAS_PYMUPDF:
-            return page, y
+    def _draw_topology_schema(self, doc, page, y: float, areas: list[dict]) -> tuple:
+        """Zeichnet das Prinzipschema (siehe add_topology_schema)."""
+        bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
+        x0 = float(self.MARGIN)
+        gap = 16.0
+        box_w = (self.content_width - gap) / 2
+        pad = 8.0
+        fs = 8.0
+        stub = 12.0                     # senkrechte Verbindung Bereich -> Linie
+        dark = (0.14, 0.20, 0.35)
+        grey = (0.45, 0.45, 0.45)
 
-        bottom  = self.PAGE_H - self.MARGIN - self.FOOTER_H
-        x0      = float(self.MARGIN)
-        fs      = 8.5
-        row_h   = 13.0
-        indent  = 16.0
+        def stats_lines(ln):
+            text = "  ·  ".join(f"{label} {n}" for label, n in ln["stats"])
+            return self._wrap_cell(text, box_w - 2 * pad, fs)
 
-        # Farben
-        COL_AREA   = (0.08, 0.35, 0.65)   # dunkelblau  – Bereich
-        COL_LINE   = (0.15, 0.50, 0.80)   # mittelblau  – Linie
-        COL_COUPL  = (0.08, 0.35, 0.65)   # blau        – Koppler/SV
-        COL_SENSOR = (0.10, 0.55, 0.20)   # grün        – Sensor
-        COL_ACTOR  = (0.55, 0.20, 0.10)   # rot         – Aktor
-        COL_OTHER  = (0.40, 0.40, 0.40)   # grau        – other/coupler
-
-        TYPE_COLOR = {
-            "sensor":  COL_SENSOR,
-            "actor":   COL_ACTOR,
-            "coupler": COL_COUPL,
-        }
-
-        def _new_if_needed(pg, cy, needed=row_h):
-            if cy + needed > bottom:
-                pg, cy = self._new_page(doc)
-            return pg, cy
-
-        def _draw_row(pg, cy, x_indent, label, color=(0.1, 0.1, 0.1), bold=False):
-            pg, cy = _new_if_needed(pg, cy)
-            self._txt(pg, fitz.Point(x_indent, cy), label, fs, bold=bold, color=color)
-            return pg, cy + row_h
-
-        def _draw_connector(pg, x_line, y_top, y_bot):
-            """Senkrechte Verbindungslinie im Baum."""
-            pg.draw_line(
-                fitz.Point(x_line, y_top),
-                fitz.Point(x_line, y_bot),
-                color=(0.70, 0.70, 0.70), width=0.5,
-            )
-            pg.draw_line(
-                fitz.Point(x_line, y_bot),
-                fitz.Point(x_line + 6, y_bot),
-                color=(0.70, 0.70, 0.70), width=0.5,
-            )
-
-        # Nur Bereiche mit Inhalt
-        areas = [
-            a for a in topology.areas
-            if any(line.devices for line in a.lines)
-        ]
+        def box_height(ln):
+            return pad + 11 + 11 + 14 + len(stats_lines(ln)) * (fs + 3) + pad - 2
 
         for area in areas:
-            # Bereichszeile
-            n_devices = sum(len(line.devices) for line in area.lines)
-            area_label = f"Bereich {area.area_number}: {area.name}  ({n_devices} Geräte)"
-            page, y = _draw_row(page, y, x0, area_label, color=COL_AREA, bold=True)
+            lines = area["lines"]
+            first_row_h = max((box_height(ln) for ln in lines[:2]), default=0)
+            if y + 20 + stub + first_row_h > bottom:
+                page, y = self._new_page(doc)
 
-            lines_with_devs = [l for l in area.lines if l.devices]
-            for li, line in enumerate(lines_with_devs):
-                is_last_line = (li == len(lines_with_devs) - 1)
-                x1 = x0 + indent
+            # Bereichsbalken
+            page.draw_rect(fitz.Rect(x0, y, x0 + self.content_width, y + 18),
+                           color=None, fill=dark)
+            self._txt(page, fitz.Point(x0 + pad, y + 12.5), area["title"], 9,
+                      bold=True, color=(1, 1, 1))
+            if area.get("info"):
+                tw = self._tw(area["info"], fs)
+                self._txt(page, fitz.Point(x0 + self.content_width - pad - tw, y + 12.5),
+                          area["info"], fs, color=(0.80, 0.85, 0.92))
+            y += 18
 
-                # Liniensymbol
-                n_s = sum(1 for d in line.devices if d.device_type == "sensor")
-                n_a = sum(1 for d in line.devices if d.device_type == "actor")
-                n_o = len(line.devices) - n_s - n_a
-                line_label = (
-                    f"Linie {area.area_number}.{line.line_number}: {line.name}"
-                    f"  –  {len(line.devices)} Geräte"
-                    f"  ({n_s} Sensor{'en' if n_s!=1 else ''}, "
-                    f"{n_a} Aktor{'en' if n_a!=1 else ''}"
-                    + (f", {n_o} weitere" if n_o else "") + ")"
-                )
-                y_line_start = y
-                page, y = _draw_row(page, y, x1, line_label, color=COL_LINE, bold=True)
+            for row_start in range(0, len(lines), 2):
+                row = lines[row_start:row_start + 2]
+                row_h = max(box_height(ln) for ln in row)
+                if y + stub + row_h > bottom:
+                    page, y = self._new_page(doc)
+                    stub_top = y
+                else:
+                    stub_top = y
+                for col, ln in enumerate(row):
+                    bx = x0 + col * (box_w + gap)
+                    by = y + stub
+                    cx = bx + box_w / 2
+                    page.draw_line(fitz.Point(cx, stub_top), fitz.Point(cx, by),
+                                   color=(0.6, 0.6, 0.6), width=1.0)
+                    page.draw_rect(fitz.Rect(bx, by, bx + box_w, by + row_h),
+                                   color=(0.75, 0.75, 0.75), fill=(1, 1, 1), width=0.6)
+                    page.draw_rect(fitz.Rect(bx, by, bx + 3, by + row_h),
+                                   color=None, fill=ACCENT_DEFAULT)
 
-                # Geräte sortiert nach Adresse
-                try:
-                    sorted_devs = sorted(
-                        line.devices,
-                        key=lambda d: tuple(int(p) for p in d.physical_address.split("."))
-                    )
-                except Exception:
-                    sorted_devs = line.devices
+                    ty = by + pad + 8
+                    self._txt(page, fitz.Point(bx + pad, ty),
+                              self._wrap_cell(ln["title"], box_w * 0.62, 9.5)[0],
+                              9.5, bold=True, color=dark)
+                    if ln.get("coupler"):
+                        label = f"Koppler {ln['coupler']}"
+                        tw = self._tw(label, fs)
+                        self._txt(page, fitz.Point(bx + box_w - pad - tw, ty),
+                                  label, fs, color=grey)
 
-                for di, dev in enumerate(sorted_devs):
-                    is_last_dev = (di == len(sorted_devs) - 1)
-                    x2 = x1 + indent
-                    color = TYPE_COLOR.get(dev.device_type, COL_OTHER)
-                    prod = (dev.product or "")[:45]
-                    dev_label = f"{dev.physical_address}   {prod}  [{dev.device_type}]"
-                    y_before = y
-                    page, y = _draw_row(page, y, x2 + 8, dev_label, color=color)
-                    _draw_connector(page, x2, y_before - fs, y_before - fs + 1)
+                    # Auslastung
+                    ty += 11
+                    count, maximum = ln["count"], max(ln["max"], 1)
+                    ratio = count / maximum
+                    bar_w = box_w - 2 * pad - 70
+                    bar = fitz.Rect(bx + pad, ty, bx + pad + bar_w, ty + 7)
+                    page.draw_rect(bar, color=None, fill=(0.90, 0.91, 0.93))
+                    color = (ACCENT_ERROR if ratio > 1 else
+                             ACCENT_WARNING if ratio >= 0.9 else ACCENT_DEFAULT)
+                    page.draw_rect(
+                        fitz.Rect(bar.x0, bar.y0, bar.x0 + bar_w * min(ratio, 1.0), bar.y1),
+                        color=None, fill=color)
+                    label = f"{count} / {ln['max']} Geräte"
+                    tw = self._tw(label, fs)
+                    self._txt(page, fitz.Point(bx + box_w - pad - tw, ty + 6.5),
+                              label, fs, color=grey)
 
-                # Lücke zwischen Linien
-                y += 2
-
-            # Lücke zwischen Bereichen
-            y += 4
-
+                    ty += 7 + 14
+                    for text in stats_lines(ln):
+                        self._txt(page, fitz.Point(bx + pad, ty), text, fs)
+                        ty += fs + 3
+                y += stub + row_h
+            y += 14
         return page, y
+
+    def _wrap_lines(self, text: str, avail_w: float, fs: float) -> list[str]:
+        """Wie _wrap_cell, behält aber Zeilenumbrüche im Text."""
+        return [line for part in text.split("\n")
+                for line in self._wrap_cell(part, avail_w, fs)]
+
+    # ── Gerätekarte ───────────────────────────────────────────────────────────
+
+    def _draw_card_header(self, doc, page, y: float, block: dict) -> tuple:
+        bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
+        pad = 6.0
+        detail_lines = self._wrap_lines(block["detail"], self.content_width - 2 * pad, 8) \
+            if block["detail"] else []
+        h = pad + 11 + len(detail_lines) * 11 + pad - 2
+        y += 6
+        if y + h + 60 > bottom:
+            page, y = self._new_page(doc)
+        page.draw_rect(fitz.Rect(self.MARGIN, y, self.MARGIN + self.content_width, y + h),
+                       color=None, fill=(0.92, 0.94, 0.97))
+        page.draw_rect(fitz.Rect(self.MARGIN, y, self.MARGIN + 3, y + h),
+                       color=None, fill=(0.14, 0.20, 0.35))
+        ty = y + pad + 8
+        self._txt(page, fitz.Point(self.MARGIN + pad + 3, ty), block["title"], 9.5,
+                  bold=True, color=(0.14, 0.20, 0.35))
+        for line in detail_lines:
+            ty += 11
+            self._txt(page, fitz.Point(self.MARGIN + pad + 3, ty), line, 8,
+                      color=(0.35, 0.35, 0.35))
+        if block.get("bookmark"):
+            self._add_bookmark(4, block["bookmark"], len(doc))
+        return page, y + h + 8
+
+    def _draw_button_plan(self, doc, page, y: float, rows: list[dict]) -> tuple:
+        """Tasten als Raster: je Tastenpaar eine Zeile, links/rechts nebeneinander."""
+        if not rows:
+            return page, y
+        bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
+        cell_w = 118.0
+        row_h = 34.0
+        width = 2 * cell_w
+        x0 = float(self.MARGIN)
+        height = len(rows) * row_h
+        if y + height + 10 > bottom:
+            page, y = self._new_page(doc)
+        # Rahmen wie ein Tasterrahmen
+        page.draw_rect(fitz.Rect(x0 - 4, y - 4, x0 + width + 4, y + height + 4),
+                       color=(0.70, 0.70, 0.70), fill=(0.97, 0.97, 0.98), width=0.8)
+        for r, row in enumerate(rows):
+            cells = row["cells"]
+            ry = y + r * row_h
+            w = width / len(cells)
+            for c, (title, detail) in enumerate(cells):
+                cx = x0 + c * w
+                rect = fitz.Rect(cx + 1.5, ry + 1.5, cx + w - 1.5, ry + row_h - 1.5)
+                filled = bool(title)
+                page.draw_rect(rect, color=(0.75, 0.75, 0.75),
+                               fill=(1, 1, 1) if filled else (0.94, 0.94, 0.95), width=0.6)
+                self._txt(page, fitz.Point(rect.x0 + 4, rect.y0 + 9),
+                          str(row["number"]), 7, bold=True, color=(0.55, 0.55, 0.55))
+                if not filled:
+                    continue
+                tx = rect.x0 + 14
+                avail = rect.x1 - tx - 3
+                self._txt(page, fitz.Point(tx, rect.y0 + 10),
+                          self._wrap_cell(title, avail, 7.5)[0], 7.5, bold=True,
+                          color=(0.14, 0.20, 0.35))
+                for li, line in enumerate(self._wrap_cell(detail, avail, 7)[:2] if detail else []):
+                    self._txt(page, fitz.Point(tx, rect.y0 + 19 + li * 8.5), line, 7,
+                              color=(0.40, 0.40, 0.40))
+        return page, y + height + 14
 
     def _wrap_cell(self, text: str, avail_w: float, fs: float) -> list[str]:
         """Bricht Zellentext an Wortgrenzen um; bei Einzelwörtern zeichenweise."""
@@ -513,7 +717,7 @@ class PdfGenerator:
         nat: list[float] = []
         for i, h in enumerate(headers):
             header_w = self._tw(str(h), fs, bold=True)
-            data_w   = max((self._tw(str(row[i]), fs) if i < len(row) else 0.0)
+            data_w   = max((self._tw(_cell_text(row[i]), fs) if i < len(row) else 0.0)
                            for row in rows) if rows else 0.0
             max_px   = max(header_w, data_w) + 2 * self.TBL_COL_PAD
             nat.append(max(max_px, 25.0))
@@ -548,7 +752,7 @@ class PdfGenerator:
 
     def _draw_table_header_row(self, doc, page, y: float,
                                headers: list[str], col_widths: list[float],
-                               fs: float) -> tuple:
+                               fs: float, align: list[str] | None = None) -> tuple:
         """Zeichnet die Kopfzeile; Header werden bei Bedarf umgebrochen."""
         line_h = fs + 2.5
         wrapped_hdrs = [
@@ -566,16 +770,20 @@ class PdfGenerator:
         page.draw_rect(bg, color=None, fill=(0.85, 0.88, 0.92))
         x = float(self.MARGIN)
         for i, lines in enumerate(wrapped_hdrs):
+            right = bool(align) and i < len(align) and align[i] == "right"
             for li, line_text in enumerate(lines):
                 ty = y + fs + 2 + li * line_h
-                self._txt(page, fitz.Point(x + self.TBL_COL_PAD, ty),
+                tx = (x + col_widths[i] - self.TBL_COL_PAD - self._tw(line_text, fs, bold=True)
+                      if right else x + self.TBL_COL_PAD)
+                self._txt(page, fitz.Point(tx, ty),
                           line_text, fs, bold=True, color=(0.1, 0.1, 0.1))
             x += col_widths[i]
         return page, y + hdr_h
 
     def _draw_table(self, doc, page, y: float,
                     headers: list[str], rows: list[list[str]],
-                    col_widths: list[float] | None = None) -> tuple:
+                    col_widths: list[float] | None = None,
+                    align: list[str] | None = None) -> tuple:
         """Zeichnet eine vollständige Tabelle mit Zeilenumbruch statt Abschneiden."""
         if not headers:
             return page, y
@@ -591,25 +799,40 @@ class PdfGenerator:
         total_h = self.TBL_HDR_H + len(rows) * self.TBL_ROW_H + 8
         if total_h <= 220 and y + total_h > bottom:
             page, y = self._new_page(doc)
+            y = self._draw_continuation_title(page, y)
 
         # Kopfzeile
-        page, y = self._draw_table_header_row(doc, page, y, headers, col_widths, fs)
+        page, y = self._draw_table_header_row(doc, page, y, headers, col_widths, fs, align)
 
         # Datenzeilen
+        fs_sub = 7.0
+        sub_line_h = fs_sub + 2.5
         for row_idx, row in enumerate(rows):
-            # Zeilenumbruch pro Zelle berechnen
-            wrapped = [
-                self._wrap_cell(str(row[i]) if i < len(row) else "",
-                                col_widths[i] - 2 * self.TBL_COL_PAD, fs)
-                for i in range(n_cols)
+            # Zeilenumbruch pro Zelle berechnen. Eine Zelle als Tupel
+            # (Haupttext, Zusatz) erhält den Zusatz als graue zweite Zeile.
+            wrapped = []
+            for i in range(n_cols):
+                cell = row[i] if i < len(row) else ""
+                avail = col_widths[i] - 2 * self.TBL_COL_PAD
+                if isinstance(cell, PageRef):
+                    cell = str(self._anchors.get(cell.key, ""))
+                main, sub = cell if isinstance(cell, tuple) else (cell, "")
+                parts = [(t, fs, (0, 0, 0)) for t in self._wrap_lines(str(main), avail, fs)]
+                if sub:
+                    parts += [(t, fs_sub, (0.45, 0.45, 0.45))
+                              for t in self._wrap_lines(str(sub), avail, fs_sub)]
+                wrapped.append(parts)
+            cell_heights = [
+                sum(line_h if f == fs else sub_line_h for _t, f, _c in parts)
+                for parts in wrapped
             ]
-            max_lines = max(len(w) for w in wrapped)
-            row_h = max(self.TBL_ROW_H, max_lines * line_h + 2)
+            row_h = max(self.TBL_ROW_H, max(cell_heights) + 2)
 
             if y + row_h > bottom:
                 page, y = self._new_page(doc)
+                y = self._draw_continuation_title(page, y)
                 page, y = self._draw_table_header_row(
-                    doc, page, y, headers, col_widths, fs)
+                    doc, page, y, headers, col_widths, fs, align)
 
             # Zebra-Hintergrund
             if row_idx % 2 == 1:
@@ -619,9 +842,13 @@ class PdfGenerator:
 
             x = float(self.MARGIN)
             for i in range(n_cols):
-                for li, line_text in enumerate(wrapped[i]):
-                    ty = y + fs + 2 + li * line_h
-                    self._txt(page, fitz.Point(x + self.TBL_COL_PAD, ty), line_text, fs)
+                right = bool(align) and i < len(align) and align[i] == "right"
+                ty = y + fs + 2
+                for line_text, f, color in wrapped[i]:
+                    tx = (x + col_widths[i] - self.TBL_COL_PAD - self._tw(line_text, f)
+                          if right else x + self.TBL_COL_PAD)
+                    self._txt(page, fitz.Point(tx, ty), line_text, f, color=color)
+                    ty += line_h if f == fs else sub_line_h
                 x += col_widths[i]
             y += row_h
 
@@ -754,16 +981,7 @@ class PdfGenerator:
 
         # Neue leere Seite (ganz vorne – doc hat noch keine Seiten)
         page = doc.new_page(width=W, height=H)
-        if _INTER_REGULAR:
-            try:
-                page.insert_font(fontname="inter", fontfile=_INTER_REGULAR)
-            except Exception:
-                pass
-        if _INTER_BOLD:
-            try:
-                page.insert_font(fontname="inter-bo", fontfile=_INTER_BOLD)
-            except Exception:
-                pass
+        _register_fonts(page)
 
         # ── Firmenbereich (oben) ─────────────────────────────────────────────
         x_left = M

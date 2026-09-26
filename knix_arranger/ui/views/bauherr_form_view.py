@@ -25,7 +25,9 @@ from PySide6.QtCore import Qt, Signal
 
 from ...models.project import KnxProject
 from ...models.building import Room, Bedienelement, SensorFunktion, SensorFunktionGa
-from ...services.bauherr_form_service import _DROPDOWN_OPTIONS, BauherrFormService
+from ...services.bauherr_form_service import (
+    _DROPDOWN_OPTIONS, BauherrFormService, _form_elements,
+)
 from ...services.sensor_service import GEWERK_PRIMARY_FUNCTIONS
 from ...services.scene_addressing import (
     scene_group_key, scene_channel_designation, build_scope_label_lookup,
@@ -838,10 +840,12 @@ class BauherrFormView(QWidget):
         self._room_list.clear()
         if not self._project:
             return
+        floors = BauherrFormService(self._project)._floor_by_room()
         for room in self._project.all_rooms:
-            if not any(not be.suppressed for be in room.bedienelemente):
+            if not _form_elements(room, self._project.topology.is_imported):
                 continue
-            item = QListWidgetItem(f"{room.number}  {room.name}")
+            number = " ".join(p for p in (floors.get(room.id, ""), room.number) if p)
+            item = QListWidgetItem(f"{number}  {room.name}")
             item.setData(Qt.UserRole, room)
             self._room_list.addItem(item)
         if self._room_list.count():
@@ -869,9 +873,7 @@ class BauherrFormView(QWidget):
                 item.widget().deleteLater()
 
         # Taster-Widgets aufbauen
-        for be in room.bedienelemente:
-            if be.suppressed:
-                continue
+        for be in _form_elements(room, self._project.topology.is_imported):
             taster = _TasterWidget(be, self._service, room=room)
             taster.changed.connect(self.project_changed)
             taster.notes_changed.connect(self.notes_changed)

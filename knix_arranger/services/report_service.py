@@ -4,27 +4,34 @@ Erzeugt Validierungsberichte, GA-Listen und Projektuebersichten als PDF/Text.
 """
 from __future__ import annotations
 import logging
-from collections import defaultdict
+import re
+from collections import Counter, defaultdict
 from datetime import datetime
 
 from ..models.project import KnxProject
+from ..models.building import Bedienelement
+from ..models.topology import is_power_supply_product
 from ..models.scene import Scene, SceneAction
 from ..models.group_address import GroupAddressStructure, MIDDLE_GROUP_NAMES_A, MIDDLE_GROUP_NAMES_B
 from ..services.validation_engine import ValidationEngine, ValidationIssue
 from ..services.belegungsplan_service import (
     _split_button_channel, _extract_channel_label, group_actor_rows_by_channel,
-    BelegungsplanService,
+    BelegungsplanService, build_ga_by_designation, _lookup_ga_by_function_ga,
 )
+from ..services.dpt_suggestion import dpt_number
 from ..services.scene_addressing import (
     scene_group_key, scene_channel_designation, build_scope_label_lookup,
     scene_target_designation,
 )
 from ..services.co_linking_service import CoLinkingService
+from ..services.channel_count_service import count_controlled_elements
 from ..services.naming_engine import NamingEngine
 from ..services.report_sorting import (
     group_address_key, physical_address_key, room_order, sorted_rooms,
 )
-from ..utils.pdf_generator import PdfGenerator
+from ..utils.pdf_generator import (
+    PdfGenerator, PageRef, ACCENT_ERROR, ACCENT_WARNING, ACCENT_INFO,
+)
 
 logger = logging.getLogger("knix_arranger.report_service")
 
@@ -55,6 +62,215 @@ def _gewerk_category_sort_key(category: str) -> int:
         return len(GEWERK_CATEGORY_ORDER)
 
 
+# ── Validierungsbericht ──────────────────────────────────────────────────────
+
+VALIDATION_LEVELS = [
+    ("error", "Fehler", ACCENT_ERROR),
+    ("warning", "Warnungen", ACCENT_WARNING),
+    ("info", "Hinweise", ACCENT_INFO),
+]
+VALIDATION_LEVEL_SINGULAR = {"error": "Fehler", "warning": "Warnung", "info": "Hinweis"}
+
+# Regel -> (Titel, Bedeutung, Massnahme)
+VALIDATION_RULES = {
+    "GA-08": (
+        "Systemadresse 0/0/0 belegt",
+        "0/0/0 ist für KNX-Systemmeldungen reserviert.",
+        "Adresse auf 0/0/1 oder höher verschieben.",
+    ),
+    "FA-601": (
+        "Ungültige Gruppenadresse",
+        "Die Adresse liegt ausserhalb des zulässigen Bereichs (HG 0–31, MG 0–7, UG 0–255).",
+        "Adresse korrigieren.",
+    ),
+    "FA-602": (
+        "Doppelte Gruppenadresse",
+        "Zwei Gruppenadressen verwenden dieselbe Adresse.",
+        "Eine der beiden Adressen ändern.",
+    ),
+    "FA-603": (
+        "Unerwarteter Datenpunkttyp",
+        "Der DPT passt nicht zur Funktion der Gruppenadresse.",
+        "DPT auf den Soll-Wert ändern oder die Funktion prüfen.",
+    ),
+    "FA-604": (
+        "Fehlender Datenpunkttyp",
+        "Ohne DPT kann die ETS Kommunikationsobjekte nicht sicher zuordnen "
+        "und Visualisierungen zeigen Werte falsch an.",
+        "DPT in der ETS bzw. in der GA-Ansicht ergänzen. Der DPT-Vorschlag ist "
+        "aus der Bezeichnung abgeleitet und vor der Übernahme zu prüfen; "
+        "ohne eindeutigen Hinweis bleibt die Spalte leer.",
+    ),
+    "FA-605": (
+        "Lücken im Adressblock",
+        "Zwischen belegten Adressen einer Mittelgruppe sind Adressen frei.",
+        "Keine, sofern die Lücken als Reserve gewollt sind.",
+    ),
+    "FA-607": (
+        "Gewerk in falscher Mittelgruppe",
+        "Die Gruppenadresse liegt nicht in der Mittelgruppe, die der "
+        "Gewerk-Katalog für dieses Gewerk vorsieht.",
+        "GA in die Soll-Mittelgruppe verschieben oder das Gewerk korrigieren.",
+    ),
+    "FA-608": (
+        "Fehlende Rückmelde-Mittelgruppe",
+        "In Variante B gehören Rückmeldungen in eine eigene Mittelgruppe "
+        "(Licht MG 6, Jalousie MG 7).",
+        "",
+    ),
+    "FA-610": (
+        "Bezeichnung nicht KNX-Swiss-konform",
+        "Erwartetes Format: GEWERK_RAUM_NR FUNKTION (Klartext).",
+        "Bei importierten Projekten mit eigenem Namensschema kann dieser "
+        "Hinweis ignoriert werden.",
+    ),
+    "FA-3308b": (
+        "Astro-Gruppenadressen fehlen",
+        "Zeitprogramme mit Astro-Schaltpunkten benötigen die Astro-GAs in HG 0 / MG 7.",
+        "",
+    ),
+}
+
+FA610_EXAMPLES = 20
+
+
+def _rule_title(rule_id: str) -> str:
+    return VALIDATION_RULES.get(rule_id, (rule_id,))[0]
+
+
+def _rule_sort_key(rule_id: str) -> tuple:
+    """GA-08 vor FA-6xx, danach numerisch (FA-604 vor FA-3308b)."""
+    import re
+    m = re.search(r"(\d+)", rule_id)
+    return (not rule_id.startswith("GA"), int(m.group(1)) if m else 0, rule_id)
+
+
+def _clean(text: str) -> str:
+    """Mehrfach-Leerzeichen aus importierten Bezeichnungen entfernen."""
+    return " ".join((text or "").split()) or "–"
+
+
+def _gap_range(issue: ValidationIssue) -> tuple[str, str]:
+    start, end = issue.details.get("start"), issue.details.get("end")
+    if start is None:
+        return issue.message, ""
+    text = str(start) if start == end else f"{start}–{end}"
+    return text, str(end - start + 1)
+
+
+# ── Topologie-Bericht ────────────────────────────────────────────────────────
+
+TOPOLOGY_TYPE_LABELS = {
+    "actor": "Aktor", "sensor": "Sensor", "gateway": "Gateway",
+    "coupler": "Koppler", "power_supply": "Spannungsversorgung",
+}
+TOPOLOGY_TYPE_ORDER = ["Aktor", "Sensor", "Gateway", "Koppler",
+                       "Spannungsversorgung", "Sonstiges"]
+TOPOLOGY_TYPE_PLURAL = {
+    "Aktor": "Aktoren", "Sensor": "Sensoren", "Gateway": "Gateways",
+    "Koppler": "Koppler", "Spannungsversorgung": "Spannungsversorgungen",
+    "Sonstiges": "Weitere",
+}
+# Einbauorte, die ein Verteiler/Schaltschrank sind (im Bericht zuerst)
+_DISTRIBUTION_RE = re.compile(
+    r"^(UV|HV|HzV|NV|EV|UVS|Verteiler|Schaltschrank|Tableau|Unterverteil)",
+    re.IGNORECASE)
+
+
+def _n_devices(n: int) -> str:
+    return f"{n} Gerät" if n == 1 else f"{n} Geräte"
+
+
+def _device_type_label(device) -> str:
+    if device.device_type == "power_supply" or is_power_supply_product(device.product):
+        return "Spannungsversorgung"
+    return TOPOLOGY_TYPE_LABELS.get(device.device_type, "Sonstiges")
+
+
+def _has_coupler(lines, address: str) -> bool:
+    """True, wenn auf der Adresse ein Koppler als Gerät vorhanden ist.
+    Line.coupler_address allein genügt nicht: der Import setzt dort immer
+    B.L.0, auch für Linien ohne Koppler (z.B. Linie 1.1 im Chalet)."""
+    return any(
+        d.device_type == "coupler" and d.physical_address == address
+        for line in lines for d in line.devices
+    )
+
+
+def _line_coupler(area, line) -> str:
+    address = f"{area.area_number}.{line.line_number}.0"
+    return address if _has_coupler([line], address) else ""
+
+
+def _device_cell(device) -> tuple[str, str]:
+    """(Produkt, 'Hersteller · Best.-Nr. · SN …') für eine Tabellenzelle."""
+    details = [p for p in (
+        device.manufacturer,
+        device.order_number,
+        f"SN {device.serial_number}" if device.serial_number else "",
+    ) if p]
+    return (device.product or "–", " · ".join(details))
+
+
+def _clean_location(text: str) -> str:
+    """'UV2   ( Steigzone )' -> 'UV2 (Steigzone)'."""
+    text = " ".join((text or "").split())
+    return re.sub(r"\s*\)", ")", re.sub(r"\(\s*", "(", text))
+
+
+def _location_sort_key(location: str) -> tuple:
+    if not location:
+        return (2, "")
+    return (0 if _DISTRIBUTION_RE.match(location) else 1, location.lower())
+
+
+# ── Bedienelemente-Bericht ───────────────────────────────────────────────────
+
+_GA_PREFIX_RE = re.compile(r"^(\d+/\d+/\d+)\s")
+
+
+def _ga_line(ga) -> str:
+    """'3/1/40  J.OG.04.02_move (Fenster) · 1.008' für eine Tabellenzeile."""
+    if isinstance(ga, str):
+        return " ".join(ga.split())
+    text = f"{ga.address}  {' '.join((ga.designation or '').split())}"
+    text = re.sub(r"\(\s*", "(", re.sub(r"\s*\)", ")", text))
+    if ga.datapoint_type:
+        text += f" · {dpt_number(ga.datapoint_type)}"
+    return text
+
+
+def _validation_table_layout(rule_id: str):
+    """(Kopfzeile, Spaltenanteile, Ausrichtung, Zeilenfunktion) je Regel."""
+    if rule_id == "FA-604":
+        return (["Adresse", "Bezeichnung", "DPT-Vorschlag"], [0.13, 0.55, 0.32], None,
+                lambda i: [i.address, _clean(i.designation), i.details.get("dpt") or ""])
+    if rule_id == "FA-603":
+        return (["Adresse", "Bezeichnung", "Ist-DPT", "Soll-DPT"],
+                [0.13, 0.47, 0.20, 0.20], None,
+                lambda i: [i.address, _clean(i.designation),
+                           i.details.get("actual", ""), i.details.get("expected", "")])
+    if rule_id == "FA-605":
+        def gap_row(i):
+            rng, n = _gap_range(i)
+            return [i.details.get("mg", ""), rng, n]
+        return (["Mittelgruppe", "Freie Adressen", "Anzahl"], [0.25, 0.55, 0.20],
+                ["left", "left", "right"], gap_row)
+    if rule_id == "FA-607":
+        return (["Adresse", "Bezeichnung", "Gewerk", "Ist-MG", "Soll-MG"],
+                [0.13, 0.51, 0.12, 0.12, 0.12], ["left", "left", "left", "right", "right"],
+                lambda i: [i.address, _clean(i.designation), i.details.get("gewerk", ""),
+                           str(i.details.get("actual", "")), str(i.details.get("expected", ""))])
+    if rule_id == "FA-602":
+        return (["Adresse", "Bezeichnung", "Kollidiert mit"], [0.13, 0.435, 0.435], None,
+                lambda i: [i.address, _clean(i.designation), _clean(i.details.get("other", ""))])
+    if rule_id == "FA-610":
+        return (["Adresse", "Bezeichnung"], [0.13, 0.87], None,
+                lambda i: [i.address, _clean(i.designation)])
+    return (["Adresse", "Beschreibung", "Massnahme"], [0.13, 0.52, 0.35], None,
+            lambda i: [i.address or "–", i.message, i.suggestion or ""])
+
+
 
 
 class ReportService:
@@ -83,13 +299,19 @@ class ReportService:
         return pdf
 
     def generate_validation_report(self, filepath: str):
-        """Erzeugt einen Validierungsbericht als PDF/Text (FA-600)."""
+        """Erzeugt den Validierungsbericht Gruppenadressen als PDF/Text (FA-600).
+
+        Je Stufe (Fehler, Warnungen, Hinweise) ein Abschnitt mit farbigem
+        Randbalken, darin je Regel ein Block mit Erläuterung, Massnahme und
+        einer Tabelle mit regelspezifischen Spalten.
+        """
         engine = ValidationEngine(self.project.gewerk_catalog)
-        issues = engine.validate(self.project.group_addresses)
+        issues = engine.validate(self.project.group_addresses, project=self.project)
 
-        pdf = self._make_pdf("Validierungsbericht")
+        title = "Validierungsbericht Gruppenadressen"
+        pdf = self._make_pdf(title)
 
-        pdf.add_heading("Validierungsbericht", level=1)
+        pdf.add_heading(title, level=1)
         pdf.add_paragraph(
             f"Projekt: {self.project.name} | "
             f"Variante: {self.project.config.mg_variant} | "
@@ -97,67 +319,82 @@ class ReportService:
         )
         pdf.add_separator()
 
+        by_level: dict[str, dict[str, list[ValidationIssue]]] = {
+            "error": defaultdict(list), "warning": defaultdict(list), "info": defaultdict(list),
+        }
+        for issue in issues:
+            by_level.setdefault(issue.level, defaultdict(list))[issue.rule_id].append(issue)
+
+        def count(level: str) -> int:
+            return sum(len(v) for v in by_level[level].values())
+
         # Zusammenfassung
-        # Je Stufe nach Gruppenadresse, Meldungen ohne Adresse zuletzt
-        ordered = sorted(issues, key=lambda i: (group_address_key(i.address), i.rule_id))
-        errors = [i for i in ordered if i.level == "error"]
-        warnings = [i for i in ordered if i.level == "warning"]
-        infos = [i for i in ordered if i.level == "info"]
-
-        pdf.add_heading("Zusammenfassung", level=2)
         ga_count = len(self.project.group_addresses.all_addresses())
-        pdf.add_paragraph(f"Gepruefte Gruppenadressen: {ga_count}")
-        pdf.add_paragraph(f"Fehler: {len(errors)}")
-        pdf.add_paragraph(f"Warnungen: {len(warnings)}")
-        pdf.add_paragraph(f"Hinweise: {len(infos)}")
-        pdf.add_separator()
+        pdf.add_heading("Zusammenfassung", level=2)
+        pdf.add_paragraph(f"Geprüfte Gruppenadressen: {ga_count}")
+        pdf.add_paragraph(f"Fehler: {count('error')}")
+        pdf.add_paragraph(f"Warnungen: {count('warning')}")
+        pdf.add_paragraph(f"Hinweise: {count('info')}")
 
-        # Detailierte Ergebnisse
-        if errors:
-            pdf.add_heading("Fehler", level=2)
-            headers = ["Adresse", "Regel", "Beschreibung", "Vorschlag"]
-            rows = []
-            for issue in errors:
-                rows.append([
-                    issue.address,
-                    issue.rule_id,
-                    issue.message[:80],
-                    issue.suggestion[:60] if issue.suggestion else "-",
-                ])
-            pdf.add_table(headers, rows)
+        if issues:
+            overview = []
+            for level, _label, _accent in VALIDATION_LEVELS:
+                for rule_id in sorted(by_level[level], key=_rule_sort_key):
+                    overview.append([
+                        VALIDATION_LEVEL_SINGULAR[level], rule_id,
+                        _rule_title(rule_id), str(len(by_level[level][rule_id])),
+                    ])
+            pdf.add_heading("Übersicht nach Regel", level=3)
+            pdf.add_table(["Stufe", "Regel", "Beschreibung", "Anzahl"], overview,
+                          col_widths=[0.14, 0.14, 0.58, 0.14],
+                          align=["left", "left", "left", "right"])
+        else:
+            pdf.add_paragraph("Keine Probleme gefunden. Alle Prüfungen bestanden.")
 
-        if warnings:
-            pdf.add_heading("Warnungen", level=2)
-            headers = ["Adresse", "Regel", "Beschreibung", "Vorschlag"]
-            rows = []
-            for issue in warnings:
-                rows.append([
-                    issue.address,
-                    issue.rule_id,
-                    issue.message[:80],
-                    issue.suggestion[:60] if issue.suggestion else "-",
-                ])
-            pdf.add_table(headers, rows)
-
-        if infos:
-            pdf.add_heading("Hinweise", level=2)
-            headers = ["Adresse", "Regel", "Beschreibung"]
-            rows = []
-            for issue in infos:
-                rows.append([
-                    issue.address,
-                    issue.rule_id,
-                    issue.message[:80],
-                ])
-            pdf.add_table(headers, rows)
-
-        if not issues:
-            pdf.add_heading("Ergebnis", level=2)
-            pdf.add_paragraph("Keine Probleme gefunden. Alle Pruefungen bestanden.")
+        for level, label, accent in VALIDATION_LEVELS:
+            rules = by_level[level]
+            if not rules:
+                continue
+            pdf.add_heading(label, level=2, accent=accent)
+            for rule_id in sorted(rules, key=_rule_sort_key):
+                self._add_validation_rule_block(pdf, rule_id, rules[rule_id], ga_count)
 
         pdf.save(filepath)
         logger.info(f"Validierungsbericht erstellt: {filepath}")
         return issues
+
+    def _add_validation_rule_block(self, pdf: PdfGenerator, rule_id: str,
+                                   rule_issues: list[ValidationIssue],
+                                   ga_count: int) -> None:
+        """Ein Regel-Block: Überschrift, Erläuterung, Massnahme, Tabelle."""
+        meaning, action = VALIDATION_RULES.get(rule_id, ("", "", ""))[1:]
+        pdf.add_heading(f"{rule_id}  {_rule_title(rule_id)}  ({len(rule_issues)})", level=3)
+        if meaning:
+            pdf.add_note("Bedeutung:", meaning)
+        if action:
+            pdf.add_note("Massnahme:", action)
+
+        if rule_id == "FA-605":
+            ordered = sorted(rule_issues, key=lambda i: (
+                group_address_key(i.details.get("mg", "") + "/0"), i.details.get("start", 0)))
+        else:
+            ordered = sorted(rule_issues, key=lambda i: group_address_key(i.address))
+
+        # Sehr viele Bezeichnungs-Hinweise (typisch bei Import mit eigenem
+        # Namensschema): nur Beispiele statt Einzelliste
+        if rule_id == "FA-610" and len(ordered) > FA610_EXAMPLES \
+                and len(ordered) > ga_count * 0.5:
+            pct = round(100 * len(ordered) / ga_count) if ga_count else 100
+            pdf.add_paragraph(
+                f"{len(ordered)} von {ga_count} Bezeichnungen ({pct} %) weichen vom "
+                f"KNX-Swiss-Format ab. Das deutet auf ein eigenes Namensschema hin; "
+                f"aufgeführt sind die ersten {FA610_EXAMPLES} Beispiele."
+            )
+            ordered = ordered[:FA610_EXAMPLES]
+
+        headers, widths, align, row_fn = _validation_table_layout(rule_id)
+        pdf.add_table(headers, [row_fn(i) for i in ordered],
+                      col_widths=widths, align=align)
 
     def generate_ga_report(self, filepath: str):
         """Erzeugt eine GA-Übersicht als PDF/Text."""
@@ -175,14 +412,18 @@ class ReportService:
         pdf.add_separator()
 
         # Statistik
-        total_gas = len(structure.all_addresses())
-        placeholders = sum(1 for ga in structure.all_addresses() if ga.is_placeholder)
-        central = sum(1 for ga in structure.all_addresses() if ga.central == "true")
+        all_gas = structure.all_addresses()
+        total_gas = len(all_gas)
+        placeholders = sum(1 for ga in all_gas if ga.is_placeholder)
+        # Über die Hauptgruppe zählen: das central-Flag setzt nur der Wizard,
+        # importierte Projekte haben es nie.
+        central = sum(1 for ga in all_gas if ga.main_group == 0)
 
         pdf.add_heading("Statistik", level=2)
-        pdf.add_paragraph(f"Gesamt Gruppenadressen: {total_gas}")
-        pdf.add_paragraph(f"Aktive Adressen: {total_gas - placeholders}")
-        pdf.add_paragraph(f"Reserve-Platzhalter: {placeholders}")
+        pdf.add_paragraph(f"Gruppenadressen gesamt: {total_gas}")
+        pdf.add_paragraph(f"davon belegt: {total_gas - placeholders}")
+        pdf.add_paragraph(
+            f"davon Reserve (für Erweiterungen freigehalten): {placeholders}")
         pdf.add_paragraph(f"Zentraladressen (HG 0): {central}")
         pdf.add_separator()
 
@@ -469,6 +710,12 @@ class ReportService:
                 code = ga.gewerk_code
                 gewerk_counts[code] = gewerk_counts.get(code, 0) + ga.count
 
+        # Importierte Projekte: gesteuerte Elemente aus der Topologie statt
+        # der (oft nur aus GA-Bezeichnungen geratenen) Schritt-5-Anzahlen
+        controlled = count_controlled_elements(p)
+        if controlled:
+            gewerk_counts.update(controlled.totals())
+
         if gewerk_counts:
             headers = ["Code", "Bezeichnung", "Anzahl Elemente"]
             rows = []
@@ -476,109 +723,182 @@ class ReportService:
                 gewerk = self.project.gewerk_catalog.get(code)
                 name = gewerk.name if gewerk else "-"
                 rows.append([code, name, str(count)])
-            pdf.add_table(headers, rows)
+            pdf.add_table(headers, rows, col_widths=[0.15, 0.60, 0.25],
+                          align=["left", "left", "right"])
+            if controlled:
+                pdf.add_note(
+                    "Zählweise:",
+                    "Gewerke mit Aktoren oder Gateways: Anzahl der gesteuerten "
+                    "Elemente laut Topologie. Übrige Gewerke: Anzahl aus der "
+                    "Gewerk-Zuweisung (Wizard Schritt 5).")
 
         pdf.save(filepath)
         logger.info(f"Projektzusammenfassung erstellt: {filepath}")
 
     def generate_topology_report(self, filepath: str):
-        """Erzeugt einen Topologie-Bericht als PDF/Text."""
+        """Erzeugt den Topologie-Bericht als PDF/Text.
+
+        Aufbau: Prinzipschema (Bereiche/Linien mit Auslastung), Kennzahlen je
+        Linie, Geräteliste je Linie, Geräteliste je Einbauort (Verteiler
+        zuerst). Gerätezellen zeigen Hersteller, Bestell- und Seriennummer
+        als zweite Zeile.
+        """
         pdf = self._make_pdf("Topologie-Bericht")
+        topo = self.project.topology
 
         pdf.add_heading("Topologie-Bericht", level=1)
+        pdf.add_paragraph(
+            f"Projekt: {self.project.name} | "
+            f"Topologie: {topo.topology_mode} | "
+            f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        )
         pdf.add_separator()
 
-        topo = self.project.topology
-        room_by_id = {r.id: r for r in self.project.all_rooms}
+        areas = [
+            (area, sorted((l for l in area.lines if l.devices), key=lambda l: l.line_number))
+            for area in sorted(topo.areas, key=lambda a: a.area_number)
+        ]
+        areas = [(area, lines) for area, lines in areas if lines]
+        if not areas:
+            pdf.add_paragraph("Die Topologie enthält keine Geräte.")
+            pdf.save(filepath)
+            logger.info(f"Topologie-Bericht erstellt: {filepath}")
+            return
 
-        # ── Liniendiagramm als Überblick ─────────────────────────────────────
+        max_devices = topo.max_devices_per_line
+        multi_area = len(areas) > 1
+
+        def line_label(area, line) -> str:
+            label = f"Linie {area.area_number}.{line.line_number}"
+            if line.name and line.name != f"Linie {line.line_number}":
+                label += f": {line.name}"
+            return label
+
+        # ── Übersicht: Prinzipschema und Kennzahlen ─────────────────────────
         pdf.add_heading("Übersicht", level=2)
-        pdf.add_topology_diagram(topo)
+        schema = []
+        kpi_rows = []
+        for area, lines in areas:
+            info = " · ".join(p for p in (
+                f"Backbone {area.backbone_type}" if area.backbone_type else "",
+                f"Koppler {area.area_number}.0.0"
+                if _has_coupler(area.lines, f"{area.area_number}.0.0") else "",
+            ) if p)
+            schema_lines = []
+            for line in lines:
+                counts = Counter(_device_type_label(d) for d in line.devices)
+                bus_devices = len(line.devices) - counts.get("Spannungsversorgung", 0)
+                stats = [(TOPOLOGY_TYPE_PLURAL[t], counts[t])
+                         for t in TOPOLOGY_TYPE_ORDER if counts.get(t)]
+                schema_lines.append({
+                    "title": line_label(area, line),
+                    "coupler": _line_coupler(area, line),
+                    "count": bus_devices,
+                    "max": max_devices,
+                    "stats": stats,
+                })
+                kpi_rows.append([
+                    line_label(area, line),
+                    _line_coupler(area, line) or "–",
+                    f"{bus_devices} / {max_devices}",
+                    str(counts.get("Aktor", 0)),
+                    str(counts.get("Sensor", 0)),
+                    str(counts.get("Gateway", 0)),
+                    str(sum(n for t, n in counts.items()
+                            if t not in ("Aktor", "Sensor", "Gateway"))),
+                ])
+            schema.append({
+                "title": f"Bereich {area.area_number}"
+                         + (f": {area.name}" if area.name
+                            and area.name != f"Bereich {area.area_number}" else ""),
+                "info": info,
+                "lines": schema_lines,
+            })
+        pdf.add_topology_schema(schema)
+        pdf.add_table(
+            ["Linie", "Koppler", "Geräte", "Aktoren", "Sensoren", "Gateways", "Weitere"],
+            kpi_rows,
+            col_widths=[0.25, 0.13, 0.14, 0.12, 0.12, 0.12, 0.12],
+            align=["left", "left", "right", "right", "right", "right", "right"],
+        )
+        pdf.add_note(
+            "Weitere:",
+            "Koppler, Spannungsversorgungen und sonstige Geräte. Geräte und "
+            f"Auslastung zählen Busteilnehmer (ohne Spannungsversorgungen), bezogen "
+            f"auf {max_devices} je Linie ({topo.topology_mode}).")
+
+        # ── Geräte nach Linie ────────────────────────────────────────────────
+        widths = [0.10, 0.47, 0.20, 0.23]
+        headers = ["Adresse", "Gerät", "Typ", "Einbauort"]
         pdf.add_page_break()
-
-
-        def _dev_addr_key(dev):
-            return physical_address_key(dev.physical_address)
-
-        first_area_with_content = True
-
-        for area in sorted(topo.areas, key=lambda a: a.area_number):
-            # Fix 1: Bereiche ohne Geräte überspringen
-            area_has_content = any(line.devices or line.assigned_room_ids for line in area.lines)
-            if not area_has_content:
-                continue
-
-            if not first_area_with_content:
-                pdf.add_page_break()
-            first_area_with_content = False
-
-            # Fix 4: Leerzeichen bei fehlender Koppleradresse vermeiden
-            area_info_parts = []
-            if area.coupler_address:
-                area_info_parts.append(f"Koppleradresse: {area.coupler_address}")
-            if area.backbone_type:
-                area_info_parts.append(f"Backbone: {area.backbone_type}")
-            pdf.add_heading(f"Bereich {area.area_number}: {area.name}", level=2)
-            if area_info_parts:
-                pdf.add_paragraph("  ".join(area_info_parts))
-
-            for line in sorted(area.lines, key=lambda l: l.line_number):
-                # Fix 1: Linien ohne Geräte und ohne Bedienelemente überspringen
-                line_rooms_with_bes = [
-                    room_by_id[rid] for rid in line.assigned_room_ids
-                    if rid in room_by_id and any(
-                        not be.suppressed for be in room_by_id[rid].bedienelemente
-                    )
+        pdf.add_heading("Geräte nach Linie", level=2)
+        for area, lines in areas:
+            for line in lines:
+                title = line_label(area, line)
+                if multi_area and area.name:
+                    title = f"{area.name} – {title}"
+                parts = [_n_devices(len(line.devices))]
+                if _line_coupler(area, line):
+                    parts.append(f"Koppler {_line_coupler(area, line)}")
+                pdf.add_heading(f"{title}  ({', '.join(parts)})", level=3)
+                rows = [
+                    [d.physical_address, _device_cell(d), _device_type_label(d),
+                     _clean_location(d.installation_location) or "–"]
+                    for d in sorted(line.devices,
+                                    key=lambda d: physical_address_key(d.physical_address))
                 ]
-                if not line.devices and not line_rooms_with_bes:
-                    continue
+                pdf.add_table(headers, rows, col_widths=widths)
 
-                pdf.add_conditional_break(min_height=120)
-                pdf.add_heading(
-                    f"Linie {area.area_number}.{line.line_number}: {line.name} "
-                    f"({line.device_count} Geräte)",
-                    level=3,
-                )
+        # ── Geräte nach Einbauort ────────────────────────────────────────────
+        by_location: dict[str, list] = defaultdict(list)
+        for _area, lines in areas:
+            for line in lines:
+                for d in line.devices:
+                    by_location[_clean_location(d.installation_location)].append(d)
 
-                # Fix 4: Koppler-Info sauber darstellen
-                line_info_parts = []
-                if line.coupler_address:
-                    line_info_parts.append(f"Koppler: {line.coupler_address}")
-                pdf.add_paragraph("  ".join(line_info_parts) if line_info_parts else "")
-
-                if line.devices:
-                    # Fix 2: Geräte nach Phys. Adresse aufsteigend sortieren
-                    sorted_devs = sorted(line.devices, key=_dev_addr_key)
-                    rows = []
-                    for dev in sorted_devs:
-                        rows.append([
-                            dev.physical_address,
-                            dev.device_type,
-                            dev.product or "–",
-                            dev.manufacturer or "–",
-                            dev.order_number or "–",
-                            dev.serial_number or "–",
-                            dev.installation_location or "–",
-                        ])
-                    pdf.add_table(
-                        ["Phys. Adresse", "Typ", "Produkt", "Hersteller", "Best.-Nr.", "Seriennummer", "Einbauort"],
-                        rows,
-                    )
-
+        pdf.add_page_break()
+        pdf.add_heading("Geräte nach Einbauort", level=2)
+        pdf.add_note(
+            "Reihenfolge:",
+            "Verteiler zuerst, danach die übrigen Einbauorte alphabetisch, "
+            "Geräte ohne Angabe zuletzt.")
+        for location in sorted(by_location, key=_location_sort_key):
+            devices = sorted(by_location[location],
+                             key=lambda d: physical_address_key(d.physical_address))
+            pdf.add_heading(f"{location or 'Ohne Angabe'}  ({_n_devices(len(devices))})", level=3)
+            pdf.add_table(
+                ["Adresse", "Gerät", "Typ"],
+                [[d.physical_address, _device_cell(d), _device_type_label(d)]
+                 for d in devices],
+                col_widths=[0.11, 0.69, 0.20],
+            )
 
         pdf.save(filepath)
         logger.info(f"Topologie-Bericht erstellt: {filepath}")
 
     def generate_bedienelemente_report(self, filepath: str):
-        """Erzeugt einen Bedienelemente-Bericht als PDF (Gerätekarten-Layout)."""
+        """Erzeugt den Bericht "Bedienelemente und Sensoren" als PDF.
+
+        Gegliedert wie man im Gebäude sucht: Übersicht mit Seitenzahlen,
+        danach je Stockwerk und Raum (jeder Raum auf neuer Seite) zuerst die
+        Bedienelemente (vom Bauherrn bedienbar, siehe OPERABLE_ELEMENT_TYPES)
+        als Gerätekarten mit Tastenplan (Gewerk/Szene je Taste) und einer
+        Zeile je Taste, danach kompakt die Sensoren des Raums.
+        PDF-Lesezeichen: Stockwerk → Raum → Gerät.
+        """
         from .sensor_service import project_for_export
+        from .bedienelement_layout import (
+            group_assignments, button_plan, row_function_label,
+        )
         # FA-1404: Physikalische Adressen aus Topologie sicherstellen – auf einer
         # Kopie, damit auch alte gespeicherte Projekte korrekte Adressen erhalten,
         # ohne dass der Bericht das Projekt selbst verändert.
         project = project_for_export(self.project)
-        pdf = self._make_pdf("Bedienelemente")
+        catalog = project.gewerk_catalog
+        title = "Bedienelemente und Sensoren"
+        pdf = self._make_pdf(title)
 
-        pdf.add_heading("Bedienelemente", level=1)
+        pdf.add_heading(title, level=1)
         pdf.add_paragraph(
             f"Projekt: {project.name} | "
             f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
@@ -586,23 +906,22 @@ class ReportService:
         pdf.add_separator()
 
         # ── Lookup-Strukturen ────────────────────────────────────────────────
-        # GA-Adresse → GroupAddress
         ga_by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
-        # GA-Bezeichnung → GroupAddress (für function_assignments)
-        ga_by_designation: dict = {}
-        for ga in project.group_addresses.all_addresses():
-            if ga.designation:
-                key = ga.designation.split(" (")[0].strip()
-                ga_by_designation.setdefault(key, ga)
-                ga_by_designation.setdefault(ga.designation.strip(), ga)
-        # Phys. Adresse → Topology-Device
+        ga_index = build_ga_by_designation(project.group_addresses)
+
+        def resolve(function_ga: str):
+            text = (function_ga or "").strip()
+            m = _GA_PREFIX_RE.match(text)
+            if m and m.group(1) in ga_by_address:
+                return ga_by_address[m.group(1)]
+            return _lookup_ga_by_function_ga(text, ga_index)
+
         device_by_addr = {
             d.physical_address: d
             for area in project.topology.areas
             for line in area.lines
             for d in line.devices
         }
-        # room_id → Stockwerk-Name / Wohnungs-/Zonenname
         floor_by_room: dict[str, str] = {}
         zone_by_room: dict[str, str] = {}
         for building in project.areal.buildings:
@@ -613,152 +932,176 @@ class ReportService:
                             floor_by_room[room.id] = floor.name
                             zone_by_room[room.id] = apt.name
 
-        # ── Hilfsfunktionen für Sortierung ──────────────────────────────────
-        def _addr_key(be):
-            return physical_address_key(be.participant_number)
+        def room_label(room) -> str:
+            parts = [zone_by_room.get(room.id, ""), f"{room.number} {room.name}".strip()]
+            return " · ".join(_clean_location(p) for p in parts if p)
 
-        rooms_in_order = sorted_rooms(project.areal)
+        # Sensoren aus der Topologie, die einem Raum zugeordnet, aber nicht als
+        # Bedienelement erfasst sind (z.B. nach ETS-Import), gehören auch dazu
+        from .knxproj_import_service import KnxprojImportService
+        known = {be.participant_number for r in project.all_rooms
+                 for be in r.bedienelemente if be.participant_number}
+        extra_by_room: dict[str, list] = defaultdict(list)
+        for device in device_by_addr.values():
+            if (device.device_type == "sensor" and device.room_id
+                    and device.physical_address not in known):
+                extra_by_room[device.room_id].append(Bedienelement(
+                    element_type=KnxprojImportService._infer_element_type(
+                        device.product or "", device.communication_objects),
+                    participant_number=device.physical_address,
+                    product_name=device.product_name or device.product,
+                    manufacturer=device.manufacturer,
+                    order_number=device.order_number,
+                ))
 
-        # ── Übersichtstabelle ────────────────────────────────────────────────
-        summary_rows = []
-        for room in rooms_in_order:
-            floor_name = floor_by_room.get(room.id, "")
-            zone_name  = zone_by_room.get(room.id, "")
-            room_label = f"{room.number} {room.name}".strip()
-            location   = " / ".join(p for p in [floor_name, zone_name, room_label] if p)
-            active_bes = [be for be in room.bedienelemente if not be.suppressed]
-            for be in sorted(active_bes, key=_addr_key):
-                summary_rows.append([
-                    be.participant_number or "-",
+        entries = []
+        for room in sorted_rooms(project.areal):
+            imported = project.topology.is_imported
+            bes = [be for be in room.bedienelemente if be.is_shown(imported)]
+            bes += extra_by_room.get(room.id, [])
+            if bes:
+                entries.append((room, sorted(bes, key=lambda be: (
+                    not be.is_operable, physical_address_key(be.participant_number)))))
+        if not entries:
+            pdf.add_paragraph("Keine Bedienelemente im Projekt vorhanden.")
+            pdf.save(filepath)
+            logger.info(f"Bedienelemente-Bericht erstellt: {filepath}")
+            return
+
+        def device_info(be):
+            # Live-Daten aus dem verknüpften Device haben Vorrang vor be.*,
+            # da be.product_name/manufacturer/order_number nur einmalig beim
+            # Anlegen des Bedienelements aus dem Device kopiert werden
+            # (siehe _create_bedienelemente_from_topology) und bei einer
+            # späteren Produktzuweisung über die Materialliste (die nur ins
+            # Device zurückschreibt) sonst veraltet blieben.
+            device = device_by_addr.get(be.participant_number or "")
+            product = ((device.product_name if device else "") or be.product_name
+                       or (device.product if device else ""))
+            mfr = (device.manufacturer if device else "") or be.manufacturer
+            ordernr = (device.order_number if device else "") or be.order_number
+            location = _clean_location(device.installation_location) if device else ""
+            return device, product, mfr, ordernr, location
+
+        # ── Übersicht ────────────────────────────────────────────────────────
+        pdf.add_heading("Übersicht", level=2)
+        overview = []
+        for room, bes in entries:
+            floor = floor_by_room.get(room.id, "")
+            for be in bes:
+                _device, product, _mfr, _nr, _loc = device_info(be)
+                overview.append([
+                    " · ".join(p for p in (floor, room_label(room)) if p),
+                    be.participant_number or "–",
                     be.element_type or "Bedienelement",
-                    location,
+                    product or "–",
+                    PageRef(be.id),
                 ])
-        if summary_rows:
-            pdf.add_table(
-                ["Phys. Adresse", "Typ", "Standort"],
-                summary_rows,
-                col_widths=[65, 100, 330],
-            )
-            pdf.add_separator()
+        pdf.add_table(["Stockwerk · Raum", "Adresse", "Typ", "Produkt", "Seite"],
+                      overview, col_widths=[0.27, 0.10, 0.16, 0.39, 0.08],
+                      align=["left", "left", "left", "left", "right"])
+        pdf.add_note("Hinweis:", "Das PDF enthält Lesezeichen nach Stockwerk, Raum "
+                                 "und Gerät. Jeder Raum beginnt auf einer neuen Seite.")
 
-        has_any = False
-        for room in rooms_in_order:
-            active_bes = [be for be in room.bedienelemente if not be.suppressed]
-            if not active_bes:
-                continue
-            floor_name = floor_by_room.get(room.id, "")
-            zone_name = zone_by_room.get(room.id, "")
-            room_label = f"{room.number} {room.name}".strip()
+        # ── Stockwerk → Raum → Gerät ─────────────────────────────────────────
+        current_floor = None
+        for room, bes in entries:
+            pdf.add_page_break()
+            floor = floor_by_room.get(room.id, "") or "Ohne Stockwerk"
+            if floor != current_floor:
+                pdf.add_heading(floor, level=2)
+                current_floor = floor
+            pdf.add_heading(room_label(room), level=3)
 
-            for be in sorted(active_bes, key=_addr_key):  # Fix 3: nach Adresse sortieren
-                has_any = True
-                device = device_by_addr.get(be.participant_number or "")
+            for be in (b for b in bes if b.is_operable):
+                device, product, mfr, ordernr, location = device_info(be)
+                rows = (group_assignments(be.function_assignments, resolve)
+                        if be.function_assignments else [])
+                plan = button_plan(rows, catalog, room.name)
+                # Karte (Kopf, Tastenplan, Tabelle) möglichst auf einer Seite
+                estimate = 50 + (len(plan) * 34 + 18 if plan else 0) + 24 + sum(
+                    max(14, len(r.gas) * 10.5 + len(r.led_gas) * 9.5 + 2) for r in rows)
+                pdf.add_conditional_break(min_height=min(estimate, 600))
+                pdf.add_anchor(be.id)
+                title = (f"{be.participant_number or 'Ohne Adresse'}  ·  "
+                         f"{be.element_type or 'Bedienelement'}")
+                details = [" · ".join(p for p in (mfr, product, ordernr) if p)]
+                if location:
+                    details.append(f"Einbauort: {location}")
+                if not be.participant_number:
+                    details.append("Nicht in der Topologie (keine physikalische Adresse)")
+                pdf.add_card_header(title, "\n".join(d for d in details if d),
+                                    bookmark=title)
 
-                # ── Bedingter Seitenumbruch vor neuer Karte (Fix 5) ─────────
-                pdf.add_conditional_break(min_height=150)
-
-                # ── Gerätekopf ──────────────────────────────────────────────
-                location_parts = [p for p in [floor_name, zone_name, room_label] if p]
-                addr_suffix = f"  [{be.participant_number}]" if be.participant_number else ""
-                heading = f"{be.element_type or 'Bedienelement'}{addr_suffix}  |  {' / '.join(location_parts)}"
-                pdf.add_heading(heading, level=3)
-
-                # ── Gerätedaten-Tabelle ──────────────────────────────────────
-                info_rows = []
-                # Live-Daten aus dem verknüpften Device haben Vorrang vor be.*,
-                # da be.product_name/manufacturer/order_number nur einmalig beim
-                # Anlegen des Bedienelements aus dem Device kopiert werden
-                # (siehe _create_bedienelemente_from_topology) und bei einer
-                # späteren Produktzuweisung über die Materialliste (die nur ins
-                # Device zurückschreibt) sonst veraltet blieben.
-                product = (device.product_name if device else "") or be.product_name or (device.product if device else "")
-                mfr     = (device.manufacturer if device else "") or be.manufacturer
-                ordernr = (device.order_number if device else "") or be.order_number
-                einbauort = device.installation_location if device else ""
-
-                if mfr:
-                    info_rows.append(["Hersteller", mfr])
-                if product:
-                    info_rows.append(["Produkt", product])
-                if ordernr:
-                    info_rows.append(["Bestellnummer", ordernr])
-                if be.participant_number:
-                    info_rows.append(["Phys. Adresse", be.participant_number])
-                if einbauort:
-                    info_rows.append(["Einbauort", einbauort])
-                if be.channels:
-                    info_rows.append(["Kanäle", str(be.channels)])
-
-                if info_rows:
-                    pdf.add_table(["Eigenschaft", "Wert"], info_rows)
-
-                if be.datasheets:
-                    pdf.add_heading("Datenblätter", level=4)
-                    for ds in be.datasheets:
-                        if ds.startswith("http://") or ds.startswith("https://"):
-                            pdf.add_link(ds, ds)
-                        else:
-                            pdf.add_paragraph(f"  {ds}")
-
-                # ── Funktionen / GA-Zuordnungen ─────────────────────────────
                 if be.function_assignments:
-                    # Wizard-generierte Zuordnungen (Excel-Reihenfolge: Taste·Kanal·Funktion·GA-Bez·GA-Adr·DPT)
-                    pdf.add_heading("Funktionszuordnungen", level=4)
-                    fa_rows = []
-                    for fa in be.function_assignments:
-                        ga_obj = ga_by_designation.get(fa.function_ga.strip())
-                        taste, kanal = _split_button_channel(fa.button_channel)
-                        fa_rows.append([
-                            taste or "-",
-                            kanal,
-                            fa.description or "-",
-                            fa.bedienart or "-",
-                            fa.function_ga or "-",
-                            ga_obj.address if ga_obj else "",
-                            ga_obj.datapoint_type if ga_obj else "",
+                    if plan:
+                        pdf.add_button_plan(plan)
+                    table = []
+                    for row in rows:
+                        if row.key is None:
+                            function = row.name
+                        else:
+                            t, d = row_function_label(row, catalog, room.name)
+                            function = " · ".join(p for p in (t, d) if p) or "–"
+                        table.append([
+                            row.key.label() if row.key else "Weitere",
+                            (function, "mit LED-Rückmeldung" if row.led_gas else ""),
+                            ("\n".join(_ga_line(g) for g in row.gas) or "–",
+                             "\n".join("LED: " + _ga_line(g) for g in row.led_gas)),
                         ])
-                    pdf.add_table(
-                        ["Taste", "Kanal", "Funktion", "Bedienart",
-                         "GA-Bezeichnung", "GA-Adresse", "DPT"],
-                        fa_rows,
-                    )
+                    pdf.add_table(["Taste", "Funktion", "Gruppenadressen"], table,
+                                  col_widths=[0.13, 0.30, 0.57])
                 elif device and any(co.connected_gas for co in device.communication_objects):
-                    # ETS6-Import: COs expandieren, sortiert nach KO-Nr.
-                    pdf.add_heading("Kommunikationsobjekte / GA-Verknüpfungen (ETS6-Import)", level=4)
-                    co_rows = []
-                    sorted_cos = sorted(device.communication_objects, key=lambda c: c.object_number)
-                    for co in sorted_cos:
+                    table = []
+                    for co in sorted(device.communication_objects, key=lambda c: c.object_number):
                         if not co.connected_gas:
                             continue
-                        # Fix 1: mehrere GAs pro KO in einer Zeile zusammenfassen
-                        ga_designations, ga_addresses = [], []
-                        for ga_addr in co.connected_gas:
-                            ga_obj = ga_by_address.get(ga_addr)
-                            ga_designations.append(ga_obj.designation if ga_obj else ga_addr)
-                            ga_addresses.append(ga_addr)
-                        co_rows.append([
+                        table.append([
                             str(co.object_number),
-                            co.name or f"KO {co.object_number}",
-                            co.object_function,
-                            " · ".join(ga_designations),
-                            " · ".join(ga_addresses),
-                            co.data_type,
+                            (co.name or f"KO {co.object_number}", co.object_function or ""),
+                            "\n".join(_ga_line(ga_by_address.get(a) or a)
+                                      for a in co.connected_gas),
                         ])
-                    if co_rows:
-                        # Fix 4: Name breiter (100 pt), GA-Adresse breiter (85 pt)
-                        # Summe = 495 pt; Funktion + GA-Bezeichnung dürfen kürzen
-                        pdf.add_table(
-                            ["KO-Nr.", "Name", "Funktion", "GA-Bezeichnung", "GA-Adresse", "DPT"],
-                            co_rows,
-                            col_widths=[32, 100, 75, 155, 85, 48],
-                        )
+                    pdf.add_table(["KO", "Objekt", "Gruppenadressen"], table,
+                                  col_widths=[0.08, 0.32, 0.60])
                 else:
-                    pdf.add_paragraph("  (keine Funktionszuordnungen)")
+                    pdf.add_paragraph("Keine Funktionszuordnungen.")
 
-                pdf.add_separator()
+                if be.datasheets:
+                    for ds in be.datasheets:
+                        if ds.startswith(("http://", "https://")):
+                            pdf.add_link(ds, ds)
+                        else:
+                            pdf.add_note("Datenblatt:", ds)
 
-        if not has_any:
-            pdf.add_paragraph("Keine Bedienelemente im Projekt vorhanden.")
+            sensors = [b for b in bes if not b.is_operable]
+            if sensors:
+                pdf.add_conditional_break(min_height=90)
+                pdf.add_heading("Sensoren", level=4)
+                table = []
+                for be in sensors:
+                    pdf.add_anchor(be.id)
+                    device, product, mfr, ordernr, location = device_info(be)
+                    details = " · ".join(p for p in (
+                        mfr, product, ordernr,
+                        f"Einbauort {location}" if location else "") if p)
+                    if be.function_assignments:
+                        gas = [g for row in group_assignments(be.function_assignments, resolve)
+                               for g in row.gas + row.led_gas]
+                    elif device:
+                        gas = [ga_by_address.get(a) or a
+                               for co in sorted(device.communication_objects,
+                                                key=lambda c: c.object_number)
+                               for a in co.connected_gas]
+                    else:
+                        gas = []
+                    table.append([
+                        be.participant_number or "–",
+                        (be.element_type or "Sensor", details),
+                        "\n".join(dict.fromkeys(_ga_line(g) for g in gas)) or "–",
+                    ])
+                pdf.add_table(["Adresse", "Sensor", "Gruppenadressen"], table,
+                              col_widths=[0.11, 0.37, 0.52])
 
         pdf.save(filepath)
         logger.info(f"Bedienelemente-Bericht erstellt: {filepath}")

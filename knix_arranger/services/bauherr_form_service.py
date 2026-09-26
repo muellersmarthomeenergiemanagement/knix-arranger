@@ -393,7 +393,7 @@ class BauherrFormService:
                        end_row=row, end_column=device_end)
         hdr = ws.cell(row=row, column=col,
                       value=f"{te_prefix}{dev_name}   [{pn_str}]   {status}")
-        hdr.font      = Font(name="Arial", bold=True, size=10, color="FFFFFF")
+        hdr.font      = Font(name="Inter", bold=True, size=10, color="FFFFFF")
         hdr.fill      = fill(_BTN_FILL_HEADER)
         hdr.alignment = Alignment(horizontal="center", vertical="center")
         hdr.border    = Border(left=outer, right=outer, top=outer, bottom=outer)
@@ -426,11 +426,11 @@ class BauherrFormService:
                 cell_val  = f"{t_num}  {fn_text}"
                 if bedienart_text:
                     cell_val += f"\n{bedienart_text}"
-                cell_font = Font(name="Arial", bold=True, size=9,
+                cell_font = Font(name="Inter", bold=True, size=9,
                                  color=_BTN_FONT_FN)
             else:
                 cell_val  = f"{t_num}  → Ihr Wunsch"
-                cell_font = Font(name="Arial", bold=False, size=9,
+                cell_font = Font(name="Inter", bold=False, size=9,
                                  italic=True, color=_BTN_FONT_WISH)
 
             # Zeilenhoehe an den laengeren der beiden Slot-Texte dieser
@@ -470,7 +470,7 @@ class BauherrFormService:
 
         # Label-Zelle
         lbl = ws.cell(row=row, column=col, value="Anmerkung Bauherr:")
-        lbl.font = Font(name="Arial", size=8, italic=True, color="546E7A")
+        lbl.font = Font(name="Inter", size=8, italic=True, color="546E7A")
         lbl.fill = PatternFill(start_color="FAFAFA", end_color="FAFAFA",
                                fill_type="solid")
         lbl.alignment = Alignment(horizontal="left", vertical="center", indent=1)
@@ -501,7 +501,7 @@ class BauherrFormService:
                        end_row=row, end_column=end_col)
         title = ws.cell(row=row, column=col,
                         value="Ihre Anmerkungen zum Raum:")
-        title.font = Font(name="Arial", size=10, bold=True, color="1A5276")
+        title.font = Font(name="Inter", size=10, bold=True, color="1A5276")
         title.alignment = Alignment(horizontal="left", vertical="center", indent=1)
         ws.row_dimensions[row].height = 18
         row += 1
@@ -538,13 +538,13 @@ class BauherrFormService:
             (_BTN_FILL_FREE,     "Taste ohne Funktion"),
         ]
         ws.cell(row=row, column=col,
-                value="Legende:").font = Font(name="Arial", bold=True, size=8)
+                value="Legende:").font = Font(name="Inter", bold=True, size=8)
         for i, (color, label) in enumerate(entries):
             c = col + 1 + i * 2
             sample = ws.cell(row=row, column=c, value="  ")
             sample.fill = fill(color)
             ws.cell(row=row, column=c + 1, value=label).font = Font(
-                name="Arial", size=8, color="555555"
+                name="Inter", size=8, color="555555"
             )
         return row + 2
 
@@ -557,7 +557,7 @@ class BauherrFormService:
 
         ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=end_col)
         title = ws.cell(row=row, column=col, value="Auftragsbestätigung")
-        title.font = Font(name="Arial", bold=True, size=12, color="FFFFFF")
+        title.font = Font(name="Inter", bold=True, size=12, color="FFFFFF")
         title.fill = PatternFill(start_color=_BTN_FILL_HEADER, end_color=_BTN_FILL_HEADER,
                                  fill_type="solid")
         title.alignment = Alignment(horizontal="left", vertical="center", indent=1)
@@ -571,7 +571,7 @@ class BauherrFormService:
             "Änderungswünsche nach der Unterschrift können zu Mehrkosten und "
             "Terminverschiebungen führen."
         ))
-        info.font = Font(name="Arial", size=9, italic=True, color="555555")
+        info.font = Font(name="Inter", size=9, italic=True, color="555555")
         info.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
         ws.row_dimensions[row].height = 32
         row += 2  # Abstand vor den Unterschriftsfeldern
@@ -579,9 +579,9 @@ class BauherrFormService:
         half = col + max(1, (end_col - col) // 2)
 
         lbl_date = ws.cell(row=row, column=col, value="Ort, Datum:")
-        lbl_date.font = Font(name="Arial", size=9, color="546E7A")
+        lbl_date.font = Font(name="Inter", size=9, color="546E7A")
         lbl_sig = ws.cell(row=row, column=half, value="Unterschrift Bauherr:")
-        lbl_sig.font = Font(name="Arial", size=9, color="546E7A")
+        lbl_sig.font = Font(name="Inter", size=9, color="546E7A")
         ws.row_dimensions[row].height = 14
         row += 1
 
@@ -594,6 +594,23 @@ class BauherrFormService:
         return row + 2
 
     # ── Formular generieren ────────────────────────────────────────────────────
+
+    def _floor_by_room(self) -> dict[str, str]:
+        """room.id -> Stockwerk-Kürzel, nur für Räume, deren Nummer im
+        Projekt mehrfach vorkommt (Import: "00" in OG, EG und DG). Wizard-
+        Raumnummern wie "E01" enthalten das Stockwerk bereits."""
+        pairs = [
+            (room, floor.short_code or floor.name)
+            for building in self.project.areal.buildings
+            for wing in building.wings
+            for floor in wing.floors
+            for apt in floor.apartments
+            for room in apt.rooms
+        ]
+        counts: dict[str, int] = {}
+        for room, _floor in pairs:
+            counts[room.number] = counts.get(room.number, 0) + 1
+        return {room.id: floor for room, floor in pairs if counts[room.number] > 1}
 
     def generate_form(self, filepath: str):
         """Erzeugt ein Excel-Formular pro Raum für den Bauherren (FA-1501)."""
@@ -621,6 +638,7 @@ class BauherrFormService:
         excel.add_empty_row()
 
         rooms = sorted_rooms(self.project.areal)
+        floors = self._floor_by_room()
         headers = ["Raum-Nr.", "Raumname", "Bedienelemente", "Gewerke"]
         rows = []
         for room in rooms:
@@ -628,11 +646,10 @@ class BauherrFormService:
                 self._gewerk_label(ga.gewerk_code)
                 for ga in room.gewerk_assignments
             )
-            active_bes = [be for be in room.bedienelemente if not be.suppressed]
             rows.append([
-                room.number,
+                " ".join(p for p in (floors.get(room.id, ""), room.number) if p),
                 room.name,
-                str(len(active_bes)),
+                str(len(_form_elements(room, self.project.topology.is_imported))),
                 gewerke or "–",
             ])
         excel.add_table(headers, rows, col_widths=[12, 25, 16, 60])
@@ -644,15 +661,11 @@ class BauherrFormService:
 
         # ── Pro Raum ein eigenes Blatt ─────────────────────────────────────
         for room in rooms:
-            active_bes = [be for be in room.bedienelemente if not be.suppressed]
+            active_bes = _form_elements(room, self.project.topology.is_imported)
             if not active_bes:
                 continue
 
-            raw = f"{room.number} {room.name}"
-            for ch in r'\/?*[]':
-                raw = raw.replace(ch, "-")
-            raw = raw.replace(":", "-")
-            sheet_name = raw[:31]
+            sheet_name = _sheet_name(floors.get(room.id, ""), room)
             excel.add_sheet(sheet_name)
             ws = excel._current_sheet
 
@@ -660,8 +673,9 @@ class BauherrFormService:
             from openpyxl.styles import Font as OFont, PatternFill as OFill, Alignment as OAlign
             ws.merge_cells("A1:L1")
             title_cell = ws["A1"]
-            title_cell.value = f"Raum {room.number}:  {room.name}"
-            title_cell.font = OFont(name="Arial", bold=True, size=14,
+            floor_prefix = f"{floors[room.id]}  ·  " if floors.get(room.id) else ""
+            title_cell.value = f"{floor_prefix}Raum {room.number}:  {room.name}"
+            title_cell.font = OFont(name="Inter", bold=True, size=14,
                                     color="FFFFFF")
             title_cell.fill = OFill(start_color="3A6B19", end_color="3A6B19",
                                     fill_type="solid")
@@ -677,7 +691,7 @@ class BauherrFormService:
                 f"Datum: {datetime.now().strftime('%d.%m.%Y')}   |   "
                 f"KNX Arranger"
             )
-            info.font = OFont(name="Arial", size=9, color="555555", italic=True)
+            info.font = OFont(name="Inter", size=9, color="555555", italic=True)
             ws.row_dimensions[2].height = 14
             current_row = 4
 
@@ -685,7 +699,7 @@ class BauherrFormService:
             if room.gewerk_assignments:
                 ws.cell(row=current_row, column=1,
                         value="Installierte Gewerke:").font = OFont(
-                    name="Arial", bold=True, size=10, color="1A5276"
+                    name="Inter", bold=True, size=10, color="1A5276"
                 )
                 current_row += 1
                 for ga in room.gewerk_assignments:
@@ -693,13 +707,13 @@ class BauherrFormService:
                     name = gewerk.name if gewerk else ""
                     ws.cell(row=current_row, column=1,
                             value=f"  {ga.gewerk_code}  –  {name}  ×{ga.count}"
-                            ).font = OFont(name="Arial", size=9)
+                            ).font = OFont(name="Inter", size=9)
                     current_row += 1
                 current_row += 1
 
             ws.cell(row=current_row, column=1,
                     value="Tastenbelegung:").font = OFont(
-                name="Arial", bold=True, size=10, color="1A5276"
+                name="Inter", bold=True, size=10, color="1A5276"
             )
             current_row += 1
 
@@ -715,7 +729,7 @@ class BauherrFormService:
                     "Ihre gewünschte Funktion aus der Liste."
                 )
             )
-            hint.font = OFont(name="Arial", size=9, italic=True, color="E65100")
+            hint.font = OFont(name="Inter", size=9, italic=True, color="E65100")
             hint.fill = OFill(start_color="FFF8E1", end_color="FFF8E1",
                               fill_type="solid")
             ws.row_dimensions[current_row].height = 14
@@ -782,6 +796,10 @@ class BauherrFormService:
         rooms_by_number: dict[str, Room] = {
             r.number: r for r in self.project.all_rooms
         }
+        floors = self._floor_by_room()
+        rooms_by_sheet: dict[str, Room] = {
+            _sheet_name(floors.get(r.id, ""), r): r for r in self.project.all_rooms
+        }
         imported_count = 0
         _HDR_SKIP = ("anmerkung", "legende", "raum", "projekt")
         _T_RE = re.compile(r'^T(\d+)\s{1,3}(.*)$')
@@ -819,14 +837,21 @@ class BauherrFormService:
                 continue
 
             ws = wb[sheet_name]
-            room_number = (sheet_name.split(" ")[0]
-                           if " " in sheet_name else sheet_name)
-            room = rooms_by_number.get(room_number)
+            # Neue Formulare: "OG 00 Halle" (Raumnummern sind nur je
+            # Stockwerk eindeutig); ältere: "00 Halle" -> über die Nummer
+            room = rooms_by_sheet.get(sheet_name)
+            if room is None:
+                room_number = (sheet_name.split(" ")[0]
+                               if " " in sheet_name else sheet_name)
+                room = rooms_by_number.get(room_number)
             if not room:
                 continue
 
-            active_bes = [be for be in room.bedienelemente if not be.suppressed]
+            active_bes = _form_elements(room, self.project.topology.is_imported)
+            by_address = {be.participant_number: be for be in active_bes
+                          if be.participant_number}
             device_idx = -1
+            current_be = None
 
             for row_cells in ws.iter_rows(min_row=1, values_only=False):
                 for cell in row_cells[:2]:   # nur Spalten A+B
@@ -835,21 +860,38 @@ class BauherrFormService:
                         continue
 
                     # Geräte-Header
-                    if (re.search(r'\[.+?\]', v)
-                            and not any(k in v.lower() for k in _HDR_SKIP)):
+                    hdr = re.search(r'\[(.+?)\]', v)
+                    if hdr and not any(k in v.lower() for k in _HDR_SKIP):
                         device_idx += 1
+                        # Gerät über seine Adresse, sonst über die Reihenfolge
+                        current_be = by_address.get(hdr.group(1).strip()) or (
+                            active_bes[device_idx] if device_idx < len(active_bes) else None)
                         break
 
                     # Taster-Zelle: "T3  Jalousie"
                     m = _T_RE.match(v)
-                    if m and 0 <= device_idx < len(active_bes):
+                    if m and current_be is not None:
                         sf_idx = int(m.group(1)) - 1
                         fn_val = m.group(2).strip()
-                        _apply(active_bes[device_idx], sf_idx, fn_val)
+                        _apply(current_be, sf_idx, fn_val)
 
         wb.close()
         logger.info(f"Bauherr-Formular importiert: {imported_count} Änderungen")
         return imported_count
+
+
+def _form_elements(room: Room, imported: bool = False) -> list[Bedienelement]:
+    """Bedienelemente des Raums, die der Bauherr bedient (keine Sensoren,
+    in importierten Projekten keine Vorschläge ohne Adresse)."""
+    return [be for be in room.bedienelemente if be.is_shown(imported) and be.is_operable]
+
+
+def _sheet_name(floor: str, room: Room) -> str:
+    """Excel-Blattname "OG 00 Halle" (max. 31 Zeichen, ohne Sonderzeichen)."""
+    raw = " ".join(p for p in (floor, room.number, room.name) if p)
+    for ch in r'\/?*[]:':
+        raw = raw.replace(ch, "-")
+    return raw[:31]
 
 
 def _get_button_count(sensor_type: str) -> int:

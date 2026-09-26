@@ -17,7 +17,10 @@ from ..utils.rtf import rtf_to_text
 from ..models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
-from ..models.topology import Topology, Area, Line, Device, CommunicationObject
+from ..models.topology import (
+    Topology, Area, Line, Device, CommunicationObject, is_power_supply_product,
+    is_presence_detector_product, PRESENCE_DETECTOR_FAMILIES,
+)
 from ..models.building import Areal, Building, Wing, Floor, Apartment, Room, Verteiler, Bedienelement
 
 logger = logging.getLogger("knix_arranger.knxproj_import")
@@ -686,6 +689,7 @@ class KnxprojImportService:
             "sensor", "button", "taster", "push", "presence", "präsenz",
             "temperature", "temperatur", "weather", "wetter", "detector",
             "bewegungsmelder", "raumthermostat", "thermostat",
+            *PRESENCE_DETECTOR_FAMILIES,
         )
         actor_kw = (
             "actuator", "aktor", "switch act", "schaltakt", "dimm",
@@ -1072,7 +1076,8 @@ class KnxprojImportService:
         "Wassermelder", weil derselbe Hersteller beide Meldertypen baut).
         """
         nl = product_name.lower()
-        if any(kw in nl for kw in ("präsenz", "praesenz", "presence")):
+        if (any(kw in nl for kw in ("präsenz", "praesenz", "presence"))
+                or is_presence_detector_product(nl)):
             return "Präsenzmelder"
         if any(kw in nl for kw in ("bewegungsmelder", "motion detector", "motion sensor")):
             return "Bewegungsmelder"
@@ -1243,8 +1248,11 @@ class KnxprojImportService:
         import re as _re
         for di in parent.findall("k:DeviceInstance", _NSM):
             xml_id = di.get("Id", "")
-            addr = int(di.get("Address", "0"))
-            phys_addr = f"{area_num}.{line_num}.{addr}"
+            # Geräte ohne Busankopplung (Spannungsversorgung, Drossel) haben
+            # in der ETS keine Adresse – das Attribut fehlt, ETS zeigt "1.1.-".
+            raw_addr = di.get("Address")
+            addr = int(raw_addr) if raw_addr is not None else None
+            phys_addr = f"{area_num}.{line_num}.{'-' if addr is None else addr}"
 
             # Produktinfo aus Hardware-Lookup
             prod_ref = di.get("ProductRefId", "")
@@ -1258,10 +1266,11 @@ class KnxprojImportService:
 
             # Geraetetyp: Koppler/Speisegerät zuerst prüfen (FA-516/FA-517),
             # Aktor/Sensor via Heuristik später (nach CO-Parsing).
-            if addr == 0:
+            if addr is None:
+                dev_type = ("power_supply" if is_power_supply_product(product_name)
+                            else "other")
+            elif addr == 0:
                 dev_type = "coupler"
-            elif addr < 0:
-                dev_type = "power_supply"
             else:
                 dev_type = None  # wird nach CO-Parsing gesetzt
 
@@ -1281,7 +1290,7 @@ class KnxprojImportService:
                 # übertragen und darf nicht automatisch geändert werden.
                 # Speisegeräte (power_supply) haben keine echte Busadresse →
                 # kein is_programmed.
-                is_programmed=(dev_type != "power_supply"),
+                is_programmed=addr is not None,
                 # KNX Secure: in ETS als Secure eingerichtet (<Security>) oder
                 # laut Applikation/Hardware Secure-faehig
                 secure_supported=(

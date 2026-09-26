@@ -25,15 +25,7 @@ _DEVICE_TYPE_LABELS: dict[str, str] = {
     "other":         "Sonstiges",
 }
 
-# Bedienelement-Typen mit echter Nutzerinteraktion (Tasten/Display/Einstellrad).
-# Alle anderen element_types sind reine Melde-/Messgeräte ohne "Bedienung"
-# (z.B. Wassermelder, Fensterkontakt, Temperaturfühler) und werden in der
-# Baumansicht als "Sensor" statt "Bedienelement" ausgewiesen, auch wenn sie
-# intern weiterhin als Bedienelement-Objekt modelliert sind (siehe
-# Bedienelement-Docstring: "Taster, Thermostat, Sensor, ...").
-_INTERACTIVE_ELEMENT_TYPES = {
-    "Tastereinheit", "Präsenzmelder", "Bewegungsmelder", "Raumthermostat",
-}
+# Bedienelemente vs. Sensoren: siehe OPERABLE_ELEMENT_TYPES (models/building.py)
 
 
 class BuildingView(QWidget):
@@ -308,12 +300,8 @@ class BuildingView(QWidget):
                                 if device.physical_address in all_be_participant_numbers:
                                     shown_ids.add(device.id)
 
-                            interactive_bes = [
-                                be for be in active_bes if be.element_type in _INTERACTIVE_ELEMENT_TYPES
-                            ]
-                            passive_bes = [
-                                be for be in active_bes if be.element_type not in _INTERACTIVE_ELEMENT_TYPES
-                            ]
+                            interactive_bes = [be for be in active_bes if be.is_operable]
+                            passive_bes = [be for be in active_bes if not be.is_operable]
                             dev_count = topo_total if topo_total else room.total_devices()
                             gewerke      = len(room.gewerk_assignments)
                             room_label   = room.name if not room.number else f"{room.number} – {room.name}"
@@ -358,8 +346,7 @@ class BuildingView(QWidget):
                             for be in active_bes:
                                 ch_info = f"{be.channels}-Kanal"
                                 row_type = (
-                                    "Bedienelement" if be.element_type in _INTERACTIVE_ELEMENT_TYPES
-                                    else "Sensor"
+                                    "Bedienelement" if be.is_operable else "Sensor"
                                 )
                                 be_item = QTreeWidgetItem(
                                     room_item,

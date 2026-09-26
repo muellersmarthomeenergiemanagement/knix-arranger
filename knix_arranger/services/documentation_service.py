@@ -735,7 +735,7 @@ class DocumentationService:
         # 4. Bedienelemente-Bericht
         path = os.path.join(output_dir, f"{prefix}_Bedienelemente.pdf")
         report_svc.generate_bedienelemente_report(path)
-        generated_files.append(("Bedienelemente", path))
+        generated_files.append(("Bedienelemente und Sensoren", path))
 
         # 4b. Aktoren und Gateways
         path = os.path.join(output_dir, f"{prefix}_Aktoren_Gateways.pdf")
@@ -767,7 +767,7 @@ class DocumentationService:
         # 5. Validierungsbericht
         path = os.path.join(output_dir, f"{prefix}_Validierung.pdf")
         report_svc.generate_validation_report(path)
-        generated_files.append(("Validierungsbericht", path))
+        generated_files.append(("Validierungsbericht Gruppenadressen", path))
 
         # 6. Inbetriebnahme-Checklisten
         checklists = self.create_checklists()

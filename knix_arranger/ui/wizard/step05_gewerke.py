@@ -100,6 +100,13 @@ class Step05Gewerke(QWidget):
         self._btn_suggest_gewerke = QPushButton("Gewerke aus Topologie vorschlagen…")
         self._btn_suggest_gewerke.clicked.connect(self._suggest_gewerke)
         auto_detect_layout.addWidget(self._btn_suggest_gewerke)
+        self._btn_counts_from_topology = QPushButton("Anzahlen aus Topologie übernehmen…")
+        self._btn_counts_from_topology.setToolTip(
+            "Setzt die Anzahl je Raum und Gewerk auf die tatsächlich von Aktoren "
+            "und Gateways gesteuerten Elemente (aus den verbundenen GAs)."
+        )
+        self._btn_counts_from_topology.clicked.connect(self._apply_counts_from_topology)
+        auto_detect_layout.addWidget(self._btn_counts_from_topology)
         self._auto_detect_group.set_body_layout(auto_detect_layout)
         self._auto_detect_group.hide()
         layout.addWidget(self._auto_detect_group)
@@ -989,6 +996,54 @@ class Step05Gewerke(QWidget):
         if warnings:
             text += "\n\n" + "\n".join(warnings)
         QMessageBox.information(self, "Gewerke übernommen", text)
+
+    def _apply_counts_from_topology(self):
+        """Gewerk-Anzahlen aus den gesteuerten Elementen der Topologie
+        übernehmen (siehe channel_count_service). Zeigt die Änderungen vor
+        dem Übernehmen; bestehende Zuweisungen bleiben erhalten, nur die
+        Anzahlen ändern sich."""
+        from ...services.channel_count_service import (
+            count_controlled_elements, apply_element_counts,
+        )
+        counts = count_controlled_elements(self._project)
+        if not counts:
+            QMessageBox.information(
+                self, "Keine Daten",
+                "In der Topologie sind keine Aktoren mit auswertbaren "
+                "Gruppenadressen verbunden.")
+            return
+        changes = apply_element_counts(self._project.areal, counts, dry_run=True)
+        missing = [
+            f"{room}: " + ", ".join(f"{code} {n}" for code, n in sorted(c.items()))
+            for room, c in sorted(counts.missing_rooms.items())
+        ]
+        missing_text = (
+            "\n\nDiese Räume fehlen in der Gebäudestruktur (Schritt 3), ihre "
+            "Elemente können nicht zugeordnet werden:\n" + "\n".join(missing)
+        ) if missing else ""
+        if not changes:
+            QMessageBox.information(
+                self, "Keine Änderungen",
+                "Die Anzahlen stimmen bereits mit der Topologie überein." + missing_text)
+            return
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle("Anzahlen aus Topologie übernehmen")
+        box.setText(
+            f"{len(changes)} Anzahlen weichen von den gesteuerten Elementen "
+            f"der Topologie ab. Übernehmen?")
+        box.setInformativeText(
+            "Manuelle Anpassungen dieser Gewerke werden überschrieben. "
+            "Verknüpfungen, Produkte und Tastereinheiten bestehender "
+            "Zuweisungen bleiben erhalten." + missing_text)
+        box.setDetailedText("\n".join(changes))
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
+        box.setDefaultButton(QMessageBox.Cancel)
+        if box.exec() != QMessageBox.Yes:
+            return
+        apply_element_counts(self._project.areal, counts)
+        self._refresh_table()
 
     # ── Vorlage anwenden ──
 

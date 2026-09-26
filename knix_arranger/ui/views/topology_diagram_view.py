@@ -377,15 +377,17 @@ class TopologyDiagramView(QWidget):
             page_w = max(595, w + 80)
             page_h = max(420, h + 100)
             page = doc.new_page(width=page_w, height=page_h)
+            from ...utils.fonts import register_fonts, font_name
+            register_fonts(page)
 
             # Titel
             page.insert_text(fitz.Point(30, 30),
                              f"KNX-Topologie: {self._project.name}",
-                             fontsize=14, fontname="helv-bo")
+                             fontsize=14, fontname=font_name(bold=True))
             page.insert_text(fitz.Point(30, 48),
                              f"Bereiche: {len(self._project.topology.areas)}  |  "
                              f"Linien: {sum(len(a.lines) for a in self._project.topology.areas)}",
-                             fontsize=9, fontname="helv")
+                             fontsize=9, fontname=font_name())
 
             # Diagramm-Bild
             img_rect = fitz.Rect(30, 60, 30 + w, 60 + h)

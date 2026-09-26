@@ -28,8 +28,9 @@ def test_rooms_in_building_order():
 
 
 def test_address_keys_numeric_and_invalid_last():
+    # "1.1.-" (Gerät ohne Adresse, z.B. Spannungsversorgung) am Anfang seiner Linie
     addrs = ["1.1.10", "", "1.1.9", "1.2.1", "1.1.-"]
-    assert sorted(addrs, key=physical_address_key) == ["1.1.9", "1.1.10", "1.2.1", "", "1.1.-"]
+    assert sorted(addrs, key=physical_address_key) == ["1.1.-", "1.1.9", "1.1.10", "1.2.1", ""]
     gas = ["2/0/10", "2/0/9", "", "1/7/255"]
     assert sorted(gas, key=group_address_key) == ["1/7/255", "2/0/9", "2/0/10", ""]
 

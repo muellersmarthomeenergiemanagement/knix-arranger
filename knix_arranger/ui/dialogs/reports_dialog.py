@@ -58,7 +58,7 @@ class ReportsDialog(QDialog):
         reports_layout = QGridLayout()
 
         buttons = [
-            ("Validierungsbericht", "Prüfergebnis aller GA-Regeln als PDF",
+            ("Validierungsbericht Gruppenadressen", "Prüfergebnis aller GA-Regeln als PDF",
              self._gen_validation),
             ("GA-Übersicht", "Alle Gruppenadressen mit Details als PDF",
              self._gen_ga_report),
@@ -66,7 +66,7 @@ class ReportsDialog(QDialog):
              self._gen_summary),
             ("Topologie-Bericht", "Bereiche, Linien und Geräte als PDF",
              self._gen_topology),
-            ("Bedienelemente", "Taster/Sensoren mit GA-Zuordnung als PDF",
+            ("Bedienelemente und Sensoren", "Nach Raum: Taster mit Tastenplan, Sensoren, GA-Zuordnung",
              self._gen_bedienelemente),
             ("Aktoren und Gateways", "Aktor-/Gateway-Gerätekarten mit KOs als PDF",
              self._gen_aktoren_gateways),
@@ -194,7 +194,7 @@ class ReportsDialog(QDialog):
 
     def _gen_validation(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "Validierungsbericht speichern",
+            self, "Validierungsbericht Gruppenadressen speichern",
             self._default_export_path(f"{self._project.name}_Validierung.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
         )
@@ -445,7 +445,7 @@ class ReportsDialog(QDialog):
 
     def _gen_bedienelemente(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "Bedienelemente-Bericht speichern",
+            self, "Bericht Bedienelemente und Sensoren speichern",
             self._default_export_path(f"{self._project.name}_Bedienelemente.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
         )

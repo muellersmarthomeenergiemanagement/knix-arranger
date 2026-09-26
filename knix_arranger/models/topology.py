@@ -5,6 +5,7 @@ Gemaess FA-200, FA-221-223
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
+import re
 import uuid
 
 from ..utils.manufacturers import canonical_manufacturer
@@ -328,6 +329,51 @@ class Area:
         return a
 
 
+_POWER_SUPPLY_RE = re.compile(
+    r"power supply|spannungsversorgung|speiseger|netzteil|\bSV/", re.IGNORECASE)
+
+
+# Präsenzmelder-Produktfamilien ohne "präsenz"/"presence" im Namen
+PRESENCE_DETECTOR_FAMILIES = ("thepixa", "theprema", "theronda", "planocentro")
+
+
+def is_presence_detector_product(product: str) -> bool:
+    name = (product or "").lower()
+    return any(f in name for f in PRESENCE_DETECTOR_FAMILIES)
+
+
+def is_power_supply_product(product: str) -> bool:
+    """Produktname einer KNX-Spannungsversorgung (z.B. 'SV/S30.640.3.1 Power Supply')."""
+    return bool(_POWER_SUPPLY_RE.search(product or ""))
+
+
+def _fix_imported_power_supplies(areas: list) -> None:
+    """Ältere knxproj-Importe gaben Geräten ohne ETS-Adresse (Spannungs-
+    versorgungen) die Teilnehmernummer 0 und den Typ Koppler, z.B. '1.1.0'
+    statt '1.1.-'. Korrigiert beim Laden, was eindeutig darauf passt:
+    Adresse B.L.0, keine Kommunikationsobjekte, Produkt ist eine SV."""
+    for area in areas:
+        for line in area.lines:
+            for dev in line.devices:
+                if (dev.physical_address.endswith(".0")
+                        and not dev.communication_objects
+                        and dev.device_type in ("coupler", "other", "power_supply")
+                        and is_power_supply_product(dev.product)):
+                    dev.physical_address = f"{area.area_number}.{line.line_number}.-"
+                    dev.device_type = "power_supply"
+                    dev.is_programmed = False
+
+
+def _fix_imported_presence_detectors(areas: list) -> None:
+    """Ältere Importe stuften Präsenzmelder wie den Theben thePixa P360
+    mangels Schlüsselwort als "other" ein – sie sind Sensoren."""
+    for area in areas:
+        for line in area.lines:
+            for dev in line.devices:
+                if dev.device_type == "other" and is_presence_detector_product(dev.product):
+                    dev.device_type = "sensor"
+
+
 @dataclass
 class Topology:
     """Gesamte KNX-Topologie eines Projekts."""
@@ -368,4 +414,6 @@ class Topology:
             is_imported=data.get("is_imported", False),
         )
         t.areas = [Area.from_dict(a) for a in data.get("areas", [])]
+        _fix_imported_power_supplies(t.areas)
+        _fix_imported_presence_detectors(t.areas)
         return t

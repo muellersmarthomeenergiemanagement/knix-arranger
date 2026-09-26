@@ -15,8 +15,10 @@ _NUMBER_RE = re.compile(r"\d+")
 
 
 def physical_address_key(address: str) -> tuple:
+    """Numerisch sortieren; "1.1.-" (Gerät ohne Adresse, z.B. Spannungs-
+    versorgung) steht am Anfang seiner Linie."""
     try:
-        return (0, tuple(int(p) for p in (address or "").split(".")))
+        return (0, tuple(-1 if p == "-" else int(p) for p in (address or "").split(".")))
     except ValueError:
         return (1, ())
 

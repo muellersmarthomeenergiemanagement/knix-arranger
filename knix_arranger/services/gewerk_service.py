@@ -27,9 +27,10 @@ _GA_DIGIT_DESIGNATOR_RE = re.compile(
 )
 # Kombinierte/Bereichs-Adressierung direkt nach der Element-Nr., z.B.
 # "L.OG.05.02+04_ea" (zwei Elemente auf einer GA) oder "J.DG.01.01-03_move"
-# (Bereich). Solche GAs steuern mehrere Elemente gleichzeitig -- als
+# (Bereich), auch mit wiederholtem vollem Namen "H.EG.02.01+H.EG.03.01_ea".
+# Solche GAs steuern mehrere Elemente gleichzeitig -- als
 # Einzelelement gezaehlt wuerden sie die Kanalzahl verfaelschen.
-_COMBINED_TAIL_RE = re.compile(r"^[+-]\d")
+_COMBINED_TAIL_RE = re.compile(r"^[+-](\d|[A-Z]{1,4}\.)")
 
 
 def _com_object_needs_ga(co: dict) -> bool:
