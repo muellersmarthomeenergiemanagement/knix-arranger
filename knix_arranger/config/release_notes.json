@@ -2,6 +2,32 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.22",
+      "date": "2026-09-27",
+      "neu": [
+        "Bericht «Bedienelemente und Sensoren» (bisher «Bedienelemente»): nach Stockwerk und Raum gegliedert, jeder Raum auf einer neuen Seite. Seite 1 ist ein Wegweiser mit Seitenzahlen. Jeder Taster erhält einen Tastenplan wie an der Wand, beschriftet mit Gewerk oder Szene, und eine Zeile je Taste mit allen Gruppenadressen und der LED-Rückmeldung. Sensoren des Raums folgen kompakt darunter.",
+        "Topologie-Bericht: Prinzipschema mit Bereichen und Linien inkl. Auslastung, Kennzahlen je Linie, Geräteliste je Linie mit nur vier Spalten (Hersteller, Bestell- und Seriennummer als zweite Zeile) und neu eine Geräteliste je Einbauort – Verteiler zuerst.",
+        "Wizard Schritt 5: «Anzahl aus Topologie übernehmen…» setzt die Anzahl je Raum und Gewerk auf die tatsächlich von Aktoren gesteuerten Elemente. Vor dem Übernehmen werden alle Änderungen angezeigt; Verknüpfungen, Produkte und Tastereinheiten bleiben erhalten.",
+        "Alle PDF-Berichte haben Lesezeichen (Navigation im PDF-Viewer) nach Abschnitten, im Bedienelemente-Bericht nach Stockwerk, Raum und Gerät."
+      ],
+      "verbessert": [
+        "Alle Dokumente in der Firmenschrift Inter: PDF-Berichte, Offerte, Topologie-Export und Excel-Berichte. Die Schrift wird mitgeliefert und muss nicht installiert sein.",
+        "Einheitliches Berichtslayout: farbiger Balken je Abschnitt, auf Folgeseiten der Abschnittstitel mit «(Fortsetzung)», feste Spaltenbreiten und Zeilenumbruch an Wortgrenzen statt abgeschnittener Texte.",
+        "Validierungsbericht Gruppenadressen: je Stufe und Regel gegliedert, mit Bedeutung und Massnahme je Regel und passenden Spalten. Fehlt ein Datenpunkttyp, wird er aus der Bezeichnung vorgeschlagen (z. B. «_ea» → 1.001, «Temp» → 9.001). Lücken im Adressblock sind nur noch Hinweise; betreffen Bezeichnungs-Hinweise mehr als die Hälfte aller GAs, erscheinen 20 Beispiele statt einer langen Liste.",
+        "Projektzusammenfassung: Bei importierten Projekten zählt die Gewerke-Übersicht die von Aktoren und Gateways gesteuerten Elemente – reine Temperaturfühler oder GAs ohne Aktor zählen nicht mehr mit.",
+        "Bedienelemente und Sensoren werden überall gleich unterschieden: Bedienelemente sind, was der Bauherr bedient (Taster, Raumthermostat); Präsenz-/Bewegungsmelder, Wasser- und Rauchmelder usw. sind Sensoren – auch in der Gebäude-Ansicht.",
+        "Bauherr-Formular: enthält nur noch Bedienelemente. Kommt eine Raumnummer auf mehreren Stockwerken vor, steht das Stockwerk im Blattnamen (z. B. «OG 00 Halle»). Beim Einlesen werden Raum und Taster eindeutig zugeordnet.",
+        "Theben thePixa, thePrema, theRonda und PlanoCentro werden beim ETS-Import als Präsenzmelder erkannt."
+      ],
+      "behoben": [
+        "ETS-Import: Spannungsversorgungen erhielten die Adresse «1.1.0» und galten als Koppler – teils doppelt mit dem echten Linienkoppler. Sie erhalten jetzt «1.1.-» wie in der ETS; bestehende Projekte werden beim Öffnen korrigiert.",
+        "Topologie-Bericht: Für jede Linie wurde ein Koppler «x.y.0» angezeigt, auch wenn keiner vorhanden ist.",
+        "GA-Übersicht: Die Zentraladressen wurden bei importierten Projekten mit 0 angegeben.",
+        "Bauherr-Formular: Bei gleichen Raumnummern auf mehreren Stockwerken («00» in OG, EG, DG) konnten eingelesene Wünsche im falschen Raum landen.",
+        "Kombinierte Gruppenadressen wie «H.EG.02.01+H.EG.03.01» wurden bei der Gewerk-Ableitung als eigenes Element gezählt."
+      ]
+    },
+    {
       "version": "1.1.21",
       "date": "2026-09-25",
       "neu": [

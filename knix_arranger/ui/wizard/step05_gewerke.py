@@ -100,7 +100,7 @@ class Step05Gewerke(QWidget):
         self._btn_suggest_gewerke = QPushButton("Gewerke aus Topologie vorschlagen…")
         self._btn_suggest_gewerke.clicked.connect(self._suggest_gewerke)
         auto_detect_layout.addWidget(self._btn_suggest_gewerke)
-        self._btn_counts_from_topology = QPushButton("Anzahlen aus Topologie übernehmen…")
+        self._btn_counts_from_topology = QPushButton("Anzahl aus Topologie übernehmen…")
         self._btn_counts_from_topology.setToolTip(
             "Setzt die Anzahl je Raum und Gewerk auf die tatsächlich von Aktoren "
             "und Gateways gesteuerten Elemente (aus den verbundenen GAs)."
@@ -1029,7 +1029,7 @@ class Step05Gewerke(QWidget):
 
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Question)
-        box.setWindowTitle("Anzahlen aus Topologie übernehmen")
+        box.setWindowTitle("Anzahl aus Topologie übernehmen")
         box.setText(
             f"{len(changes)} Anzahlen weichen von den gesteuerten Elementen "
             f"der Topologie ab. Übernehmen?")
