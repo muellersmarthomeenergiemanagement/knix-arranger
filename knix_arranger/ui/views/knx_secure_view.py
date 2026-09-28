@@ -45,6 +45,37 @@ _COL_GA_SEC   = 3
 _GA_COLS = 4
 
 
+def set_new_master_password(parent, cfg: KnxSecureConfig) -> bool:
+    """Fragt ein neues Master-Passwort ab (mit Bestätigung) und setzt es für
+    das noch nie verschlüsselte Archiv. False bei Abbruch oder Abweichung.
+    Auch vom ETS-Import genutzt, damit FDSK und Projektpasswort nie im
+    Klartext im Projekt landen."""
+    pw1, ok1 = QInputDialog.getText(
+        parent, "Master-Passwort festlegen",
+        "Neues Master-Passwort für dieses KNX-Secure-Archiv:",
+        QLineEdit.Password,
+    )
+    if not ok1 or not pw1:
+        return False
+    pw2, ok2 = QInputDialog.getText(
+        parent, "Master-Passwort bestätigen",
+        "Master-Passwort wiederholen:",
+        QLineEdit.Password,
+    )
+    if not ok2 or pw1 != pw2:
+        QMessageBox.warning(parent, "Nicht übereinstimmend",
+                            "Die eingegebenen Passwörter stimmen nicht überein.")
+        return False
+    QMessageBox.information(
+        parent, "Master-Passwort gesetzt",
+        "Das Master-Passwort wird NICHT im Projekt gespeichert.\n\n"
+        "Bewahren Sie es getrennt vom Projekt auf (z. B. Passwort-Manager). "
+        "Geht es verloren, sind die archivierten Werte nicht wiederherstellbar."
+    )
+    KnxSecureService.unlock(cfg, pw1)
+    return True
+
+
 class KnxSecureView(QWidget):
     """Hauptansicht für das KNX-Secure-Archiv (FA-2701)."""
 
@@ -200,29 +231,8 @@ class KnxSecureView(QWidget):
             return True
 
         # Noch nie verschlüsselt -- neues Master-Passwort festlegen
-        pw1, ok1 = QInputDialog.getText(
-            self, "Master-Passwort festlegen",
-            "Neues Master-Passwort für dieses KNX-Secure-Archiv:",
-            QLineEdit.Password,
-        )
-        if not ok1 or not pw1:
+        if not set_new_master_password(self, cfg):
             return False
-        pw2, ok2 = QInputDialog.getText(
-            self, "Master-Passwort bestätigen",
-            "Master-Passwort wiederholen:",
-            QLineEdit.Password,
-        )
-        if not ok2 or pw1 != pw2:
-            QMessageBox.warning(self, "Nicht übereinstimmend",
-                                "Die eingegebenen Passwörter stimmen nicht überein.")
-            return False
-        QMessageBox.information(
-            self, "Master-Passwort gesetzt",
-            "Das Master-Passwort wird NICHT im Projekt gespeichert.\n\n"
-            "Bewahren Sie es getrennt vom Projekt auf (z. B. Passwort-Manager). "
-            "Geht es verloren, sind die archivierten Werte nicht wiederherstellbar."
-        )
-        KnxSecureService.unlock(cfg, pw1)
         self._update_lock_status()
         return True
 

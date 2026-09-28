@@ -119,6 +119,17 @@ class KnxSecureConfig:
         Sitzung noch kein gültiges Passwort eingegeben wurde."""
         return self._locked_blob is not None
 
+    @property
+    def has_plaintext_secrets(self) -> bool:
+        """True wenn FDSK, ETS6-Projektpasswort oder Notiz vorhanden sind, aber
+        kein Master-Passwort gesetzt ist -- sie würden im Klartext gespeichert."""
+        if self.is_locked or self._session_password:
+            return False
+        return bool(
+            self.ets_project_password or self.ets_password_note
+            or any(info.fdsk for info in self.device_infos.values())
+        )
+
     def to_dict(self) -> dict:
         return {
             "enabled": self.enabled,

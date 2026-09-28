@@ -129,6 +129,10 @@ class KnxProject:
     # damit eine einmal in Schritt 3b vorgenommene Zuordnung Re-Importe
     # übersteht.
     verteiler_room_overrides: dict[str, list[str]] = field(default_factory=dict)
+    # Zuletzt importierte ETS-Excel-Reports: {"topology_xlsx"|"ga_report"|
+    # "building_report": Pfad}. Jeder Import zieht die übrigen nach (siehe
+    # ImportPipeline) -- gehört zum Projekt, nicht zur Sitzung.
+    import_files: dict[str, str] = field(default_factory=dict)
 
     # Nicht serialisiert - wird zur Laufzeit geladen
     _gewerk_catalog: Optional[GewerkCatalog] = field(
@@ -176,8 +180,20 @@ class KnxProject:
         """Fügt einen Eintrag zum Änderungsprotokoll hinzu (siehe ChangelogEntry)."""
         self.changelog.append(ChangelogEntry(category=category, message=message))
 
-    def to_dict(self) -> dict:
-        """Serialisiert das Projekt als Dictionary."""
+    def content_fingerprint(self) -> str:
+        """Prüfsumme des Inhalts ohne Änderungsdatum. Erkennt ungespeicherte
+        Änderungen auch dort, wo eine Ansicht sie nicht meldet (siehe
+        MainWindow.closeEvent). Nur die Prüfsumme bleibt im Speicher."""
+        import hashlib
+        data = self.to_dict(_plain_secure=True)
+        data.pop("modified", None)
+        text = json.dumps(data, sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def to_dict(self, _plain_secure: bool = False) -> dict:
+        """Serialisiert das Projekt als Dictionary. _plain_secure: KNX Secure
+        unverschlüsselt (nur für content_fingerprint -- die Verschlüsselung
+        verwendet jedes Mal ein neues Salt)."""
         data = {
             "id": self.id,
             "name": self.name,
@@ -208,6 +224,7 @@ class KnxProject:
         # Benutzerdefinierte Gewerke
         data["custom_gewerke"] = self.custom_gewerke
         data["verteiler_room_overrides"] = self.verteiler_room_overrides
+        data["import_files"] = self.import_files
         # KNX Secure: sensible Felder (FDSK/ETS6-Projektpasswort/Notiz)
         # passwortbasiert verschlüsselt speichern (FA-2706).
         ks = self.knx_secure
@@ -215,7 +232,7 @@ class KnxProject:
             # In dieser Sitzung nie entsperrt -> bestehendes Archiv unveraendert
             # zurueckschreiben, damit es nicht verloren geht.
             data["knx_secure"] = ks._locked_blob
-        elif ks._session_password:
+        elif ks._session_password and not _plain_secure:
             from ..services.knx_secure_service import KnxSecureService
             data["knx_secure"] = KnxSecureService.encrypt_config(
                 ks, ks._session_password
@@ -280,6 +297,7 @@ class KnxProject:
         ]
         project.custom_gewerke = data.get("custom_gewerke", [])
         project.verteiler_room_overrides = data.get("verteiler_room_overrides", {})
+        project.import_files = data.get("import_files", {})
         # KNX Secure laden: unverschlüsselte Felder sofort verfügbar; falls ein
         # verschlüsseltes Archiv (secure_blob) vorhanden ist, bleibt dieses
         # gesperrt, bis in der UI das Master-Passwort eingegeben wird
@@ -306,6 +324,11 @@ class KnxProject:
 
         conn = sqlite3.connect(filepath)
         try:
+            # SQLite behält überschriebene Stände im freien Speicher der Datei
+            # -- darin standen z.B. FDSK-Schlüssel, bevor das Secure-Archiv
+            # verschlüsselt wurde. secure_delete nullt freigegebene Seiten,
+            # VACUUM (nach dem Commit) entfernt sie aus der Datei.
+            conn.execute("PRAGMA secure_delete = ON")
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS project "
                 "(key TEXT PRIMARY KEY, value TEXT)"
@@ -319,6 +342,7 @@ class KnxProject:
                 ("project_data", self.to_json()),
             )
             conn.commit()
+            conn.execute("VACUUM")
         finally:
             conn.close()
 

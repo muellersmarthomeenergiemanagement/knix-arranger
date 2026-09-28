@@ -488,6 +488,12 @@ class SensorService:
                 if sbe.element_type not in handled_suppressed_types:
                     room.bedienelemente.append(sbe)
 
+            # Importierte Geräte, die keiner Gewerk-Gruppe zugeordnet wurden,
+            # sind trotzdem real vorhanden -- nicht verwerfen (Chalet
+            # Bibliothek: zwei Taster, eine Gewerk-Gruppe -> 1.1.52 fehlte)
+            for leftover in _import_queue.values():
+                room.bedienelemente.extend(be for be in leftover if be.participant_number)
+
             # Keine Gewerke → import-erzeugte Bedienelemente wiederherstellen
             if not room.bedienelemente and saved_import_bes:
                 room.bedienelemente.extend(saved_import_bes)

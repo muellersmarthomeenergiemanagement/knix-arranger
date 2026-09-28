@@ -127,6 +127,24 @@ class TestSensorDetermination:
         assert room.bedienelemente[0].suppressed is True
         assert room.bedienelemente[0].participant_number == "1.1.2"
 
+    def test_imported_devices_beyond_gewerk_groups_are_kept(self):
+        """Zwei importierte Taster, aber nur eine Gewerk-Gruppe im Raum: der
+        zweite darf bei der Neuberechnung nicht verschwinden (Chalet
+        Bibliothek 1.1.40/1.1.52)."""
+        from knix_arranger.models.group_address import GroupAddressStructure
+        from knix_arranger.models.building import Bedienelement
+
+        room = Room(number="02", name="Bibliothek")
+        room.gewerk_assignments = [GewerkAssignment(gewerk_code="L", count=1, taster_indices=[1])]
+        room.bedienelemente = [
+            Bedienelement(element_type="Tastereinheit", participant_number="1.1.40"),
+            Bedienelement(element_type="Tastereinheit", participant_number="1.1.52"),
+        ]
+
+        SensorService().auto_assign_functions([room], GroupAddressStructure())
+
+        assert sorted(be.participant_number for be in room.bedienelemente) == ["1.1.40", "1.1.52"]
+
 
 class TestSensorSuggestion:
     """Tests fuer suggest_sensors."""
