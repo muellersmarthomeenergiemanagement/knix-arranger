@@ -2,6 +2,22 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.24",
+      "date": "2026-09-28",
+      "verbessert": [
+        "KNX Secure: Geräte-Zertifikate (FDSK) und das ETS-Projektpasswort werden nie mehr unverschlüsselt in der Projektdatei oder in Sicherungen abgelegt. Bringt ein ETS-Import solche Schlüssel mit und ist noch kein Master-Passwort gesetzt, fragt die App danach. Ohne Master-Passwort wird das Projekt trotzdem importiert, die Schlüssel aber nicht – eine Meldung sagt, was fehlt und wie es nachgeholt wird.",
+        "KNX Secure: Enthält ein geöffnetes Projekt noch unverschlüsselte Schlüssel, weist die App darauf hin und bietet das Verschlüsseln an. Beim Speichern werden überschriebene Stände vollständig aus der Projektdatei entfernt.",
+        "Alle ETS-Importe (knxproj, Topologie-, Gruppenadressen- und Gebäude-Report) laufen nach demselben Ablauf. Die Reihenfolge der Excel-Importe spielt keine Rolle mehr, und die Pfade der importierten Reports bleiben auch nach einem Neustart beim Projekt. Szenen werden jetzt bei jedem Import erkannt.",
+        "Scheitert beim Import ein einzelner Schritt, zeigt die App am Ende, welcher – statt «Import erfolgreich» zu melden.",
+        "Beim Beenden fragt die App nur noch nach dem Speichern, wenn sich seit dem letzten Speichern etwas geändert hat."
+      ],
+      "behoben": [
+        "Nach dem Öffnen eines anderen Projekts konnte ein Import noch die Excel-Reports des vorherigen Projekts verwenden.",
+        "Bei zwei Tastern in einem Raum konnte einer bei der Neuberechnung der Tastenbelegung verloren gehen.",
+        "Schlug das Speichern fehl, wurde das nicht angezeigt; beim Beenden ging das Fenster trotzdem zu. Jetzt erscheint eine Meldung und das Fenster bleibt offen."
+      ]
+    },
+    {
       "version": "1.1.23",
       "date": "2026-09-28",
       "neu": [
