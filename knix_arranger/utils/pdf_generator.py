@@ -24,6 +24,7 @@ except ImportError:
 from .fonts import (
     INTER_REGULAR as _INTER_REGULAR, INTER_BOLD as _INTER_BOLD,
     register_fonts as _register_fonts, text_length as _text_length,
+    finalize_pdf as _finalize_pdf,
 )
 
 # Akzentfarben für den Abschnittsbalken am linken Rand
@@ -188,14 +189,18 @@ class PdfGenerator:
 
     def add_table(self, headers: list[str], rows: list[list[str]],
                   col_widths: list[float] | None = None,
-                  align: list[str] | None = None):
+                  align: list[str] | None = None,
+                  groups: list[int] | None = None):
         """col_widths: optionale Spaltenbreiten – absolut in Punkten
         (Summe = content_width) oder als Anteile (Summe = 1.0).
-        align: je Spalte "left" oder "right"."""
+        align: je Spalte "left" oder "right".
+        groups: je Zeile eine Gruppennummer; aufeinanderfolgende Zeilen einer
+        Gruppe teilen die Zebra-Schattierung (z.B. alle Objekte eines Kanals)."""
         if col_widths and sum(col_widths) <= 1.001:
             col_widths = [f * self.content_width for f in col_widths]
         self._blocks.append({"type": "table", "headers": headers, "rows": rows,
-                              "col_widths": col_widths, "align": align})
+                              "col_widths": col_widths, "align": align,
+                              "groups": groups})
 
     def add_separator(self):
         self._blocks.append({"type": "separator"})
@@ -215,6 +220,18 @@ class PdfGenerator:
         "coupler": str, "count": int, "max": int, "stats": [(Label, Anzahl)]}]}]
         """
         self._blocks.append({"type": "topology_schema", "areas": areas})
+
+    def add_topology_diagram(self, areas: list[dict], backbone: str = "") -> None:
+        """Topologie-Diagramm wie in der Ansicht "Topologie-Diagramm": je
+        Bereich eine Spalte mit Kopf, darunter die Kette aus Knoten
+        (Bereichskoppler, Speisegerät, Linien), verbunden durch Leitungen.
+        Mehrere Bereiche hängen an einem Backbone (Beschriftung backbone).
+
+        areas: [{"title": str, "nodes": [{"kind": "coupler"|"power"|"line",
+        "title": str, "lines": [str], "status": "OK"|"Warnung"|"Fehler"}]}]
+        """
+        self._blocks.append({"type": "topology_diagram", "areas": areas,
+                             "backbone": backbone})
 
     def add_link(self, text: str, url: str):
         """Fügt einen klickbaren Hyperlink ein (blau, unterstrichen)."""
@@ -283,6 +300,14 @@ class PdfGenerator:
                         lines.append(f"  {ln['title']} ({ln['coupler']}): "
                                      f"{ln['count']}/{ln['max']} Geräte – {stats}")
                     lines.append("")
+            elif btype == "topology_diagram":
+                if block["backbone"]:
+                    lines.append(block["backbone"])
+                for area in block["areas"]:
+                    lines.append(f"[{area['title']}]")
+                    for node in area["nodes"]:
+                        lines.append(f"  {node['title']}: {', '.join(node['lines'])}")
+                    lines.append("")
             elif btype == "table":
                 hdrs = block["headers"]
                 rows = [[_cell_text(c) for c in r] for r in block["rows"]]
@@ -313,6 +338,7 @@ class PdfGenerator:
         self._accent = None
         self._cur_page = None
         self._toc: list[list] = []
+        self._heading_level = 0   # Lesezeichen der Gerätekarten eine Ebene tiefer
         cover_offset = 1 if self._client_profile is not None else 0
 
         # Deckblatt (falls Kundenprofil vorhanden)
@@ -362,6 +388,7 @@ class PdfGenerator:
                     self._sub_title = text
                 self._txt(page, fitz.Point(self.MARGIN, y), text, fs, bold=True)
                 self._add_bookmark(level, text, len(doc))
+                self._heading_level = level
                 y += fs + 5
 
             elif btype == "paragraph":
@@ -421,9 +448,13 @@ class PdfGenerator:
             elif btype == "topology_schema":
                 page, y = self._draw_topology_schema(doc, page, y, block["areas"])
 
+            elif btype == "topology_diagram":
+                page, y = self._draw_topology_diagram(doc, page, y, block)
+
             elif btype == "table":
                 page, y = self._draw_table(doc, page, y, block["headers"], block["rows"],
-                                           block.get("col_widths"), block.get("align"))
+                                           block.get("col_widths"), block.get("align"),
+                                           block.get("groups"))
 
         self._close_section_bar(y)
 
@@ -442,7 +473,8 @@ class PdfGenerator:
                 doc.set_toc(self._toc)
             except Exception as exc:          # Lesezeichen sind nur Komfort
                 logger.debug(f"PDF-Lesezeichen nicht gesetzt: {exc}")
-        doc.save(filepath)
+        _finalize_pdf(doc)
+        doc.save(filepath, garbage=3, deflate=True)
         doc.close()
         logger.info(f"PDF gespeichert: {filepath}")
 
@@ -600,6 +632,126 @@ class PdfGenerator:
             y += 14
         return page, y
 
+    # Farben wie in der Ansicht "Topologie-Diagramm" (ui/views/topology_diagram_view.py)
+    _DIAGRAM_COLORS = {
+        "area":     (0.082, 0.396, 0.753),   # #1565C0
+        "coupler":  (0.082, 0.396, 0.753),
+        "power":    (0.180, 0.490, 0.196),   # #2E7D32
+        "line":     (0.216, 0.278, 0.310),   # #37474F
+        "Warnung":  ACCENT_WARNING,
+        "Fehler":   ACCENT_ERROR,
+        "backbone": (0.102, 0.137, 0.494),   # #1A237E
+        "wire":     (0.470, 0.565, 0.612),   # #78909C
+    }
+
+    def _draw_topology_diagram(self, doc, page, y: float, block: dict) -> tuple:
+        """Zeichnet das Topologie-Diagramm (siehe add_topology_diagram).
+        Höchstens vier Bereiche nebeneinander, weitere in der nächsten Reihe.
+        Eine Reihe, die höher als eine Seite ist, wird verkleinert."""
+        colors = self._DIAGRAM_COLORS
+        top = self.MARGIN + self.HEADER_H + 10
+        bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
+        areas, backbone = block["areas"], block["backbone"]
+        per_row = max(1, min(len(areas), 4))
+        gap = 18.0
+        box_w = min(170.0, (self.content_width - gap * (per_row - 1)) / per_row)
+        pad, fs_title, fs_sub = 6.0, 8.5, 7.5
+        head_h, node_gap = 24.0, 12.0
+        backbone_h = 30.0 if backbone else 0.0
+        sub_color = (0.88, 0.91, 0.95)
+
+        def node_lines(node):
+            title = self._wrap_cell(node["title"], box_w - 2 * pad, fs_title)[:2]
+            sub = [t for line in node["lines"]
+                   for t in self._wrap_cell(line, box_w - 2 * pad, fs_sub)]
+            return title, sub
+
+        def node_h(node):
+            title, sub = node_lines(node)
+            return pad + len(title) * (fs_title + 2.5) + len(sub) * (fs_sub + 2.5) + pad - 2
+
+        for start in range(0, len(areas), per_row):
+            row = areas[start:start + per_row]
+            col_h = [head_h + sum(node_gap + node_h(n) for n in a["nodes"]) for a in row]
+            row_h = backbone_h + max(col_h)
+            if y + min(row_h, bottom - top) > bottom:
+                page, y = self._new_page(doc)
+                y = self._draw_continuation_title(page, y)
+            s = min(1.0, (bottom - y) / row_h)
+            x0 = self.MARGIN + (self.content_width
+                                - s * (len(row) * box_w + (len(row) - 1) * gap)) / 2
+
+            def rect(x, yy, w, h):
+                return fitz.Rect(x0 + s * x, y + s * yy, x0 + s * (x + w), y + s * (yy + h))
+
+            def text(x, yy, t, fs, bold=False, color=(1, 1, 1)):
+                self._txt(page, fitz.Point(x0 + s * x, y + s * yy), t, fs * s,
+                          bold=bold, color=color)
+
+            def wire(x1, y1, x2, y2, color=colors["wire"], width=1.2):
+                page.draw_line(fitz.Point(x0 + s * x1, y + s * y1),
+                               fitz.Point(x0 + s * x2, y + s * y2),
+                               color=color, width=width * s)
+
+            if backbone:
+                cx_first = box_w / 2
+                cx_last = (len(row) - 1) * (box_w + gap) + box_w / 2
+                text(cx_first, 10, backbone, fs_title, bold=True, color=colors["backbone"])
+                wire(cx_first - 6 if len(row) == 1 else cx_first, 18,
+                     cx_last + 6 if len(row) == 1 else cx_last, 18,
+                     color=colors["backbone"], width=2.5)
+
+            for col, area in enumerate(row):
+                bx = col * (box_w + gap)
+                cx = bx + box_w / 2
+                by = backbone_h
+                if backbone:
+                    wire(cx, 18, cx, by)
+                page.draw_rect(rect(bx, by, box_w, head_h), color=None, fill=colors["area"])
+                title = self._wrap_cell(area["title"], box_w - 2 * pad, fs_title + 0.5)[0]
+                text(bx + pad, by + head_h / 2 + 3.5, title, fs_title + 0.5, bold=True)
+                by += head_h
+                for node in area["nodes"]:
+                    h = node_h(node)
+                    wire(cx, by, cx, by + node_gap)
+                    by += node_gap
+                    kind = node["kind"]
+                    fill = colors.get(node.get("status")) if kind == "line" else None
+                    page.draw_rect(rect(bx, by, box_w, h), color=None,
+                                   fill=fill or colors[kind])
+                    ty = by + pad + fs_title - 1
+                    title, sub = node_lines(node)
+                    for t in title:
+                        text(bx + pad, ty, t, fs_title, bold=True)
+                        ty += fs_title + 2.5
+                    for t in sub:
+                        text(bx + pad, ty, t, fs_sub, color=sub_color)
+                        ty += fs_sub + 2.5
+                    by += h
+            y += s * row_h + 14
+
+        # Legende (nur vorkommende Farben)
+        kinds = {n["kind"] for a in areas for n in a["nodes"]}
+        statuses = {n.get("status") for a in areas for n in a["nodes"]}
+        legend = [("area", "Bereich / Koppler"), ("power", "Speisegerät"), ("line", "Linie")]
+        legend = [(k, t) for k, t in legend if k == "area" or k in kinds]
+        legend += [(k, t) for k, t in (("Warnung", "Leitungslänge nahe Grenzwert"),
+                                       ("Fehler", "Leitungslänge überschritten"))
+                   if k in statuses]
+        if backbone:
+            legend.append(("backbone", "Backbone"))
+        if y + 12 > bottom:
+            page, y = self._new_page(doc)
+        x = float(self.MARGIN)
+        for key, label in legend:
+            if x + 10 + self._tw(label, 7.5) > self.PAGE_W - self.MARGIN:
+                x, y = float(self.MARGIN), y + 12
+            page.draw_rect(fitz.Rect(x, y - 6.5, x + 7, y + 0.5), color=None,
+                           fill=colors[key])
+            self._txt(page, fitz.Point(x + 10, y), label, 7.5, color=(0.35, 0.35, 0.35))
+            x += 10 + self._tw(label, 7.5) + 14
+        return page, y + 14
+
     def _wrap_lines(self, text: str, avail_w: float, fs: float) -> list[str]:
         """Wie _wrap_cell, behält aber Zeilenumbrüche im Text."""
         return [line for part in text.split("\n")
@@ -628,7 +780,7 @@ class PdfGenerator:
             self._txt(page, fitz.Point(self.MARGIN + pad + 3, ty), line, 8,
                       color=(0.35, 0.35, 0.35))
         if block.get("bookmark"):
-            self._add_bookmark(4, block["bookmark"], len(doc))
+            self._add_bookmark(self._heading_level + 1, block["bookmark"], len(doc))
         return page, y + h + 8
 
     def _draw_button_plan(self, doc, page, y: float, rows: list[dict]) -> tuple:
@@ -783,7 +935,8 @@ class PdfGenerator:
     def _draw_table(self, doc, page, y: float,
                     headers: list[str], rows: list[list[str]],
                     col_widths: list[float] | None = None,
-                    align: list[str] | None = None) -> tuple:
+                    align: list[str] | None = None,
+                    groups: list[int] | None = None) -> tuple:
         """Zeichnet eine vollständige Tabelle mit Zeilenumbruch statt Abschneiden."""
         if not headers:
             return page, y
@@ -835,7 +988,8 @@ class PdfGenerator:
                     doc, page, y, headers, col_widths, fs, align)
 
             # Zebra-Hintergrund
-            if row_idx % 2 == 1:
+            band = groups[row_idx] if groups and row_idx < len(groups) else row_idx
+            if band % 2 == 1:
                 bg = fitz.Rect(self.MARGIN, y - 1,
                                self.PAGE_W - self.MARGIN, y + row_h - 1)
                 page.draw_rect(bg, color=None, fill=(0.96, 0.96, 0.97))

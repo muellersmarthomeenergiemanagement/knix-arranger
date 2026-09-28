@@ -8,6 +8,7 @@ installierte Inter bzw. zuletzt auf Helvetica zurückgefallen.
 """
 from __future__ import annotations
 import os
+import re
 
 _BUNDLED_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "fonts")
 
@@ -44,6 +45,50 @@ def register_fonts(page) -> None:
                 page.insert_font(fontname=name, fontfile=path)
             except Exception:
                 pass
+
+
+_CMAP_BLOCK_RE = re.compile(
+    rb"(\d+)\s+begin(bfrange|bfchar)(.*?)end\2", re.DOTALL)
+_HEX_TOKEN_RE = re.compile(rb"<([0-9A-Fa-f]*)>")
+
+
+def _clean_cmap(data: bytes) -> bytes:
+    """Entfernt ToUnicode-Einträge mit ungültiger Hex-Länge.
+
+    PyMuPDF schreibt beim Einbetten von Inter die komplette Zeichentabelle
+    der Schrift, auch Zeichen ausserhalb der Basisebene (z.B. U+1F16B) als
+    '<1f16b>' statt als UTF-16-Paar. Strenge Viewer (Acrobat) verwerfen dann
+    die ganze Tabelle – die Textsuche im PDF findet nichts mehr. Diese
+    Zeichen kommen in Berichten nicht vor und werden daher weggelassen."""
+    def block(m: re.Match) -> bytes:
+        entries = [line for line in m.group(3).splitlines() if line.strip()]
+        kept = [line for line in entries
+                if all(len(t) % 4 == 0 for t in _HEX_TOKEN_RE.findall(line))]
+        if len(kept) == len(entries):
+            return m.group(0)
+        body = b"\n".join(kept)
+        return b"%d begin%s\n%s\nend%s" % (len(kept), m.group(2), body, m.group(2))
+    return _CMAP_BLOCK_RE.sub(block, data)
+
+
+def finalize_pdf(doc) -> None:
+    """Vor dem Speichern jedes PDFs mit Inter aufrufen: bereinigt die
+    ToUnicode-Tabellen (Textsuche, Kopieren) und öffnet die Lesezeichen-
+    Leiste beim Öffnen, sofern Lesezeichen vorhanden sind."""
+    for xref in range(1, doc.xref_length()):
+        try:
+            kind, value = doc.xref_get_key(xref, "ToUnicode")
+        except Exception:
+            continue
+        if kind != "xref":
+            continue
+        cmap_xref = int(value.split()[0])
+        data = doc.xref_stream(cmap_xref)
+        cleaned = _clean_cmap(data)
+        if cleaned != data:
+            doc.update_stream(cmap_xref, cleaned)
+    if doc.get_toc():
+        doc.set_pagemode("UseOutlines")
 
 
 def font_name(bold: bool = False) -> str:

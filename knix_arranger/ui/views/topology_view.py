@@ -15,7 +15,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
-from ...models.topology import Topology, Area, Line, Device
+from ...models.topology import (
+    Topology, Area, Line, Device,
+    area_coupler, line_coupler, line_power_supplies, power_supply_address,
+)
 from ...services.belegungsplan_service import (
     group_actor_rows_by_channel, group_cos_for_display,
     build_ga_by_designation, resolve_ga_display,
@@ -27,6 +30,7 @@ _COLOR_COUPLER     = QColor("#1565C0")  # Dunkelblau: Koppler
 _COLOR_POWER       = QColor("#2E7D32")  # Dunkelgrün: Speisegerät
 _COLOR_PROGRAMMED  = QColor("#4527A0")  # Violett: physikalisch programmiert (Adresse fixiert)
 _COLOR_SECURE_MISSING = QColor("#C62828")  # Rot: Gerät unterstützt kein KNX Secure (FA-2704)
+_COLOR_ROOM_HINT   = QColor("#9E9E9E")  # Grau: Raum statt fehlendem Einbauort
 
 # Rollen-Label für FunctionAssignment.role, siehe step09_functions.py.
 _ROLE_LABELS = {
@@ -264,7 +268,7 @@ class TopologyView(QWidget):
             area_devices = sum(l.device_count for l in area.lines)
             area_item = QTreeWidgetItem(self._tree, [
                 f"Bereich {area.area_number} - {area.name}",
-                area.coupler_address,
+                str(area.area_number),
                 str(area_devices),
                 "",
                 f"{len(area.lines)} Linien, Backbone: {area.backbone_type}",
@@ -272,28 +276,21 @@ class TopologyView(QWidget):
             area_item.setData(0, _ROLE_DATA, ("area", area))
             # Expand-Zustand wird in _restore_tree_state gesetzt
 
-            # FA-1007: Bereichskoppler
-            if total_areas > 1:
-                bk_device = next(
-                    (d for d in (area.lines[0].devices if area.lines else [])
-                     if d.device_type == "coupler" and d.product == "Bereichskoppler"),
-                    None,
-                )
-                bk_location = bk_device.installation_location if bk_device else ""
-                bk_detail_parts = []
-                if bk_device and bk_device.manufacturer:
-                    bk_detail_parts.append(bk_device.manufacturer)
-                if bk_device and bk_device.order_number:
-                    bk_detail_parts.append(bk_device.order_number)
+            # FA-1007: Bereichskoppler – nur wenn als Gerät vorhanden
+            # (gleiche Regel wie Topologie-Diagramm und -Bericht)
+            bk_device = area_coupler(area) if total_areas > 1 else None
+            if bk_device is not None:
+                bk_line = next((l for l in area.lines if bk_device in l.devices), None)
+                bk_detail_parts = [p for p in (bk_device.manufacturer,
+                                               bk_device.order_number) if p]
                 bk_item = QTreeWidgetItem(area_item, [
                     "Bereichskoppler (BK)",
-                    area.coupler_address,
-                    "", bk_location,
+                    bk_device.physical_address,
+                    "", bk_device.installation_location,
                     " | ".join(bk_detail_parts) if bk_detail_parts
                     else "Verbindet Bereichslinie mit Backbone",
                 ])
-                if bk_device:
-                    bk_item.setData(0, _ROLE_DATA, ("device", area, area.lines[0] if area.lines else None, bk_device))
+                bk_item.setData(0, _ROLE_DATA, ("device", area, bk_line, bk_device))
                 self._colorize(bk_item, _COLOR_COUPLER)
 
             # FA-1007: Speisegerät Bereichslinie
@@ -323,7 +320,9 @@ class TopologyView(QWidget):
 
                 line_item = QTreeWidgetItem(area_item, [
                     f"Linie {line.line_number} - {line.name}{status}",
-                    line.coupler_address,
+                    # Linienadresse B.L – die Koppleradresse B.L.0 steht nur
+                    # beim Koppler selbst (sofern als Gerät vorhanden)
+                    f"{area.area_number}.{line.line_number}",
                     str(line.device_count),
                     line.uv_location or "",
                     "",
@@ -331,56 +330,42 @@ class TopologyView(QWidget):
                 line_item.setData(0, _ROLE_DATA, ("line", area, line))
                 # Expand-Zustand wird in _restore_tree_state gesetzt
 
-                # FA-1007: Linienkoppler
-                if line.coupler_address:
-                    lk_device = next(
-                        (d for d in line.devices
-                         if d.device_type == "coupler" and d.product == "Linienkoppler"),
-                        None,
-                    )
-                    lk_location = lk_device.installation_location if lk_device else ""
-                    lk_detail_parts = []
-                    if lk_device and lk_device.manufacturer:
-                        lk_detail_parts.append(lk_device.manufacturer)
-                    if lk_device and lk_device.order_number:
-                        lk_detail_parts.append(lk_device.order_number)
+                # FA-1007: Linienkoppler und Speisegeräte – nur wenn als
+                # Gerät vorhanden (gleiche Regel wie Topologie-Diagramm/-Bericht)
+                shown = {id(bk_device)} if bk_device is not None else set()
+                lk_device = line_coupler(area, line)
+                if lk_device is not None:
+                    shown.add(id(lk_device))
+                    lk_detail_parts = [p for p in (lk_device.manufacturer,
+                                                   lk_device.order_number) if p]
                     lk_item = QTreeWidgetItem(line_item, [
                         "Linienkoppler (LK)",
-                        line.coupler_address,
-                        "", lk_location,
+                        lk_device.physical_address,
+                        "", lk_device.installation_location,
                         " | ".join(lk_detail_parts) if lk_detail_parts
                         else "Verbindet Linie mit Bereichslinie",
                     ])
-                    if lk_device:
-                        lk_item.setData(0, _ROLE_DATA, ("device", area, line, lk_device))
+                    lk_item.setData(0, _ROLE_DATA, ("device", area, line, lk_device))
                     self._colorize(lk_item, _COLOR_COUPLER)
 
-                # FA-1007: Speisegerät Linie
-                if line.recommended_power_supply:
-                    sv_device = next(
-                        (d for d in line.devices if d.device_type == "power_supply"),
-                        None,
-                    )
-                    sv_location = sv_device.installation_location if sv_device else ""
-                    sv_detail_parts = []
-                    if sv_device and sv_device.manufacturer:
-                        sv_detail_parts.append(sv_device.manufacturer)
-                    if sv_device and sv_device.order_number:
-                        sv_detail_parts.append(sv_device.order_number)
+                for sv_device in line_power_supplies(line):
+                    shown.add(id(sv_device))
+                    sv_detail_parts = [p for p in (sv_device.manufacturer,
+                                                   sv_device.order_number) if p]
                     sv_line_item = QTreeWidgetItem(line_item, [
                         "Speisegerät (SV)",
-                        f"{area.area_number}.{line.line_number}.-",
-                        "", sv_location,
+                        power_supply_address(area, line, sv_device),
+                        "", sv_device.installation_location,
                         " | ".join(sv_detail_parts) if sv_detail_parts
                         else "Spannungsversorgung der Linie",
                     ])
-                    if sv_device:
-                        sv_line_item.setData(0, _ROLE_DATA, ("device", area, line, sv_device))
+                    sv_line_item.setData(0, _ROLE_DATA, ("device", area, line, sv_device))
                     self._colorize(sv_line_item, _COLOR_POWER)
 
-                # Reguläre Geräte
+                # Reguläre Geräte (auch Koppler auf anderen Adressen, z.B.
+                # IP-Schnittstellen, damit kein vorhandenes Gerät fehlt)
                 for device in line.devices:
-                    if device.device_type in ("coupler", "power_supply"):
+                    if id(device) in shown:
                         continue
                     detail_parts = []
                     if device.manufacturer:
@@ -431,6 +416,7 @@ class TopologyView(QWidget):
                     elif device.device_type == "sensor":
                         self._add_sensor_function_items(dev_item, device)
 
+        self._mark_room_locations()
         fit_columns(self._tree)
 
         # ── Zustand wiederherstellen ──
@@ -869,6 +855,34 @@ class TopologyView(QWidget):
         self.topology_changed.emit()
         if self._bus:
             self._bus.emit_topology_changed()
+
+    def _mark_room_locations(self) -> None:
+        """Geräte ohne Einbauort aus der ETS: zugeordneten Raum grau und
+        kursiv als Hinweis in der Spalte Einbauort zeigen (wie die Berichte,
+        dort ohne Hervorhebung). Der Einbauort selbst bleibt leer; per
+        Doppelklick kann er erfasst werden."""
+        if not self._areal:
+            return
+        room_by_id = {r.id: r for r in self._areal.all_rooms}
+
+        def walk(item: QTreeWidgetItem) -> None:
+            data = item.data(0, _ROLE_DATA)
+            if data and data[0] == "device":
+                device = data[3]
+                room = room_by_id.get(device.room_id) if device.room_id else None
+                if room and not device.installation_location.strip():
+                    item.setText(3, f"{room.number} {room.name}".strip())
+                    item.setForeground(3, _COLOR_ROOM_HINT)
+                    font = item.font(3)
+                    font.setItalic(True)
+                    item.setFont(3, font)
+                    item.setToolTip(3, "Kein Einbauort erfasst – zugeordneter Raum. "
+                                       "Doppelklick zum Erfassen.")
+            for i in range(item.childCount()):
+                walk(item.child(i))
+
+        for i in range(self._tree.topLevelItemCount()):
+            walk(self._tree.topLevelItem(i))
 
     @staticmethod
     def _colorize(item: QTreeWidgetItem, color: QColor) -> None:

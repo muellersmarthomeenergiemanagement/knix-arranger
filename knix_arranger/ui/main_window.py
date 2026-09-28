@@ -96,6 +96,9 @@ class MainWindow(QMainWindow):
         self._bus = ProjectBus()
         self._recalc = RecalcService()
         self._dirty = False
+        # Bisheriges Projekt während "Projekt neu aus ETS aufbauen" (FA-527),
+        # siehe _rebuild_project/_import_knxproj
+        self._rebuild_id_source: KnxProject | None = None
         self._pending_undo_cmd: ObjectStateCommand | None = None
         self._ga_report_path: str = ""   # Pfad zum zuletzt importierten GA-Report
         self._topology_xlsx_path: str = ""  # Pfad zum zuletzt importierten Topologie-XLSX
@@ -174,6 +177,13 @@ class MainWindow(QMainWindow):
         import_action.setShortcut(QKeySequence("Ctrl+I"))
         import_action.triggered.connect(self._import_file)
         file_menu.addAction(import_action)
+
+        rebuild_action = QAction("Projekt &neu aus ETS aufbauen...", self)
+        rebuild_action.setToolTip(
+            "Gebäude, Topologie, Gruppenadressen usw. frisch aus der .knxproj-Datei "
+            "aufbauen, ohne Planungsdaten des bisherigen Stands")
+        rebuild_action.triggered.connect(self._rebuild_project)
+        file_menu.addAction(rebuild_action)
 
         knxprod_action = QAction("Produkt&katalog KNXPROD importieren...", self)
         knxprod_action.setToolTip(
@@ -798,6 +808,8 @@ class MainWindow(QMainWindow):
 
         if not self._project:
             self._project = KnxProject(name="Importiertes Projekt")
+        else:
+            self._backup_project("vor_Import")
 
         try:
             if file_type == "knxproj":
@@ -819,6 +831,85 @@ class MainWindow(QMainWindow):
                 "• Die Datei wird noch von einem anderen Programm verwendet\n"
                 "• Fehlende Leserechte auf die Datei",
             )
+
+    def _backup_project(self, reason: str) -> str:
+        """Sichert die gespeicherte Projektdatei in «Sicherungen» (NFA-042).
+        Ungespeicherte Änderungen sind nicht enthalten."""
+        from ..services.project_service import ProjectService
+        path = self._project._file_path if self._project else ""
+        try:
+            return ProjectService().create_backup(path, reason)
+        except OSError as exc:
+            logger.warning("Sicherung fehlgeschlagen: %s", exc)
+            return ""
+
+    def _rebuild_project(self):
+        """Baut das Projekt frisch aus einer .knxproj-Datei auf (FA-527):
+        ohne Re-Import-Abgleich, nur die im Dialog gewählten Teile des
+        bisherigen Projekts bleiben erhalten. Vorher wird gespeichert und
+        gesichert; bricht der Import ab, bleibt der bisherige Stand."""
+        from .dialogs.rebuild_dialog import RebuildDialog
+        from ..services.rebuild_service import build_fresh_project
+
+        if not self._project or not self._project._file_path:
+            QMessageBox.information(
+                self, "Projekt neu aufbauen",
+                "Bitte zuerst ein gespeichertes Projekt öffnen. Für ein neues "
+                "Projekt: Datei → Neues Projekt, danach ETS6 Import.")
+            return
+        dialog = RebuildDialog(self._project.name, self)
+        if not dialog.exec():
+            return
+
+        if self._dirty:
+            self._save_project()
+        backup_path = self._backup_project("vor_Neuaufbau")
+        if not backup_path:
+            answer = QMessageBox.warning(
+                self, "Sicherung fehlgeschlagen",
+                "Die Projektdatei konnte nicht gesichert werden. Trotzdem neu aufbauen?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if answer != QMessageBox.Yes:
+                return
+
+        old_project = self._project
+        self._project = build_fresh_project(old_project, dialog.keep)
+        if "knx_secure" in dialog.keep:
+            self._rebuild_id_source = old_project
+        try:
+            self._import_knxproj(dialog.filepath)
+        except Exception as e:
+            logger.exception("Neuaufbau fehlgeschlagen: %s", e)
+            self._project = old_project
+            self._update_views()
+            QMessageBox.critical(
+                self, "Neuaufbau fehlgeschlagen",
+                f"Die ETS-Datei konnte nicht eingelesen werden:\n{e}\n\n"
+                "Das Projekt ist unverändert.")
+            return
+        finally:
+            self._rebuild_id_source = None
+        if not self._project.topology.areas and not self._project.group_addresses.all_addresses():
+            # Import abgebrochen (z.B. Passwortabfrage) – bisherigen Stand behalten
+            self._project = old_project
+            self._update_views()
+            self._status_bar.set_status("Neuaufbau abgebrochen – Projekt unverändert.")
+            return
+        if "project_info" in dialog.keep:
+            # Der Import setzt den Namen aus der ETS – behaltene Projekt-
+            # eigenschaften haben Vorrang
+            self._project.name = old_project.name
+
+        self._project.add_changelog_entry(
+            "Import", f"Projekt neu aus {os.path.basename(dialog.filepath)} aufgebaut"
+            + (f" (Sicherung: {os.path.basename(backup_path)})" if backup_path else ""))
+        self._undo_manager.clear()
+        self._set_dirty(True)
+        self._update_views()
+        self._status_bar.set_status(
+            "Projekt neu aufgebaut – noch nicht gespeichert."
+            + (f" Bisheriger Stand gesichert: Sicherungen/{os.path.basename(backup_path)}"
+               if backup_path else ""))
 
     def _import_csv(self, filepath: str):
         """Importiert einen ETS6 GA-Export (CSV)."""
@@ -1879,6 +1970,12 @@ class MainWindow(QMainWindow):
 
         if dialog is not None and project_id and dialog.save_password:
             project_service.save_knxproj_password(project_id, password)
+
+        # Neuaufbau (FA-527): nur die Geräte-IDs des bisherigen Stands
+        # übernehmen, damit das behaltene KNX-Secure-Archiv passt
+        if self._rebuild_id_source is not None:
+            from ..services.rebuild_service import adopt_device_ids
+            adopt_device_ids(self._rebuild_id_source, project)
 
         # Re-Import-Abgleich: alte IDs + KNiX-Zusatzdaten (Materialliste,
         # KNX Secure, DALI, Gewerk-Zuweisungen, Bedienelemente, ...) anhand

@@ -69,3 +69,49 @@ def test_bericht_abschnitte(tmp_path):
     assert "ABB · SN 0001:0002" in text
     assert "2 / 256 Geräte" in text
     assert "Leer" not in text                       # Linien ohne Geraete entfallen
+    assert "Topologie-Diagramm" in text
+    assert "KNX Backbone" not in text               # nur bei mehreren Bereichen
+
+
+def test_ohne_einbauort_zaehlt_der_raum():
+    """Chalet 1.1.39: in der ETS kein Einbauort, aber Raum 04 Schlafen."""
+    from knix_arranger.models.building import (
+        Areal, Building, Wing, Floor, Apartment, Room,
+    )
+    room = Room(number="04", name="Schlafen")
+    project = KnxProject(name="Topo")
+    project.areal = Areal(buildings=[Building(wings=[Wing(floors=[Floor(
+        apartments=[Apartment(rooms=[room])])])])])
+    service = ReportService(project)
+    taster = Device(physical_address="1.1.39", device_type="sensor", room_id=room.id)
+    assert service._device_location(taster) == "04 Schlafen"
+    taster.installation_location = "UV1   ( Steigzone )"   # ETS-Einbauort hat Vorrang
+    assert service._device_location(taster) == "UV1 (Steigzone)"
+    assert service._device_location(Device(physical_address="1.1.40")) == ""
+
+
+def test_diagramm_mehrere_bereiche(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    project = KnxProject(name="Topo")
+    project.topology.areas = [
+        Area(area_number=1, backbone_type="IP", lines=[Line(line_number=1, devices=[
+            Device(physical_address="1.0.0", device_type="coupler", product="IP-Router"),
+            Device(physical_address="1.1.1", device_type="actor", product="Schaltaktor"),
+            Device(physical_address="1.1.2", device_type="actor", product="Dimmaktor"),
+            Device(physical_address="1.1.-", device_type="power_supply",
+                   product="Spannungsversorgung 640mA"),
+        ])]),
+        Area(area_number=2, backbone_type="IP", lines=[Line(line_number=1, devices=[
+            Device(physical_address="2.1.1", device_type="sensor", product="Taster"),
+        ])]),
+    ]
+    path = str(tmp_path / "topo.pdf")
+    ReportService(project).generate_topology_report(path)
+
+    doc = fitz.open(path)
+    text = doc[0].get_text()
+    doc.close()
+    assert "KNX Backbone (IP)" in text
+    assert "Bereichskoppler" in text                # 1.0.0 als Geraet vorhanden
+    assert "2 Aktoren" in text and "1 Sensor" in text
+    assert "SV 1.1.-" in text

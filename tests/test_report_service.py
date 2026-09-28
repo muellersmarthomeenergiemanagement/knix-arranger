@@ -329,7 +329,8 @@ class TestSzenenReport:
         doc = fitz.open(path)
         text = "\n".join(p.get_text() for p in doc)
         doc.close()
-        assert "Ausgelöst durch (Taster-Zuweisung)" in text
+        assert "Ausgelöst durch" in text
+        assert "Taster 1.1.5" in text and "Taste 3" in text
 
     def test_legacy_zuordnung_ohne_scene_id_wird_nur_bei_eindeutigem_kanal_aufgeloest(
         self, sample_project,

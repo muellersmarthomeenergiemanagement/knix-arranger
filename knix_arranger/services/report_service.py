@@ -10,7 +10,11 @@ from datetime import datetime
 
 from ..models.project import KnxProject
 from ..models.building import Bedienelement
-from ..models.topology import is_power_supply_product
+from ..models.topology import area_coupler, line_coupler, line_title
+from ..services.topology_diagram import (
+    TOPOLOGY_TYPE_ORDER, TOPOLOGY_TYPE_PLURAL, device_type_label, area_title,
+    build_topology_diagram,
+)
 from ..models.scene import Scene, SceneAction
 from ..models.group_address import GroupAddressStructure, MIDDLE_GROUP_NAMES_A, MIDDLE_GROUP_NAMES_B
 from ..services.validation_engine import ValidationEngine, ValidationIssue
@@ -160,17 +164,6 @@ def _gap_range(issue: ValidationIssue) -> tuple[str, str]:
 
 # ── Topologie-Bericht ────────────────────────────────────────────────────────
 
-TOPOLOGY_TYPE_LABELS = {
-    "actor": "Aktor", "sensor": "Sensor", "gateway": "Gateway",
-    "coupler": "Koppler", "power_supply": "Spannungsversorgung",
-}
-TOPOLOGY_TYPE_ORDER = ["Aktor", "Sensor", "Gateway", "Koppler",
-                       "Spannungsversorgung", "Sonstiges"]
-TOPOLOGY_TYPE_PLURAL = {
-    "Aktor": "Aktoren", "Sensor": "Sensoren", "Gateway": "Gateways",
-    "Koppler": "Koppler", "Spannungsversorgung": "Spannungsversorgungen",
-    "Sonstiges": "Weitere",
-}
 # Einbauorte, die ein Verteiler/Schaltschrank sind (im Bericht zuerst)
 _DISTRIBUTION_RE = re.compile(
     r"^(UV|HV|HzV|NV|EV|UVS|Verteiler|Schaltschrank|Tableau|Unterverteil)",
@@ -181,25 +174,13 @@ def _n_devices(n: int) -> str:
     return f"{n} Gerät" if n == 1 else f"{n} Geräte"
 
 
-def _device_type_label(device) -> str:
-    if device.device_type == "power_supply" or is_power_supply_product(device.product):
-        return "Spannungsversorgung"
-    return TOPOLOGY_TYPE_LABELS.get(device.device_type, "Sonstiges")
-
-
-def _has_coupler(lines, address: str) -> bool:
-    """True, wenn auf der Adresse ein Koppler als Gerät vorhanden ist.
-    Line.coupler_address allein genügt nicht: der Import setzt dort immer
-    B.L.0, auch für Linien ohne Koppler (z.B. Linie 1.1 im Chalet)."""
-    return any(
-        d.device_type == "coupler" and d.physical_address == address
-        for line in lines for d in line.devices
-    )
+_device_type_label = device_type_label
 
 
 def _line_coupler(area, line) -> str:
-    address = f"{area.area_number}.{line.line_number}.0"
-    return address if _has_coupler([line], address) else ""
+    """Adresse des Linienkopplers, sofern als Gerät vorhanden (sonst "")."""
+    coupler = line_coupler(area, line)
+    return coupler.physical_address if coupler else ""
 
 
 def _device_cell(device) -> tuple[str, str]:
@@ -238,6 +219,75 @@ def _ga_line(ga) -> str:
     if ga.datapoint_type:
         text += f" · {dpt_number(ga.datapoint_type)}"
     return text
+
+
+# ── Aktoren-und-Gateways-Bericht ─────────────────────────────────────────────
+
+# Kanalbezeichnungen, die _extract_channel_label (Belegungsplan) bewusst nicht
+# kennt: englische ETS-Namen wie "Output 1", "Group 1, Switching" (DALI).
+_REPORT_CHANNEL_RE = re.compile(
+    r"^((?:Output|Input|Channel|Group|Gruppe)\s+\w+)\b", re.IGNORECASE)
+# Kanalnummer als Suffix, z.B. "ON/OFF_1" (nicht "R_1_TEXT_OBJECT_1")
+_CHANNEL_UNDERSCORE_RE = re.compile(r"^[^_]+_(\d+)$")
+# Platzhalter-Namen ohne Aussage: "GO0002", "Object 27", "$Dummy"
+_GENERIC_CO_NAME_RE = re.compile(r"^(GO\d+|Obje[ck]t\s*\d+|\$.*)$", re.IGNORECASE)
+_CHANNEL_TOTAL_RE = re.compile(r"(\d+)\s*(?:[-–]?\s*(?:fach|fold)\b|x\s)", re.IGNORECASE)
+# Höchstzahl Textzeilen je Kanalzeile, damit eine Zeile nie länger als eine Seite wird
+_MAX_CHANNEL_LINES = 36
+
+
+def _report_channel_label(co_name: str) -> str:
+    label = _extract_channel_label(co_name)
+    if label:
+        return label
+    name = (co_name or "").strip()
+    m = _REPORT_CHANNEL_RE.match(name)
+    if m:
+        return m.group(1)
+    m = _CHANNEL_UNDERSCORE_RE.match(name)
+    return f"Kanal {m.group(1)}" if m else ""
+
+
+def _natural_key(text: str) -> list:
+    """'Kanal 10' nach 'Kanal 9', 'Ausgang B' nach 'Ausgang A'."""
+    return [(0, int(p), "") if p.isdigit() else (1, 0, p.lower())
+            for p in re.split(r"(\d+)", text) if p]
+
+
+def _co_object_text(co, channel: str) -> str:
+    """Objektbezeichnung ohne Kanalanteil: 'Stellgrösse, Kanal 1' -> 'Stellgrösse';
+    reine Kanal- oder Nummernnamen ('Ausgang A', 'GO0002') -> ETS-Funktion."""
+    name = " ".join((co.name or "").split())
+    if _CHANNEL_UNDERSCORE_RE.match(name):
+        name = name.rsplit("_", 1)[0]
+    elif channel and channel.lower() in name.lower():
+        i = name.lower().index(channel.lower())
+        name = (name[:i] + name[i + len(channel):]).strip(" ,-:")
+    if not name or _GENERIC_CO_NAME_RE.match(name):
+        name = co.object_function or co.name or ""
+    return " ".join(name.split()) or f"KO {co.object_number}"
+
+
+def _channel_total(product: str) -> int:
+    """Kanalzahl nur, wenn sie im Produktnamen steht ('8-fach', '9x ...')."""
+    m = _CHANNEL_TOTAL_RE.search(product or "")
+    n = int(m.group(1)) if m else 0
+    return n if 1 <= n <= 64 else 0
+
+
+def _split_long_rows(rows: list[list]) -> list[list]:
+    """Teilt Kanalzeilen [Kanal, Funktion, Gruppenadressen] mit sehr vielen
+    Gruppenadressen (z.B. Zentraladressen) auf mehrere Tabellenzeilen auf."""
+    result = []
+    for label, function, gas in rows:
+        lines = gas.split("\n")
+        for start in range(0, len(lines), _MAX_CHANNEL_LINES):
+            result.append([
+                label if start == 0 else f"{label} (Forts.)",
+                function if start == 0 else "",
+                "\n".join(lines[start:start + _MAX_CHANNEL_LINES]),
+            ])
+    return result
 
 
 def _validation_table_layout(rule_id: str):
@@ -279,6 +329,19 @@ class ReportService:
     def __init__(self, project: KnxProject, company_profile=None):
         self.project = project
         self._company_profile = company_profile  # globales CompanyProfile (FA-852)
+        self._room_by_id: dict | None = None
+
+    def _device_location(self, device) -> str:
+        """Einbauort eines Geräts; ohne Einbauort aus der ETS der zugeordnete
+        Raum im gleichen Format ("04 Schlafen"), damit das Gerät nicht unter
+        "Ohne Angabe" landet (z.B. Taster 1.1.39 im Chalet)."""
+        location = _clean_location(device.installation_location)
+        if location or not device.room_id:
+            return location
+        if self._room_by_id is None:
+            self._room_by_id = {r.id: r for r in self.project.all_rooms}
+        room = self._room_by_id.get(device.room_id)
+        return _clean_location(f"{room.number} {room.name}") if room else ""
 
     def _gewerk_label(self, code: str) -> str:
         """Gibt 'Code – Name' zurück, z.B. 'LD – Licht dimmbar'."""
@@ -459,42 +522,105 @@ class ReportService:
         pdf.save(filepath)
         logger.info(f"GA-Bericht erstellt: {filepath}")
 
-    def generate_room_gewerk_report(self, filepath: str):
-        """Erzeugt den Bericht 'Räume nach Gewerken' als PDF.
+    def _room_gewerk_groups(self):
+        """Ordnet die Gruppenadressen Räumen und Elementen zu.
 
-        Zeigt pro Raum, welche Gewerke/Funktionsbereiche vorhanden sind und
-        über welche Gruppenadressen sie angesteuert werden. Die Raum-GA-
-        Zuordnung wird sowohl über `GroupAddress.room_id` (Wizard-Projekte)
-        als auch über verknüpfte Geräte (`Device.room_id` + `connected_gas`)
-        ermittelt, damit der Bericht auch für importierte .knxproj-Projekte
-        ohne Gewerke-Zuweisung funktioniert. GAs ohne `gewerk_code` werden
-        anhand ihrer Mittelgruppe kategorisiert.
+        Raum einer GA, in dieser Reihenfolge:
+        1. GroupAddress.room_id (geplante Projekte),
+        2. Bezeichnung nach GEWERK.STOCKWERK.RAUM.ELEM ("J.OG.00.01_move"),
+           Raum über Stockwerk + Raumnummer (Nummern sind nur je Stockwerk
+           eindeutig),
+        3. nur für sonst nicht zuordenbare GAs: verbunden mit einem Taster
+           oder Sensor im Raum. Aktoren/Gateways zählen nicht – sie sitzen im
+           Verteiler, nicht im gesteuerten Raum.
+        Zentraladressen (HG 0) bilden je Raum die Gruppe "Zentral".
+
+        Rückgabe: (room.id -> {(Kategorie, Label, Element): [GA]},
+                   "OG 04" -> [GA] für Räume, die in der Gebäudestruktur fehlen)
         """
+        from .gewerk_service import GewerkService
         structure = self.project.group_addresses
+        catalog = self.project.gewerk_catalog
         mg_names = (MIDDLE_GROUP_NAMES_B if structure.variant == "B"
                     else MIDDLE_GROUP_NAMES_A)
-
-        # Adresse -> GroupAddress / Mittelgruppen-Bezeichnung (Fallback-Kategorie)
-        ga_by_address = {}
-        mg_label_by_address = {}
+        mg_label = {}
         for hg in structure.main_groups:
             for mg in hg.middle_groups:
-                mg_label = mg_names.get(mg.number) or mg.name or f"MG {mg.number}"
                 for ga in mg.group_addresses:
-                    ga_by_address[ga.address] = ga
-                    mg_label_by_address[ga.address] = mg_label
+                    mg_label[ga.address] = mg_names.get(mg.number) or mg.name or f"MG {mg.number}"
 
-        # Raum-ID -> verknüpfte Geräte (für Import-Projekte ohne ga.room_id)
-        devices_by_room = defaultdict(list)
+        rooms = {r.id: r for r in self.project.all_rooms}
+        room_index = GewerkService._build_room_index(self.project.areal)
+        ga_by_address = {ga.address: ga for ga in structure.all_addresses()}
+
+        def key_for(ga, code: str, element) -> tuple:
+            """(Kategorie, Anzeige-Label, Element-Nr., Kurzform für die Übersicht)"""
+            if ga.main_group == 0:
+                return ("zentral", "Zentral (HG 0)", 0, "Zentral")
+            gewerk = catalog.get(code) if code else None
+            if gewerk:
+                return (gewerk.category or "", self._gewerk_label(code), element or 0, code)
+            label = mg_label.get(ga.address, "Sonstige")
+            return ("", label, 0, label)
+
+        groups: dict[str, dict] = defaultdict(lambda: defaultdict(list))
+        missing: dict[str, list] = defaultdict(list)
+        placed: set[str] = set()
+        for ga in structure.all_addresses():
+            if ga.is_placeholder:
+                continue
+            if ga.room_id in rooms:
+                groups[ga.room_id][key_for(ga, ga.gewerk_code, ga.element_number)].append(ga)
+                placed.add(ga.address)
+                continue
+            matched = GewerkService._match_ga_designation(ga.designation or "")
+            if matched is None:
+                continue
+            code, floor_code, room_nr, elem_nr, combined = matched
+            code = ga.gewerk_code or code
+            room = room_index.get((floor_code, room_nr))
+            if room is None:
+                missing[f"{floor_code} {room_nr}"].append(ga)
+            else:
+                element = 0 if combined else int(elem_nr)
+                groups[room.id][key_for(ga, code, element)].append(ga)
+            placed.add(ga.address)
+
         for area in self.project.topology.areas:
             for line in area.lines:
                 for dev in line.devices:
-                    if dev.room_id:
-                        devices_by_room[dev.room_id].append(dev)
+                    if dev.device_type in ("actor", "gateway") or dev.room_id not in rooms:
+                        continue
+                    for co in dev.communication_objects:
+                        for addr in co.connected_gas:
+                            ga = ga_by_address.get(addr)
+                            if ga is None or ga.is_placeholder or addr in placed:
+                                continue
+                            bucket = groups[dev.room_id][key_for(ga, ga.gewerk_code, 0)]
+                            if ga not in bucket:
+                                bucket.append(ga)
+        return groups, missing
 
-        # Stockwerk-/Zonenname je Raum (für Anzeige und Sortierung)
-        floor_by_room = {}
-        zone_by_room = {}
+    def generate_room_gewerk_report(self, filepath: str):
+        """Erzeugt den Bericht "Räume nach Gewerken" als PDF.
+
+        Übersicht mit den Gewerken je Raum und Seitenzahlen, danach je
+        Stockwerk (neue Seite) und Raum eine Tabelle mit einer Zeile je
+        Element (Gewerk + Nr.) und allen Gruppenadressen. Zuordnung siehe
+        _room_gewerk_groups. PDF-Lesezeichen: Stockwerk → Raum.
+        """
+        title = "Räume nach Gewerken"
+        pdf = self._make_pdf(title)
+        pdf.add_heading(title, level=1)
+        pdf.add_paragraph(
+            f"Projekt: {self.project.name} | "
+            f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        )
+        pdf.add_separator()
+
+        groups, missing = self._room_gewerk_groups()
+        floor_by_room: dict[str, str] = {}
+        zone_by_room: dict[str, str] = {}
         for building in self.project.areal.buildings:
             for wing in building.wings:
                 for floor in wing.floors:
@@ -503,123 +629,109 @@ class ReportService:
                             floor_by_room[room.id] = floor.name
                             zone_by_room[room.id] = apt.name
 
-        pdf = self._make_pdf("Räume nach Gewerken")
-        pdf.add_heading("Räume nach Gewerken", level=1)
-        pdf.add_paragraph(
-            f"Projekt: {self.project.name} | "
-            f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
-        )
-        pdf.add_separator()
+        def room_label(room) -> str:
+            parts = [zone_by_room.get(room.id, ""), f"{room.number} {room.name}".strip()]
+            return " · ".join(_clean_location(p) for p in parts if p)
 
-        has_any = False
-        for room in sorted_rooms(self.project.areal):
-            # GAs für diesen Raum sammeln (über room_id und/oder verknüpfte Geräte)
-            room_gas = {}
-            for ga in structure.all_addresses():
-                if ga.room_id == room.id and not ga.is_placeholder:
-                    room_gas[ga.address] = ga
-            for dev in devices_by_room.get(room.id, []):
-                for co in dev.communication_objects:
-                    for addr in co.connected_gas:
-                        ga = ga_by_address.get(addr)
-                        if ga and not ga.is_placeholder:
-                            room_gas.setdefault(addr, ga)
+        def sort_key(item):
+            (category, label, element, _short), _gas = item
+            return (category == "zentral", _gewerk_category_sort_key(category), label, element)
 
-            if not room_gas:
-                continue
-            has_any = True
+        entries = [(room, sorted(groups[room.id].items(), key=sort_key))
+                   for room in sorted_rooms(self.project.areal) if groups.get(room.id)]
+        if not entries and not missing:
+            pdf.add_paragraph("Keine Räume mit zugeordneten Gruppenadressen gefunden.")
+            pdf.save(filepath)
+            logger.info(f"Räume-nach-Gewerken-Bericht erstellt: {filepath}")
+            return
 
-            # Nach Gewerk + Element gruppieren (mehrere Elemente desselben
-            # Gewerks, z.B. Jalousie 1/2, bleiben so unterscheidbar);
-            # ohne gewerk_code anhand der Mittelgruppe
-            groups = defaultdict(list)
-            for ga in room_gas.values():
-                if ga.gewerk_code:
-                    label = self._gewerk_label(ga.gewerk_code)
-                else:
-                    label = mg_label_by_address.get(ga.address, "Sonstige")
-                groups[(label, ga.element_number)].append(ga)
+        def element_label(label, element, labels_with_elements) -> str:
+            return f"{label} {element}" if element and label in labels_with_elements else label
 
-            # Labels mit mehreren Elementen ermitteln, um die Elementnummer
-            # nur dort anzuzeigen, wo sie tatsächlich unterscheidet
-            elements_per_label = defaultdict(set)
-            for (label, elem_nr) in groups.keys():
-                elements_per_label[label].add(elem_nr)
+        def ga_text(ga) -> str:
+            text = _ga_line(ga)
+            desc = " ".join((ga.description or "").split())
+            if desc and desc.lower() not in (ga.designation or "").lower():
+                text += f" – {desc}"
+            return text
 
-            floor_name = floor_by_room.get(room.id, "")
-            zone_name = zone_by_room.get(room.id, "")
-            room_label = f"{room.number} {room.name}".strip()
-            location = " / ".join(p for p in [floor_name, zone_name, room_label] if p)
+        def summary(items) -> str:
+            """'J 3 · H 1 · Allgemein · Zentral' – Gewerk-Code mit Anzahl
+            Elemente; Mittelgruppen und Zentral ohne Anzahl."""
+            counts: dict[str, int] = {}
+            for (_category, _label, _element, short), _gas in items:
+                counts[short] = counts.get(short, 0) + 1
+            codes = {short for (_c, _l, _e, short), _g in items
+                     if self.project.gewerk_catalog.get(short)}
+            return " · ".join(f"{k} {n}" if k in codes else k for k, n in counts.items())
 
-            num_gewerke = len({label for label, _ in groups.keys()})
-            pdf.add_conditional_break(min_height=120)
+        # ── Übersicht ────────────────────────────────────────────────────────
+        pdf.add_heading("Übersicht", level=2)
+        n_gas = sum(len(g) for _room, items in entries for _k, g in items)
+        pdf.add_paragraph(f"{len(entries)} Räume mit {n_gas} Gruppenadressen.")
+        overview = []
+        for room, items in entries:
+            overview.append([
+                " · ".join(p for p in (floor_by_room.get(room.id, ""), room_label(room)) if p),
+                summary(items),
+                str(sum(len(g) for _k, g in items)),
+                PageRef(f"room-{room.id}"),
+            ])
+        pdf.add_table(["Stockwerk · Raum", "Gewerke (Anzahl Elemente)", "GAs", "Seite"],
+                      overview, col_widths=[0.36, 0.44, 0.10, 0.10],
+                      align=["left", "left", "right", "right"])
+        pdf.add_note(
+            "Zuordnung:",
+            "Raum aus der Planung oder aus der Bezeichnung (Gewerk.Stockwerk.Raum."
+            "Element); sonst über Taster und Sensoren im Raum. Zentral = Adressen "
+            "in HG 0, die im Raum bedient werden.")
+        pdf.add_note("Hinweis:", "Das PDF enthält Lesezeichen nach Stockwerk und Raum.")
+
+        # ── Stockwerk → Raum ─────────────────────────────────────────────────
+        current_floor = None
+        for room, items in entries:
+            floor = floor_by_room.get(room.id, "") or "Ohne Stockwerk"
+            if floor != current_floor:
+                pdf.add_page_break()
+                pdf.add_heading(floor, level=2)
+                current_floor = floor
+            n_lines = sum(len(g) for _k, g in items)
+            pdf.add_conditional_break(min_height=min(60 + n_lines * 11, 300))
+            pdf.add_anchor(f"room-{room.id}")
+            n_elements = sum(1 for (c, _l, _e, _s), _g in items if c != "zentral")
             pdf.add_heading(
-                f"{location or room_label} "
-                f"({num_gewerke} Gewerke, {len(room_gas)} GAs)",
-                level=2,
-            )
-
-            def _category_for(gas):
-                code = gas[0].gewerk_code
-                if code:
-                    gewerk = self.project.gewerk_catalog.get(code)
-                    if gewerk:
-                        return gewerk.category
-                return ""
-
-            headers = ["Gewerk / Funktionsbereich", "Adresse", "Funktion", "Bezeichnung", "Beschreibung", "DPT"]
-            col_widths = [115, 40, 85, 95, 100, 60]
-            sorted_groups = sorted(
-                groups.items(),
-                key=lambda kv: (_gewerk_category_sort_key(_category_for(kv[1])), kv[0][0], kv[0][1]),
-            )
-
-            prev_category = None
+                f"{room_label(room)}  ({n_elements} "
+                f"{'Element' if n_elements == 1 else 'Elemente'}, "
+                f"{sum(len(g) for _k, g in items)} GAs)", level=3)
+            # Element-Nr. nur anzeigen, wo ein Gewerk mehrere Elemente hat
+            elements_by_label: dict[str, set] = defaultdict(set)
+            for (_c, label, element, _s), _g in items:
+                elements_by_label[label].add(element)
+            labels_with_elements = {l for l, e in elements_by_label.items() if len(e) > 1}
             rows = []
-            for (label, elem_nr), gas in sorted_groups:
-                category = _category_for(gas)
-                if category != prev_category:
-                    if rows:
-                        pdf.add_table(headers, rows, col_widths=col_widths)
-                        rows = []
-                    pdf.add_heading(
-                        GEWERK_CATEGORY_LABELS.get(category, category or "Sonstige"),
-                        level=3,
-                    )
-                    prev_category = category
+            for (category, label, element, _short), gas in items:
+                gas = sorted(gas, key=lambda g: group_address_key(g.address))
+                rows.append([
+                    element_label(label, element, labels_with_elements),
+                    "\n".join(ga_text(g) for g in gas),
+                ])
+            pdf.add_table(["Gewerk / Element", "Gruppenadressen"], rows,
+                          col_widths=[0.26, 0.74])
 
-                display_label = label
-                if elem_nr and len(elements_per_label[label]) > 1:
-                    display_label = f"{label} {elem_nr}"
-
-                gas_sorted = sorted(
-                    gas, key=lambda g: (g.main_group, g.middle_group, g.sub_group)
-                )
-                for i, g in enumerate(gas_sorted):
-                    parsed = NamingEngine.parse_designation(g.designation)
-                    if parsed["gewerk_code"]:
-                        funktion = parsed["function_name"] or "-"
-                        bezeichnung = parsed["description"] or "-"
-                    else:
-                        funktion = "-"
-                        bezeichnung = g.designation[:50] if g.designation else "-"
-                    rows.append([
-                        f"{display_label} ({len(gas_sorted)} GAs)" if i == 0 else "",
-                        g.address,
-                        funktion,
-                        bezeichnung,
-                        g.description[:50] if g.description else "-",
-                        g.datapoint_type or "-",
-                    ])
-
-            if rows:
-                pdf.add_table(headers, rows, col_widths=col_widths)
-            pdf.add_separator()
-
-        if not has_any:
-            pdf.add_paragraph(
-                "Keine Räume mit zugeordneten Gruppenadressen gefunden."
-            )
+        # ── Räume, die in der Gebäudestruktur fehlen ─────────────────────────
+        if missing:
+            pdf.add_page_break()
+            pdf.add_heading("Räume nicht in der Gebäudestruktur", level=2)
+            pdf.add_note(
+                "Hinweis:",
+                "Stockwerk und Raumnummer aus der Bezeichnung passen zu keinem Raum "
+                "der Gebäudestruktur. Raum in Schritt 2 ergänzen oder Bezeichnung prüfen.")
+            rows = []
+            for key in sorted(missing, key=_natural_key):
+                gas = sorted(missing[key], key=lambda g: group_address_key(g.address))
+                rows.append([key, "\n".join(ga_text(g) for g in gas)])
+            pdf.add_table(["Stockwerk / Raum", "Gruppenadressen"], rows,
+                          col_widths=[0.18, 0.82])
 
         pdf.save(filepath)
         logger.info(f"Räume-nach-Gewerken-Bericht erstellt: {filepath}")
@@ -768,21 +880,20 @@ class ReportService:
         max_devices = topo.max_devices_per_line
         multi_area = len(areas) > 1
 
-        def line_label(area, line) -> str:
-            label = f"Linie {area.area_number}.{line.line_number}"
-            if line.name and line.name != f"Linie {line.line_number}":
-                label += f": {line.name}"
-            return label
+        # ── Topologie-Diagramm (dieselben Knoten wie die Ansicht) ───────────
+        diagram = build_topology_diagram(self.project, include_empty_lines=False)
+        pdf.add_heading("Topologie-Diagramm", level=2)
+        pdf.add_topology_diagram(diagram["areas"], diagram["backbone"])
 
         # ── Übersicht: Prinzipschema und Kennzahlen ─────────────────────────
+        pdf.add_conditional_break(min_height=250)
         pdf.add_heading("Übersicht", level=2)
         schema = []
         kpi_rows = []
         for area, lines in areas:
             info = " · ".join(p for p in (
                 f"Backbone {area.backbone_type}" if area.backbone_type else "",
-                f"Koppler {area.area_number}.0.0"
-                if _has_coupler(area.lines, f"{area.area_number}.0.0") else "",
+                f"Koppler {area.area_number}.0.0" if area_coupler(area) else "",
             ) if p)
             schema_lines = []
             for line in lines:
@@ -791,14 +902,14 @@ class ReportService:
                 stats = [(TOPOLOGY_TYPE_PLURAL[t], counts[t])
                          for t in TOPOLOGY_TYPE_ORDER if counts.get(t)]
                 schema_lines.append({
-                    "title": line_label(area, line),
+                    "title": line_title(area, line),
                     "coupler": _line_coupler(area, line),
                     "count": bus_devices,
                     "max": max_devices,
                     "stats": stats,
                 })
                 kpi_rows.append([
-                    line_label(area, line),
+                    line_title(area, line),
                     _line_coupler(area, line) or "–",
                     f"{bus_devices} / {max_devices}",
                     str(counts.get("Aktor", 0)),
@@ -834,7 +945,7 @@ class ReportService:
         pdf.add_heading("Geräte nach Linie", level=2)
         for area, lines in areas:
             for line in lines:
-                title = line_label(area, line)
+                title = line_title(area, line)
                 if multi_area and area.name:
                     title = f"{area.name} – {title}"
                 parts = [_n_devices(len(line.devices))]
@@ -843,7 +954,7 @@ class ReportService:
                 pdf.add_heading(f"{title}  ({', '.join(parts)})", level=3)
                 rows = [
                     [d.physical_address, _device_cell(d), _device_type_label(d),
-                     _clean_location(d.installation_location) or "–"]
+                     self._device_location(d) or "–"]
                     for d in sorted(line.devices,
                                     key=lambda d: physical_address_key(d.physical_address))
                 ]
@@ -854,7 +965,7 @@ class ReportService:
         for _area, lines in areas:
             for line in lines:
                 for d in line.devices:
-                    by_location[_clean_location(d.installation_location)].append(d)
+                    by_location[self._device_location(d)].append(d)
 
         pdf.add_page_break()
         pdf.add_heading("Geräte nach Einbauort", level=2)
@@ -1107,10 +1218,19 @@ class ReportService:
         logger.info(f"Bedienelemente-Bericht erstellt: {filepath}")
 
     def generate_aktoren_gateway_report(self, filepath: str):
-        """Erzeugt einen Aktoren-und-Gateways-Bericht als PDF (Gerätekarten-Layout)."""
-        pdf = self._make_pdf("Aktoren und Gateways")
+        """Erzeugt den Bericht "Aktoren und Gateways" als PDF.
 
-        pdf.add_heading("Aktoren und Gateways", level=1)
+        Gegliedert wie man im Gebäude sucht: Übersicht mit Seitenzahlen,
+        danach je Einbauort (Verteiler zuerst, jeder auf neuer Seite) die
+        Geräte als Gerätekarten. Geplante Projekte zeigen eine Zeile je Kanal
+        mit Gewerk und Raum (Belegungsplan), importierte Projekte eine Zeile
+        je ETS-Kommunikationsobjekt, nach Kanal gegliedert.
+        PDF-Lesezeichen: Einbauort → Gerät.
+        """
+        title = "Aktoren und Gateways"
+        pdf = self._make_pdf(title)
+
+        pdf.add_heading(title, level=1)
         pdf.add_paragraph(
             f"Projekt: {self.project.name} | "
             f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
@@ -1119,148 +1239,171 @@ class ReportService:
 
         ga_by_address = {ga.address: ga for ga in self.project.group_addresses.all_addresses()}
 
-        # Belegungsplan als primäre Quelle für die Kanal-Zuordnung: in
-        # Wizard-Projekten (Gewerk-/GA-basiert) ist Device.communication_objects
-        # meist leer -- BelegungsplanService liefert dort die einzige Quelle mit
-        # korrekter Kanal-Zuordnung inkl. Gewerk-Kontext (siehe Topologie-Ansicht,
-        # die dieselbe Logik nutzt).
-        belegungsplan = BelegungsplanService().generate(self.project)
-        actor_rows_by_addr: dict[str, list] = {}
-        for r in belegungsplan.actor_rows:
-            actor_rows_by_addr.setdefault(r.physical_address, []).append(r)
+        def ga_text(address: str) -> str:
+            return _ga_line(ga_by_address.get(address) or address)
 
-        target_types = {"actor", "gateway"}
-        entries: list[tuple] = []
+        # Belegungsplan als Quelle für die Kanal-Zuordnung geplanter Projekte:
+        # dort sind Device.communication_objects je Funktion über alle Kanäle
+        # gebündelt, nur der Belegungsplan kennt Kanal, Gewerk und Raum.
+        actor_rows_by_addr: dict[str, list] = defaultdict(list)
+        for r in BelegungsplanService().generate(self.project).actor_rows:
+            actor_rows_by_addr[r.physical_address].append(r)
+
+        by_location: dict[str, list] = defaultdict(list)
         for area in self.project.topology.areas:
             for line in area.lines:
                 for dev in line.devices:
-                    if dev.device_type in target_types:
-                        entries.append((area, line, dev))
+                    if dev.device_type in ("actor", "gateway"):
+                        by_location[self._device_location(dev)].append(
+                            (area, line, dev))
+        if not by_location:
+            pdf.add_paragraph("Keine Aktoren oder Gateways im Projekt vorhanden.")
+            pdf.save(filepath)
+            logger.info(f"Aktoren-und-Gateways-Bericht erstellt: {filepath}")
+            return
+        locations = sorted(by_location, key=_location_sort_key)
+        for location in locations:
+            by_location[location].sort(key=lambda e: physical_address_key(e[2].physical_address))
 
-        entries.sort(key=lambda entry: physical_address_key(entry[2].physical_address))
+        def planned_channels(dev) -> list[list]:
+            """Kanalzeilen aus dem Belegungsplan (nur mit Gewerk-Zuordnung)."""
+            rows = actor_rows_by_addr.get(dev.physical_address, [])
+            if not any(r.gewerk_code for r in rows):
+                return []
+            table = []
+            for channel, ch_rows in group_actor_rows_by_channel(rows):
+                first = ch_rows[0]
+                if channel == "?":
+                    label, function = "Zentral", ("Zentral- und Szenenadressen", "")
+                else:
+                    room = " · ".join(p for p in (
+                        first.floor_name, first.zone_name,
+                        f"{first.room_number} {first.room_name}".strip()) if p)
+                    label = f"Kanal {channel}"
+                    function = (self._gewerk_label(first.gewerk_code) or "–",
+                                _clean_location(room))
+                gas = dict.fromkeys(ga_text(r.ga_address) for r in ch_rows)
+                table.append([label, function, "\n".join(gas) or "–"])
+            return table
 
-        # ── Übersichtstabelle ────────────────────────────────────────────────
-        summary_rows = []
-        for area, line, dev in entries:
-            summary_rows.append([
-                dev.physical_address,
-                dev.device_type,
-                dev.product or "–",
-                dev.manufacturer or "–",
-                dev.order_number or "–",
-                dev.serial_number or "–",
-                dev.installation_location or "–",
-            ])
-        if summary_rows:
-            pdf.add_table(
-                ["Phys. Adresse", "Typ", "Produkt", "Hersteller", "Best.-Nr.", "Seriennummer", "Einbauort"],
-                summary_rows,
-            )
-            pdf.add_separator()
+        def co_channels(dev) -> tuple[list[list], list[int]]:
+            """Eine Zeile je ETS-Kommunikationsobjekt, nach Kanal gegliedert
+            (Kanal nur in der ersten Zeile, Schattierung je Kanal); Objekte
+            ohne erkennbaren Kanal zuletzt unter "Weitere"."""
+            by_channel: dict[str, list] = defaultdict(list)
+            loose = []
+            for co in sorted(dev.communication_objects, key=lambda c: c.object_number):
+                if not co.connected_gas:
+                    continue
+                channel = _report_channel_label(co.name)
+                (by_channel[channel] if channel else loose).append(co)
+            blocks = [(ch, [(ch, co) for co in by_channel[ch]])
+                      for ch in sorted(by_channel, key=_natural_key)]
+            blocks += [("Weitere" if i == 0 else "", [("", co)]) for i, co in enumerate(loose)]
+            table, groups = [], []
+            for group, (label, cos) in enumerate(blocks):
+                for i, (channel, co) in enumerate(cos):
+                    table.append([
+                        label if i == 0 else "",
+                        f"{co.object_number}  {_co_object_text(co, channel)}",
+                        "\n".join(ga_text(a) for a in co.connected_gas),
+                    ])
+                    groups.append(group)
+            return table, groups
 
-        # ── Gerätekarten ────────────────────────────────────────────────────
-        has_any = False
-        for area, line, dev in entries:
-            has_any = True
-            pdf.add_conditional_break(min_height=150)
+        def channel_count(dev, table, planned: bool) -> str:
+            used = sum(1 for r in table if r[0] and r[0] not in ("Weitere", "Zentral"))
+            total = _channel_total(dev.product)
+            if planned or used:
+                return f"{used} / {total}" if total else str(used)
+            return "–"
 
-            loc = dev.installation_location or f"Bereich {area.area_number} / Linie {line.line_number}"
-            heading = f"{dev.product or dev.device_type}  [{dev.physical_address}]  |  {loc}"
-            pdf.add_heading(heading, level=3)
+        def anchor(dev) -> str:
+            return f"dev-{dev.physical_address}-{id(dev)}"
 
-            info_rows: list[list[str]] = []
-            if dev.manufacturer:
-                info_rows.append(["Hersteller", dev.manufacturer])
-            if dev.product:
-                info_rows.append(["Produkt", dev.product])
-            if dev.order_number:
-                info_rows.append(["Bestellnummer", dev.order_number])
-            if dev.serial_number:
-                info_rows.append(["Seriennummer", dev.serial_number])
-            if dev.application_program:
-                info_rows.append(["Applikationsprogramm", dev.application_program])
-            info_rows.append(["Phys. Adresse", dev.physical_address])
-            info_rows.append(["Linie", f"{area.name} / {line.name} ({line.coupler_address})"])
-            if dev.installation_location:
-                info_rows.append(["Einbauort", dev.installation_location])
-            info_rows.append(["Gerätetyp", dev.device_type])
+        # Tabellen einmal berechnen (Übersicht und Gerätekarten):
+        # id(dev) -> (Zeilen, geplant?, Schattierungsgruppen)
+        details = {}
+        for location in locations:
+            for _area, _line, dev in by_location[location]:
+                planned = planned_channels(dev)
+                if planned:
+                    details[id(dev)] = (_split_long_rows(planned), True, None)
+                else:
+                    table, groups = co_channels(dev)
+                    details[id(dev)] = (table, False, groups)
 
-            if info_rows:
-                pdf.add_table(["Eigenschaft", "Wert"], info_rows)
+        # ── Übersicht ────────────────────────────────────────────────────────
+        pdf.add_heading("Übersicht", level=2)
+        devices = [e[2] for loc in locations for e in by_location[loc]]
+        n_actors = sum(1 for d in devices if d.device_type == "actor")
+        n_gateways = len(devices) - n_actors
+        pdf.add_paragraph(
+            f"{n_actors} {'Aktor' if n_actors == 1 else 'Aktoren'}, "
+            f"{n_gateways} {'Gateway' if n_gateways == 1 else 'Gateways'} an "
+            f"{len(locations)} {'Einbauort' if len(locations) == 1 else 'Einbauorten'}."
+        )
+        overview = []
+        for location in locations:
+            for _area, _line, dev in by_location[location]:
+                table, planned, _groups = details[id(dev)]
+                overview.append([
+                    dev.physical_address,
+                    _device_cell(dev),
+                    _device_type_label(dev),
+                    location or "–",
+                    channel_count(dev, table, planned),
+                    PageRef(anchor(dev)),
+                ])
+        pdf.add_table(["Adresse", "Gerät", "Typ", "Einbauort", "Kanäle", "Seite"],
+                      overview, col_widths=[0.09, 0.44, 0.10, 0.20, 0.09, 0.08],
+                      align=["left", "left", "left", "left", "right", "right"])
+        pdf.add_note(
+            "Kanäle:",
+            "belegte Kanäle / Kanalzahl laut Produktbezeichnung. Belegt ist ein "
+            "Kanal mit mindestens einer Gruppenadresse; «–», wenn die Objekte "
+            "des Geräts keinen Kanal erkennen lassen.")
+        pdf.add_note("Hinweis:", "Das PDF enthält Lesezeichen nach Einbauort und "
+                                 "Gerät. Jeder Einbauort beginnt auf einer neuen Seite.")
 
-            if dev.datasheets:
-                pdf.add_heading("Datenblätter", level=4)
+        # ── Einbauort → Gerät ────────────────────────────────────────────────
+        for location in locations:
+            entries = by_location[location]
+            pdf.add_page_break()
+            pdf.add_heading(f"{location or 'Ohne Einbauort'}  ({_n_devices(len(entries))})",
+                            level=2)
+            for area, line, dev in entries:
+                table, planned, groups = details[id(dev)]
+                # Karte möglichst auf einer Seite, lange Karten brechen um
+                n_lines = sum(str(r[2]).count("\n") + 1 for r in table)
+                pdf.add_conditional_break(min_height=min(70 + n_lines * 10.5, 400))
+                pdf.add_anchor(anchor(dev))
+                product = dev.product or "–"
+                card_details = [
+                    " · ".join(p for p in (dev.manufacturer, product, dev.order_number) if p),
+                    " · ".join(p for p in (
+                        f"Linie {area.area_number}.{line.line_number}",
+                        f"SN {dev.serial_number}" if dev.serial_number else "",
+                    ) if p),
+                ]
+                pdf.add_card_header(f"{dev.physical_address}  ·  {_device_type_label(dev)}",
+                                    "\n".join(card_details),
+                                    bookmark=f"{dev.physical_address}  {product}")
+
+                if table:
+                    pdf.add_table(
+                        ["Kanal", "Funktion" if planned else "Objekt", "Gruppenadressen"],
+                        table,
+                        col_widths=[0.12, 0.30, 0.58] if planned else [0.12, 0.26, 0.62],
+                        groups=groups)
+                else:
+                    pdf.add_paragraph("Keine Gruppenadressen verknüpft.")
+
                 for ds in dev.datasheets:
-                    if ds.startswith("http://") or ds.startswith("https://"):
+                    if ds.startswith(("http://", "https://")):
                         pdf.add_link(ds, ds)
                     else:
-                        pdf.add_paragraph(f"  {ds}")
-
-            # Primär: Belegungsplan-Zeilen (Gewerk-/GA-basiert -- deckt auch
-            # ETS6-Importe ohne Gewerk-Zuordnung ab, da _collect_actor_rows
-            # dafür bereits selbst auf die COs zurückfällt). Nur echte
-            # Gateways (kein "actor" in _collect_actor_rows) nutzen den
-            # rohen CO-Fallback unten.
-            actor_rows = actor_rows_by_addr.get(dev.physical_address, [])
-            if actor_rows:
-                pdf.add_heading("Kanäle / GA-Verknüpfungen", level=4)
-                for ch_num, ch_rows in group_actor_rows_by_channel(actor_rows):
-                    first = ch_rows[0]
-                    context = " / ".join(p for p in [first.gewerk_code, first.room_name] if p)
-                    label = f"Kanal {ch_num}" + (f" – {context}" if context else "")
-                    pdf.add_heading(label, level=5)
-                    ch_table_rows = [
-                        [r.gewerk_code, r.function_name, r.ga_designation, r.ga_address, r.dpt]
-                        for r in ch_rows
-                    ]
-                    pdf.add_table(
-                        ["Gewerk", "Funktion", "GA-Bezeichnung", "GA-Adresse", "DPT"],
-                        ch_table_rows,
-                        col_widths=[40, 70, 190, 95, 100],
-                    )
-            else:
-                cos_with_ga = [co for co in sorted(dev.communication_objects, key=lambda c: c.object_number)
-                               if co.connected_gas]
-                if cos_with_ga:
-                    pdf.add_heading("Kommunikationsobjekte / GA-Verknüpfungen", level=4)
-
-                    # Auf Kanäle aufteilen (ETS-Konvention im CO-Namen, z.B. "A, Schalten"
-                    # oder "Kanal A"). Objekte ohne erkennbaren Kanal (geräteweite
-                    # Status-/Szenenobjekte) werden ohne eigene Kanal-Überschrift zuerst gelistet.
-                    channel_groups: dict[str, list] = {}
-                    for co in cos_with_ga:
-                        channel_groups.setdefault(_extract_channel_label(co.name), []).append(co)
-
-                    for channel, cos in channel_groups.items():
-                        if channel:
-                            pdf.add_heading(channel, level=5)
-                        co_rows = []
-                        for co in cos:
-                            ga_designations, ga_addresses = [], []
-                            for ga_addr in co.connected_gas:
-                                ga_obj = ga_by_address.get(ga_addr)
-                                ga_designations.append(ga_obj.designation if ga_obj else ga_addr)
-                                ga_addresses.append(ga_addr)
-                            co_rows.append([
-                                str(co.object_number),
-                                co.name or f"KO {co.object_number}",
-                                co.object_function,
-                                " · ".join(ga_designations),
-                                " · ".join(ga_addresses),
-                                co.data_type,
-                            ])
-                        pdf.add_table(
-                            ["KO-Nr.", "Name", "Funktion", "GA-Bezeichnung", "GA-Adresse", "DPT"],
-                            co_rows,
-                            col_widths=[32, 100, 75, 155, 85, 48],
-                        )
-                else:
-                    pdf.add_paragraph("  (keine GA-Verknüpfungen)")
-
-            pdf.add_separator()
-
-        if not has_any:
-            pdf.add_paragraph("Keine Aktoren oder Gateways im Projekt vorhanden.")
+                        pdf.add_note("Datenblatt:", ds)
 
         pdf.save(filepath)
         logger.info(f"Aktoren-und-Gateways-Bericht erstellt: {filepath}")
@@ -1406,15 +1549,22 @@ class ReportService:
         return key
 
     def generate_szenen_report(self, filepath: str):
-        """
-        Erzeugt einen Szenenreport als PDF (FA-1811): pro Szene ein
-        bauherren-lesbarer Bedienungs-Abschnitt (Auslöser, Aktionen) und ein
-        technischer Abschnitt (Geltungsbereich, Szenenaufruf-GA, betroffene
-        Gewerke/Aktoren inkl. CO-Verknüpfungsstatus aus co_linking_service).
-        """
-        pdf = self._make_pdf("Szenenreport")
+        """Erzeugt den Szenenreport als PDF (FA-1811).
 
-        pdf.add_heading("Szenenreport", level=1)
+        Gegliedert nach der Szenen-Gruppenadresse (DPT 17.001/18.001): sie
+        überträgt die Szenennummer, die Aktoren sind mit ihr verknüpft. Je
+        Adresse eine Karte mit Geltungsbereich, DPT, verknüpften Aktoren und
+        bestätigten Gewerken, darunter eine Zeile je Szenennummer (1–64; auf
+        dem Bus als Bytewert 0–63) mit Auslöser und Aktionen.
+
+        Eigene Abschnitte: Szenen der Visualisierung (einzelne Schalt-Adressen,
+        z.B. UniPro H/M/L/0 – keine KNX-Szenenadressen), nicht eindeutig
+        erkannte Szenen-Adressen (zur Fehlersuche) und geplante Szenen ohne
+        generierte Adresse. PDF-Lesezeichen: Abschnitt → Adresse.
+        """
+        title = "Szenenreport"
+        pdf = self._make_pdf(title)
+        pdf.add_heading(title, level=1)
         pdf.add_paragraph(
             f"Projekt: {self.project.name} | "
             f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
@@ -1429,6 +1579,7 @@ class ReportService:
             return
 
         label_lookup = build_scope_label_lookup(self.project.areal)
+        ga_by_address = {g.address: g for g in self.project.group_addresses.all_addresses()}
         device_by_addr = {
             d.physical_address: d
             for area in self.project.topology.areas
@@ -1437,114 +1588,226 @@ class ReportService:
         }
         proposals = CoLinkingService().generate_proposals(self.project)
         trigger_buttons_index = self._scene_trigger_buttons_index()
-
-        # Tatsaechlich zugewiesene Gewerke je Geraet (NICHT die generische
-        # Typ-Fähigkeitsmenge aus _gewerke_for_device -- ein "Schaltaktor"
-        # deckt z.B. L/S/V/G/DF/BW/BL/P ab, wovon im Projekt meist nur eines
-        # tatsaechlich genutzt wird). Quelle: die realen, raumbasierten
-        # Belegungsplan-Zeilen dieses Geraets.
-        belegungsplan = BelegungsplanService().generate(self.project)
+        # Tatsaechlich zugewiesene Gewerke je Geraet aus den Belegungsplan-
+        # Zeilen (NICHT die Typ-Faehigkeitsmenge eines "Schaltaktor").
         gewerke_by_device_addr: dict[str, set[str]] = {}
-        for row in belegungsplan.actor_rows:
+        for row in BelegungsplanService().generate(self.project).actor_rows:
             if row.gewerk_code:
                 gewerke_by_device_addr.setdefault(row.physical_address, set()).add(row.gewerk_code)
 
-        for scene in sorted(scenes, key=self._scene_sort_key()):
-            pdf.add_conditional_break(min_height=150)
-            pdf.add_heading(f"{scene.name}  (Szene Nr. {scene.scene_number or '–'})", level=2)
-
-            # ── Bedienung (Bauherr) ──────────────────────────────────────
-            pdf.add_heading("Bedienung", level=3)
-            assigned_buttons = trigger_buttons_index.get(scene.id, [])
-            if assigned_buttons:
-                pdf.add_paragraph(
-                    "Ausgelöst durch (Taster-Zuweisung): " + ", ".join(assigned_buttons)
-                )
-            if scene.trigger:
-                pdf.add_paragraph(f"Notiz: {scene.trigger}")
-            if not assigned_buttons and not scene.trigger:
-                pdf.add_paragraph("Ausgelöst durch: (kein Taster hinterlegt)")
-            if scene.actions:
-                for action in scene.actions:
-                    pdf.add_paragraph(f"  •  {self._scene_action_label(action)}")
-            else:
-                pdf.add_paragraph("  (keine Aktionen definiert)")
-
-            # ── Technische Details (Integrator) ─────────────────────────
-            pdf.add_heading("Technische Details", level=3)
-            scope_label = self._SCENE_SCOPE_LABELS.get(scene.scope, scene.scope or "Zentral")
-            if scene.scope_id:
-                scope_label += f": {label_lookup.get(scene.scope_id, scene.scope_id)}"
-            pdf.add_paragraph(f"Geltungsbereich: {scope_label}")
-
+        # ── Szenen nach Gruppenadresse gliedern ──────────────────────────────
+        by_ga: dict[str, list] = defaultdict(list)
+        visu: list = []
+        without_ga: list = []
+        for scene in scenes:
+            if scene.detection_kind == "pattern":
+                visu.append(scene)
+                continue
             ga = self._scene_target_ga(scene, label_lookup)
             if ga is None:
-                pdf.add_paragraph(
-                    "Noch keine Gruppenadresse generiert – bitte in Schritt 10 des "
-                    "Wizards ('Gruppenadressen generieren') aktualisieren."
-                )
-                pdf.add_separator()
-                continue
+                without_ga.append(scene)
+            else:
+                by_ga[ga.address].append(scene)
 
-            pdf.add_paragraph(
-                f"Szenenaufruf-GA: {ga.designation}   [{ga.address}]   ({ga.datapoint_type})"
-            )
+        def is_scene_dpt(ga) -> bool:
+            return dpt_number(ga.datapoint_type or "").split(".")[0] in ("17", "18")
 
-            gewerke_codes: set[str] = set()
-            actor_rows: list[list[str]] = []
-            confirmed_addrs: set[str] = set()
-            for area in self.project.topology.areas:
-                for line in area.lines:
-                    for device in line.devices:
-                        if device.device_type not in ("actor", "gateway"):
-                            continue
-                        if any(ga.address in co.connected_gas for co in device.communication_objects):
-                            confirmed_addrs.add(device.physical_address)
-                            gewerke_codes |= gewerke_by_device_addr.get(device.physical_address, set())
-                            actor_rows.append([device.physical_address, device.product, "verknüpft"])
+        knx, unclear = [], []
+        for address in sorted(by_ga, key=group_address_key):
+            ga = ga_by_address[address]
+            group = by_ga[address]
+            numbered = sorted((s for s in group if s.scene_number), key=lambda s: s.scene_number)
+            planned = any(not s.is_detected for s in group)
+            if is_scene_dpt(ga) or numbered or planned:
+                knx.append((ga, group, numbered))
+            else:
+                unclear.append((ga, group))
 
+        def scope_text(scene) -> str:
+            text = self._SCENE_SCOPE_LABELS.get(scene.scope, scene.scope or "Zentral")
+            if scene.scope_id:
+                text += f": {label_lookup.get(scene.scope_id, scene.scope_id)}"
+            return text
+
+        def triggers(scene) -> str:
+            lines = list(trigger_buttons_index.get(scene.id, []))
+            lines += [t for t in (scene.trigger or "").split("; ") if t and t not in lines]
+            return "\n".join(lines) or "–"
+
+        def actions(scene, ga=None) -> str:
+            # Verweis der Szene auf ihre eigene Szenen-Adresse ist keine Aktion
+            own = {ga.address, _clean(ga.designation)} if ga else set()
+            return "\n".join(
+                _clean_location(self._scene_action_label(a)) for a in scene.actions
+                if a.ga_address not in own and _clean(a.group_address) not in own
+            ) or "–"
+
+        def scene_name(scene, ga, group) -> str:
+            """'Anwesendheit Chalet – Szene 1' -> 'Szene 1' (Adressname steht im Kopf)."""
+            name = " ".join(scene.name.split())
+            channel = next((s for s in group if not s.scene_number), None)
+            for prefix in (_clean(ga.designation), _clean(channel.name) if channel else ""):
+                if prefix and name.startswith(prefix + " – "):
+                    return name[len(prefix) + 3:]
+            return name
+
+        def actors_for(ga) -> tuple[list[list], set[str]]:
+            rows, codes, linked = [], set(), set()
+            for addr, device in sorted(device_by_addr.items(),
+                                       key=lambda kv: physical_address_key(kv[0])):
+                if device.device_type in ("actor", "gateway") and any(
+                        ga.address in co.connected_gas for co in device.communication_objects):
+                    linked.add(addr)
+                    codes |= gewerke_by_device_addr.get(addr, set())
+                    rows.append([addr, _device_cell(device), "verknüpft"])
             for p in proposals:
-                if p.ga_address != ga.address or p.function_name != "SZENE":
-                    continue
-                if p.physical_address in confirmed_addrs:
-                    continue
-                device = device_by_addr.get(p.physical_address)
-                gewerke_codes |= gewerke_by_device_addr.get(p.physical_address, set())
-                actor_rows.append([
-                    p.physical_address,
-                    device.product if device else "",
-                    f"Vorschlag ({p.confidence})",
-                ])
+                if p.ga_address == ga.address and p.function_name == "SZENE" \
+                        and p.physical_address not in linked:
+                    device = device_by_addr.get(p.physical_address)
+                    codes |= gewerke_by_device_addr.get(p.physical_address, set())
+                    rows.append([p.physical_address,
+                                 _device_cell(device) if device else ("–", ""),
+                                 f"Vorschlag ({p.confidence})"])
+            return rows, codes
 
-            action_categories = self._scene_action_categories(scene)
-            if action_categories:
-                pdf.add_paragraph(
-                    "Betroffene Gewerke (laut Aktionsdefinition): "
-                    + ", ".join(
+        def scene_list(ga, group, numbered) -> str:
+            """'1 Anwesend · 2 Abwesend'; reine Nummern-Namen ('Szene 2') nur als Nummer."""
+            parts = []
+            for s in numbered:
+                name = scene_name(s, ga, group)
+                generic = re.fullmatch(r"Szene 0*(\d+)", name)
+                parts.append(str(s.scene_number) if generic and int(generic.group(1)) == s.scene_number
+                             else f"{s.scene_number} {name}")
+            return " · ".join(parts)
+
+        # ── Übersicht ────────────────────────────────────────────────────────
+        pdf.add_heading("Übersicht", level=2)
+        n_scenes = sum(len(numbered) for _ga, _g, numbered in knx)
+        parts = [f"{len(knx)} Szenen-Adressen mit {n_scenes} Szenen"]
+        if visu:
+            parts.append(f"{len(visu)} Szenen der Visualisierung")
+        if unclear:
+            parts.append(f"{len(unclear)} nicht eindeutig")
+        if without_ga:
+            parts.append(f"{len(without_ga)} ohne Gruppenadresse")
+        pdf.add_paragraph(", ".join(parts) + ".")
+        if knx:
+            pdf.add_table(
+                ["Adresse", "Bezeichnung", "Szenen (Nr. Name)", "Seite"],
+                [[ga.address, _clean(ga.designation), scene_list(ga, group, numbered) or "–",
+                  PageRef(f"scene-ga-{ga.address}")] for ga, group, numbered in knx],
+                col_widths=[0.11, 0.33, 0.48, 0.08],
+                align=["left", "left", "left", "right"])
+        pdf.add_note(
+            "Szenennummer:",
+            "Szenen sind von 1 bis 64 nummeriert. Auf dem Bus überträgt die "
+            "Gruppenadresse den Bytewert 0–63, also die Szenennummer minus 1.")
+        pdf.add_note("Hinweis:", "Das PDF enthält Lesezeichen je Szenen-Adresse.")
+
+        # ── KNX-Szenenadressen ───────────────────────────────────────────────
+        if knx:
+            pdf.add_page_break()
+            pdf.add_heading("Szenen-Adressen", level=2)
+            for ga, group, numbered in knx:
+                pdf.add_conditional_break(min_height=min(120 + 30 * len(numbered), 360))
+                pdf.add_anchor(f"scene-ga-{ga.address}")
+                dpt = dpt_number(ga.datapoint_type or "") or "DPT fehlt"
+                detail = [f"{dpt} · Geltungsbereich {scope_text(group[0])}"]
+                pdf.add_card_header(f"{ga.address}  ·  {_clean(ga.designation)}",
+                                    "\n".join(detail),
+                                    bookmark=f"{ga.address}  {_clean(ga.designation)}")
+                if not is_scene_dpt(ga):
+                    pdf.add_note("Prüfen:", f"Datenpunkttyp {dpt} – für Szenen wird "
+                                            "17.001 (bzw. 18.001) erwartet.")
+                if numbered:
+                    pdf.add_table(
+                        ["Nr.", "Szene", "Ausgelöst durch", "Aktionen"],
+                        [[str(s.scene_number), scene_name(s, ga, group), triggers(s),
+                          actions(s, ga)] for s in numbered],
+                        col_widths=[0.06, 0.22, 0.32, 0.40],
+                        align=["right", "left", "left", "left"])
+                else:
+                    pdf.add_paragraph("Keine Szenennummern hinterlegt.")
+
+                rows, codes = actors_for(ga)
+                action_categories = set()
+                for s in group:
+                    action_categories |= self._scene_action_categories(s)
+                if action_categories:
+                    pdf.add_note("Betroffene Gewerke (laut Aktionsdefinition):", ", ".join(
                         GEWERK_CATEGORY_LABELS.get(c, c)
-                        for c in sorted(action_categories, key=_gewerk_category_sort_key)
-                    )
-                )
+                        for c in sorted(action_categories, key=_gewerk_category_sort_key)))
+                if codes:
+                    pdf.add_note("Betroffene Gewerke (bestätigt durch Aktor-Verknüpfung):",
+                                 ", ".join(self._gewerk_label(c) for c in sorted(codes)))
+                if rows:
+                    pdf.add_table(["Adresse", "Aktor / Gateway", "Status"], rows,
+                                  col_widths=[0.11, 0.69, 0.20])
+                elif any(actions(s, ga) != "–" for s in numbered):
+                    pdf.add_note("Prüfen:", "Kein Aktor ist mit dieser Adresse verknüpft, "
+                                            "obwohl Aktionen hinterlegt sind. Szenenobjekte "
+                                            "der Aktoren in der ETS mit der Adresse verbinden.")
+                else:
+                    pdf.add_note("Betroffene Gewerke (bestätigt durch Aktor-Verknüpfung):",
+                                 "noch keine Aktoren verknüpft")
 
-            if gewerke_codes:
-                pdf.add_paragraph(
-                    "Betroffene Gewerke (bestätigt durch Aktor-Verknüpfung): "
-                    + ", ".join(self._gewerk_label(c) for c in sorted(gewerke_codes))
-                )
-            else:
-                pdf.add_paragraph(
-                    "Betroffene Gewerke (bestätigt durch Aktor-Verknüpfung): "
-                    "(noch keine Aktoren verknüpft)"
-                )
+        # ── Szenen der Visualisierung ────────────────────────────────────────
+        if visu:
+            pdf.add_page_break()
+            pdf.add_heading("Szenen der Visualisierung", level=2)
+            pdf.add_note(
+                "Hinweis:",
+                "Diese Szenen löst die Visualisierung (z.B. UniPro mit den Stufen "
+                "H/M/L/0) über einzelne Schalt-Adressen aus. Es sind keine "
+                "KNX-Szenenadressen und sie tragen keine Szenennummer.")
 
-            if actor_rows:
-                pdf.add_table(["Phys. Adresse", "Produkt", "Status"], actor_rows)
-            else:
-                pdf.add_paragraph(
-                    "Betroffene Aktoren: noch keine verknüpft (siehe CO-Verknüpfung)."
-                )
+            def visu_key(scene):
+                first = min(scene.source_ga_addresses, key=group_address_key, default="")
+                return group_address_key(first) if first else (999,)
+            rows = []
+            for scene in sorted(visu, key=visu_key):
+                rows.append([
+                    scene.name,
+                    "\n".join(_ga_line(ga_by_address.get(a) or a)
+                              for a in sorted(scene.source_ga_addresses, key=group_address_key))
+                    or "–",
+                    triggers(scene) if triggers(scene) != "–" else "",
+                ])
+            pdf.add_table(["Szene", "Gruppenadressen", "Ausgelöst durch"], rows,
+                          col_widths=[0.24, 0.50, 0.26])
 
-            pdf.add_separator()
+        # ── Nicht eindeutig ──────────────────────────────────────────────────
+        if unclear:
+            pdf.add_page_break()
+            pdf.add_heading("Nicht eindeutig", level=2, accent=ACCENT_WARNING)
+            pdf.add_note(
+                "Hinweis:",
+                "Diese Adressen wurden beim Import als Szene erkannt, haben aber "
+                "weder den Datenpunkttyp einer Szene (17.001/18.001) noch "
+                "hinterlegte Szenennummern. Prüfen, ob es Szenen-Adressen sind, "
+                "und DPT bzw. Szenen in der ETS korrigieren.")
+            pdf.add_table(
+                ["Adresse", "Bezeichnung", "DPT", "Grund"],
+                [[ga.address, _clean(ga.designation),
+                  dpt_number(ga.datapoint_type or "") or "–",
+                  "DPT keine Szene, keine Szenennummern"]
+                 for ga, _group in unclear],
+                col_widths=[0.11, 0.45, 0.12, 0.32])
+
+        # ── Geplante Szenen ohne Gruppenadresse ──────────────────────────────
+        if without_ga:
+            pdf.add_page_break()
+            pdf.add_heading("Ohne Gruppenadresse", level=2, accent=ACCENT_WARNING)
+            pdf.add_note(
+                "Hinweis:",
+                "Für diese Szenen ist noch keine Szenen-Adresse generiert – in "
+                "Schritt 10 des Wizards ('Gruppenadressen generieren') aktualisieren.")
+            pdf.add_table(
+                ["Nr.", "Szene", "Geltungsbereich", "Ausgelöst durch", "Aktionen"],
+                [[str(s.scene_number or "–"), s.name, scope_text(s), triggers(s), actions(s)]
+                 for s in sorted(without_ga, key=self._scene_sort_key())],
+                col_widths=[0.06, 0.20, 0.20, 0.24, 0.30],
+                align=["right", "left", "left", "left", "left"])
 
         pdf.save(filepath)
         logger.info(f"Szenenreport erstellt: {filepath}")

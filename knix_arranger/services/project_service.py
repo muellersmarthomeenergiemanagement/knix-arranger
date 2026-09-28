@@ -91,15 +91,40 @@ class ProjectService:
         os.makedirs(os.path.join(project_dir, "Datenblätter"), exist_ok=True)
         return knxarr_path
 
-    def create_backup(self, filepath: str) -> str:
-        """Erstellt ein Backup vor Reorganisation (NFA-042)."""
-        if not os.path.exists(filepath):
+    BACKUP_FOLDER = "Sicherungen"
+    BACKUPS_KEPT = 10
+
+    def create_backup(self, filepath: str, reason: str = "") -> str:
+        """Sichert die gespeicherte Projektdatei vor Import oder Neuaufbau
+        (NFA-042) in den Unterordner "Sicherungen" des Projekts, z.B.
+        "Chalet_20260928_1405_vor_Import.knxarr". Die ältesten Sicherungen
+        über BACKUPS_KEPT hinaus werden gelöscht."""
+        if not filepath or not os.path.exists(filepath):
             return ""
+        folder = os.path.join(os.path.dirname(filepath), self.BACKUP_FOLDER)
+        os.makedirs(folder, exist_ok=True)
+        stem = os.path.splitext(os.path.basename(filepath))[0]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_path = filepath.replace(".knxarr", f"_backup_{timestamp}.knxarr")
+        suffix = f"_{reason}" if reason else ""
+        backup_path = os.path.join(folder, f"{stem}_{timestamp}{suffix}.knxarr")
         shutil.copy2(filepath, backup_path)
-        logger.info(f"Backup erstellt: {backup_path}")
+        logger.info(f"Sicherung erstellt: {backup_path}")
+        self._prune_backups(folder, stem)
         return backup_path
+
+    def _prune_backups(self, folder: str, stem: str) -> None:
+        # Nach Zeitstempel im Namen sortieren – copy2 übernimmt das
+        # Änderungsdatum der Projektdatei, das Dateidatum taugt dafür nicht
+        backups = sorted(
+            f for f in os.listdir(folder)
+            if f.startswith(f"{stem}_") and f.endswith(".knxarr")
+            and f[len(stem) + 1:len(stem) + 16].replace("_", "").isdigit()
+        )
+        for name in backups[:-self.BACKUPS_KEPT]:
+            try:
+                os.remove(os.path.join(folder, name))
+            except OSError as exc:
+                logger.warning(f"Alte Sicherung nicht gelöscht: {name}: {exc}")
 
     def save_company_profile(self, profile: CompanyProfile):
         """Speichert das Firmenprofil global (FA-852)."""

@@ -15,7 +15,7 @@ from PySide6.QtGui import (
     QColor, QPen, QBrush, QFont, QFontMetrics, QPainter, QPixmap,
 )
 from ...models.project import KnxProject
-from ...services.cable_length_service import CableLengthService
+from ...services.topology_diagram import build_topology_diagram
 from ..styles import COLOR_WARNING, COLOR_ERROR
 
 # ── Farben (KNX-Designbasis, FA-1012) ────────────────────────────────────────
@@ -33,7 +33,6 @@ _C_LINE_WIRE   = QColor("#78909C")   # Verbindungslinien
 BOX_W       = 160
 BOX_H_AREA  = 40
 BOX_H_NODE  = 34   # BK, LK, SV
-BOX_H_LINE  = 90   # Linie-Box (inkl. Gerätezähler)
 GAP_COL     = 50   # Abstand zwischen Bereichen
 GAP_ROW     = 18   # Abstand zwischen Zeilen innerhalb eines Bereichs
 MARGIN      = 30
@@ -103,8 +102,7 @@ class TopologyDiagramView(QWidget):
             f"<span style='color:{_C_LINE.name()};'>&#9632;</span> Linie (OK)&nbsp;&nbsp;"
             f"<span style='color:{_C_LINE_WARN.name()};'>&#9632;</span> Leitungslänge nahe Grenzwert&nbsp;&nbsp;"
             f"<span style='color:{_C_LINE_ERROR.name()};'>&#9632;</span> Leitungslänge überschritten&nbsp;&nbsp;"
-            f"<span style='color:{_C_BACKBONE.name()};'>&#9632;</span> Backbone&nbsp;&nbsp;&nbsp;"
-            "▶ Aktor(en)&nbsp;&nbsp;⏺ Sensor(en)&nbsp;&nbsp;◆ Sonstige"
+            f"<span style='color:{_C_BACKBONE.name()};'>&#9632;</span> Backbone"
         )
         legend.setStyleSheet("font-size: 12px; color: #666;")
         layout.addWidget(legend)
@@ -135,81 +133,40 @@ class TopologyDiagramView(QWidget):
     # ── Zeichnen ──────────────────────────────────────────────────────────────
 
     def _draw_topology(self):
-        areas = self._project.topology.areas
-        multi_area = len(areas) > 1
-
-        # FA-2603: Leitungslängen-Warnungen/-Fehler pro Linie (dieselbe Prüfung
-        # wie in der separaten Kabellängen-Ansicht, hier zusätzlich direkt im
-        # grafischen Prinzipschema sichtbar statt nur in einer separaten Liste).
-        cable_validations = {
-            v.line_id: v for v in CableLengthService().validate_project(self._project)
-        }
+        # Knoten und Beschriftungen aus demselben Service wie der
+        # Topologie-Bericht (FA-904): Koppler und SV nur, wenn als Gerät
+        # vorhanden; Leitungslängen-Status nach FA-2603.
+        diagram = build_topology_diagram(self._project, include_empty_lines=True)
+        backbone = diagram["backbone"]
+        node_colors = {"coupler": _C_COUPLER, "power": _C_POWER}
+        status_colors = {"Warnung": _C_LINE_WARN, "Fehler": _C_LINE_ERROR}
 
         col_x = MARGIN
-        area_cols: list[dict] = []   # {"area": Area, "x": float, "boxes": [_Box]}
+        area_cols: list[dict] = []   # {"title": str, "x": float, "boxes": [_Box]}
 
         # ── Berechnung der Spaltenbreiten ──
-        for area in areas:
+        for area in diagram["areas"]:
             boxes: list[_Box] = []
             y = MARGIN
-
-            # Bereichskoppler (nur bei >1 Bereich)
-            if multi_area:
-                boxes.append(_Box(col_x, y, BOX_W, BOX_H_NODE,
-                                  "Bereichskoppler",
-                                  f"{area.coupler_address}",
-                                  _C_COUPLER))
-                y += BOX_H_NODE + GAP_ROW
-
-                if area.backbone_power_supply is not None:
-                    sv = area.backbone_power_supply
-                    label = sv.product_name or sv.product or "SV Bereichslinie"
-                    sub = f"{area.area_number}.0.-"
-                    if sv.manufacturer:
-                        sub += f"  {sv.manufacturer}"
-                    boxes.append(_Box(col_x, y, BOX_W, BOX_H_NODE,
-                                      label, sub, _C_POWER))
-                    y += BOX_H_NODE + GAP_ROW
-
-            # Linien
-            for line in area.lines:
-                actors  = sum(1 for d in line.devices if d.device_type == "actor")
-                sensors = sum(1 for d in line.devices if d.device_type == "sensor")
-                others  = sum(1 for d in line.devices
-                               if d.device_type not in ("actor", "sensor",
-                                                         "coupler", "power_supply"))
-                lk_addr = line.coupler_address or f"{area.area_number}.{line.line_number}.0"
-                sv_addr = f"{area.area_number}.{line.line_number}.-"
-                sub_parts = [f"LK {lk_addr}", f"SV {sv_addr}"]
-                if actors:
-                    sub_parts.append(f"▶ {actors} Aktor(en)")
-                if sensors:
-                    sub_parts.append(f"⏺ {sensors} Sensor(en)")
-                if others:
-                    sub_parts.append(f"◆ {others} Sonstige")
-                sub = "\n".join(sub_parts)
-                line_name = f"{lk_addr}  {line.name}" if line.name else lk_addr
-
-                line_color = _C_LINE
-                line_tooltip = line_name
-                validation = cable_validations.get(line.id)
-                if validation and validation.status != "OK":
-                    line_color = (
-                        _C_LINE_ERROR if validation.status == "Fehler" else _C_LINE_WARN
-                    )
-                    line_tooltip = line_name + "\n\n⚠ " + "\n⚠ ".join(validation.messages)
-                    sub_parts.append(f"⚠ Leitungslänge: {validation.status}")
-                    sub = "\n".join(sub_parts)
-
-                boxes.append(_Box(col_x, y, BOX_W, BOX_H_LINE,
-                                  line_name, sub, line_color, tooltip=line_tooltip))
-                y += BOX_H_LINE + GAP_ROW
-
-            area_cols.append({"area": area, "x": col_x, "boxes": boxes,
-                              "col_h": y})
+            for node in area["nodes"]:
+                sub = "\n".join(node["lines"])
+                if node["kind"] == "line":
+                    color = status_colors.get(node["status"], _C_LINE)
+                    tooltip = node["title"]
+                    if node["messages"]:
+                        tooltip += "\n\n⚠ " + "\n⚠ ".join(node["messages"])
+                    h = max(BOX_H_NODE, 22 + 12 * len(node["lines"]))
+                else:
+                    color, tooltip = node_colors[node["kind"]], ""
+                    h = BOX_H_NODE if len(node["lines"]) <= 1 else BOX_H_NODE + 12
+                boxes.append(_Box(col_x, y, BOX_W, h, node["title"], sub, color,
+                                  tooltip=tooltip))
+                y += h + GAP_ROW
+            area_cols.append({"title": area["title"], "x": col_x, "boxes": boxes})
             col_x += BOX_W + GAP_COL
 
         # ── Backbone-Linie oben (bei >1 Bereich) ──
+        multi_area = bool(backbone)
         if multi_area:
             x0 = MARGIN + BOX_W / 2
             x1 = col_x - GAP_COL - BOX_W / 2
@@ -218,21 +175,17 @@ class TopologyDiagramView(QWidget):
                             color=_C_BACKBONE)
             self._add_label_item(
                 (x0 + x1) / 2 - 60, backbone_y - 16,
-                "KNX Backbone", bold=True, color=_C_BACKBONE)
+                backbone, bold=True, color=_C_BACKBONE)
 
         # ── Jede Spalte zeichnen ──
         for col in area_cols:
-            area = col["area"]
             boxes = col["boxes"]
             x = col["x"]
 
             # Bereichs-Header
-            area_label = f"Bereich {area.area_number}"
-            if area.name:
-                area_label += f": {area.name}"
             hdr_y = MARGIN - BOX_H_AREA - 10
             self._draw_box(_Box(x, hdr_y, BOX_W, BOX_H_AREA,
-                                area_label, "", _C_AREA))
+                                col["title"], "", _C_AREA))
 
             # Verbindung Backbone → BK (bei multi_area)
             if multi_area:
@@ -249,6 +202,7 @@ class TopologyDiagramView(QWidget):
                 prev_bottom = box.bottom
 
         # Statistik
+        areas = self._project.topology.areas
         total_areas = len(areas)
         total_lines = sum(len(a.lines) for a in areas)
         total_devices = sum(len(l.devices) for a in areas for l in a.lines)
@@ -377,7 +331,7 @@ class TopologyDiagramView(QWidget):
             page_w = max(595, w + 80)
             page_h = max(420, h + 100)
             page = doc.new_page(width=page_w, height=page_h)
-            from ...utils.fonts import register_fonts, font_name
+            from ...utils.fonts import register_fonts, font_name, finalize_pdf
             register_fonts(page)
 
             # Titel
@@ -393,6 +347,7 @@ class TopologyDiagramView(QWidget):
             img_rect = fitz.Rect(30, 60, 30 + w, 60 + h)
             page.insert_image(img_rect, filename=tmp.name)
 
+            finalize_pdf(doc)
             doc.save(path)
             doc.close()
             QMessageBox.information(self, "Export", f"PDF gespeichert:\n{path}")

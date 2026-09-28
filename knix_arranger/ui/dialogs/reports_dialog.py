@@ -68,7 +68,7 @@ class ReportsDialog(QDialog):
              self._gen_topology),
             ("Bedienelemente und Sensoren", "Nach Raum: Taster mit Tastenplan, Sensoren, GA-Zuordnung",
              self._gen_bedienelemente),
-            ("Aktoren und Gateways", "Aktor-/Gateway-Gerätekarten mit KOs als PDF",
+            ("Aktoren und Gateways", "Nach Einbauort: Geräte mit Kanälen und GA-Zuordnung",
              self._gen_aktoren_gateways),
             ("Räume nach Gewerken", "Gewerke und GAs je Raum als PDF",
              self._gen_room_gewerk),

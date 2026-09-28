@@ -347,6 +347,50 @@ def is_power_supply_product(product: str) -> bool:
     return bool(_POWER_SUPPLY_RE.search(product or ""))
 
 
+def is_power_supply(device: Device) -> bool:
+    return device.device_type == "power_supply" or is_power_supply_product(device.product)
+
+
+# ── Koppler und Spannungsversorgungen (einheitlich für Ansichten und Berichte) ──
+# Angezeigt wird nur, was als Gerät vorhanden ist. Line.coupler_address bzw.
+# Area.coupler_address allein genügen nicht: der knxproj-Import setzt dort
+# immer B.L.0 / B.0.0, auch für Linien ohne Koppler (Chalet: nur 1.2.0).
+# Geplante Projekte legen Koppler und SV bei der Topologie-Erzeugung als
+# Geräte an (topology_engine).
+
+def line_title(area: "Area", line: "Line") -> str:
+    """'Linie 1.2: Wohnung 1' (Name nur, wenn er mehr sagt als 'Linie 2')."""
+    title = f"Linie {area.area_number}.{line.line_number}"
+    if line.name and line.name != f"Linie {line.line_number}":
+        title += f": {line.name}"
+    return title
+
+
+def area_coupler(area: "Area") -> Optional[Device]:
+    """Bereichskoppler B.0.0 als Gerät (in einer beliebigen Linie des Bereichs)."""
+    address = f"{area.area_number}.0.0"
+    return next((d for line in area.lines for d in line.devices
+                 if d.device_type == "coupler" and d.physical_address == address
+                 and not is_power_supply(d)), None)
+
+
+def line_coupler(area: "Area", line: "Line") -> Optional[Device]:
+    """Linienkoppler B.L.0 als Gerät der Linie."""
+    address = f"{area.area_number}.{line.line_number}.0"
+    return next((d for d in line.devices
+                 if d.device_type == "coupler" and d.physical_address == address
+                 and not is_power_supply(d)), None)
+
+
+def line_power_supplies(line: "Line") -> list[Device]:
+    """Spannungsversorgungen der Linie (Adresse B.L.-, kein Busteilnehmer)."""
+    return [d for d in line.devices if is_power_supply(d)]
+
+
+def power_supply_address(area: "Area", line: "Line", device: Device) -> str:
+    return device.physical_address or f"{area.area_number}.{line.line_number}.-"
+
+
 def _fix_imported_power_supplies(areas: list) -> None:
     """Ältere knxproj-Importe gaben Geräten ohne ETS-Adresse (Spannungs-
     versorgungen) die Teilnehmernummer 0 und den Typ Koppler, z.B. '1.1.0'

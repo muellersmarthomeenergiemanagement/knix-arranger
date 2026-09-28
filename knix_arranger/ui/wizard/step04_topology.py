@@ -11,7 +11,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from ...models.project import KnxProject
-from ...models.topology import Area, Line, Device
+from ...models.topology import (
+    Area, Line, Device,
+    area_coupler, line_coupler, line_power_supplies, power_supply_address,
+)
 from ...services.topology_engine import TopologyEngine
 from ..dialogs.topology_assignment_dialog import TopologyAssignmentDialog
 from ..column_utils import fit_columns
@@ -642,6 +645,11 @@ class Step04Topology(QWidget):
         self._tree.clear()
         rooms_by_id = self._room_lookup()
         multi_area = len(self._project.topology.areas) > 1
+        # Bei der Planung zeigt der Baum die geplanten Koppler/SV (sie werden
+        # bei der Topologie-Erzeugung als Geräte angelegt); in importierten
+        # Projekten nur, was als Gerät vorhanden ist (wie Topologie-Ansicht
+        # und -Bericht).
+        planning = not self._project.topology.is_imported
 
         for area in self._project.topology.areas:
             area_item = QTreeWidgetItem(self._tree, [
@@ -654,13 +662,10 @@ class Step04Topology(QWidget):
             area_item.setData(0, self.AREA_ROLE, area)
             # Expand-Zustand wird von _restore_tree_state gesetzt
 
-            # FA-1007: Bereichskoppler (B.A.0.0) nur bei mehr als einem Bereich
-            if multi_area:
-                bk_device = next(
-                    (d for d in (area.lines[0].devices if area.lines else [])
-                     if d.device_type == "coupler" and d.product == "Bereichskoppler"),
-                    None,
-                )
+            # FA-1007: Bereichskoppler (B.A.0.0) nur bei mehr als einem Bereich;
+            # in importierten Projekten nur, wenn als Gerät vorhanden
+            bk_device = area_coupler(area) if multi_area else None
+            if multi_area and (planning or bk_device is not None):
                 bk_location = bk_device.installation_location if bk_device else ""
                 bk_status = "Verbindet Bereichslinie mit Backbone"
                 if bk_device and bk_device.manufacturer:
@@ -669,7 +674,7 @@ class Step04Topology(QWidget):
                         bk_status += f" {bk_device.order_number}"
                 bk_item = QTreeWidgetItem(area_item, [
                     "Bereichskoppler (BK)",
-                    area.coupler_address,
+                    bk_device.physical_address if bk_device else area.coupler_address,
                     "", bk_location,
                     bk_status,
                 ])
@@ -709,12 +714,8 @@ class Step04Topology(QWidget):
                 # Expand-Zustand wird von _restore_tree_state gesetzt
 
                 # FA-1007: Linienkoppler (B.A.L.0) als eigenständiger Knoten
-                if line.coupler_address:
-                    lk_device = next(
-                        (d for d in line.devices
-                         if d.device_type == "coupler" and d.product == "Linienkoppler"),
-                        None,
-                    )
+                lk_device = line_coupler(area, line)
+                if lk_device is not None or (planning and line.coupler_address):
                     lk_location = lk_device.installation_location if lk_device else ""
                     lk_status = "Verbindet Linie mit Bereichslinie"
                     if lk_device and lk_device.manufacturer:
@@ -723,18 +724,18 @@ class Step04Topology(QWidget):
                             lk_status += f" {lk_device.order_number}"
                     lk_item = QTreeWidgetItem(line_item, [
                         "Linienkoppler (LK)",
-                        line.coupler_address,
+                        lk_device.physical_address if lk_device else line.coupler_address,
                         "", lk_location,
                         lk_status,
                     ])
                     self._colorize(lk_item, _COLOR_COUPLER)
 
-                # FA-1007: Speisegerät Linie (B.A.L.-) — bei recommended_power_supply
-                if line.recommended_power_supply:
-                    sv_device = next(
-                        (d for d in line.devices if d.device_type == "power_supply"),
-                        None,
-                    )
+                # FA-1007: Speisegerät Linie (B.A.L.-) — vorhandene SV, bei der
+                # Planung sonst die geplante SV (recommended_power_supply)
+                sv_devices = line_power_supplies(line)
+                if not sv_devices and planning and line.recommended_power_supply:
+                    sv_devices = [None]
+                for sv_device in sv_devices:
                     sv_location = sv_device.installation_location if sv_device else ""
                     sv_status = "Spannungsversorgung der Linie"
                     if sv_device and sv_device.manufacturer:
@@ -743,7 +744,8 @@ class Step04Topology(QWidget):
                             sv_status += f" {sv_device.order_number}"
                     sv_line_item = QTreeWidgetItem(line_item, [
                         "Speisegerät (SV)",
-                        f"{area.area_number}.{line.line_number}.-",
+                        power_supply_address(area, line, sv_device) if sv_device
+                        else f"{area.area_number}.{line.line_number}.-",
                         "", sv_location,
                         sv_status,
                     ])

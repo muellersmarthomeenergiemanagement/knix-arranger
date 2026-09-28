@@ -1267,7 +1267,7 @@ class CustomerQuoteView(QWidget):
             pass
 
         # ── Seite anlegen (A4) ──
-        from ...utils.fonts import register_fonts, font_name, text_length
+        from ...utils.fonts import register_fonts, font_name, text_length, finalize_pdf
         doc = fitz.open()
 
         def add_page():
@@ -1550,5 +1550,6 @@ class CustomerQuoteView(QWidget):
 
         if not filepath.endswith(".pdf"):
             filepath += ".pdf"
-        doc.save(filepath)
+        finalize_pdf(doc)
+        doc.save(filepath, garbage=3, deflate=True)
         doc.close()
