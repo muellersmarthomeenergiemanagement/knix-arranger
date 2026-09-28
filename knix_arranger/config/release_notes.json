@@ -2,6 +2,29 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.23",
+      "date": "2026-09-28",
+      "neu": [
+        "Datei → «Projekt neu aus ETS aufbauen…»: liest ein ETS6-Projekt von Grund auf neu ein, statt Stockwerke und Räume von Hand zu löschen. Wählbar, was behalten wird (Projekteigenschaften, Kundenprofil, KNX-Secure-Archiv, Offerten, eigene Gewerke, Protokoll). Vorher wird automatisch eine Sicherung erstellt.",
+        "Automatische Sicherungen vor jedem Import und Neuaufbau im Unterordner «Sicherungen» des Projekts; die letzten 10 bleiben erhalten.",
+        "Topologie-Bericht: enthält zusätzlich das Topologie-Diagramm als Überblick über Bereiche, Linien, Koppler und Spannungsversorgungen.",
+        "Szenen: Die Szenennamen werden aus dem Kommentar der Gruppenadresse in der ETS übernommen (z. B. «#1: Anwesend #2: Abwesend»)."
+      ],
+      "verbessert": [
+        "Szenen-Verwaltung und Szenenbericht sind nach Szenen-Gruppenadresse gegliedert: darunter die Szenennummern (1–64) mit ihren Aktionen. Je Adresse sind alle verknüpften Geräte aufgeführt – Taster, die die Szene auslösen, und Aktoren, die sie ausführen.",
+        "Szenen: 1-Bit-Szenen der UniPro-Visualisierung (High/Middle/Low/Off) erscheinen in einem eigenen Abschnitt. Fragliche Erkennungen, z. B. ohne Szenen-Datenpunkttyp, werden als «Nicht eindeutig» zur Prüfung aufgelistet.",
+        "Berichte «Aktoren und Gateways» und «Räume nach Gewerken» im neuen einheitlichen Layout mit Wegweiser, Seitenzahlen und Lesezeichen; Aktoren mit einer Zeile je Kommunikationsobjekt.",
+        "Koppler und Spannungsversorgungen werden in Topologie-Ansicht, Diagramm und Bericht nur noch angezeigt, wenn sie als Gerät im Projekt vorhanden sind.",
+        "Geräte ohne Einbauort zeigen den Raum: im Bericht als Einbauort, im Topologie-Baum grau und kursiv als Hinweis."
+      ],
+      "behoben": [
+        "PDF-Berichte: Die Suche fand keinen Text, und die Lesezeichen wurden in manchen PDF-Viewern nicht angezeigt.",
+        "Re-Import: Die Tastenbelegung von Tastern konnte durch eine aus den Gewerken geratene ersetzt werden, ein zweiter Taster im selben Raum fehlte dann ganz. Die Belegung kommt jetzt immer aus den ETS-Verknüpfungen; Bauherr-Anmerkungen und Datenblätter bleiben erhalten.",
+        "Bedienelemente übernehmen nach einem Gerätetausch in der ETS das neue Produkt.",
+        "Der Import des Gruppenadressen-Reports (Excel) überschrieb die Datenpunkttypen und Kommentare aus dem ETS-Projekt."
+      ]
+    },
+    {
       "version": "1.1.22",
       "date": "2026-09-27",
       "neu": [
