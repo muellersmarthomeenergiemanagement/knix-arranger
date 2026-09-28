@@ -23,15 +23,12 @@ from ..services.belegungsplan_service import (
     BelegungsplanService, build_ga_by_designation, _lookup_ga_by_function_ga,
 )
 from ..services.dpt_suggestion import dpt_number
-from ..services.scene_addressing import (
-    scene_group_key, scene_channel_designation, build_scope_label_lookup,
-    scene_target_designation,
-)
+from ..services.scene_addressing import build_scope_label_lookup, scene_target_designation
 from ..services.co_linking_service import CoLinkingService
 from ..services.channel_count_service import count_controlled_elements
 from ..services.naming_engine import NamingEngine
 from ..services.report_sorting import (
-    group_address_key, physical_address_key, room_order, sorted_rooms,
+    group_address_key, physical_address_key, sorted_rooms,
 )
 from ..utils.pdf_generator import (
     PdfGenerator, PageRef, ACCENT_ERROR, ACCENT_WARNING, ACCENT_INFO,
@@ -1408,16 +1405,6 @@ class ReportService:
         pdf.save(filepath)
         logger.info(f"Aktoren-und-Gateways-Bericht erstellt: {filepath}")
 
-    # Geltungsbereichs-Code (Scene.scope) -> Anzeigetext (siehe ui/views/scene_view.py
-    # _SCOPE_LABELS -- hier bewusst dupliziert statt importiert, damit dieser
-    # Service-Layer nicht von der UI-Schicht abhaengt).
-    _SCENE_SCOPE_LABELS = {
-        "room": "Raum",
-        "apartment": "Wohnung/Zone",
-        "zone": "Zone",
-        "central": "Zentral",
-    }
-
     def _scene_action_label(self, action: SceneAction) -> str:
         """Bauherren-lesbarer Text einer Szenen-Aktion, z.B. 'Wohnzimmer Licht E/A → Aus'."""
         raw = action.group_address.strip()
@@ -1509,59 +1496,24 @@ class ReportService:
                     index.setdefault(scene_id, []).append(", ".join(parts))
         return index
 
-    def _scene_target_ga(self, scene: Scene, label_lookup: dict):
-        """Ermittelt die tatsaechlich generierte Szenenaufruf-GA einer Szene
-        (None wenn Schritt 10 'Gruppenadressen generieren' noch nicht bzw.
-        nicht erneut nach dieser Szenen-Aenderung gelaufen ist)."""
-        all_gas = self.project.group_addresses.all_addresses()
-        if scene.source_ga_addresses:   # erkannt oder an bestehende GA gebunden
-            for addr in scene.source_ga_addresses:
-                ga = next((g for g in all_gas if g.address == addr), None)
-                if ga:
-                    return ga
-            return None
-        scope_key = scene_group_key(scene)
-        designation = scene_channel_designation(scope_key, label_lookup)
-        return next(
-            (g for g in all_gas if g.function_name == "SZENE" and g.designation == designation),
-            None,
-        )
-
-    def _scene_sort_key(self):
-        """Zentral, Zone, Wohnung, Raum; Raeume in Gebaeude-Reihenfolge,
-        Wohnungen/Zonen nach Name; darin nach Szenennummer. Vorher wurde nach
-        der internen Raum-ID sortiert -- die Raumreihenfolge war zufaellig."""
-        scope_rank = {"central": 0, "zone": 1, "apartment": 2, "room": 3}
-        order = room_order(self.project.areal)
-        names = {}
-        for building in self.project.areal.buildings:
-            for wing in building.wings:
-                for floor in wing.floors:
-                    for apartment in floor.apartments:
-                        names.setdefault(apartment.id, apartment.name or "")
-
-        def key(scene):
-            if scene.scope == "room":
-                target = (order.get(scene.scope_id, len(order)), "")
-            else:
-                target = (0, names.get(scene.scope_id, scene.scope_id or ""))
-            return (scope_rank.get(scene.scope, 4), target, scene.scene_number or 0, scene.name or "")
-        return key
-
     def generate_szenen_report(self, filepath: str):
         """Erzeugt den Szenenreport als PDF (FA-1811).
 
-        Gegliedert nach der Szenen-Gruppenadresse (DPT 17.001/18.001): sie
-        überträgt die Szenennummer, die Aktoren sind mit ihr verknüpft. Je
-        Adresse eine Karte mit Geltungsbereich, DPT, verknüpften Aktoren und
-        bestätigten Gewerken, darunter eine Zeile je Szenennummer (1–64; auf
-        dem Bus als Bytewert 0–63) mit Auslöser und Aktionen.
+        Gegliedert nach der Szenen-Gruppenadresse (services/scene_overview,
+        gleiche Einteilung wie die Szenen-Verwaltung): sie überträgt die
+        Szenennummer, Taster und Aktoren sind mit ihr verknüpft. Je Adresse
+        eine Karte mit DPT und Geltungsbereich, eine Zeile je Szenennummer
+        (1–64; auf dem Bus Bytewert 0–63) mit Auslöser und Aktionen, danach
+        die verknüpften Geräte – Sender (Taster, Sensoren) und Empfänger
+        (Aktoren) – mit ihren Objekten.
 
         Eigene Abschnitte: Szenen der Visualisierung (einzelne Schalt-Adressen,
         z.B. UniPro H/M/L/0 – keine KNX-Szenenadressen), nicht eindeutig
-        erkannte Szenen-Adressen (zur Fehlersuche) und geplante Szenen ohne
-        generierte Adresse. PDF-Lesezeichen: Abschnitt → Adresse.
+        erkannte Szenen-Adressen (zur Fehlersuche) und geplante Szenen, deren
+        Adresse noch nicht generiert ist. PDF-Lesezeichen: Abschnitt → Adresse.
         """
+        from .scene_overview import build_scene_overview, linked_devices, scope_text
+
         title = "Szenenreport"
         pdf = self._make_pdf(title)
         pdf.add_heading(title, level=1)
@@ -1571,13 +1523,13 @@ class ReportService:
         )
         pdf.add_separator()
 
-        scenes = [s for s in self.project.scenes if s.name]
-        if not scenes:
+        if not any(s.name for s in self.project.scenes):
             pdf.add_paragraph("Keine Szenen im Projekt definiert.")
             pdf.save(filepath)
             logger.info(f"Szenenreport erstellt: {filepath}")
             return
 
+        overview = build_scene_overview(self.project)
         label_lookup = build_scope_label_lookup(self.project.areal)
         ga_by_address = {g.address: g for g in self.project.group_addresses.all_addresses()}
         device_by_addr = {
@@ -1595,39 +1547,8 @@ class ReportService:
             if row.gewerk_code:
                 gewerke_by_device_addr.setdefault(row.physical_address, set()).add(row.gewerk_code)
 
-        # ── Szenen nach Gruppenadresse gliedern ──────────────────────────────
-        by_ga: dict[str, list] = defaultdict(list)
-        visu: list = []
-        without_ga: list = []
-        for scene in scenes:
-            if scene.detection_kind == "pattern":
-                visu.append(scene)
-                continue
-            ga = self._scene_target_ga(scene, label_lookup)
-            if ga is None:
-                without_ga.append(scene)
-            else:
-                by_ga[ga.address].append(scene)
-
-        def is_scene_dpt(ga) -> bool:
-            return dpt_number(ga.datapoint_type or "").split(".")[0] in ("17", "18")
-
-        knx, unclear = [], []
-        for address in sorted(by_ga, key=group_address_key):
-            ga = ga_by_address[address]
-            group = by_ga[address]
-            numbered = sorted((s for s in group if s.scene_number), key=lambda s: s.scene_number)
-            planned = any(not s.is_detected for s in group)
-            if is_scene_dpt(ga) or numbered or planned:
-                knx.append((ga, group, numbered))
-            else:
-                unclear.append((ga, group))
-
-        def scope_text(scene) -> str:
-            text = self._SCENE_SCOPE_LABELS.get(scene.scope, scene.scope or "Zentral")
-            if scene.scope_id:
-                text += f": {label_lookup.get(scene.scope_id, scene.scope_id)}"
-            return text
+        existing = [g for g in overview.addresses if not g.planned]
+        planned = [g for g in overview.addresses if g.planned]
 
         def triggers(scene) -> str:
             lines = list(trigger_buttons_index.get(scene.id, []))
@@ -1642,60 +1563,65 @@ class ReportService:
                 if a.ga_address not in own and _clean(a.group_address) not in own
             ) or "–"
 
-        def scene_name(scene, ga, group) -> str:
+        def scene_name(scene, group) -> str:
             """'Anwesendheit Chalet – Szene 1' -> 'Szene 1' (Adressname steht im Kopf)."""
             name = " ".join(scene.name.split())
-            channel = next((s for s in group if not s.scene_number), None)
-            for prefix in (_clean(ga.designation), _clean(channel.name) if channel else ""):
+            for prefix in (_clean(group.designation),
+                           _clean(group.channel.name) if group.channel else ""):
                 if prefix and name.startswith(prefix + " – "):
                     return name[len(prefix) + 3:]
             return name
 
-        def actors_for(ga) -> tuple[list[list], set[str]]:
-            rows, codes, linked = [], set(), set()
-            for addr, device in sorted(device_by_addr.items(),
-                                       key=lambda kv: physical_address_key(kv[0])):
-                if device.device_type in ("actor", "gateway") and any(
-                        ga.address in co.connected_gas for co in device.communication_objects):
-                    linked.add(addr)
-                    codes |= gewerke_by_device_addr.get(addr, set())
-                    rows.append([addr, _device_cell(device), "verknüpft"])
-            for p in proposals:
-                if p.ga_address == ga.address and p.function_name == "SZENE" \
-                        and p.physical_address not in linked:
-                    device = device_by_addr.get(p.physical_address)
-                    codes |= gewerke_by_device_addr.get(p.physical_address, set())
-                    rows.append([p.physical_address,
-                                 _device_cell(device) if device else ("–", ""),
-                                 f"Vorschlag ({p.confidence})"])
-            return rows, codes
-
-        def scene_list(ga, group, numbered) -> str:
+        def scene_list(group) -> str:
             """'1 Anwesend · 2 Abwesend'; reine Nummern-Namen ('Szene 2') nur als Nummer."""
             parts = []
-            for s in numbered:
-                name = scene_name(s, ga, group)
+            for s in group.scenes:
+                name = scene_name(s, group)
                 generic = re.fullmatch(r"Szene 0*(\d+)", name)
                 parts.append(str(s.scene_number) if generic and int(generic.group(1)) == s.scene_number
                              else f"{s.scene_number} {name}")
             return " · ".join(parts)
 
+        def device_rows(group) -> tuple[list[list], set[str], bool]:
+            """Verknüpfte Geräte (Sender zuerst) plus Aktor-Vorschläge der
+            CO-Verknüpfung; bestätigte Gewerke der Aktoren; ob ein Empfänger
+            verknüpft ist."""
+            rows, codes, receiver = [], set(), False
+            linked = set()
+            for link in linked_devices(self.project, group.ga.address):
+                addr = link.device.physical_address
+                linked.add(addr)
+                if not link.sends:
+                    receiver = True
+                    codes |= gewerke_by_device_addr.get(addr, set())
+                rows.append([addr, _device_cell(link.device), link.role,
+                             "\n".join(link.objects)])
+            for p in proposals:
+                if p.ga_address == group.ga.address and p.function_name == "SZENE" \
+                        and p.physical_address not in linked:
+                    device = device_by_addr.get(p.physical_address)
+                    codes |= gewerke_by_device_addr.get(p.physical_address, set())
+                    rows.append([p.physical_address,
+                                 _device_cell(device) if device else ("–", ""),
+                                 f"Vorschlag ({p.confidence})", ""])
+            return rows, codes, receiver
+
         # ── Übersicht ────────────────────────────────────────────────────────
         pdf.add_heading("Übersicht", level=2)
-        n_scenes = sum(len(numbered) for _ga, _g, numbered in knx)
-        parts = [f"{len(knx)} Szenen-Adressen mit {n_scenes} Szenen"]
-        if visu:
-            parts.append(f"{len(visu)} Szenen der Visualisierung")
-        if unclear:
-            parts.append(f"{len(unclear)} nicht eindeutig")
-        if without_ga:
-            parts.append(f"{len(without_ga)} ohne Gruppenadresse")
+        n_scenes = sum(len(g.scenes) for g in existing)
+        parts = [f"{len(existing)} Szenen-Adressen mit {n_scenes} Szenen"]
+        if overview.visu:
+            parts.append(f"{len(overview.visu)} Szenen der Visualisierung")
+        if overview.unclear:
+            parts.append(f"{len(overview.unclear)} nicht eindeutig")
+        if planned:
+            parts.append(f"{sum(len(g.scenes) for g in planned)} ohne Gruppenadresse")
         pdf.add_paragraph(", ".join(parts) + ".")
-        if knx:
+        if existing:
             pdf.add_table(
                 ["Adresse", "Bezeichnung", "Szenen (Nr. Name)", "Seite"],
-                [[ga.address, _clean(ga.designation), scene_list(ga, group, numbered) or "–",
-                  PageRef(f"scene-ga-{ga.address}")] for ga, group, numbered in knx],
+                [[g.ga.address, _clean(g.designation), scene_list(g) or "–",
+                  PageRef(f"scene-ga-{g.ga.address}")] for g in existing],
                 col_widths=[0.11, 0.33, 0.48, 0.08],
                 align=["left", "left", "left", "right"])
         pdf.add_note(
@@ -1704,34 +1630,37 @@ class ReportService:
             "Gruppenadresse den Bytewert 0–63, also die Szenennummer minus 1.")
         pdf.add_note("Hinweis:", "Das PDF enthält Lesezeichen je Szenen-Adresse.")
 
-        # ── KNX-Szenenadressen ───────────────────────────────────────────────
-        if knx:
+        # ── Szenen-Adressen ──────────────────────────────────────────────────
+        if existing:
             pdf.add_page_break()
             pdf.add_heading("Szenen-Adressen", level=2)
-            for ga, group, numbered in knx:
-                pdf.add_conditional_break(min_height=min(120 + 30 * len(numbered), 360))
+            for group in existing:
+                ga = group.ga
+                pdf.add_conditional_break(min_height=min(140 + 30 * len(group.scenes), 380))
                 pdf.add_anchor(f"scene-ga-{ga.address}")
                 dpt = dpt_number(ga.datapoint_type or "") or "DPT fehlt"
-                detail = [f"{dpt} · Geltungsbereich {scope_text(group[0])}"]
+                anchor = group.anchor_scene
+                detail = [f"{dpt} · Geltungsbereich "
+                          f"{scope_text(anchor, label_lookup) if anchor else 'Zentral'}"]
                 pdf.add_card_header(f"{ga.address}  ·  {_clean(ga.designation)}",
                                     "\n".join(detail),
                                     bookmark=f"{ga.address}  {_clean(ga.designation)}")
-                if not is_scene_dpt(ga):
+                if not group.dpt_ok:
                     pdf.add_note("Prüfen:", f"Datenpunkttyp {dpt} – für Szenen wird "
                                             "17.001 (bzw. 18.001) erwartet.")
-                if numbered:
+                if group.scenes:
                     pdf.add_table(
                         ["Nr.", "Szene", "Ausgelöst durch", "Aktionen"],
-                        [[str(s.scene_number), scene_name(s, ga, group), triggers(s),
-                          actions(s, ga)] for s in numbered],
+                        [[str(s.scene_number or "–"), scene_name(s, group), triggers(s),
+                          actions(s, ga)] for s in group.scenes],
                         col_widths=[0.06, 0.22, 0.32, 0.40],
                         align=["right", "left", "left", "left"])
                 else:
                     pdf.add_paragraph("Keine Szenennummern hinterlegt.")
 
-                rows, codes = actors_for(ga)
+                rows, codes, receiver = device_rows(group)
                 action_categories = set()
-                for s in group:
+                for s in group.all_scenes:
                     action_categories |= self._scene_action_categories(s)
                 if action_categories:
                     pdf.add_note("Betroffene Gewerke (laut Aktionsdefinition):", ", ".join(
@@ -1741,18 +1670,19 @@ class ReportService:
                     pdf.add_note("Betroffene Gewerke (bestätigt durch Aktor-Verknüpfung):",
                                  ", ".join(self._gewerk_label(c) for c in sorted(codes)))
                 if rows:
-                    pdf.add_table(["Adresse", "Aktor / Gateway", "Status"], rows,
-                                  col_widths=[0.11, 0.69, 0.20])
-                elif any(actions(s, ga) != "–" for s in numbered):
-                    pdf.add_note("Prüfen:", "Kein Aktor ist mit dieser Adresse verknüpft, "
-                                            "obwohl Aktionen hinterlegt sind. Szenenobjekte "
-                                            "der Aktoren in der ETS mit der Adresse verbinden.")
-                else:
-                    pdf.add_note("Betroffene Gewerke (bestätigt durch Aktor-Verknüpfung):",
-                                 "noch keine Aktoren verknüpft")
+                    pdf.add_table(["Adresse", "Verknüpftes Gerät", "Rolle", "Objekte"], rows,
+                                  col_widths=[0.09, 0.37, 0.12, 0.42])
+                if not receiver and not any(r[2].startswith("Vorschlag") for r in rows):
+                    if any(actions(s, ga) != "–" for s in group.scenes):
+                        pdf.add_note("Prüfen:", "Kein Aktor ist mit dieser Adresse verknüpft, "
+                                                "obwohl Aktionen hinterlegt sind. Szenenobjekte "
+                                                "der Aktoren in der ETS mit der Adresse verbinden.")
+                    else:
+                        pdf.add_note("Betroffene Gewerke (bestätigt durch Aktor-Verknüpfung):",
+                                     "noch keine Aktoren verknüpft")
 
         # ── Szenen der Visualisierung ────────────────────────────────────────
-        if visu:
+        if overview.visu:
             pdf.add_page_break()
             pdf.add_heading("Szenen der Visualisierung", level=2)
             pdf.add_note(
@@ -1760,12 +1690,8 @@ class ReportService:
                 "Diese Szenen löst die Visualisierung (z.B. UniPro mit den Stufen "
                 "H/M/L/0) über einzelne Schalt-Adressen aus. Es sind keine "
                 "KNX-Szenenadressen und sie tragen keine Szenennummer.")
-
-            def visu_key(scene):
-                first = min(scene.source_ga_addresses, key=group_address_key, default="")
-                return group_address_key(first) if first else (999,)
             rows = []
-            for scene in sorted(visu, key=visu_key):
+            for scene in overview.visu:
                 rows.append([
                     scene.name,
                     "\n".join(_ga_line(ga_by_address.get(a) or a)
@@ -1777,7 +1703,7 @@ class ReportService:
                           col_widths=[0.24, 0.50, 0.26])
 
         # ── Nicht eindeutig ──────────────────────────────────────────────────
-        if unclear:
+        if overview.unclear:
             pdf.add_page_break()
             pdf.add_heading("Nicht eindeutig", level=2, accent=ACCENT_WARNING)
             pdf.add_note(
@@ -1788,14 +1714,14 @@ class ReportService:
                 "und DPT bzw. Szenen in der ETS korrigieren.")
             pdf.add_table(
                 ["Adresse", "Bezeichnung", "DPT", "Grund"],
-                [[ga.address, _clean(ga.designation),
-                  dpt_number(ga.datapoint_type or "") or "–",
+                [[g.ga.address, _clean(g.designation),
+                  dpt_number(g.ga.datapoint_type or "") or "–",
                   "DPT keine Szene, keine Szenennummern"]
-                 for ga, _group in unclear],
+                 for g in overview.unclear],
                 col_widths=[0.11, 0.45, 0.12, 0.32])
 
         # ── Geplante Szenen ohne Gruppenadresse ──────────────────────────────
-        if without_ga:
+        if planned:
             pdf.add_page_break()
             pdf.add_heading("Ohne Gruppenadresse", level=2, accent=ACCENT_WARNING)
             pdf.add_note(
@@ -1803,9 +1729,9 @@ class ReportService:
                 "Für diese Szenen ist noch keine Szenen-Adresse generiert – in "
                 "Schritt 10 des Wizards ('Gruppenadressen generieren') aktualisieren.")
             pdf.add_table(
-                ["Nr.", "Szene", "Geltungsbereich", "Ausgelöst durch", "Aktionen"],
-                [[str(s.scene_number or "–"), s.name, scope_text(s), triggers(s), actions(s)]
-                 for s in sorted(without_ga, key=self._scene_sort_key())],
+                ["Nr.", "Szene", "Künftige Adresse", "Ausgelöst durch", "Aktionen"],
+                [[str(s.scene_number or "–"), s.name, g.designation, triggers(s), actions(s)]
+                 for g in planned for s in g.scenes],
                 col_widths=[0.06, 0.20, 0.20, 0.24, 0.30],
                 align=["right", "left", "left", "left", "left"])
 

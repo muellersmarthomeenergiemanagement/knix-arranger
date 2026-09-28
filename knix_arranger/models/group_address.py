@@ -19,6 +19,9 @@ class GroupAddress:
     central: str = ""         # "" oder "true"
     unfiltered: str = ""
     description: str = ""     # Freitext
+    # ETS-Kommentar im Klartext (knxproj: RTF "Comment", GA-Report: Zeile unter
+    # der Adresse), z.B. Szenennamen "#1: Anwesend\n#2: Abwesend"
+    comment: str = ""
     datapoint_type: str = ""  # z.B. "DPST-1-1"
     security: str = "Auto"
     # Zusatzfelder
@@ -46,6 +49,7 @@ class GroupAddress:
             "central": self.central,
             "unfiltered": self.unfiltered,
             "description": self.description,
+            "comment": self.comment,
             "datapoint_type": self.datapoint_type,
             "security": self.security,
             "gewerk_code": self.gewerk_code,
@@ -69,6 +73,7 @@ class GroupAddress:
             central=data.get("central", ""),
             unfiltered=data.get("unfiltered", ""),
             description=data.get("description", ""),
+            comment=data.get("comment", ""),
             datapoint_type=data.get("datapoint_type", ""),
             security=data.get("security", "Auto"),
             gewerk_code=data.get("gewerk_code", ""),

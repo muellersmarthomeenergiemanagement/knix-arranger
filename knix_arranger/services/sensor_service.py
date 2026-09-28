@@ -493,15 +493,17 @@ class SensorService:
                 room.bedienelemente.extend(saved_import_bes)
                 continue
 
-            # Physikalische Adressen wiederherstellen
-            pn_iter: dict[str, int] = {}
+            # Physikalische Adressen wiederherstellen -- nur fehlende, sonst
+            # tauschen Bedienelemente mit eigener Adresse ihr Gerät, sobald
+            # sich die Reihenfolge ändert. Bereits vergebene überspringen.
+            used = {be.participant_number for be in room.bedienelemente if be.participant_number}
+            free: dict[str, list[str]] = {
+                key: [pn for pn in pns if pn and pn not in used]
+                for key, pns in saved_pn.items()
+            }
             for be in room.bedienelemente:
-                key = be.element_type
-                idx = pn_iter.get(key, 0)
-                saved = saved_pn.get(key, [])
-                if idx < len(saved) and saved[idx]:
-                    be.participant_number = saved[idx]
-                pn_iter[key] = idx + 1
+                if not be.participant_number and free.get(be.element_type):
+                    be.participant_number = free[be.element_type].pop(0)
 
         return total
 

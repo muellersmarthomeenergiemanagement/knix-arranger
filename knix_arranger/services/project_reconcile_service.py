@@ -195,6 +195,13 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
     new_keys: set[tuple[str, str]] = set()
     new_unnumbered_names: set[str] = set()
     rooms_matched = 0
+    # Wo der frische Import welches Gerät als Bedienelement führt (siehe
+    # _merge_bedienelemente)
+    fresh_participants = {
+        be.participant_number
+        for r in new_project.all_rooms for be in r.bedienelemente
+        if be.participant_number
+    }
     # (frische Raum-ID vor dem Überschreiben) -> (alte, wiederhergestellte ID).
     # Wird gebraucht, weil link_rooms_to_lines() VOR reconcile_reimport()
     # läuft (siehe XlsxImportService.link_rooms_to_lines/main_window.py) und
@@ -225,8 +232,15 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
                         if room.id != old_room.id:
                             room_id_remap[room.id] = old_room.id
                         room.id = old_room.id
-                        room.gewerk_assignments = old_room.gewerk_assignments
-                        room.bedienelemente = old_room.bedienelemente
+                        # Gewerke sind Planungsdaten; der frische Import leitet
+                        # nur ab, wenn der Raum bisher keine hatte
+                        room.gewerk_assignments = (
+                            old_room.gewerk_assignments or room.gewerk_assignments
+                        )
+                        room.bedienelemente = _merge_bedienelemente(
+                            old_room.bedienelemente, room.bedienelemente,
+                            fresh_participants,
+                        )
                         room.verteiler = old_room.verteiler
                         room.te_types = old_room.te_types
                         room.te_count = old_room.te_count
@@ -280,6 +294,52 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
         rooms_matched=rooms_matched, rooms_new=rooms_new, rooms_removed=rooms_removed,
         manual_gas_restored=manual_gas_restored, manual_gas_conflicts=manual_gas_conflicts,
     )
+
+
+def _merge_bedienelemente(old_bes: list, fresh_bes: list, fresh_participants: set[str]) -> list:
+    """Bedienelemente eines wiedererkannten Raums zusammenführen.
+
+    Geplante Bedienelemente ohne Teilnehmeradresse sind reine KNiX-Daten und
+    bleiben. Für ETS-Geräte ist der frische Import massgebend: seine
+    Tastenbelegung stammt aus den KO-GA-Verknüpfungen
+    (backfill_function_assignments). Früher wurde die alte Liste
+    unbesehen übernommen -- nach "Projekt neu aus ETS aufbauen" waren das aus
+    den Gewerken geratene Belegungen, und ein zweites Gerät im Raum fehlte
+    ganz (Chalet Franziska 2005, Bibliothek 1.1.40/1.1.52). Vom alten Eintrag
+    bleiben ID, Datenblätter, Bauherr-Anmerkung, Löschmarkierung und
+    Zusatzprodukt.
+    """
+    fresh_by_pn = {be.participant_number: be for be in fresh_bes if be.participant_number}
+    merged = []
+    for old in old_bes:
+        pn = old.participant_number
+        if not pn:
+            merged.append(old)
+            continue
+        fresh = fresh_by_pn.pop(pn, None)
+        if fresh is None:
+            # Gerät steht jetzt in einem anderen Raum -> dort übernommen;
+            # kennt der Import es gar nicht (noch keine Topologie), bleibt es
+            if pn not in fresh_participants:
+                merged.append(old)
+            continue
+        if not fresh.function_assignments:
+            # Import hat keine Belegung ermittelt: alte behalten, Produkt auffrischen
+            if fresh.order_number:
+                old.manufacturer = fresh.manufacturer
+                old.order_number = fresh.order_number
+                old.product_name = fresh.product_name
+            merged.append(old)
+            continue
+        fresh.id = old.id
+        fresh.datasheets = old.datasheets
+        fresh.bauherr_annotation = old.bauherr_annotation
+        fresh.suppressed = old.suppressed
+        fresh.linked_product = old.linked_product
+        merged.append(fresh)
+    # Neu hinzugekommene Geräte (ohne Adresse erzeugt der Import keine)
+    merged.extend(fresh_by_pn.values())
+    return merged
 
 
 def _insert_ga(structure, ga: GroupAddress) -> None:

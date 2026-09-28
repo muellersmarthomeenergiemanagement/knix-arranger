@@ -1255,6 +1255,10 @@ class MainWindow(QMainWindow):
             # GA-Metadaten (Gewerk, Raum) aus Bezeichnung anreichern
             self._enrich_ga_metadata()
 
+            # Szenennamen aus den GA-Kommentaren ("#1: Anwesend")
+            from ..services.scene_value_linking import link_scene_names
+            link_scene_names(self._project)
+
             # DALI-Gateways automatisch konfigurieren (GA-Verknüpfung + Gruppen)
             self._auto_configure_dali()
 
@@ -1350,6 +1354,9 @@ class MainWindow(QMainWindow):
 
             self._ga_report_path = filepath
             ga_structure = importer.import_ga_report(filepath)
+            # DPT-Nummern und Kommentare aus der knxproj nicht durch die
+            # Anzeigetexte des Reports ersetzen
+            importer.keep_known_ga_details(self._project.group_addresses, ga_structure)
             self._project.group_addresses = ga_structure
 
             warn_empty_areal = None
@@ -1446,6 +1453,10 @@ class MainWindow(QMainWindow):
 
             # GA-Metadaten (Gewerk, Raum) aus Bezeichnung anreichern
             self._enrich_ga_metadata()
+
+            # Szenennamen aus den GA-Kommentaren ("#1: Anwesend")
+            from ..services.scene_value_linking import link_scene_names
+            link_scene_names(self._project)
 
             # DALI-Gateways automatisch konfigurieren (GA-Verknüpfung + Gruppen)
             self._auto_configure_dali()
@@ -1788,10 +1799,13 @@ class MainWindow(QMainWindow):
             return 0
         try:
             from ..services.scene_detection_service import detect_scenes
+            from ..services.scene_value_linking import link_scene_names
             added = detect_scenes(self._project)
             if added:
                 self._project.scenes.extend(added)
                 logger.info(f"Szenen-Erkennung: {len(added)} Szenen aus Import übernommen.")
+            # Szenennamen aus dem GA-Kommentar ("#1: Anwesend")
+            link_scene_names(self._project)
             return len(added)
         except Exception as e:
             logger.warning(f"Szenen-Erkennung fehlgeschlagen: {e}")
@@ -1976,6 +1990,16 @@ class MainWindow(QMainWindow):
         if self._rebuild_id_source is not None:
             from ..services.rebuild_service import adopt_device_ids
             adopt_device_ids(self._rebuild_id_source, project)
+
+        # Tastenbelegung der Bedienelemente aus den KO-GA-Verknüpfungen (FA-521c),
+        # vor dem Abgleich, damit dieser die ETS-Belegung sieht -- sonst füllt
+        # auto_assign_functions sie aus den Gewerken
+        try:
+            XlsxImportService().backfill_function_assignments(
+                project.topology, project.areal, project.group_addresses
+            )
+        except Exception as e:
+            logger.warning(f"Funktionszuordnungs-Backfill fehlgeschlagen: {e}")
 
         # Re-Import-Abgleich: alte IDs + KNiX-Zusatzdaten (Materialliste,
         # KNX Secure, DALI, Gewerk-Zuweisungen, Bedienelemente, ...) anhand

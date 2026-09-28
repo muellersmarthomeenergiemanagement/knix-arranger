@@ -372,3 +372,83 @@ def test_reimport_with_kept_topology_does_not_duplicate_line_rooms():
 def test_line_from_dict_removes_duplicate_rooms():
     line = Line.from_dict({"line_number": 1, "assigned_room_ids": ["a", "b", "a", "b"]})
     assert line.assigned_room_ids == ["a", "b"]
+
+
+# ---------------------------------------------------------------------------
+# Bedienelemente beim Abgleich zusammenführen (Chalet Franziska 2005,
+# Bibliothek 1.1.40/1.1.52 nach "Projekt neu aus ETS aufbauen")
+# ---------------------------------------------------------------------------
+
+def _be_with_ga(pn, ga="3/4/20  Raum2_Szene High", order_number="470x-x-B.xxx"):
+    from knix_arranger.models.building import FunctionAssignment
+    return Bedienelement(
+        element_type="Tastereinheit", participant_number=pn, is_auto=False,
+        order_number=order_number,
+        function_assignments=[FunctionAssignment(button_channel="Taste 1", function_ga=ga)],
+    )
+
+
+def test_reconcile_prefers_fresh_ets_assignment_over_guessed_one():
+    old_project, _, old_room = _project_with_device_and_room()
+    guessed = Bedienelement(element_type="Tastereinheit", participant_number="1.1.40",
+                            order_number="370x-x.FMI.xx", is_auto=True,
+                            bauherr_annotation="LED dunkler")
+    planned = Bedienelement(element_type="Raumthermostat")
+    old_room.bedienelemente = [guessed, planned]
+
+    new_project, _, new_room = _project_with_device_and_room()
+    new_room.bedienelemente = [_be_with_ga("1.1.40"), _be_with_ga("1.1.52", "3/1/25  J")]
+
+    reconcile_reimport(old_project, new_project)
+
+    by_pn = {be.participant_number: be for be in new_room.bedienelemente}
+    assert set(by_pn) == {"1.1.40", "1.1.52", ""}
+    be40 = by_pn["1.1.40"]
+    assert be40.function_assignments[0].function_ga.startswith("3/4/20")
+    assert be40.order_number == "470x-x-B.xxx"
+    assert be40.id == guessed.id
+    assert be40.bauherr_annotation == "LED dunkler"
+    assert by_pn[""] is planned
+
+
+def test_reconcile_keeps_old_assignment_when_import_has_none():
+    old_project, _, old_room = _project_with_device_and_room()
+    kept = _be_with_ga("1.1.40", order_number="370x")
+    old_room.bedienelemente = [kept]
+
+    new_project, _, new_room = _project_with_device_and_room()
+    new_room.bedienelemente = [Bedienelement(element_type="Tastereinheit",
+                                             participant_number="1.1.40",
+                                             order_number="470x-x-B.xxx")]
+
+    reconcile_reimport(old_project, new_project)
+
+    assert new_room.bedienelemente == [kept]
+    assert kept.order_number == "470x-x-B.xxx"
+
+
+def test_reconcile_drops_element_whose_device_moved_to_other_room():
+    old_project, _, old_room = _project_with_device_and_room()
+    old_room.bedienelemente = [_be_with_ga("1.1.45")]
+
+    new_project, _, new_room = _project_with_device_and_room()
+    new_room.bedienelemente = []
+    other = Room(number="E02", name="Toilette", bedienelemente=[_be_with_ga("1.1.45")])
+    new_project.areal.buildings[0].wings[0].floors[0].apartments[0].rooms.append(other)
+
+    reconcile_reimport(old_project, new_project)
+
+    assert new_room.bedienelemente == []
+    assert [be.participant_number for be in other.bedienelemente] == ["1.1.45"]
+
+
+def test_reconcile_takes_derived_gewerke_when_room_had_none():
+    old_project, _, old_room = _project_with_device_and_room()
+    old_room.gewerk_assignments = []
+
+    new_project, _, new_room = _project_with_device_and_room()
+    new_room.gewerk_assignments = [GewerkAssignment(gewerk_code="J", count=4)]
+
+    reconcile_reimport(old_project, new_project)
+
+    assert [g.gewerk_code for g in new_room.gewerk_assignments] == ["J"]

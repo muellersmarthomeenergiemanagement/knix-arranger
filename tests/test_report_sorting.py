@@ -2,7 +2,6 @@
 from knix_arranger.models.building import Apartment, Areal, Building, Floor, Room, Wing
 from knix_arranger.models.scene import Scene
 from knix_arranger.models.project import KnxProject
-from knix_arranger.services.report_service import ReportService
 from knix_arranger.services.report_sorting import (
     group_address_key, physical_address_key, sorted_rooms,
 )
@@ -45,5 +44,6 @@ def test_scenes_sorted_by_scope_then_building_order():
         Scene(name="Zentral", scope="central", scene_number=5),
         Scene(name="Technik 1", scope="room", scope_id=rooms["Technik"].id, scene_number=1),
     ]
-    key = ReportService(project)._scene_sort_key()
+    from knix_arranger.services.scene_overview import scene_scope_sort_key
+    key = scene_scope_sort_key(project)
     assert [s.name for s in sorted(scenes, key=key)] == ["Zentral", "Technik 1", "Technik 2", "Schlafen 1"]

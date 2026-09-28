@@ -76,7 +76,25 @@ def _view(project: KnxProject) -> SceneView:
 
 
 def _select(view: SceneView, scene: Scene) -> None:
-    view._table.setCurrentCell(view._project.scenes.index(scene), 0)
+    view._select_scene(scene)
+
+
+def _tree_item(view: SceneView, scene: Scene):
+    """Baumzeile einer Szene (Szenen-Adressen mit ihren Szenen darunter)."""
+    def walk(item):
+        data = item.data(0, 256)          # Qt.UserRole
+        if data and data[1] is scene:
+            return item
+        for i in range(item.childCount()):
+            found = walk(item.child(i))
+            if found is not None:
+                return found
+        return None
+    for i in range(view._tree.topLevelItemCount()):
+        found = walk(view._tree.topLevelItem(i))
+        if found is not None:
+            return found
+    return None
 
 
 class TestAddSceneOnSameGa:
@@ -98,7 +116,12 @@ class TestAddSceneOnSameGa:
         ]
         # Neue Szene ist ausgewählt, Quelle zeigt die gebundene GA
         assert view._get_selected_scene() is new
-        assert view._table.item(2, 5).text() == "Manuell → 1/0/15"
+        item = _tree_item(view, new)
+        assert item.text(4) == "Manuell → 1/0/15"
+        # ... und steht unter der Szenen-Adresse 1/0/15 neben "Komponieren"
+        assert item.parent().text(0).startswith("1/0/15")
+        assert [item.parent().child(i).text(1) for i in range(item.parent().childCount())] \
+            == ["1", "2"]
 
     def test_repeated_use_fills_next_free_numbers(self):
         project = _project()
@@ -158,7 +181,7 @@ class TestAddSceneOnSameGa:
     def test_without_selection_shows_hint(self):
         project = _project()
         view = _view(project)
-        view._table.setCurrentCell(-1, -1)
+        view._tree.setCurrentItem(None)
         with patch("knix_arranger.ui.views.scene_view.QMessageBox.information") as info:
             view._add_scene_on_same_ga()
         info.assert_called_once()

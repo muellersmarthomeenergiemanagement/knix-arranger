@@ -1411,6 +1411,7 @@ class XlsxImportService:
 
         current_hg: Optional[MainGroup] = None
         current_mg: Optional[MiddleGroup] = None
+        last_ga: Optional[GroupAddress] = None   # für die Kommentarzeile darunter
 
         meta: dict = {}
         row_count = 0
@@ -1438,8 +1439,20 @@ class XlsxImportService:
 
             addr_raw = row[col_addr] if col_addr < len(row) else None
             if addr_raw is None:
+                # Kommentar der GA: eigene Zeile unter der Adresse, einzige
+                # Zelle rechts neben der Adress-Spalte (z.B. "#1: Anwesend\n
+                # #2: Abwesend"); Leerzeilen dazwischen sind möglich
+                if last_ga is not None:
+                    filled = [(i, c) for i, c in enumerate(row) if c not in (None, "")]
+                    if len(filled) == 1 and filled[0][0] == col_addr + 1 \
+                            and isinstance(filled[0][1], str):
+                        last_ga.comment = filled[0][1].strip()
+                        last_ga = None
                 continue
             addr = str(addr_raw).strip()
+            # Jede weitere Zeile mit Adress-Spalte (Geräte-Kopf "Addr", KO,
+            # nächste GA) beendet den Kommentarbereich der letzten GA
+            last_ga = None
 
             # Hauptgruppe
             if _GAR_HG_RE.match(addr):
@@ -1511,6 +1524,7 @@ class XlsxImportService:
                 )
                 self._parse_xlsx_designation(ga, designation)
                 mg_index[mg_key].group_addresses.append(ga)
+                last_ga = ga
                 continue
 
         if meta:
@@ -1530,6 +1544,31 @@ class XlsxImportService:
             f"{len(mg_index)} Mittelgruppen, {total_gas} Gruppenadressen  [{filepath}]"
         )
         return structure
+
+    @staticmethod
+    def keep_known_ga_details(old_structure, new_structure) -> int:
+        """Übernimmt beim Re-Import eines GA-Reports, was der Report schlechter
+        weiss als der bisherige Stand (z.B. nach knxproj-Import):
+        - Datentyp: der Report liefert nur den Anzeigetext ("Schalten",
+          "Szenensteuerung"), die knxproj die DPT-Nummer ("DPST-18-1");
+        - Kommentar: fehlt im Report, bleibt der bisherige erhalten.
+        Gibt die Anzahl angepasster GAs zurück."""
+        old_by_address = {ga.address: ga for ga in old_structure.all_addresses()}
+        changed = 0
+        for ga in new_structure.all_addresses():
+            old = old_by_address.get(ga.address)
+            if old is None:
+                continue
+            touched = False
+            if (old.datapoint_type.startswith(("DPST-", "DPT-"))
+                    and not ga.datapoint_type.startswith(("DPST-", "DPT-"))):
+                ga.datapoint_type = old.datapoint_type
+                touched = True
+            if old.comment and not ga.comment:
+                ga.comment = old.comment
+                touched = True
+            changed += touched
+        return changed
 
     def merge_with_csv(self, topology: Topology, ga_structure) -> int:
         """

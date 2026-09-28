@@ -31,6 +31,7 @@ werden übersprungen -- best effort, kein Fehler.
 """
 from __future__ import annotations
 import logging
+import re
 
 from ..models.project import KnxProject
 
@@ -114,6 +115,47 @@ def link_scene_values(project: KnxProject) -> int:
     if added:
         logger.info(f"link_scene_values: {added} Aktion(en) aus Gerätedaten ergänzt.")
     return added
+
+
+# Szenennamen im ETS-Kommentar einer Szenen-GA, eine Zeile je Szene:
+# "#1: Anwesend", "2 = Abwesend", "#3 - Ferien"
+_SCENE_NAME_LINE_RE = re.compile(r"^\s*#?\s*(\d{1,2})\s*[:=.)\-–]\s*(\S.*?)\s*$")
+
+
+def scene_names_from_comment(comment: str) -> dict[int, str]:
+    """{Szenennummer: Name} aus einem GA-Kommentar; nur Nummern 1–64."""
+    names = {}
+    for line in (comment or "").splitlines():
+        m = _SCENE_NAME_LINE_RE.match(line)
+        if m and 1 <= int(m.group(1)) <= 64:
+            names[int(m.group(1))] = m.group(2)
+    return names
+
+
+def link_scene_names(project: KnxProject) -> int:
+    """Benennt die numerierten Szenen erkannter Szenen-Kanäle nach dem
+    ETS-Kommentar ihrer GA ("#1: Anwesend") und legt dort genannte, noch
+    fehlende Szenennummern an. Selbst vergebene Namen bleiben; ersetzt wird
+    nur der automatische Name "<Kanal> – Szene N". Gibt die Anzahl
+    benannter Szenen zurück; idempotent."""
+    ga_by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+    named = 0
+    for channel in list(project.scenes):
+        if not channel.is_detected or channel.scene_number or not channel.source_ga_addresses:
+            continue
+        names: dict[int, str] = {}
+        for address in channel.source_ga_addresses:
+            ga = ga_by_address.get(address)
+            if ga is not None:
+                names.update(scene_names_from_comment(ga.comment))
+        for number, name in sorted(names.items()):
+            scene = _find_or_create_numbered_scene(project, channel, number)
+            if scene.name != name and scene.name == f"{channel.name} – Szene {number}":
+                scene.name = name
+                named += 1
+    if named:
+        logger.info(f"link_scene_names: {named} Szene(n) nach GA-Kommentar benannt.")
+    return named
 
 
 def _find_or_create_numbered_scene(project: KnxProject, channel_scene, number: int):

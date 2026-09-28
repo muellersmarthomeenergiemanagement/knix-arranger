@@ -1,5 +1,11 @@
 """
-Szenen-Verwaltung (FA-1801 bis FA-1807)
+Szenen-Verwaltung (FA-1801 bis FA-1807, FA-1812)
+
+Gegliedert wie der Szenenreport nach der Szenen-Gruppenadresse
+(services/scene_overview): oben die Adresse, darunter ihre Szenennummern.
+Geplante Szenen, deren Adresse erst in Schritt 10 entsteht, bilden eine
+künftige Adresse je Geltungsbereich. Szenen der Visualisierung und nicht
+eindeutig erkannte Adressen stehen in eigenen, zugeklappten Abschnitten.
 """
 from __future__ import annotations
 import json
@@ -8,29 +14,41 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QPushButton, QComboBox, QSpinBox,
     QLineEdit, QGroupBox, QFormLayout, QAbstractItemView,
-    QMessageBox, QDoubleSpinBox,
+    QMessageBox, QDoubleSpinBox, QTreeWidget, QTreeWidgetItem, QInputDialog,
+    QListWidget, QListWidgetItem,
 )
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from ...models.project import KnxProject
 from ...models.scene import Scene, SceneAction
+from ...services.dpt_suggestion import dpt_number
 from ...services.scene_detection_service import detect_scenes
-from ...services.scene_value_linking import link_scene_values, link_scene_triggers
+from ...services.scene_value_linking import (
+    link_scene_values, link_scene_triggers, link_scene_names,
+)
 from ...services.scene_addressing import (
-    group_named_scenes, is_bound_scene, scene_group_key,
+    build_scope_label_lookup, group_named_scenes, is_bound_scene, scene_group_key,
+)
+from ...services.scene_overview import (
+    SCOPE_LABELS, SceneAddress, build_scene_overview, linked_devices, scope_text,
 )
 from ..column_utils import fit_columns
 
 # Interne Scope-Codes (im Datenmodell gespeichert) -> Anzeigetext.
-_SCOPE_LABELS = {
-    "room": "Raum",
-    "apartment": "Wohnung/Zone",
-    "zone": "Zone",
-    "central": "Zentral",
+_SCOPE_LABELS = SCOPE_LABELS
+
+_ROLE = Qt.UserRole
+_COLOR_HINT = QColor("#757575")
+_COLOR_WARN = QColor("#B26A00")
+_SOURCE_LABELS = {
+    "dpt": "Import (DPT)",
+    "folder": "Import (Ordner)",
+    "pattern": "Import (Muster)",
 }
 
 
 class SceneView(QWidget):
-    """Szenen-Verwaltung: Erstellen, Bearbeiten, Vorlagen anwenden."""
+    """Szenen-Verwaltung: Szenen-Adressen mit ihren Szenen, Vorlagen, Erkennung."""
 
     # Wird ausgeloest, wenn der Nutzer im Veraltet-Hinweisbanner auf
     # "Jetzt generieren" klickt -- main_window verbindet dies mit dem
@@ -41,6 +59,7 @@ class SceneView(QWidget):
         super().__init__(parent)
         self._project: KnxProject | None = None
         self._templates: list[dict] = []
+        self._overview = None
         self._load_templates()
 
         layout = QVBoxLayout(self)
@@ -75,33 +94,35 @@ class SceneView(QWidget):
         self._stale_banner.hide()
         layout.addWidget(self._stale_banner)
 
-        # Hauptbereich: Szenen-Tabelle links, Details rechts
+        # Hauptbereich: Baum links, Details rechts
         content = QHBoxLayout()
 
-        # --- Linke Seite: Szenen-Tabelle + Buttons ---
+        # --- Linke Seite: Szenen-Adressen mit Szenen + Buttons ---
         left = QVBoxLayout()
 
-        self._table = QTableWidget()
-        self._table.setColumnCount(6)
-        self._table.setHorizontalHeaderLabels([
-            "Name", "Nr.", "Geltungsbereich", "Auslöser", "Aktionen", "Quelle",
+        self._tree = QTreeWidget()
+        self._tree.setColumnCount(5)
+        self._tree.setHeaderLabels([
+            "Szenen-Adresse / Szene", "Nr.", "Geltungsbereich / Auslöser",
+            "Szenen / Aktionen", "Quelle / DPT",
         ])
-        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self._table.horizontalHeader().setStretchLastSection(True)
-        self._table.setAlternatingRowColors(True)
-        self._table.currentCellChanged.connect(self._on_selection)
-        left.addWidget(self._table)
+        self._tree.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._tree.setAlternatingRowColors(True)
+        self._tree.currentItemChanged.connect(self._on_selection)
+        left.addWidget(self._tree)
 
         # Buttons
         btn_layout = QHBoxLayout()
-        self._btn_add = QPushButton("+ Neue Szene")
+        self._btn_add = QPushButton("+ Neue Szenen-Adresse")
+        self._btn_add.setToolTip(
+            "Neue Szene mit eigenem Geltungsbereich anlegen. Szenen mit gleichem "
+            "Geltungsbereich teilen sich eine Szenen-Adresse (Schritt 10)."
+        )
         self._btn_add.clicked.connect(self._add_scene)
-        self._btn_add_same_ga = QPushButton("+ Weitere Szene auf dieser GA")
+        self._btn_add_same_ga = QPushButton("+ Szene auf dieser Adresse")
         self._btn_add_same_ga.setToolTip(
-            "Legt für die ausgewählte Szene eine weitere Szene auf derselben "
-            "Szenen-Gruppenadresse an: nächste freie Szenennummer, gleicher "
-            "Geltungsbereich, gleiche GA."
+            "Legt auf der ausgewählten Szenen-Adresse eine weitere Szene an: "
+            "nächste freie Szenennummer, gleicher Geltungsbereich."
         )
         self._btn_add_same_ga.clicked.connect(self._add_scene_on_same_ga)
         self._btn_from_template = QPushButton("Aus Vorlage")
@@ -123,12 +144,9 @@ class SceneView(QWidget):
             "bleiben unverändert."
         )
         self._btn_remove_all.clicked.connect(self._remove_all_scenes)
-        btn_layout.addWidget(self._btn_add)
-        btn_layout.addWidget(self._btn_add_same_ga)
-        btn_layout.addWidget(self._btn_from_template)
-        btn_layout.addWidget(self._btn_detect)
-        btn_layout.addWidget(self._btn_remove)
-        btn_layout.addWidget(self._btn_remove_all)
+        for button in (self._btn_add, self._btn_add_same_ga, self._btn_from_template,
+                       self._btn_detect, self._btn_remove, self._btn_remove_all):
+            btn_layout.addWidget(button)
         btn_layout.addStretch()
         left.addLayout(btn_layout)
 
@@ -147,11 +165,46 @@ class SceneView(QWidget):
 
         content.addLayout(left, 3)
 
-        # --- Rechte Seite: Detail-Panel ---
+        # --- Rechte Seite: Adress- bzw. Szenen-Details ---
         right = QVBoxLayout()
 
+        # Adress-Details: gelten für alle Szenen der Adresse
+        self._address_group = QGroupBox("Szenen-Adresse")
+        address_form = QFormLayout()
+        self._address_label = QLabel()
+        self._address_label.setWordWrap(True)
+        self._address_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        address_form.addRow("Adresse:", self._address_label)
+        self._address_dpt = QLabel()
+        address_form.addRow("Datentyp:", self._address_dpt)
+        self._address_comment = QLabel()
+        self._address_comment.setWordWrap(True)
+        address_form.addRow("Kommentar:", self._address_comment)
+
+        self._scene_scope = QComboBox()
+        for code, label in _SCOPE_LABELS.items():
+            self._scene_scope.addItem(label, code)
+        self._scene_scope.setToolTip(
+            "Gilt für alle Szenen dieser Adresse. Szenen mit gleichem "
+            "Geltungsbereich (+ Raum/Zone) teilen sich beim Generieren der "
+            "Adressen (Schritt 10) eine gemeinsame Szenenaufruf-GA."
+        )
+        address_form.addRow("Geltungsbereich:", self._scene_scope)
+        self._scene_scope_id = QComboBox()
+        address_form.addRow("Raum/Zone:", self._scene_scope_id)
+        self._btn_apply_address = QPushButton("Geltungsbereich übernehmen")
+        self._btn_apply_address.clicked.connect(self._apply_address_changes)
+        address_form.addRow("", self._btn_apply_address)
+
+        # Verknüpfte Geräte: Sender (Taster, Sensoren) und Empfänger (Aktoren)
+        self._address_devices = QListWidget()
+        self._address_devices.setMaximumHeight(130)
+        address_form.addRow("Verknüpft:", self._address_devices)
+        self._address_group.setLayout(address_form)
+        right.addWidget(self._address_group)
+
         # Szenen-Details
-        self._detail_group = QGroupBox("Szenen-Details")
+        self._detail_group = QGroupBox("Szene")
         detail_form = QFormLayout()
 
         self._scene_name = QLineEdit()
@@ -160,25 +213,19 @@ class SceneView(QWidget):
         self._scene_number = QSpinBox()
         self._scene_number.setRange(1, 64)
         self._scene_number.setToolTip(
-            "KNX-Konvention (DPT 17/18): Szenen mit gleichem Geltungsbereich "
-            "teilen sich eine gemeinsame Szenenaufruf-GA. Szene 1 = Bus-Wert 0, "
-            "Szene 2 = Bus-Wert 1, ... Szene 64 = Bus-Wert 63. Welcher Aktor bei "
-            "welcher Nummer was tut, wird in dessen eigenen ETS-Parametern "
+            "KNX-Konvention (DPT 17/18): Szene 1 = Bus-Wert 0, Szene 2 = "
+            "Bus-Wert 1, ... Szene 64 = Bus-Wert 63. Welcher Aktor bei welcher "
+            "Nummer was tut, wird in dessen eigenen ETS-Parametern "
             "konfiguriert, nicht hier."
         )
         detail_form.addRow("Szenen-Nr. (1-64):", self._scene_number)
 
-        self._scene_scope = QComboBox()
-        for code, label in _SCOPE_LABELS.items():
-            self._scene_scope.addItem(label, code)
-        self._scene_scope.setToolTip(
-            "Szenen mit gleichem Geltungsbereich (+ Raum/Zone) teilen sich beim "
-            "Generieren der Adressen (Schritt 10) eine gemeinsame Szenenaufruf-GA."
+        self._scene_address = QComboBox()
+        self._scene_address.setToolTip(
+            "Szenen-Adresse, über die die Szene aufgerufen wird. Wechseln "
+            "verschiebt die Szene samt Geltungsbereich auf die andere Adresse."
         )
-        detail_form.addRow("Geltungsbereich:", self._scene_scope)
-
-        self._scene_scope_id = QComboBox()
-        detail_form.addRow("Raum/Zone:", self._scene_scope_id)
+        detail_form.addRow("Szenen-Adresse:", self._scene_address)
 
         self._scene_trigger = QLineEdit()
         self._scene_trigger.setPlaceholderText(
@@ -251,6 +298,7 @@ class SceneView(QWidget):
         # bei 1280 px Fensterbreite abgeschnitten
         content.addLayout(right, 2)
         layout.addLayout(content)
+        self._show_details(None)
 
     def _load_templates(self):
         """Lädt Szenen-Vorlagen aus config/scene_templates.json."""
@@ -283,41 +331,103 @@ class SceneView(QWidget):
                     f"Zone: {apt.name}", apt.id
                 )
 
-    def _refresh_table(self):
-        """Aktualisiert die Szenen-Tabelle."""
+    # --- Baum ---
+
+    def _refresh_table(self, select=None):
+        """Baut den Baum neu auf; select = Szene oder SceneAddress, die danach
+        ausgewählt sein soll (Standard: bisherige Auswahl)."""
+        if select is None:
+            select = self._selected_object()
+        self._tree.blockSignals(True)
+        self._tree.clear()
         if not self._project:
-            self._table.setRowCount(0)
+            self._tree.blockSignals(False)
             self._info.setText("")
+            self._show_details(None)
             return
 
-        scenes = self._project.scenes
-        self._table.setRowCount(len(scenes))
+        self._overview = build_scene_overview(self._project)
+        labels = build_scope_label_lookup(self._project.areal)
+        target_item = None
 
-        source_labels = {
-            "dpt": "Import (DPT)",
-            "folder": "Import (Ordner)",
-            "pattern": "Import (Muster)",
-        }
+        def add_address(parent, group: SceneAddress, warn: str = ""):
+            nonlocal target_item
+            if group.planned:
+                text = f"{group.designation}  (wird in Schritt 10 erzeugt)"
+            else:
+                text = f"{group.ga.address}  {' '.join(group.designation.split())}"
+            anchor = group.anchor_scene
+            n = len(group.scenes)
+            quelle = warn or ("geplant" if group.planned else
+                              dpt_number(group.ga.datapoint_type or "") or "DPT fehlt")
+            item = QTreeWidgetItem(parent, [
+                text, "", scope_text(anchor, labels) if anchor else "Zentral",
+                f"{n} {'Szene' if n == 1 else 'Szenen'}", quelle,
+            ])
+            font = item.font(0)
+            font.setBold(True)
+            item.setFont(0, font)
+            item.setData(0, _ROLE, ("address", group))
+            if group.planned or warn or not group.dpt_ok:
+                item.setForeground(4, _COLOR_WARN)
+            if select is group or (isinstance(select, SceneAddress) and select.key == group.key):
+                target_item = item
+            for scene in group.scenes:
+                add_scene(item, scene)
+            return item
 
-        for i, scene in enumerate(scenes):
-            self._table.setItem(i, 0, QTableWidgetItem(scene.name))
-            self._table.setItem(i, 1, QTableWidgetItem(str(scene.scene_number or "")))
-            self._table.setItem(
-                i, 2,
-                QTableWidgetItem(_SCOPE_LABELS.get(scene.scope, scene.scope))
-            )
-            self._table.setItem(i, 3, QTableWidgetItem(scene.trigger))
-            self._table.setItem(
-                i, 4, QTableWidgetItem(str(len(scene.actions)))
-            )
-            source_text = source_labels.get(scene.detection_kind, "")
+        def add_scene(parent, scene: Scene):
+            nonlocal target_item
+            source = _SOURCE_LABELS.get(scene.detection_kind, "")
             if is_bound_scene(scene):
-                source_text = f"Manuell → {', '.join(scene.source_ga_addresses)}"
-            self._table.setItem(i, 5, QTableWidgetItem(source_text))
+                source = f"Manuell → {', '.join(scene.source_ga_addresses)}"
+            item = QTreeWidgetItem(parent, [
+                scene.name, str(scene.scene_number or ""), scene.trigger,
+                str(len(scene.actions)), source,
+            ])
+            item.setData(0, _ROLE, ("scene", scene))
+            if select is scene:
+                target_item = item
+            return item
 
-        fit_columns(self._table)
-        self._info.setText(f"{len(scenes)} Szenen definiert")
+        for group in self._overview.addresses:
+            add_address(self._tree, group).setExpanded(True)
+
+        if self._overview.visu:
+            section = QTreeWidgetItem(self._tree, [
+                f"Szenen der Visualisierung ({len(self._overview.visu)})", "", "",
+                "", "keine KNX-Szenenadressen"])
+            section.setData(0, _ROLE, ("section", "visu"))
+            section.setForeground(0, _COLOR_HINT)
+            for scene in self._overview.visu:
+                add_scene(section, scene)
+        if self._overview.unclear:
+            section = QTreeWidgetItem(self._tree, [
+                f"Nicht eindeutig ({len(self._overview.unclear)})", "", "", "",
+                "prüfen"])
+            section.setData(0, _ROLE, ("section", "unclear"))
+            section.setForeground(0, _COLOR_WARN)
+            for group in self._overview.unclear:
+                add_address(section, group, warn="DPT keine Szene")
+
+        self._tree.blockSignals(False)
+        fit_columns(self._tree)
+        n_scenes = sum(len(g.scenes) for g in self._overview.addresses)
+        self._info.setText(
+            f"{len(self._overview.addresses)} Szenen-Adressen mit {n_scenes} Szenen"
+            + (f" · {len(self._overview.visu)} Szenen der Visualisierung"
+               if self._overview.visu else "")
+            + (f" · {len(self._overview.unclear)} nicht eindeutig"
+               if self._overview.unclear else "")
+        )
         self._update_stale_banner()
+        if target_item is not None:
+            parent = target_item.parent()
+            if parent is not None:
+                parent.setExpanded(True)
+            self._tree.setCurrentItem(target_item)
+        else:
+            self._show_details(None)
 
     def _update_stale_banner(self):
         """
@@ -356,24 +466,107 @@ class SceneView(QWidget):
         )
         self._stale_banner.show()
 
-    def _on_selection(self, row, col, prev_row, prev_col):
-        """Zeigt Details der ausgewählten Szene."""
-        if not self._project or row < 0 or row >= len(self._project.scenes):
-            return
+    # --- Auswahl und Details ---
 
-        scene = self._project.scenes[row]
+    def _selected_data(self):
+        item = self._tree.currentItem()
+        return item.data(0, _ROLE) if item is not None else None
+
+    def _selected_object(self):
+        data = self._selected_data()
+        return data[1] if data and data[0] in ("scene", "address") else None
+
+    def _get_selected_scene(self) -> Scene | None:
+        """Gibt die aktuell ausgewählte Szene zurück."""
+        data = self._selected_data()
+        return data[1] if data and data[0] == "scene" else None
+
+    def _get_selected_address(self) -> SceneAddress | None:
+        """Ausgewählte Szenen-Adresse – direkt oder über eine ihrer Szenen."""
+        data = self._selected_data()
+        if not data or self._overview is None:
+            return None
+        if data[0] == "address":
+            return data[1]
+        if data[0] == "scene":
+            return self._overview.address_of(data[1])
+        return None
+
+    def _select_scene(self, scene) -> None:
+        """Wählt eine Szene (oder SceneAddress) im Baum aus."""
+        self._refresh_table(select=scene)
+
+    def _on_selection(self, current, previous=None):
+        data = current.data(0, _ROLE) if current is not None else None
+        self._show_details(data)
+
+    def _show_details(self, data):
+        kind, obj = data if data else (None, None)
+        address = None
+        if kind == "address":
+            address = obj
+        elif kind == "scene" and self._overview is not None:
+            address = self._overview.address_of(obj)
+        self._address_group.setVisible(address is not None)
+        self._detail_group.setVisible(kind == "scene")
+        self._actions_group.setVisible(kind == "scene")
+        if address is not None:
+            self._fill_address(address)
+        if kind == "scene":
+            self._fill_scene(obj, address)
+
+    def _fill_address(self, group: SceneAddress):
+        if group.planned:
+            self._address_label.setText(f"{group.designation}\n(wird in Schritt 10 erzeugt)")
+            self._address_dpt.setText("–")
+            self._address_comment.setText("–")
+            self._address_devices.clear()
+        else:
+            ga = group.ga
+            self._address_label.setText(f"{ga.address}  {' '.join(ga.designation.split())}")
+            dpt = dpt_number(ga.datapoint_type or "") or "fehlt"
+            self._address_dpt.setText(
+                dpt if group.dpt_ok else f"{dpt} – für Szenen wird 17.001/18.001 erwartet")
+            self._address_comment.setText(ga.comment or "–")
+            self._address_devices.clear()
+            for link in linked_devices(self._project, ga.address):
+                entry = QListWidgetItem(
+                    f"{link.device.physical_address}  {link.device.product or ''}  "
+                    f"({link.role})")
+                entry.setToolTip("\n".join(link.objects))
+                self._address_devices.addItem(entry)
+            if not self._address_devices.count():
+                self._address_devices.addItem("keine Geräte verknüpft")
+        anchor = group.anchor_scene
+        if anchor is not None:
+            idx = self._scene_scope.findData(anchor.scope or "central")
+            if idx >= 0:
+                self._scene_scope.setCurrentIndex(idx)
+            scope_idx = self._scene_scope_id.findData(anchor.scope_id)
+            if scope_idx >= 0:
+                self._scene_scope_id.setCurrentIndex(scope_idx)
+
+    def _fill_scene(self, scene: Scene, address: SceneAddress | None):
         self._scene_name.setText(scene.name)
-        self._scene_number.setValue(scene.scene_number)
-
-        idx = self._scene_scope.findData(scene.scope)
-        if idx >= 0:
-            self._scene_scope.setCurrentIndex(idx)
-
-        scope_idx = self._scene_scope_id.findData(scene.scope_id)
-        if scope_idx >= 0:
-            self._scene_scope_id.setCurrentIndex(scope_idx)
-
+        self._scene_number.setValue(max(1, scene.scene_number))
         self._scene_trigger.setText(scene.trigger)
+
+        # Verschieben nur bei selbst angelegten Szenen; erkannte gehören zu
+        # ihrer importierten Adresse
+        self._scene_address.blockSignals(True)
+        self._scene_address.clear()
+        for group in self._overview.addresses if self._overview else []:
+            label = (f"{group.designation} (geplant)" if group.planned
+                     else f"{group.ga.address}  {' '.join(group.designation.split())}")
+            self._scene_address.addItem(label, group.key)
+        if address is not None:
+            idx = self._scene_address.findData(address.key)
+            if idx < 0:
+                self._scene_address.addItem(address.designation, address.key)
+                idx = self._scene_address.count() - 1
+            self._scene_address.setCurrentIndex(idx)
+        self._scene_address.setEnabled(not scene.is_detected and address is not None)
+        self._scene_address.blockSignals(False)
         self._refresh_actions(scene)
 
     def _refresh_actions(self, scene: Scene):
@@ -384,18 +577,10 @@ class SceneView(QWidget):
         self._actions_table.blockSignals(True)
         self._actions_table.setRowCount(len(scene.actions))
         for i, action in enumerate(scene.actions):
-            self._actions_table.setItem(
-                i, 0, QTableWidgetItem(action.group_address)
-            )
-            self._actions_table.setItem(
-                i, 1, QTableWidgetItem(action.ga_address)
-            )
-            self._actions_table.setItem(
-                i, 2, QTableWidgetItem(action.value)
-            )
-            self._actions_table.setItem(
-                i, 3, QTableWidgetItem(str(action.delay_seconds))
-            )
+            self._actions_table.setItem(i, 0, QTableWidgetItem(action.group_address))
+            self._actions_table.setItem(i, 1, QTableWidgetItem(action.ga_address))
+            self._actions_table.setItem(i, 2, QTableWidgetItem(action.value))
+            self._actions_table.setItem(i, 3, QTableWidgetItem(str(action.delay_seconds)))
         self._actions_table.blockSignals(False)
         fit_columns(self._actions_table)
 
@@ -427,52 +612,65 @@ class SceneView(QWidget):
                 item.setText(str(action.delay_seconds))
                 self._actions_table.blockSignals(False)
 
-    def _get_selected_scene(self) -> Scene | None:
-        """Gibt die aktuell ausgewählte Szene zurück."""
-        row = self._table.currentRow()
-        if not self._project or row < 0 or row >= len(self._project.scenes):
-            return None
-        return self._project.scenes[row]
+    # --- Szenen anlegen ---
 
-    # --- Szenen-Aktionen ---
+    def _scope_choices(self) -> list[tuple[str, str, str]]:
+        """(Anzeige, scope, scope_id) für die Wahl einer neuen Szenen-Adresse."""
+        choices = [("Zentral", "central", "")]
+        if self._project:
+            choices += [(f"Raum {r.number} {r.name}".strip(), "room", r.id)
+                        for r in self._project.all_rooms]
+            choices += [(f"Zone {apt.name}", "apartment", apt.id)
+                        for floor in self._project.all_floors for apt in floor.apartments]
+        return choices
 
     def _add_scene(self):
-        """Fügt eine neue leere Szene hinzu."""
+        """Neue Szene mit wählbarem Geltungsbereich – gibt es dafür schon eine
+        (künftige) Szenen-Adresse, landet sie dort mit der nächsten freien
+        Nummer, sonst entsteht eine neue Adresse."""
         if not self._project:
             return
+        choices = self._scope_choices()
+        label, ok = QInputDialog.getItem(
+            self, "Neue Szenen-Adresse", "Geltungsbereich der Szenen-Adresse:",
+            [c[0] for c in choices], 0, False)
+        if not ok:
+            return
+        _label, scope, scope_id = next(c for c in choices if c[0] == label)
+        self._create_scene(scope, scope_id)
 
-        next_num = 1
-        if self._project.scenes:
-            next_num = max(s.scene_number for s in self._project.scenes) + 1
-            if next_num > 64:
-                next_num = 1
-
-        scene = Scene(
-            name=f"Neue Szene {len(self._project.scenes) + 1}",
-            scene_number=next_num,
-            # "central" passt zum ebenfalls leeren scope_id (siehe
-            # scene_addressing.scene_group_key: scope_id or "central") --
-            # "room" ohne gewaehlten Raum waere ein inkonsistenter Zustand,
-            # der die Szene unbemerkt als zentrale Szene behandelt haette.
-            scope="central",
-        )
+    def _create_scene(self, scope: str, scope_id: str, name: str = "",
+                      actions: list | None = None) -> Scene | None:
+        probe = Scene(scope=scope, scope_id=scope_id)
+        used = {s.scene_number for s in self._project.scenes
+                if not s.is_detected and not s.source_ga_addresses
+                and scene_group_key(s) == scene_group_key(probe)}
+        number = next((n for n in range(1, 65) if n not in used), None)
+        if number is None:
+            QMessageBox.information(
+                self, "Hinweis",
+                "Auf dieser Szenen-Adresse sind bereits alle 64 Szenennummern belegt.")
+            return None
+        scene = Scene(name=name or f"Neue Szene {number}", scene_number=number,
+                      scope=scope, scope_id=scope_id, actions=actions or [])
         self._project.scenes.append(scene)
-        self._refresh_table()
-
-        # Neue Szene auswählen
-        self._table.selectRow(len(self._project.scenes) - 1)
+        self._select_scene(scene)
+        self._scene_name.setFocus()
+        self._scene_name.selectAll()
+        return scene
 
     def _add_scene_on_same_ga(self):
-        """Legt eine weitere Szene auf der Szenen-GA der ausgewählten Szene an
-        (nächste freie Nummer, gleicher Geltungsbereich). Ist die Szene an eine
-        bestehende GA gebunden (erkannt oder selbst gebunden), wird auch die
-        neue Szene an diese GA gebunden -- sonst teilt sie sich über den
-        Geltungsbereich die generierte Szenenaufruf-GA."""
-        source = self._get_selected_scene()
+        """Legt eine weitere Szene auf der ausgewählten Szenen-Adresse an
+        (nächste freie Nummer, gleicher Geltungsbereich). Ist die Adresse eine
+        bestehende GA (erkannt oder selbst gebunden), wird die neue Szene an
+        diese GA gebunden -- sonst teilt sie sich über den Geltungsbereich die
+        generierte Szenenaufruf-GA."""
+        group = self._get_selected_address()
+        source = self._get_selected_scene() or (group.anchor_scene if group else None)
         if not self._project or not source:
             QMessageBox.information(
-                self, "Hinweis", "Bitte zuerst die Szene auswählen, deren "
-                "Gruppenadresse erweitert werden soll."
+                self, "Hinweis", "Bitte zuerst die Szenen-Adresse oder eine ihrer "
+                "Szenen auswählen."
             )
             return
 
@@ -525,13 +723,13 @@ class SceneView(QWidget):
         insert_at = max(self._project.scenes.index(s) for s in same_channel) + 1 \
             if same_channel else len(self._project.scenes)
         self._project.scenes.insert(insert_at, scene)
-        self._refresh_table()
-        self._table.selectRow(insert_at)
+        self._select_scene(scene)
         self._scene_name.setFocus()
         self._scene_name.selectAll()
 
     def _add_from_template(self):
-        """Erstellt eine Szene aus einer Vorlage."""
+        """Erstellt eine Szene aus einer Vorlage – auf der ausgewählten
+        Szenen-Adresse bzw. zentral, wenn keine ausgewählt ist."""
         if not self._project:
             return
 
@@ -544,35 +742,22 @@ class SceneView(QWidget):
             return
 
         template = self._templates[template_idx]
-        next_num = 1
-        if self._project.scenes:
-            next_num = max(s.scene_number for s in self._project.scenes) + 1
-            if next_num > 64:
-                next_num = 1
-
-        actions = []
-        for action_def in template.get("actions", []):
-            actions.append(SceneAction(
-                group_address=action_def.get("gewerk_category", ""),
-                value=action_def.get("action", ""),
-            ))
-
-        scene = Scene(
-            name=template["name"],
-            scene_number=next_num,
-            scope="central",  # siehe Begruendung in _add_scene()
-            actions=actions,
-        )
-        self._project.scenes.append(scene)
-        self._refresh_table()
-        self._table.selectRow(len(self._project.scenes) - 1)
+        actions = [
+            SceneAction(group_address=action_def.get("gewerk_category", ""),
+                        value=action_def.get("action", ""))
+            for action_def in template.get("actions", [])
+        ]
+        group = self._get_selected_address()
+        anchor = group.anchor_scene if group and group.planned else None
+        self._create_scene(anchor.scope if anchor else "central",
+                           anchor.scope_id if anchor else "",
+                           name=template["name"], actions=actions)
 
     def _detect_scenes(self):
         """Erkennt Szenen in importierten Gruppenadressen und übernimmt sie
-        (FA-1808); ergänzt ausserdem echte Schaltwerte (Aktor-Seite, FA-1809)
-        und Ausloeser (Sensor-Seite: welche Taste sendet welche Szenennummer,
-        FA-1810) aus den Geräteparametern, sofern ein Topologie-/Gebäude-
-        Report mit erkennbarem Muster importiert wurde."""
+        (FA-1808); ergänzt ausserdem echte Schaltwerte (Aktor-Seite, FA-1809),
+        Ausloeser (Sensor-Seite: welche Taste sendet welche Szenennummer,
+        FA-1810) und Szenennamen aus dem GA-Kommentar (FA-1810a)."""
         if not self._project:
             return
 
@@ -583,29 +768,22 @@ class SceneView(QWidget):
         count_before_linking = len(self._project.scenes)
         linked = link_scene_values(self._project)
         triggers_linked = link_scene_triggers(self._project)
+        names_linked = link_scene_names(self._project)
         new_numbered_scenes = self._project.scenes[count_before_linking:]
 
-        if not added and not linked and not triggers_linked:
+        if not added and not linked and not triggers_linked and not names_linked:
             QMessageBox.information(
                 self, "Szenen erkennen",
                 "Keine neuen Szenen oder Schaltwerte gefunden."
             )
             return
 
-        self._refresh_table()
         if new_numbered_scenes:
-            # link_scene_values/link_scene_triggers haben eine geteilte
-            # "Kanal"-Szene (Nr. 0, z.B. "Anwesendheit Chalet") in separate
-            # numerierte Szenen aufgeteilt (z.B. "... – Szene 2") -- dorthin
-            # springen, sonst sind die neuen Zeilen am Tabellenende bei
-            # vielen Szenen leicht zu uebersehen.
-            self._table.selectRow(count_before_linking)
+            self._select_scene(new_numbered_scenes[0])
         elif added:
-            self._table.selectRow(len(self._project.scenes) - len(added))
-        elif linked or triggers_linked:
-            selected = self._get_selected_scene()
-            if selected:
-                self._refresh_actions(selected)
+            self._select_scene(added[0])
+        else:
+            self._refresh_table()
 
         parts = []
         if added:
@@ -614,28 +792,41 @@ class SceneView(QWidget):
             parts.append(f"{linked} Aktion(en) aus Gerätedaten ergänzt")
         if triggers_linked:
             parts.append(f"{triggers_linked} Auslöser aus Tastenkonfiguration ergänzt")
+        if names_linked:
+            parts.append(f"{names_linked} Szene(n) nach GA-Kommentar benannt")
         if new_numbered_scenes:
             parts.append(
-                f"{len(new_numbered_scenes)} numerierte Szene(n) aus geteiltem "
-                f"Recall-Kanal aufgeteilt (siehe markierte Zeile)"
+                f"{len(new_numbered_scenes)} Szene(n) auf geteilter Szenen-Adresse "
+                f"angelegt (siehe Auswahl)"
             )
         QMessageBox.information(self, "Szenen erkennen", " – ".join(parts) + ".")
 
-    def _remove_scene(self):
-        """Entfernt die ausgewählte Szene."""
-        scene = self._get_selected_scene()
-        if not scene or not self._project:
-            return
+    # --- Entfernen ---
 
+    def _remove_scene(self):
+        """Entfernt die ausgewählte Szene bzw. alle Szenen der ausgewählten
+        Szenen-Adresse."""
+        if not self._project:
+            return
+        data = self._selected_data()
+        if not data or data[0] not in ("scene", "address"):
+            return
+        if data[0] == "scene":
+            scenes = [data[1]]
+            question = f"Szene '{data[1].name}' wirklich entfernen?"
+        else:
+            scenes = data[1].all_scenes
+            question = (f"Alle {len(scenes)} Szene(n) der Adresse "
+                        f"'{data[1].designation}' entfernen? Die Gruppenadresse "
+                        "selbst bleibt unverändert.")
         reply = QMessageBox.question(
-            self, "Szene entfernen",
-            f"Szene '{scene.name}' wirklich entfernen?",
-            QMessageBox.Yes | QMessageBox.No,
+            self, "Entfernen", question, QMessageBox.Yes | QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
-            self._project.scenes.remove(scene)
-            self._refresh_table()
-            self._actions_table.setRowCount(0)
+            for scene in scenes:
+                if scene in self._project.scenes:
+                    self._project.scenes.remove(scene)
+            self._refresh_table(select=False)
 
     def _remove_all_scenes(self):
         """Entfernt alle Szenen dieses Projekts (manuell + automatisch erkannt)."""
@@ -651,15 +842,15 @@ class SceneView(QWidget):
         )
         if reply == QMessageBox.Yes:
             self._project.scenes.clear()
-            self._refresh_table()
-            self._actions_table.setRowCount(0)
+            self._refresh_table(select=False)
 
-    def _apply_changes(self):
-        """Übernimmt Änderungen an der ausgewählten Szene."""
-        scene = self._get_selected_scene()
-        if not scene:
+    # --- Übernehmen ---
+
+    def _apply_address_changes(self):
+        """Setzt den Geltungsbereich für alle Szenen der ausgewählten Adresse."""
+        group = self._get_selected_address()
+        if group is None:
             return
-
         new_scope = self._scene_scope.currentData()
         new_scope_id = self._scene_scope_id.currentData() or ""
 
@@ -677,14 +868,44 @@ class SceneView(QWidget):
                 "die Szene später nicht korrekt zugeordnet werden."
             )
             return
+        if new_scope == "central":
+            new_scope_id = ""
+        for scene in group.all_scenes:
+            scene.scope = new_scope
+            scene.scope_id = new_scope_id
+        self._refresh_table(select=group.scenes[0] if group.scenes else group.anchor_scene)
+
+    def _apply_changes(self):
+        """Übernimmt Änderungen an der ausgewählten Szene (Name, Nummer,
+        Auslöser, bei selbst angelegten Szenen auch die Szenen-Adresse)."""
+        scene = self._get_selected_scene()
+        if not scene or self._overview is None:
+            return
+
+        target = self._overview.address_of(scene)
+        target_key = self._scene_address.currentData()
+        if self._scene_address.isEnabled() and target_key and (
+                target is None or target_key != target.key):
+            target = next((g for g in self._overview.addresses if g.key == target_key), target)
+
+        number = self._scene_number.value()
+        if target is not None and any(
+                s is not scene and s.scene_number == number for s in target.scenes):
+            QMessageBox.warning(
+                self, "Szenennummer belegt",
+                f"Auf dieser Szenen-Adresse ist die Nummer {number} bereits vergeben. "
+                f"Nächste freie Nummer: {target.free_number() or '–'}.")
+            return
 
         scene.name = self._scene_name.text()
-        scene.scene_number = self._scene_number.value()
-        scene.scope = new_scope
-        scene.scope_id = new_scope_id
+        scene.scene_number = number
         scene.trigger = self._scene_trigger.text()
-
-        self._refresh_table()
+        if target is not None and self._scene_address.isEnabled():
+            anchor = target.anchor_scene
+            if anchor is not None and anchor is not scene:
+                scene.scope, scene.scope_id = anchor.scope, anchor.scope_id
+            scene.source_ga_addresses = [target.ga.address] if target.ga else []
+        self._refresh_table(select=scene)
 
     # --- Aktionen-Verwaltung ---
 
@@ -710,8 +931,7 @@ class SceneView(QWidget):
             value=value,
             delay_seconds=delay,
         ))
-        self._refresh_actions(scene)
-        self._refresh_table()
+        self._refresh_table(select=scene)
 
         # Felder leeren
         self._action_ga.clear()
@@ -727,5 +947,4 @@ class SceneView(QWidget):
         row = self._actions_table.currentRow()
         if 0 <= row < len(scene.actions):
             scene.actions.pop(row)
-            self._refresh_actions(scene)
-            self._refresh_table()
+            self._refresh_table(select=scene)

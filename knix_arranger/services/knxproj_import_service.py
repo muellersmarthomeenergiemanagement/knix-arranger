@@ -804,7 +804,10 @@ class KnxprojImportService:
                     raw = int(ga_elem.get("Address", "0"))
                     m, mi, s = self._decode_address(raw)
                     name = ga_elem.get("Name", "")
-                    description = ga_elem.get("Description", "") or ga_elem.get("Comment", "")
+                    description = ga_elem.get("Description", "")
+                    # Kommentar ist in der ETS RTF – als Klartext in eigenem Feld
+                    # (enthält z.B. die Szenennamen "#1: Anwesend")
+                    comment = rtf_to_text(ga_elem.get("Comment", "")).strip()
                     if not description:
                         # ETS-Description/Comment sind in der Praxis oft leer, weil kaum
                         # ein Integrator sie pflegt. Fallback: denselben Klammer-Zusatz
@@ -821,6 +824,7 @@ class KnxprojImportService:
                         sub_group=s,
                         designation=name,
                         description=description,
+                        comment=comment,
                         datapoint_type=ga_elem.get("DatapointType", ""),
                         security="Auto",
                     )
@@ -1179,6 +1183,12 @@ class KnxprojImportService:
                     existing = be_by_participant.get(device.physical_address)
                     if existing is not None:
                         existing_room, existing_be = existing
+                        # Produkt folgt dem Gerät (sonst bleibt nach einem
+                        # Gerätetausch in der ETS das alte Produkt stehen)
+                        if device.order_number:
+                            existing_be.manufacturer = device.manufacturer or existing_be.manufacturer
+                            existing_be.order_number = device.order_number
+                            existing_be.product_name = device.product_name or device.product
                         if existing_room.id != room.id:
                             existing_room.bedienelemente.remove(existing_be)
                             room.bedienelemente.append(existing_be)
