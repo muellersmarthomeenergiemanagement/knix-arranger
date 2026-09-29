@@ -201,6 +201,14 @@ class MainWindow(QMainWindow):
         export_action.triggered.connect(self._export_csv)
         file_menu.addAction(export_action)
 
+        xml_action = QAction("ETS-Projektdaten als &XML speichern...", self)
+        xml_action.setToolTip(
+            "Die Projektdaten (0.xml) einer .knxproj unverändert für ein "
+            "Partnerprogramm speichern -- ohne Schlüssel und Passwörter."
+        )
+        xml_action.triggered.connect(self._save_project_xml)
+        file_menu.addAction(xml_action)
+
         file_menu.addSeparator()
 
         quit_action = QAction("&Beenden", self)
@@ -1422,26 +1430,22 @@ class MainWindow(QMainWindow):
             ProductSearchService().add_products([p.to_catalog_dict() for p in all_products])
         return len(all_products)
 
-    def _import_knxproj(self, filepath: str):
-        """Importiert ein natives ETS6-Projekt (.knxproj) (FA-521 bis FA-526, FA-525c).
-
-        Die Passwort-Abfrage ist interaktiv (zeigt ggf. mehrfach einen
-        Dialog) und läuft deshalb bewusst NICHT im Hintergrund-Thread wie
-        bei XLSX/CSV (siehe run_import in _import_xlsx) -- ein modaler
-        Fortschrittsdialog macht aber sichtbar, dass das eigentliche
-        Parsen der (teils grossen) .knxproj-Datei noch läuft, statt dass
-        die Oberfläche kommentarlos einfriert.
-        """
+    def _with_knxproj_password(self, filepath: str, action, busy_text: str,
+                               cancel_text: str):
+        """Führt action(passwort) für eine .knxproj aus und fragt bei Bedarf
+        das ETS-Projektpasswort ab (gespeichertes zuerst, sonst Dialog, bei
+        falschem Passwort erneut). Gibt (Ergebnis, Passwort) zurück, None bei
+        Abbruch. Läuft im UI-Thread mit modalem Fortschrittsdialog, da die
+        Passwortabfrage interaktiv ist."""
         from ..services.project_service import ProjectService
 
-        importer = KnxprojImportService()
         project_service = ProjectService()
         password = None
         project_id = None
         dialog = None
 
-        progress = QProgressDialog("KNXPROJ wird importiert…", None, 0, 0, self)
-        progress.setWindowTitle("Import läuft…")
+        progress = QProgressDialog(busy_text, None, 0, 0, self)
+        progress.setWindowTitle("Bitte warten…")
         progress.setWindowModality(Qt.WindowModal)
         progress.setCancelButton(None)
         progress.setMinimumDuration(0)
@@ -1452,7 +1456,7 @@ class MainWindow(QMainWindow):
             while True:
                 try:
                     QApplication.processEvents()
-                    project = importer.import_knxproj(filepath, password=password)
+                    result = action(password)
                     break
                 except KnxprojPasswordRequired as exc:
                     progress.hide()
@@ -1464,10 +1468,8 @@ class MainWindow(QMainWindow):
                         continue
                     dialog = KnxprojPasswordDialog(project_id, os.path.basename(filepath), self)
                     if not dialog.exec():
-                        self._status_bar.set_status(
-                            "KNXPROJ-Import abgebrochen: Passwort erforderlich."
-                        )
-                        return
+                        self._status_bar.set_status(f"{cancel_text}: Passwort erforderlich.")
+                        return None
                     password = dialog.password
                     progress.show()
                 except KnxprojPasswordWrong:
@@ -1476,10 +1478,8 @@ class MainWindow(QMainWindow):
                         dialog = KnxprojPasswordDialog(project_id, os.path.basename(filepath), self)
                     dialog.show_wrong_password()
                     if not dialog.exec():
-                        self._status_bar.set_status(
-                            "KNXPROJ-Import abgebrochen: falsches Passwort."
-                        )
-                        return
+                        self._status_bar.set_status(f"{cancel_text}: falsches Passwort.")
+                        return None
                     password = dialog.password
                     progress.show()
         finally:
@@ -1487,6 +1487,79 @@ class MainWindow(QMainWindow):
 
         if dialog is not None and project_id and dialog.save_password:
             project_service.save_knxproj_password(project_id, password)
+        return result, password
+
+    def _save_project_xml(self):
+        """Datei → Projektdaten als XML speichern: die unveränderte 0.xml einer
+        .knxproj für Partnerprogramme, ohne Schlüssel und Passwörter."""
+        from ..services.project_xml_export import strip_secrets
+
+        start_dir = ""
+        if self._project and self._project._file_path:
+            project_dir = os.path.dirname(self._project._file_path)
+            imports = os.path.join(project_dir, "Importdateien")
+            start_dir = imports if os.path.isdir(imports) else project_dir
+        source, _ = QFileDialog.getOpenFileName(
+            self, "ETS-Projekt wählen", start_dir, "ETS-Projekte (*.knxproj)",
+        )
+        if not source:
+            return
+        importer = KnxprojImportService()
+        try:
+            outcome = self._with_knxproj_password(
+                source, lambda pw: importer.read_project_xml(source, password=pw),
+                "Projektdaten werden gelesen…", "Projektdaten nicht gespeichert",
+            )
+        except Exception as e:
+            logger.exception("Projektdaten konnten nicht gelesen werden")
+            QMessageBox.critical(self, "Projektdaten", f"Die Datei konnte nicht gelesen werden:\n{e}")
+            return
+        if outcome is None:
+            return
+        xml, _password = outcome
+        cleaned, removed = strip_secrets(xml)
+
+        stem = os.path.splitext(os.path.basename(source))[0]
+        target, _ = QFileDialog.getSaveFileName(
+            self, "Projektdaten speichern",
+            os.path.join(os.path.dirname(self._project._file_path)
+                         if self._project and self._project._file_path else "",
+                         f"{stem}_Projektdaten.xml"),
+            "XML-Dateien (*.xml)",
+        )
+        if not target:
+            return
+        try:
+            with open(target, "wb") as f:
+                f.write(cleaned)
+        except OSError as e:
+            QMessageBox.critical(self, "Projektdaten", f"Speichern fehlgeschlagen:\n{e}")
+            return
+        n_removed = sum(removed.values())
+        details = ", ".join(f"{name} ({n})" for name, n in sorted(removed.items()))
+        self._status_bar.set_status(
+            f"Projektdaten gespeichert: {target} | {n_removed} Schlüssel/Passwörter entfernt"
+            + (f": {details}" if details else "")
+        )
+
+    def _import_knxproj(self, filepath: str):
+        """Importiert ein natives ETS6-Projekt (.knxproj) (FA-521 bis FA-526, FA-525c).
+
+        Die Passwort-Abfrage ist interaktiv (zeigt ggf. mehrfach einen
+        Dialog) und läuft deshalb bewusst NICHT im Hintergrund-Thread wie
+        bei XLSX/CSV (siehe run_import in _import_xlsx) -- ein modaler
+        Fortschrittsdialog macht aber sichtbar, dass das eigentliche
+        Parsen der (teils grossen) .knxproj-Datei noch läuft, statt dass
+        die Oberfläche kommentarlos einfriert.
+        """
+        importer = KnxprojImportService()
+        outcome = self._with_knxproj_password(
+            filepath, lambda pw: importer.import_knxproj(filepath, password=pw),
+            "KNXPROJ wird importiert…", "KNXPROJ-Import abgebrochen",
+        )
+        if outcome is None:
+            return
+        project, password = outcome
 
         # Neuaufbau (FA-527): nur die Geräte-IDs des bisherigen Stands
         # übernehmen, damit das behaltene KNX-Secure-Archiv passt

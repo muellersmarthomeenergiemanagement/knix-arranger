@@ -80,3 +80,18 @@ def test_encrypted_project_with_cloud_certificate(encrypted_chalet):
     devices = [d for a in project.topology.areas for l in a.lines for d in l.devices]
     assert len(devices) == 72
     assert project.group_addresses.all_addresses()
+
+
+def test_read_project_xml_from_encrypted_and_plain_project(encrypted_chalet):
+    """Projektdaten für Partnerprogramme: unverändert, auch aus einem
+    passwortgeschützten Projekt."""
+    svc = KnxprojImportService()
+    with pytest.raises(KnxprojPasswordRequired):
+        svc.read_project_xml(encrypted_chalet)
+    with pytest.raises(KnxprojPasswordWrong):
+        svc.read_project_xml(encrypted_chalet, password="falsch")
+
+    xml = svc.read_project_xml(encrypted_chalet, password=PASSWORD)
+    with zipfile.ZipFile(CHALET) as src:
+        assert xml == src.read("P-06C2/0.xml")
+    assert svc.read_project_xml(CHALET) == xml   # klassisches Format

@@ -324,23 +324,18 @@ class KnxprojImportService:
                 return name
         return None
 
-    def _import_nested(
-        self, outer_zf: zipfile.ZipFile, nested_name: str, password: str | None
-    ) -> KnxProject:
-        """
-        Neueres ETS6-Format: Projektdaten in P-XXXX.zip innerhalb des aeusseren ZIP.
-        Ist der innere ZIP AES-verschluesselt (Export mit Passwort), wird das
-        ZIP-Passwort aus dem Projektpasswort abgeleitet (siehe
-        _zip_password_candidates). Ein Cloud-Lizenz-Zertifikat im Archiv
-        spielt dafuer keine Rolle (mit ETS6 geprueft, 2026-09).
-        """
+    def _open_nested(self, outer_zf: zipfile.ZipFile, nested_name: str,
+                     password: str | None):
+        """Öffnet die innere P-XXXX.zip (ggf. AES-verschlüsselt, siehe
+        _zip_password_candidates). Gibt (ZIP-Objekt, ZIP-Passwort oder None)
+        zurück; der Aufrufer schliesst das ZIP."""
         import io
+        import zipfile as _zf
 
         project_id = nested_name[:-4]  # 'P-XXXX.zip' → 'P-XXXX'
         inner_data = outer_zf.read(nested_name)
 
         # Pruefen ob das innere ZIP verschluesselt ist (flag_bits & 0x1 = WinZip AES)
-        import zipfile as _zf
         try:
             with _zf.ZipFile(io.BytesIO(inner_data)) as probe:
                 is_encrypted = any(
@@ -367,17 +362,52 @@ class KnxprojImportService:
             if pwd_bytes is None:
                 raise KnxprojPasswordWrong()
         else:
-            # Nicht verschluesselt: normaler Import aus dem inneren ZIP
             try:
                 import pyzipper
                 inner_cls = pyzipper.AESZipFile
             except ImportError:
                 inner_cls = _zf.ZipFile
 
+        inner = inner_cls(io.BytesIO(inner_data))
+        if pwd_bytes is not None:
+            inner.setpassword(pwd_bytes)
+        return inner, pwd_bytes
+
+    def read_project_xml(self, filepath: str, password: str | None = None) -> bytes:
+        """Die Projektdaten (0.xml) einer .knxproj unverändert, auch aus
+        passwortgeschützten ETS6-Projekten. Wirft dieselben Passwort-
+        Ausnahmen wie import_knxproj."""
         try:
-            with inner_cls(io.BytesIO(inner_data)) as inner:
-                if pwd_bytes is not None:
-                    inner.setpassword(pwd_bytes)
+            zf = zipfile.ZipFile(filepath, "r")
+        except zipfile.BadZipFile as exc:
+            raise KnxprojImportError(f"Datei ist kein gueltiges ZIP-Archiv: {filepath}") from exc
+        with zf:
+            self._check_password_protection(zf)
+            nested_name = self._find_nested_zip_name(zf)
+            if not nested_name:
+                return zf.read(f"{self._find_project_folder(zf)}/0.xml")
+            inner, pwd_bytes = self._open_nested(zf, nested_name, password)
+            with inner:
+                try:
+                    return inner.read("0.xml")
+                except (KeyError, RuntimeError) as exc:
+                    if pwd_bytes is not None:
+                        raise KnxprojPasswordWrong() from exc
+                    raise KnxprojImportError(f"0.xml konnte nicht gelesen werden: {exc}") from exc
+
+    def _import_nested(
+        self, outer_zf: zipfile.ZipFile, nested_name: str, password: str | None
+    ) -> KnxProject:
+        """
+        Neueres ETS6-Format: Projektdaten in P-XXXX.zip innerhalb des aeusseren ZIP.
+        Ist der innere ZIP AES-verschluesselt (Export mit Passwort), wird das
+        ZIP-Passwort aus dem Projektpasswort abgeleitet (siehe
+        _zip_password_candidates). Ein Cloud-Lizenz-Zertifikat im Archiv
+        spielt dafuer keine Rolle (mit ETS6 geprueft, 2026-09).
+        """
+        inner, pwd_bytes = self._open_nested(outer_zf, nested_name, password)
+        try:
+            with inner:
                 project = self._parse_project_info_from_zip(inner)
                 hw_lookup = self._build_hardware_lookup(outer_zf)
 
