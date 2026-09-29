@@ -2,6 +2,23 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.25",
+      "date": "2026-09-29",
+      "neu": [
+        "Bauherrenberatung: Jede Taste kann einen langen Tastendruck erhalten («+ lang») – mit Szene, Gruppenadresse oder freiem Wunsch. Er heisst wie in der ETS «Taste N (langer Tastendruck)». Aus der ETS importierte lange Tastendrücke stehen unter ihrer Taste. Belegt das Gewerk den langen Tastendruck bereits (z. B. Dimmen, Jalousie fahren), wird das angezeigt.",
+        "Rückgängig und Wiederholen sind jetzt in einer Werkzeugleiste in jeder Ansicht sichtbar. Auch Änderungen in der Bauherrenberatung lassen sich rückgängig machen."
+      ],
+      "verbessert": [
+        "Verknüpfungsmatrix als Übersicht: Ein Doppelklick auf einen Taster öffnet ihn in der Bauherrenberatung, wo die Tastenbelegung bearbeitet wird. Die Zeilen folgen der Tastennummer, links vor rechts, kurz vor lang.",
+        "Tasten ohne Gruppenadresse und freie Wünsche bleiben in der Verknüpfungsmatrix als leere Zeile an ihrem Platz; die übrigen Tasten behalten ihre Nummer.",
+        "Das Öffnen einer Ansicht verändert keine Projektdaten mehr – die Tastenbelegung wird nur nach Änderungen neu berechnet."
+      ],
+      "behoben": [
+        "«Wiederholen» im Menü Bearbeiten stellte nichts wieder her.",
+        "Nach einer Neuberechnung konnte die Bauherrenberatung Änderungen (z. B. die Tastenanzahl) an einem nicht mehr verwendeten Bedienelement speichern."
+      ]
+    },
+    {
       "version": "1.1.24",
       "date": "2026-09-28",
       "verbessert": [
