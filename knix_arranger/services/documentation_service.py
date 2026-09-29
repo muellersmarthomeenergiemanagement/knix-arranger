@@ -749,7 +749,8 @@ class DocumentationService:
 
         # 4d. Verknüpfungsmatrix / Belegungsplan (FA-2505) -- nur wenn Daten vorhanden
         from .belegungsplan_service import BelegungsplanService
-        belegungsplan = BelegungsplanService().generate(self.project)
+        from .sensor_service import project_for_export
+        belegungsplan = BelegungsplanService().generate(project_for_export(self.project))
         if belegungsplan.sensor_rows or belegungsplan.actor_rows:
             from .belegungsplan_export_service import BelegungsplanExportService
             path = os.path.join(output_dir, f"{prefix}_Verknuepfungsmatrix.pdf")

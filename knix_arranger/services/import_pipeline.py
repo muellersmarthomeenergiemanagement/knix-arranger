@@ -16,8 +16,9 @@ läuft hier in fester Reihenfolge:
                     GA-Metadaten -- VOR dem Abgleich, damit dieser die
                     frischen ETS-Daten sieht
 3. reconcile()      Re-Import-Abgleich mit dem bisherigen Stand
-4. finalize()       Gewerk-IDs, Szenen, DALI, Änderungsprotokoll -- NACH dem
-                    Abgleich, da sie Raum- und Geräte-IDs verwenden
+4. finalize()       Gewerk-IDs, Szenen, DALI, Tastenbelegung, Änderungs-
+                    protokoll -- NACH dem Abgleich, da sie Raum- und Geräte-IDs
+                    verwenden
 
 Scheitert ein Schritt, läuft der Import weiter; der Schritt steht in
 `problems` und wird dem Benutzer am Ende angezeigt statt nur geloggt.
@@ -33,6 +34,7 @@ from .dali_service import DaliService
 from .gewerk_service import GewerkService
 from .knxproj_import_service import KnxprojImportService
 from .project_reconcile_service import ReimportDiff, reconcile_reimport
+from .sensor_service import refresh_bedienelemente
 from .xlsx_import_service import XlsxImportService
 
 logger = logging.getLogger("knix_arranger.import")
@@ -231,6 +233,9 @@ class ImportPipeline:
                   project.group_addresses, project.areal)
         self.step("Szenen-Erkennung", self._detect_scenes)
         self.step("DALI-Konfiguration", auto_configure_dali, project)
+        # Tastenbelegung aller Bedienelemente aus ihren Funktionen -- einmal
+        # hier statt bei jedem Anzeigen (siehe refresh_bedienelemente)
+        self.step("Tastenbelegung aktualisieren", refresh_bedienelemente, project)
         is_reimport = diff.devices_matched > 0 or diff.rooms_matched > 0
         project.add_changelog_entry(
             "Re-Import" if is_reimport else "Import",

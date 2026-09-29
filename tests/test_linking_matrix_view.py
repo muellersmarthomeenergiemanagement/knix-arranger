@@ -3,8 +3,9 @@ Tests fuer LinkingMatrixView Zell-Bearbeitung (FA-2503).
 
 Deckt die Editierbarkeits-Regeln ab: direkte GA-Zuordnungen (Variante 2) und
 leere Zellen sind editierbar, gewerk-basierte (Variante 1) und mehrdeutige
-Zellen sind gesperrt. Sowie: eine Bearbeitung uebersteht den Refresh-Zyklus
-(belegungsplan_service.generate() -> auto_assign_functions()).
+Zellen sind gesperrt. Sowie: eine Bearbeitung uebersteht den Refresh-Zyklus.
+Die Ansicht selbst berechnet nichts; wie beim Oeffnen eines Projekts wird
+vorher refresh_bedienelemente() aufgerufen (_open).
 """
 from __future__ import annotations
 import os
@@ -26,6 +27,7 @@ from knix_arranger.models.topology import Topology, Area, Line
 from knix_arranger.models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
+from knix_arranger.services.sensor_service import refresh_bedienelemente
 from knix_arranger.ui.views.linking_matrix_view import LinkingMatrixView, _S_COL
 
 
@@ -70,6 +72,14 @@ def _make_project(be: Bedienelement, gas: list[GroupAddress]) -> tuple[KnxProjec
     return project, room
 
 
+def _open(project: KnxProject) -> LinkingMatrixView:
+    """Wie MainWindow.open_file: erst Tastenbelegung ableiten, dann anzeigen."""
+    refresh_bedienelemente(project)
+    view = LinkingMatrixView()
+    view.set_project(project)
+    return view
+
+
 def _ga(sub: int, gewerk: str, desig: str) -> GroupAddress:
     return GroupAddress(
         main_group=1, middle_group=0, sub_group=sub,
@@ -78,150 +88,104 @@ def _ga(sub: int, gewerk: str, desig: str) -> GroupAddress:
     )
 
 
-class TestEditableSfForCell:
-    """FA-2503: welche Zellen sind per Doppelklick editierbar."""
+class TestDoppelklickOeffnetBauherrenberatung:
+    """Die Matrix ist die Übersicht -- Doppelklick springt zum Taster in der
+    Bauherrenberatung, dort wird bearbeitet."""
 
-    def test_direkte_ga_zelle_ist_editierbar(self):
+    def test_doppelklick_meldet_bedienelement(self):
         ga1 = _ga(0, "L", "L_E01_01 E/A")
-        sf = SensorFunktion(ga_designation=ga1.designation)
-        be = Bedienelement(element_type="Tastereinheit", is_auto=False, funktionen=[sf])
-        project, room = _make_project(be, [ga1])
+        be = Bedienelement(element_type="Tastereinheit", participant_number="1.1.2",
+                           is_auto=False, funktionen=[
+                               SensorFunktion(label="Taste 1", ga_designation=ga1.designation)])
+        project, _ = _make_project(be, [ga1])
+        view = _open(project)
+        opened = []
+        view.open_in_bauherr.connect(opened.append)
 
+        view._on_sensor_cell_double_clicked(0, 0)
+
+        assert opened == [be.id]
+        assert be.funktionen[0].ga_designation == ga1.designation   # nichts geändert
+
+    def test_ohne_bedienelement_hinweis_statt_sprung(self):
+        from knix_arranger.services.belegungsplan_service import BelegungsplanData, SensorRow
         view = LinkingMatrixView()
-        view._project = project
-        fa = FunctionAssignment(button_channel="Taste 1", function_ga=ga1.designation, sf_id=sf.id)
+        view._belegungsplan = BelegungsplanData(project_name="T", sensor_rows=[SensorRow(
+            floor_name="EG", zone_name="", room_number="01", room_name="Flur",
+            sensor_type="Sensor", physical_address="1.1.9", taste_label="-",
+            function="", ga_designation="", ga_address="", dpt="",
+        )], actor_rows=[])
+        view._fill_sensor_tab()
+        opened = []
+        view.open_in_bauherr.connect(opened.append)
 
-        class Meta:
-            be_id = be.id
-        resolved = view._editable_sf_for_cell(Meta(), [fa])
-        assert resolved is not None
-        assert resolved[2] is sf
+        with patch("knix_arranger.ui.views.linking_matrix_view.QMessageBox.information") as msg:
+            view._on_sensor_cell_double_clicked(0, 0)
 
-    def test_leere_zelle_ist_editierbar(self):
-        be = Bedienelement(element_type="Tastereinheit", is_auto=False)
-        project, room = _make_project(be, [])
-        view = LinkingMatrixView()
-        view._project = project
-
-        class Meta:
-            be_id = be.id
-        resolved = view._editable_sf_for_cell(Meta(), None)
-        assert resolved is not None
-        assert resolved[2] is None   # keine bestehende SensorFunktion
-
-    def test_gewerk_basierte_zelle_ist_gesperrt(self):
-        sf = SensorFunktion(gewerk_code="L", element_number=1)
-        be = Bedienelement(element_type="Tastereinheit", is_auto=False, funktionen=[sf])
-        project, room = _make_project(be, [])
-        view = LinkingMatrixView()
-        view._project = project
-        fa = FunctionAssignment(button_channel="Taste 1", function_ga="X", sf_id=sf.id)
-
-        class Meta:
-            be_id = be.id
-        assert view._editable_sf_for_cell(Meta(), [fa]) is None
-
-    def test_mehrdeutige_zelle_ist_gesperrt(self):
-        be = Bedienelement(element_type="Tastereinheit", is_auto=False)
-        project, room = _make_project(be, [])
-        view = LinkingMatrixView()
-        view._project = project
-        fa1 = FunctionAssignment(button_channel="Taste 1", function_ga="X", sf_id="a")
-        fa2 = FunctionAssignment(button_channel="Taste 1", function_ga="Y", sf_id="b")
-
-        class Meta:
-            be_id = be.id
-        assert view._editable_sf_for_cell(Meta(), [fa1, fa2]) is None
-
-    def test_ohne_be_id_ist_gesperrt(self):
-        view = LinkingMatrixView()
-        view._project = KnxProject(name="Leer")
-
-        class Meta:
-            be_id = ""
-        assert view._editable_sf_for_cell(Meta(), None) is None
+        assert opened == []
+        msg.assert_called_once()
 
 
-class TestDoppelklickEditFlow:
-    """FA-2503/2504: End-zu-End -- Edit ueberlebt den Refresh-Zyklus."""
+class TestLangerTastendruck:
+    """Langer Tastendruck gehört zu seiner Taste (SensorFunktion.press_of)."""
 
-    def test_reassign_ueberlebt_refresh(self):
+    def test_eigene_zeile_mit_etsname_ohne_nummernverschiebung(self):
+        gas = [_ga(i, "L", f"L_E01_0{i} E/A") for i in range(3)]
+        t1 = SensorFunktion(ga_designation=gas[0].designation)
+        t2 = SensorFunktion(ga_designation=gas[1].designation)
+        lang = SensorFunktion(ga_designation=gas[2].designation, press_of=t1.id,
+                              action_type="lang")
+        be = Bedienelement(element_type="Tastereinheit", participant_number="1.1.2",
+                           is_auto=False, funktionen=[t1, lang, t2])
+        project, _ = _make_project(be, gas)
+
+        view = _open(project)
+
+        assert [rk[1] for rk in view._sensor_row_order] == [
+            "Taste 1", "Taste 1 (langer Tastendruck)", "Taste 2"]
+        fa = next(f for f in be.function_assignments if f.sf_id == lang.id)
+        assert fa.action_type == "lang"
+
+    def test_offener_langer_tastendruck_erscheint_unter_seiner_taste(self):
+        """Regression "Test Musik": ein langer Tastendruck mit freiem Wunsch
+        (noch ohne GA) fehlte in der Matrix."""
         ga1 = _ga(0, "L", "L_E01_01 E/A")
-        ga2 = _ga(1, "J", "J_E01_01 auf/ab")
-        sf = SensorFunktion(ga_designation=ga1.designation)
-        be = Bedienelement(
-            element_type="Tastereinheit", participant_number="1.1.2",
-            is_auto=False, funktionen=[sf],
-        )
-        project, room = _make_project(be, [ga1, ga2])
+        t1 = SensorFunktion(ga_designation=ga1.designation)
+        t2 = SensorFunktion(label="Taste 2")
+        wunsch = SensorFunktion(label="DALI Licht", press_of=t1.id, action_type="lang")
+        be = Bedienelement(element_type="Tastereinheit", participant_number="1.1.2",
+                           is_auto=False, funktionen=[t1, t2, wunsch])
+        project, _ = _make_project(be, [ga1])
 
-        view = LinkingMatrixView()
-        view.set_project(project)
-        n_fixed = 7
-        col_l = n_fixed + view._sensor_col_keys.index("L")
+        view = _open(project)
 
-        with patch("knix_arranger.ui.views.linking_matrix_view.GaPickerDialog") as MockDlg:
-            instance = MockDlg.return_value
-            instance.exec.return_value = QDialog.Accepted
-            instance.clear_requested = False
-            instance.selected_ga = ga2
-            view._on_sensor_cell_double_clicked(0, col_l)
+        assert [rk[1] for rk in view._sensor_row_order] == [
+            "Taste 1", "Taste 1 (langer Tastendruck)", "Taste 2"]
 
-        assert sf.ga_designation == ga2.designation
-        assert be.is_auto is False
+    def test_importierter_langer_tastendruck_wird_erkannt(self):
+        from knix_arranger.models.building import is_long_press, long_press_of
+        kurz = SensorFunktion(label="Taste 2, links", ga_designation="a")
+        lang = SensorFunktion(label="Taste 2, links (langer Tastendruck)", ga_designation="b")
+        andere = SensorFunktion(label="Taste 3 (langer Tastendruck)", ga_designation="c")
+        funktionen = [kurz, lang, andere]
 
-        # Nochmal refreshen (simuliert erneutes Oeffnen der Ansicht) -- Edit
-        # darf nicht durch auto_assign_functions() verworfen werden.
-        view._refresh()
-        rk = view._sensor_row_order[0]
-        entries = view._sensor_groups[rk]["cells"].get("J")
-        assert entries is not None
-        assert entries[0].ga_designation == ga2.designation
+        assert long_press_of(funktionen, kurz) is lang
+        assert is_long_press(funktionen, lang)
+        assert not is_long_press(funktionen, andere)   # ohne passende Taste: eigene Taste
 
-    def test_neue_zuordnung_erzeugt_spalte_nach_refresh(self):
-        ga1 = _ga(0, "L", "L_E01_01 E/A")
-        ga2 = _ga(1, "J", "J_E01_01 auf/ab")
-        sf = SensorFunktion(ga_designation=ga1.designation)
-        be = Bedienelement(
-            element_type="Tastereinheit", participant_number="1.1.2",
-            is_auto=False, funktionen=[sf],
-        )
-        project, room = _make_project(be, [ga1, ga2])
+    def test_bauherr_formular_zaehlt_langen_tastendruck_nicht_als_taste(self):
+        from knix_arranger.services.bauherr_form_service import button_funktionen
+        t1 = SensorFunktion(label="Taste 1")
+        lang = SensorFunktion(press_of=t1.id, action_type="lang")
+        t2 = SensorFunktion(label="Taste 2")
+        be = Bedienelement(element_type="Tastereinheit", funktionen=[t1, lang, t2])
 
-        view = LinkingMatrixView()
-        view.set_project(project)
-        assert view._sensor_col_keys == ["L"]
+        assert button_funktionen(be) == [t1, t2]
 
-        meta = view._sensor_groups[view._sensor_row_order[0]]["meta"]
-        resolved = view._editable_sf_for_cell(meta, None)
-        room_r, be_r, sf_r = resolved
-        assert sf_r is None
-        be_r.funktionen.append(SensorFunktion(ga_designation=ga2.designation))
-        be_r.is_auto = False
-
-        view._refresh()
-        assert "J" in view._sensor_col_keys
-        assert len(be.funktionen) == 2
-
-    def test_gesperrte_zelle_wird_ohne_aenderung_abgelehnt(self):
-        sf = SensorFunktion(gewerk_code="L", element_number=1)
-        be = Bedienelement(
-            element_type="Tastereinheit", participant_number="1.1.2",
-            is_auto=False, funktionen=[sf],
-        )
-        ga1 = _ga(0, "L", "L_E01_01 E/A")
-        project, room = _make_project(be, [ga1])
-
-        view = LinkingMatrixView()
-        view.set_project(project)
-
-        with patch("knix_arranger.ui.views.linking_matrix_view.QMessageBox.information") as mock_msg:
-            with patch("knix_arranger.ui.views.linking_matrix_view.GaPickerDialog") as MockDlg:
-                view._on_sensor_cell_double_clicked(0, 7)  # erste dynamische Spalte
-                MockDlg.assert_not_called()
-                mock_msg.assert_called_once()
-        # funktionen unveraendert
-        assert be.funktionen == [sf]
+    def test_press_of_wird_gespeichert(self):
+        lang = SensorFunktion(press_of="abc", action_type="lang")
+        assert SensorFunktion.from_dict(lang.to_dict()).press_of == "abc"
+        assert "press_of" not in SensorFunktion().to_dict()
 
 
 # ---------------------------------------------------------------------------

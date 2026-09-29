@@ -8,7 +8,7 @@ import subprocess
 import sys
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QStackedWidget,
-    QMenuBar, QMenu, QFileDialog, QMessageBox, QProgressDialog, QApplication,
+    QMenuBar, QMenu, QFileDialog, QMessageBox, QProgressDialog, QApplication, QStyle,
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence
@@ -60,7 +60,7 @@ from ..services.building_service import BuildingService
 from ..services.address_generator import AddressGenerator
 from ..services.topology_engine import TopologyEngine
 from ..services.validation_engine import ValidationEngine
-from ..services.sensor_service import SensorService
+from ..services.sensor_service import refresh_bedienelemente
 from ..services.csv_import_service import CsvImportService
 from ..services.csv_export_service import CsvExportService
 from ..services.xlsx_import_service import XlsxImportService
@@ -222,6 +222,20 @@ class MainWindow(QMainWindow):
         self._redo_action.triggered.connect(self._redo)
         self._redo_action.setEnabled(False)
         edit_menu.addAction(self._redo_action)
+
+        # Sichtbar in jeder Ansicht -- nur im Menü wurde "Rückgängig" nicht
+        # gefunden. Kurze Beschriftung, die Beschreibung steht im Tooltip.
+        style = self.style()
+        self._undo_action.setIcon(style.standardIcon(QStyle.SP_ArrowBack))
+        self._redo_action.setIcon(style.standardIcon(QStyle.SP_ArrowForward))
+        self._undo_action.setIconText("Rückgängig")
+        self._redo_action.setIconText("Wiederholen")
+        edit_toolbar = self.addToolBar("Bearbeiten")
+        edit_toolbar.setObjectName("edit_toolbar")
+        edit_toolbar.setMovable(False)
+        edit_toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        edit_toolbar.addAction(self._undo_action)
+        edit_toolbar.addAction(self._redo_action)
 
         edit_menu.addSeparator()
 
@@ -399,6 +413,9 @@ class MainWindow(QMainWindow):
         self._address_table.set_bus(self._bus)
         self._topology_view.set_bus(self._bus)
         self._linking_matrix_view.set_bus(self._bus)
+        self._bauherr_form_view.set_bus(self._bus)
+        # Matrix = Übersicht, bearbeitet wird in der Bauherrenberatung
+        self._linking_matrix_view.open_in_bauherr.connect(self._open_in_bauherr)
 
         # Bus-Signale zu Handlern
         self._bus.functions_changed.connect(self._on_functions_changed)
@@ -518,6 +535,32 @@ class MainWindow(QMainWindow):
         self._status_bar.set_variant(self._project.config.mg_variant)
         self._status_bar.set_ga_count(ga_count)
 
+    def _open_in_bauherr(self, be_id: str):
+        """Doppelklick in der Verknüpfungsmatrix: Taster in der Bauherren-
+        beratung öffnen."""
+        self._sidebar.select("bauherr_form")
+        self._navigate("bauherr_form")
+        if not self._bauherr_form_view.show_element(be_id):
+            QMessageBox.information(
+                self, "Bauherrenberatung",
+                "Dieses Gerät ist kein Bedienelement (z.B. ein Melder oder "
+                "Sensor) und erscheint deshalb nicht in der Bauherrenberatung.",
+            )
+
+    def _refresh_bedienelemente(self):
+        """Bedienelemente und Tastenbelegung nach einer Änderung neu ableiten
+        (siehe sensor_service.refresh_bedienelemente). Die Ansichten selbst
+        lesen nur."""
+        if not self._project:
+            return
+        try:
+            refresh_bedienelemente(self._project)
+        except Exception:
+            logger.exception("Tastenbelegung konnte nicht aktualisiert werden")
+            self._status_bar.set_status(
+                "Tastenbelegung konnte nicht aktualisiert werden – Details im Log."
+            )
+
     def _on_structure_changed(self):
         """Reagiert auf Änderungen an der Gebäudestruktur.
 
@@ -528,6 +571,7 @@ class MainWindow(QMainWindow):
         if not self._project:
             return
         result = self._recalc.recalc_actors_and_addresses(self._project)
+        self._refresh_bedienelemente()
         self._update_views()
         if result["ok"]:
             self._status_bar.set_status(
@@ -558,6 +602,8 @@ class MainWindow(QMainWindow):
         """
         if not self._project:
             return
+        # Neue/aufgeteilte Geräte brauchen ihre Bedienelemente
+        self._refresh_bedienelemente()
         self._topology_view.set_project(self._project)
         self._topology_report_view.set_project(self._project)
         self._overview.update_from_project(self._project)
@@ -577,9 +623,7 @@ class MainWindow(QMainWindow):
         if not self._project:
             return
         # function_assignments aus aktueller GA-Struktur neu ableiten
-        SensorService().auto_assign_functions(
-            self._project.all_rooms, self._project.group_addresses
-        )
+        self._refresh_bedienelemente()
         # Beide Views zeigen dieselbe Struktur – beide neu laden
         self._address_tree.set_structure(self._project.group_addresses)
         self._address_table.set_structure(self._project.group_addresses)
@@ -605,6 +649,7 @@ class MainWindow(QMainWindow):
         if not self._project:
             return
         result = self._recalc.recalc_actors_and_addresses(self._project)
+        self._refresh_bedienelemente()
         self._update_views()
         if result["ok"]:
             self._status_bar.set_status(
@@ -754,6 +799,7 @@ class MainWindow(QMainWindow):
 
         self._project = project
         self._undo_manager.clear()
+        self._refresh_bedienelemente()   # Vorlage kann Gewerke mitbringen
         self._update_views()
         self._mark_saved()
         self._status_bar.set_status(
@@ -779,12 +825,10 @@ class MainWindow(QMainWindow):
                 auto_configure_dali(self._project)
             except Exception:
                 logger.exception("DALI-Auto-Konfiguration fehlgeschlagen")
-            # function_assignments aus aktueller GA-Struktur frisch berechnen,
-            # da gespeicherte Werte veraltet sein können (z.B. GAs wurden nach
+            # Bedienelemente und function_assignments frisch berechnen, da
+            # gespeicherte Werte veraltet sein können (z.B. GAs wurden nach
             # letztem Speichern umbenannt oder neu generiert).
-            SensorService().auto_assign_functions(
-                self._project.all_rooms, self._project.group_addresses
-            )
+            self._refresh_bedienelemente()
             self._update_views()
             self._status_bar.set_status(f"Projekt '{self._project.name}' geladen.")
             self._sidebar.select("overview")
@@ -1617,19 +1661,18 @@ class MainWindow(QMainWindow):
             if not self._project:
                 return
 
-        import json
         from .wizard.wizard_controller import WizardController
-
-        def _state() -> str:
-            return json.dumps(self._project.to_dict(), sort_keys=True, default=repr)
 
         # Ein Undo-Punkt für die gesamte Wizard-Sitzung: der Wizard schreibt
         # direkt ins Projekt, "Rückgängig" stellt den Stand davor wieder her.
-        before = _state()
+        # Vergleich über die Prüfsumme: to_dict() verschlüsselt das Secure-
+        # Archiv jedes Mal mit neuem Salt und sähe immer verändert aus.
+        before = self._project.content_fingerprint()
         self._on_begin_change("Projektassistent")
         wizard = WizardController(self._project, self, start_step=start_step)
         completed = wizard.exec()
-        if _state() != before:
+        if self._project.content_fingerprint() != before:
+            self._refresh_bedienelemente()
             self._on_any_change("wizard")  # Undo-Punkt ablegen, Dirty-Flag setzen
         else:
             self._pending_undo_cmd = None
@@ -1650,6 +1693,7 @@ class MainWindow(QMainWindow):
     def _undo(self):
         if self._undo_manager.undo():
             self._update_views()
+            self._bauherr_form_view.reload(self._project)
             self._status_bar.set_status(
                 f"Rückgängig: {self._undo_manager.redo_description}"
             )
@@ -1658,6 +1702,7 @@ class MainWindow(QMainWindow):
     def _redo(self):
         if self._undo_manager.redo():
             self._update_views()
+            self._bauherr_form_view.reload(self._project)
             self._status_bar.set_status(
                 f"Wiederholt: {self._undo_manager.undo_description}"
             )

@@ -171,17 +171,26 @@ class ObjectStateCommand(Command):
         self._snapshot = snapshot
         self._description = description
         self._preserve_attrs = preserve_attrs
+        # Stand nach der Änderung -- beim Rückgängigmachen gemerkt, damit
+        # "Wiederholen" ihn wiederherstellen kann (vorher tat Wiederholen nichts)
+        self._after: dict | None = None
 
     def execute(self):
-        pass  # Änderung ist bereits erfolgt
+        # Erstausführung: Änderung ist bereits erfolgt. Nach undo(): Wiederholen.
+        if self._after is not None:
+            self._restore(self._after)
 
     def undo(self):
+        self._after = dict(self._target.__dict__)
+        self._restore(self._snapshot.__dict__)
+
+    def _restore(self, state: dict):
         preserved = {
             a: getattr(self._target, a)
             for a in self._preserve_attrs
             if hasattr(self._target, a)
         }
-        self._target.__dict__.update(self._snapshot.__dict__)
+        self._target.__dict__.update(state)
         for attr, value in preserved.items():
             setattr(self._target, attr, value)
 

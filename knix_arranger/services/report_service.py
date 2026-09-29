@@ -1469,8 +1469,11 @@ class ReportService:
             )
             scenes_by_channel.setdefault(designation, []).append(s)
 
+        # Tastennummern aus einer Kopie mit aktueller Tastenbelegung -- der
+        # Bericht liest nur (siehe sensor_service.project_for_export)
+        from .sensor_service import project_for_export
         index: dict[str, list[str]] = {}
-        for room in self.project.all_rooms:
+        for room in project_for_export(self.project).all_rooms:
             for be in room.bedienelemente:
                 if be.suppressed:
                     continue

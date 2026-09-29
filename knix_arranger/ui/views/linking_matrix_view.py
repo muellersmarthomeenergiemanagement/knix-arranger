@@ -6,28 +6,20 @@ Sensor-Tab: echte Kreuztabelle (FA-2502) -- Zeile = Sensor-Bedienstelle
 zugewiesener Wert. Aktor-Tab: tabellarische Liste der Aktor-GA-Zuordnungen.
 Stockwerk- und Raum-Filter (FA-2501). Datenquelle: BelegungsplanService.
 
-Zell-Bearbeitung (FA-2503): Doppelklick öffnet einen GA-Auswahldialog --
-aber nur für "direkte GA"-Zuordnungen (SensorFunktion ohne gewerk_code) oder
-leere Zellen. Gewerk-basiert automatisch abgeleitete Zuordnungen (Schritt 5
-Gewerke) sind bewusst nicht pro Zelle editierbar, da eine SensorFunktion dort
-mehrere GAs (Primär+Rückmeldung) gebündelt erzeugt. Änderungen werden in
-Bedienelement.funktionen geschrieben (nicht in function_assignments, das bei
-jedem Refresh aus funktionen neu berechnet wird) -- dieselbe Datenquelle, die
-auch das Bauherr-Formular (FA-1500) liest/schreibt, wodurch beide Wege
-automatisch konsistent bleiben (FA-2504).
+Bearbeiten (FA-2503): Die Matrix ist die Übersicht. Doppelklick auf eine
+Bedienstelle öffnet ihren Taster in der Bauherrenberatung (FA-1500) -- dort
+werden Tasten, lange Tastendrücke und zusätzliche GAs bearbeitet. Die Matrix
+liest nur (NFA-046).
 """
 from __future__ import annotations
 import logging
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QTableWidget,
     QTableWidgetItem, QPushButton, QLabel, QHeaderView, QFileDialog,
-    QMessageBox, QFrame, QSizePolicy, QComboBox, QDialog,
+    QMessageBox, QFrame, QSizePolicy, QComboBox,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
-
-from ...models.building import SensorFunktion
-from ..dialogs.ga_picker_dialog import GaPickerDialog
 
 logger = logging.getLogger("knix_arranger.linking_matrix_view")
 
@@ -71,6 +63,10 @@ def _make_item(text: str, color: QColor | None = None, bold: bool = False) -> QT
 class LinkingMatrixView(QWidget):
     """Verknüpfungsmatrix: Sensoren und Aktoren mit GA-Zuordnung (FA-2500)."""
 
+    # Doppelklick auf eine Bedienstelle: Bedienelement.id zum Bearbeiten in
+    # der Bauherrenberatung (MainWindow springt dorthin)
+    open_in_bauherr = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._project = None
@@ -112,9 +108,9 @@ class LinkingMatrixView(QWidget):
         desc = QLabel(
             "Sensoren/Taster als Kreuztabelle (Zeile = Bedienstelle, Spalte = "
             "ausgelöste Funktion) sowie Aktor-GA-Zuordnungen als Liste. "
-            "Doppelklick auf eine direkte GA-Zuordnung oder leere Zelle weist "
-            "eine Gruppenadresse zu. Grundlage für die ETS-Programmierung und "
-            "die Revisionsunterlagen."
+            "Doppelklick auf einen Taster öffnet ihn in der Bauherrenberatung "
+            "zum Bearbeiten. Grundlage für die ETS-Programmierung und die "
+            "Revisionsunterlagen."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #555; font-size: 12px;")
@@ -244,12 +240,18 @@ class LinkingMatrixView(QWidget):
         """
         all_rows = self._belegungsplan.sensor_rows if self._belegungsplan else []
         rows = [r for r in all_rows if not r.is_feedback]
+        # Offene Taste (benannt, ohne GA): eigene Zeile, aber kein Zelleintrag
+        # und keine eigene Spalte
+        def is_open(r):
+            return bool(r.sf_id) and not r.ga_designation and not r.ga_address
         catalog = self._project.gewerk_catalog if self._project else None
 
         # Funktionsspalten sammeln (Reihenfolge = erstes Auftreten, "Sonstige" ans Ende)
         col_keys: list[str] = []
         col_labels: dict[str, str] = {}
         for r in rows:
+            if is_open(r):
+                continue
             key = r.gewerk_code or _S_OTHER_KEY
             if key not in col_labels:
                 col_keys.append(key)
@@ -282,6 +284,8 @@ class LinkingMatrixView(QWidget):
             if rk not in groups:
                 groups[rk] = {"meta": r, "cells": {}}
                 order.append(rk)
+            if is_open(r):
+                continue
             cell_key = r.gewerk_code or _S_OTHER_KEY
             groups[rk]["cells"].setdefault(cell_key, []).append(r)
         self._sensor_row_order = order
@@ -300,9 +304,10 @@ class LinkingMatrixView(QWidget):
             for c_idx, text in enumerate(fixed_data):
                 self._sensor_table.setItem(r_idx, c_idx, _make_item(text, color))
 
+            hint = ("\n\nDoppelklick: in der Bauherrenberatung bearbeiten"
+                    if meta.be_id else "")
             for col_offset, key in enumerate(col_keys):
                 entries = cells.get(key)
-                editable = self._editable_sf_for_cell(meta, entries) is not None
                 if entries:
                     texts, tooltips = [], []
                     for e in entries:
@@ -316,15 +321,11 @@ class LinkingMatrixView(QWidget):
                             detail += f"  [{e.dpt}]"
                         tooltips.append(detail)
                     item = _make_item("\n".join(texts), color)
-                    tip = "\n".join(tooltips)
-                    tip += ("\n\nDoppelklick: andere GA zuweisen" if editable
-                            else "\n\n🔒 Aus Schritt 5 (Gewerke) oder Import -- "
-                                 "hier nicht direkt bearbeitbar.")
-                    item.setToolTip(tip)
+                    item.setToolTip("\n".join(tooltips) + hint)
                 else:
                     item = _make_item("", color)
-                    if editable:
-                        item.setToolTip("Doppelklick: Gruppenadresse zuweisen")
+                    if hint:
+                        item.setToolTip(hint.strip())
                 self._sensor_table.setItem(r_idx, n_fixed + col_offset, item)
 
         # Single resize pass after all data is in place -- inhaltsbasiert für
@@ -344,107 +345,24 @@ class LinkingMatrixView(QWidget):
         for i in range(len(headers)):
             hdr.setSectionResizeMode(i, QHeaderView.Interactive)
 
-    # ── FA-2503: Zell-Bearbeitung ──────────────────────────────────────────────
-
-    def _resolve_be(self, be_id: str):
-        """Sucht Raum + Bedienelement anhand der Id. None wenn nicht gefunden."""
-        if not self._project or not be_id:
-            return None
-        for room in self._project.all_rooms:
-            for be in room.bedienelemente:
-                if be.id == be_id:
-                    return room, be
-        return None
-
-    def _editable_sf_for_cell(self, meta, entries):
-        """Prüft, ob eine Matrix-Zelle per Doppelklick bearbeitbar ist (FA-2503).
-
-        Editierbar: leere Zelle (neue direkte GA-Zuordnung anlegen) oder genau
-        ein Eintrag, der auf eine SensorFunktion OHNE gewerk_code zurückgeht
-        (Variante 2: direkte GA). Gewerk-basiert automatisch abgeleitete
-        Zuordnungen (Variante 1, Schritt 5 Gewerke) sowie ETS6-Import-Zeilen
-        ohne SensorFunktion-Bezug sind absichtlich nicht editierbar.
-
-        Gibt (room, be, sf_or_None) zurück, oder None wenn nicht editierbar.
-        """
-        resolved = self._resolve_be(meta.be_id)
-        if not resolved:
-            return None
-        room, be = resolved
-        if not entries:
-            return room, be, None
-        if len(entries) > 1 or not entries[0].sf_id:
-            return None
-        sf = next((s for s in be.funktionen if s.id == entries[0].sf_id), None)
-        if sf is None or sf.gewerk_code:
-            return None
-        return room, be, sf
+    # ── Doppelklick: in der Bauherrenberatung bearbeiten ─────────────────────
 
     def _on_sensor_cell_double_clicked(self, row: int, col: int):
-        n_fixed = len(_S_FIXED_HEADERS)
-        if col < n_fixed:
-            return  # feste Metadaten-Spalten nicht editierbar
-        col_offset = col - n_fixed
-        if row >= len(self._sensor_row_order) or col_offset >= len(self._sensor_col_keys):
+        """Die Matrix ist die Übersicht; bearbeitet wird in der Bauherren-
+        beratung (Tastenplan je Taster, mit kurz/lang und zusätzlichen GAs).
+        Früher liess sich jede Zelle hier einzeln belegen -- zwei Wege zum
+        selben Ziel mit unterschiedlichen Regeln waren unübersichtlich."""
+        if row >= len(self._sensor_row_order):
             return
-
-        rk = self._sensor_row_order[row]
-        group = self._sensor_groups.get(rk)
-        if not group:
-            return
-        meta = group["meta"]
-        key = self._sensor_col_keys[col_offset]
-        entries = group["cells"].get(key)
-
-        resolved = self._editable_sf_for_cell(meta, entries)
-        if resolved is None:
+        meta = self._sensor_groups[self._sensor_row_order[row]]["meta"]
+        if not meta.be_id:
             QMessageBox.information(
                 self, "Nicht bearbeitbar",
-                "Diese Zuordnung stammt aus der Gewerk-Zuweisung (Schritt 5) "
-                "oder einem ETS6-Import und lässt sich hier nicht direkt "
-                "bearbeiten."
-                if entries else
                 "Für diese Bedienstelle ist kein Bedienelement bekannt -- "
-                "Zuweisung hier nicht möglich."
+                "sie lässt sich nicht in der Bauherrenberatung bearbeiten."
             )
             return
-        room, be, sf = resolved
-
-        gewerk_hint = "" if key == _S_OTHER_KEY else key
-        current_desig = sf.ga_designation if sf else ""
-        dlg = GaPickerDialog(
-            self._project, room, gewerk_hint=gewerk_hint,
-            current_ga_designation=current_desig, parent=self,
-        )
-        if dlg.exec() != QDialog.Accepted:
-            return
-        if not dlg.clear_requested and not dlg.selected_ga:
-            return
-
-        if self._bus:
-            self._bus.begin_change("Verknüpfungsmatrix bearbeitet")
-
-        if dlg.clear_requested:
-            if sf:
-                be.funktionen.remove(sf)
-            else:
-                return  # leere Zelle, nichts zu entfernen
-        else:
-            if sf:
-                sf.ga_designation = dlg.selected_ga.designation
-                sf.label = ""  # Label wird wieder aus der (neuen) GA abgeleitet
-            else:
-                be.funktionen.append(SensorFunktion(ga_designation=dlg.selected_ga.designation))
-
-        # Hinweis: bewusst KEIN self._bus.emit_functions_changed() -- das löst
-        # in main_window._on_functions_changed() eine vollständige Neuberechnung
-        # von Aktoren/Topologie-Belegung/Gruppenadressen aus (gedacht für echte
-        # Gewerk-Änderungen aus Schritt 5), was für eine einzelne GA-Umzuordnung
-        # hier unpassend und überraschend wäre. Andere Ansichten (z.B. das
-        # Bauherr-Formular) lesen ohnehin live aus demselben Bedienelement.funktionen
-        # und sehen die Änderung beim nächsten eigenen Refresh (FA-2504).
-        be.is_auto = False
-        self._refresh()
+        self.open_in_bauherr.emit(meta.be_id)
 
     def _fill_actor_tab(self):
         rows = self._belegungsplan.actor_rows if self._belegungsplan else []

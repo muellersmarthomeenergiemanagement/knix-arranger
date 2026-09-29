@@ -430,15 +430,14 @@ class SensorService:
                 elif existing_be:
                     existing_be = None  # wurde schon von anderer Gruppe konsumiert
                 if existing_be:
-                    be.element_type = existing_be.element_type  # Typ aus Step 5c
-                    be.funktionen = existing_be.funktionen
-                    be.channels = existing_be.channels
-                    be.participant_number = existing_be.participant_number
-                    be.product_name = existing_be.product_name
-                    be.manufacturer = existing_be.manufacturer
-                    be.order_number = existing_be.order_number
-                    be.datasheets = existing_be.datasheets
-                    be.bauherr_annotation = existing_be.bauherr_annotation
+                    # Dasselbe Objekt weiterverwenden (Typ aus Step 5c, Funktionen,
+                    # Produkt, Anmerkung bleiben): vorher entstand bei jeder
+                    # Neuberechnung eine Kopie mit neuer ID -- die Bauherren-
+                    # beratung bearbeitete danach ein nicht mehr verwendetes
+                    # Objekt, und der Sprung aus der Verknüpfungsmatrix fand
+                    # den Taster nicht mehr.
+                    be = existing_be
+                    be.taster_index = taster_idx
                     be.is_auto = False
                     consumed_manual_ids.add(existing_be.id)
                 else:
@@ -575,11 +574,21 @@ class SensorService:
         # (gewerk-basierte + direkte GAs zählen zusammen). So erhalten gewerk-
         # basierte Kanäle auch dann Nummern, wenn nur eine gewerk-SF vorhanden ist,
         # aber weitere direkte GAs auf derselben BE liegen (z.B. TE mit V + 2 Szenen).
-        total_sf_count = sum(1 for sf in funktionen if sf.gewerk_code or sf.ga_designation)
+        # Offene Tasten (benannt, ohne GA -- in der Verknüpfungsmatrix geleert)
+        # zählen mit, damit die übrigen Tasten ihre Nummer behalten
+        # Lange Tastendrücke (press_of) sind keine eigene Taste -- sie folgen
+        # unten nach ihrer Taste und zählen nicht mit
+        total_sf_count = sum(
+            1 for sf in funktionen
+            if not sf.press_of and (sf.gewerk_code or sf.ga_designation or sf.label)
+        )
         use_numbers = total_sf_count > 1
         global_channel = 0  # globaler Zähler über alle Gewerke
+        base_by_id: dict[str, str] = {}   # Tastenname je SensorFunktion
 
         for sf in funktionen:
+            if sf.press_of:
+                continue
             if sf.ga_designation:
                 # Direkte GA (FA-1410a, inkl. Szenen)
                 global_channel += 1
@@ -615,15 +624,20 @@ class SensorService:
                 new_fas = self._expand_direct_ga(sf, button_ch)
                 fas.extend(new_fas)
                 total += len(new_fas)
+                base_by_id[sf.id] = button_ch
                 continue
 
             if not sf.gewerk_code:
+                if sf.label:
+                    global_channel += 1   # offene Taste behält ihre Position
+                    base_by_id[sf.id] = sf.label
                 continue
 
             src_room_id = sf.source_room_id or room.id
 
             # Globaler Zähler: jede SensorFunktion bekommt eine eindeutige Kanalnummer.
             global_channel += 1
+            base_by_id[sf.id] = f"Taste {global_channel}" if use_numbers else "Taste"
 
             primary_fns = GEWERK_PRIMARY_FUNCTIONS.get(sf.gewerk_code, [])
             feedback_fns = GEWERK_FEEDBACK_FUNCTIONS.get(sf.gewerk_code, [])
@@ -666,6 +680,20 @@ class SensorService:
                     sf_id=sf.id,
                 ))
                 total += 1
+
+        # Lange Tastendrücke nach ihrer Taste benennen, wie die ETS:
+        # "Taste 2, links (langer Tastendruck)" (siehe bedienelement_layout)
+        for sf in funktionen:
+            if not sf.press_of or not sf.ga_designation:
+                continue
+            base = base_by_id.get(sf.press_of)
+            if base is None:
+                continue   # Taste gibt es nicht mehr
+            new_fas = self._expand_direct_ga(sf, f"{base}{SensorFunktion.LONG_PRESS_SUFFIX}")
+            for fa in new_fas:
+                fa.action_type = "lang"
+            fas.extend(new_fas)
+            total += len(new_fas)
 
         return fas, total
 
@@ -716,19 +744,33 @@ class SensorService:
         return list(summary.values())
 
 
+def refresh_bedienelemente(project) -> None:
+    """Bedienelemente mit der Topologie abgleichen (FA-1404: je Sensor-Gerät
+    eines, im Raum des Geräts) und die Tastenbelegung aus den Funktionen neu
+    ableiten (FA-1410).
+
+    Nach Änderungen aufrufen (Öffnen, Import, Assistent, Gebäude/Gewerke/
+    GAs/Topologie geändert, Verknüpfungsmatrix), NIE beim Anzeigen: früher
+    lief das bei jedem Öffnen von Topologie, Verknüpfungsmatrix und
+    Belegungsplan (BelegungsplanService.generate) -- Anzeigen veränderte so
+    Daten, und Fehler darin waren kaum nachvollziehbar (Chalet 1.1.40/1.1.52).
+    """
+    from .knxproj_import_service import KnxprojImportService
+    try:
+        KnxprojImportService._create_bedienelemente_from_topology(
+            project.topology, project.areal
+        )
+    except Exception:
+        logger.exception("Bedienelement-Adressen aus Topologie nicht ermittelbar")
+    SensorService().auto_assign_functions(project.all_rooms, project.group_addresses)
+
+
 def project_for_export(project):
     """Kopie des Projekts mit aktuellen Bedienelement-Adressen (FA-1404) und
     Funktionszuordnungen – für Berichte/Exporte, die das Projekt selbst
     nicht verändern dürfen (ein Export soll nur lesen)."""
     import copy
-    from .knxproj_import_service import KnxprojImportService
 
     snapshot = copy.deepcopy(project)
-    try:
-        KnxprojImportService._create_bedienelemente_from_topology(
-            snapshot.topology, snapshot.areal
-        )
-    except Exception:
-        logger.exception("Bedienelement-Adressen für Export nicht ermittelbar")
-    SensorService().auto_assign_functions(snapshot.all_rooms, snapshot.group_addresses)
+    refresh_bedienelemente(snapshot)
     return snapshot

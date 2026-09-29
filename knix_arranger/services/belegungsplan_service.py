@@ -348,24 +348,10 @@ class BelegungsplanService:
     def generate(self, project) -> BelegungsplanData:
         """Haupteinstieg: generiert BelegungsplanData aus dem Projekt.
 
-        Stellt sicher, dass function_assignments aller Bedienelemente aktuell
-        sind (d.h. zur aktuellen GA-Struktur passen), bevor Berichte/Matrix
-        gelesen werden.
+        Liest nur. Die Bedienelemente und ihre Tastenbelegung hält
+        sensor_service.refresh_bedienelemente() aktuell -- aufgerufen nach
+        jeder Änderung, nicht beim Anzeigen.
         """
-        from .sensor_service import SensorService
-        from .knxproj_import_service import KnxprojImportService
-        # Bewusst auf dem echten Projekt (keine Kopie): die Verknüpfungsmatrix
-        # bearbeitet Bedienelemente direkt über diese Daten.
-        try:
-            KnxprojImportService._create_bedienelemente_from_topology(
-                project.topology, project.areal
-            )
-        except Exception:
-            logger.exception("Bedienelement-Adressen aus Topologie nicht ermittelbar")
-        SensorService().auto_assign_functions(
-            project.all_rooms, project.group_addresses
-        )
-
         ga_index = self._build_ga_index(project)
         floor_index = self._build_floor_index(project)
         zone_index = self._build_zone_index(project)
@@ -407,6 +393,51 @@ class BelegungsplanService:
                             index[room.id] = apt.name
         return index
 
+    @staticmethod
+    def _open_button_rows(be, room, floor_name: str, zone_name: str) -> list[SensorRow]:
+        """Benannte Tasten ohne GA (z.B. in der Verknüpfungsmatrix geleert,
+        FA-2503) als leere Zeile -- sonst verschwände die Taste aus der Matrix
+        und liesse sich dort nicht wieder belegen."""
+        from ..models.building import SensorFunktion
+
+        with_fa = {fa.sf_id for fa in be.function_assignments}
+        # Tastenname je SensorFunktion aus ihren Befehls-Zuordnungen
+        # (gewerk-basierte Tasten tragen kein Label)
+        button_of: dict[str, str] = {}
+        for fa in be.function_assignments:
+            if fa.role == "befehl" and fa.button_channel:
+                button_of.setdefault(fa.sf_id, fa.button_channel)
+        by_id = {sf.id: sf for sf in be.funktionen}
+
+        def open_label(sf) -> str:
+            if not sf.press_of:
+                return sf.label
+            # Offener langer Tastendruck (z.B. Wunsch ohne GA): unter seiner Taste
+            short = by_id.get(sf.press_of)
+            base = button_of.get(sf.press_of) or (short.label if short else "")
+            return f"{base}{SensorFunktion.LONG_PRESS_SUFFIX}" if base else ""
+
+        rows = []
+        for sf in be.funktionen:
+            if sf.ga_designation or sf.gewerk_code or sf.id in with_fa:
+                continue
+            if not (sf.label or sf.press_of):
+                continue
+            label = open_label(sf)
+            if not label:
+                continue
+            rows.append(SensorRow(
+                floor_name=floor_name, zone_name=zone_name,
+                room_number=room.number, room_name=room.name,
+                sensor_type=be.element_type,
+                physical_address=be.participant_number or "",
+                taste_label=label, function=sf.label if sf.press_of else "",
+                ga_designation="", ga_address="", dpt="",
+                action_type="lang" if sf.press_of else "",
+                be_id=be.id, sf_id=sf.id,
+            ))
+        return rows
+
     def _collect_sensor_rows(
         self, project, ga_index: dict, floor_index: dict, zone_index: dict
     ) -> list[SensorRow]:
@@ -446,7 +477,9 @@ class BelegungsplanService:
                     for be in room.bedienelemente:
                         if be.suppressed:
                             continue
-                        if be.function_assignments:
+                        open_rows = self._open_button_rows(be, room, floor_name, zone_name)
+                        if be.function_assignments or open_rows:
+                            rows.extend(open_rows)
                             for fa in be.function_assignments:
                                 ga = _lookup_ga_by_function_ga(fa.function_ga, ga_index)
                                 rows.append(SensorRow(
@@ -483,7 +516,9 @@ class BelegungsplanService:
             floor_name = floor_index.get(room.id, "")
             zone_name = zone_index.get(room.id, "")
             for be in active_bes:
-                if be.function_assignments:
+                open_rows = self._open_button_rows(be, room, floor_name, zone_name)
+                if be.function_assignments or open_rows:
+                    rows.extend(open_rows)
                     for fa in be.function_assignments:
                         ga = _lookup_ga_by_function_ga(fa.function_ga, ga_index)
                         rows.append(SensorRow(
@@ -574,9 +609,18 @@ class BelegungsplanService:
 
         # Anzeigesortierung: Phys. Adresse ↑ → Taste-Nr. ↑ → GA-Adresse ↑
         # Taste-Nr. wird aus dem trailing digit von taste_label extrahiert ("Taste 2" → 2).
-        def _taste_sort_key(label: str) -> int:
+        from .bedienelement_layout import parse_button
+
+        def _taste_sort_key(label: str) -> tuple:
+            # Wie die Berichte: Tastennummer, links vor rechts, kurz vor lang
+            # ("Taste 2, links (langer Tastendruck)"). Vorher zählte nur eine
+            # Zahl am Ende -- solche Namen landeten vor allen anderen.
+            parsed = parse_button(label)
+            if parsed:
+                key, is_led = parsed
+                return (0, key.sort_key(), is_led)
             suffix = label.rsplit(" ", 1)[-1]
-            return int(suffix) if suffix.isdigit() else 0
+            return (1, (int(suffix) if suffix.isdigit() else 0,), False)
 
         rows.sort(key=lambda r: (
             _parse_phys_addr(r.physical_address),

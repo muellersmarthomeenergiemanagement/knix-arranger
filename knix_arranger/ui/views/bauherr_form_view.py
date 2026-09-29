@@ -21,10 +21,12 @@ from PySide6.QtWidgets import (
     QSplitter, QSizePolicy, QGridLayout, QTextEdit, QSpinBox,
     QPushButton, QDialog, QMessageBox,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 
 from ...models.project import KnxProject
-from ...models.building import Room, Bedienelement, SensorFunktion, SensorFunktionGa
+from ...models.building import (
+    Room, Bedienelement, SensorFunktion, SensorFunktionGa, is_long_press, long_press_of,
+)
 from ...services.bauherr_form_service import (
     _DROPDOWN_OPTIONS, BauherrFormService, _form_elements,
 )
@@ -132,12 +134,17 @@ class _SlotWidget(QWidget):
 
     def __init__(self, be: Bedienelement, sf: SensorFunktion | None,
                  service: BauherrFormService, slot_label: str,
-                 room: Room, parent=None):
+                 room: Room, parent=None, begin_change=None,
+                 long_of: SensorFunktion | None = None):
         super().__init__(parent)
         self._be      = be
         self._sf      = sf
         self._service = service
         self._room    = room
+        # Rückgängig-Punkt vor jeder Änderung (ProjectBus.begin_change)
+        self._begin   = begin_change or (lambda _description: None)
+        # Gesetzt = dieser Slot ist der lange Tastendruck der Taste long_of
+        self._long_of = long_of
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 3, 4, 3)
@@ -205,6 +212,42 @@ class _SlotWidget(QWidget):
         self._btn_add_ga.clicked.connect(self._on_add_ga)
         layout.addWidget(self._btn_add_ga)
         self._rebuild_extra_row()
+
+        # Langer Tastendruck dieser Taste: eigene Zeile "lang" oder "+ lang".
+        # Gewerke wie Dimmer oder Jalousie belegen "lang" selbst (Dimmen,
+        # Fahren) -- dort kein zweiter langer Tastendruck.
+        if long_of is None and sf is not None:
+            long_sf = long_press_of(be.funktionen, sf)
+            gewerk_long = ""
+            if sf.gewerk_code and not sf.ga_designation:
+                gewerk_long = next(
+                    (fn[2] for fn in GEWERK_PRIMARY_FUNCTIONS.get(sf.gewerk_code, [])
+                     if fn[3] == "lang"), "")
+            if long_sf is not None:
+                if gewerk_long:
+                    warn = QLabel(f"⚠ «lang» ist durch das Gewerk bereits belegt "
+                                  f"({gewerk_long}) – bitte einen entfernen")
+                    warn.setWordWrap(True)
+                    warn.setStyleSheet("color: #B71C1C; font-size: 12px; border: none;")
+                    layout.addWidget(warn)
+                long_slot = _SlotWidget(be, long_sf, service, "lang", room,
+                                        begin_change=begin_change, long_of=sf)
+                long_slot.changed.connect(self.changed)
+                long_slot.removed.connect(self.removed)
+                layout.addWidget(long_slot)
+            elif gewerk_long:
+                info = QLabel(f"lang: {gewerk_long} (aus Gewerk)")
+                info.setStyleSheet("color: #666666; font-size: 12px; border: none;")
+                layout.addWidget(info)
+            else:
+                btn_long = QPushButton("+ lang")
+                btn_long.setToolTip(
+                    "Langen Tastendruck für diese Taste ergänzen. Bei importierten "
+                    "Tastern nur dokumentiert -- im Gerät in der ETS einrichten."
+                )
+                btn_long.setStyleSheet(self._btn_add_ga.styleSheet())
+                btn_long.clicked.connect(self._on_add_long)
+                layout.addWidget(btn_long)
 
         self.setMinimumHeight(56)
         self.setStyleSheet(
@@ -432,7 +475,10 @@ class _SlotWidget(QWidget):
         if data and data[0] == "header":
             return  # Kopfzeilen sind deaktiviert, sollte nie ausgewaehlt werden
 
-        if data and data[0] == "gewerk" and not self._service.gewerk_lookup_available():
+        # Ein langer Tastendruck braucht immer eine konkrete GA -- ein Gewerk
+        # würde kurz UND lang ableiten (siehe _expand_funktionen)
+        if data and data[0] == "gewerk" and (
+                self._long_of is not None or not self._service.gewerk_lookup_available()):
             # Importierte Projekte (kein Schritt-7-Lauf) haben nirgends ein
             # function_name-Tag auf ihren GAs -- SensorService._expand_funktionen
             # koennte eine gewerk_code-basierte SensorFunktion NIE zu einer
@@ -450,7 +496,11 @@ class _SlotWidget(QWidget):
         else:
             fields = self._fields_for(data)
 
+        self._begin("Bauherrenberatung: Taste geändert")
         self._apply_fields(fields, keep_extra_gas=bool(data and data[0] == "current"))
+        if self._long_of is not None:
+            self._sf.press_of = self._long_of.id
+            self._sf.action_type = "lang"
 
         if data:
             # Wahl markiert das Bedienelement als manuell konfiguriert, damit
@@ -526,6 +576,7 @@ class _SlotWidget(QWidget):
         if dlg.exec() == QDialog.Accepted and dlg.selected_ga is not None:
             if self._sf is None:
                 return
+            self._begin("Bauherrenberatung: GA ergänzt")
             self._sf.extra_gas.append(SensorFunktionGa(
                 ga_designation=self._ga_text(dlg.selected_ga), role="befehl",
                 description=dlg.selected_ga.designation,
@@ -536,6 +587,7 @@ class _SlotWidget(QWidget):
 
     def _on_remove_extra(self, extra: SensorFunktionGa):
         if self._sf is not None and extra in self._sf.extra_gas:
+            self._begin("Bauherrenberatung: GA entfernt")
             self._sf.extra_gas.remove(extra)
             self._be.is_auto = False
             self._rebuild_extra_row()
@@ -544,10 +596,24 @@ class _SlotWidget(QWidget):
     def _on_delete(self):
         if self._sf is None:
             return
-        if self._sf in self._be.funktionen:
-            self._be.funktionen.remove(self._sf)
+        self._begin("Bauherrenberatung: Taste entfernt")
+        # Eine Taste nimmt ihren langen Tastendruck mit
+        long_sf = None if self._long_of else long_press_of(self._be.funktionen, self._sf)
+        for sf in (self._sf, long_sf):
+            if sf is not None and sf in self._be.funktionen:
+                self._be.funktionen.remove(sf)
         self._be.is_auto = False
         self.removed.emit()
+
+    def _on_add_long(self):
+        """Langen Tastendruck ergänzen: leere Funktion, die zu dieser Taste
+        gehört -- danach im neuen Feld "lang" auswählen."""
+        if self._sf is None:
+            return
+        self._begin("Bauherrenberatung: langer Tastendruck ergänzt")
+        self._be.funktionen.append(SensorFunktion(press_of=self._sf.id, action_type="lang"))
+        self._be.is_auto = False
+        self.removed.emit()   # Raster neu aufbauen
 
 
 class _TasterWidget(QFrame):
@@ -563,9 +629,10 @@ class _TasterWidget(QFrame):
     structure_changed = Signal()
 
     def __init__(self, be: Bedienelement, service: BauherrFormService,
-                 room: Room, parent=None):
+                 room: Room, parent=None, begin_change=None):
         super().__init__(parent)
         self._be = be
+        self._begin = begin_change or (lambda _description: None)
         self.setFrameShape(QFrame.StyledPanel)
         self.setStyleSheet(
             "QFrame { border: 2px solid #263238; border-radius: 4px; "
@@ -595,8 +662,11 @@ class _TasterWidget(QFrame):
         # LED, role="fremdsteuerung" -- FA-1410d) sind kein bedienbarer
         # Taster-Slot fuer den Bauherrn und werden hier ausgeblendet (be.
         # funktionen selbst bleibt unangetastet, nur die Anzeige filtert).
+        # Lange Tastendrücke stehen im Slot ihrer Taste ("lang"), nicht als
+        # eigene Taste
         real_funktionen = [
-            sf for sf in be.funktionen if sf.primary_role != "fremdsteuerung"
+            sf for sf in be.funktionen
+            if sf.primary_role != "fremdsteuerung" and not is_long_press(be.funktionen, sf)
         ]
 
         # ── Tastenanzahl anpassen ────────────────────────────────────────────
@@ -664,7 +734,8 @@ class _TasterWidget(QFrame):
                 seq_num += 1
                 slot_label = f"T{seq_num}"
 
-            slot = _SlotWidget(be, sf, service, slot_label=slot_label, room=room)
+            slot = _SlotWidget(be, sf, service, slot_label=slot_label, room=room,
+                               begin_change=begin_change)
             slot.changed.connect(self.changed)
             slot.removed.connect(self.structure_changed)
             grid.addWidget(slot, grid_row, grid_col)
@@ -706,6 +777,17 @@ class _TasterWidget(QFrame):
         layout.addWidget(ann_bar)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
+    @property
+    def be_id(self) -> str:
+        return self._be.id
+
+    def highlight(self):
+        """Hervorheben, wenn aus der Verknüpfungsmatrix hierher gesprungen."""
+        self.setStyleSheet(
+            "QFrame { border: 3px solid #F9A825; border-radius: 4px; "
+            "background-color: white; }"
+        )
+
     def _on_annotation(self, text: str):
         self._be.bauherr_annotation = text
         self.notes_changed.emit()
@@ -713,6 +795,7 @@ class _TasterWidget(QFrame):
     def _on_channels_changed(self, value: int):
         if value == self._be.channels:
             return
+        self._begin("Bauherrenberatung: Tastenanzahl geändert")
         self._be.channels = value
         # Analog zur Wunsch-Auswahl in leeren Slots: eine manuelle Anpassung
         # hier markiert das Bedienelement als manuell konfiguriert, sonst
@@ -783,6 +866,7 @@ class BauherrFormView(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        self._scroll = scroll
         self._content = QWidget()
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(12, 12, 12, 12)
@@ -824,6 +908,40 @@ class BauherrFormView(QWidget):
         splitter.setSizes([180, 700])
 
         self._current_room: Room | None = None
+        self._bus = None
+
+    def set_bus(self, bus):
+        """ProjectBus für Rückgängig-Punkte vor jeder Änderung."""
+        self._bus = bus
+
+    def _begin_change(self, description: str):
+        if self._bus:
+            self._bus.begin_change(description)
+
+    def show_element(self, be_id: str) -> bool:
+        """Springt zum Raum des Bedienelements und zeigt dessen Taster an
+        (Doppelklick in der Verknüpfungsmatrix). False, wenn es hier nicht
+        vorkommt (z.B. Sensor -- die Bauherrenberatung zeigt nur, was der
+        Bauherr bedient)."""
+        for i in range(self._room_list.count()):
+            room = self._room_list.item(i).data(Qt.UserRole)
+            if not any(be.id == be_id for be in room.bedienelemente):
+                continue
+            self._room_list.setCurrentRow(i)
+            for j in range(self._content_layout.count()):
+                widget = self._content_layout.itemAt(j).widget()
+                if isinstance(widget, _TasterWidget) and widget.be_id == be_id:
+                    widget.highlight()
+                    QTimer.singleShot(0, lambda w=widget: self._scroll_to(w))
+                    return True
+            return True
+        return False
+
+    def _scroll_to(self, widget):
+        try:
+            self._scroll.ensureWidgetVisible(widget)
+        except RuntimeError:
+            pass   # Raum inzwischen neu aufgebaut, Widget gelöscht
 
     # ── Projekt ────────────────────────────────────────────────────────────
 
@@ -835,6 +953,16 @@ class BauherrFormView(QWidget):
     def refresh(self):
         if self._project:
             self._refresh_room_list()
+
+    def reload(self, project: KnxProject):
+        """Neu aufbauen und im selben Raum bleiben (nach Rückgängig/
+        Wiederholen -- die Raum-Objekte sind dann andere, die IDs gleich)."""
+        room_id = self._current_room.id if self._current_room else None
+        self.set_project(project)
+        for i in range(self._room_list.count()):
+            if self._room_list.item(i).data(Qt.UserRole).id == room_id:
+                self._room_list.setCurrentRow(i)
+                break
 
     def _refresh_room_list(self):
         self._room_list.clear()
@@ -874,7 +1002,8 @@ class BauherrFormView(QWidget):
 
         # Taster-Widgets aufbauen
         for be in _form_elements(room, self._project.topology.is_imported):
-            taster = _TasterWidget(be, self._service, room=room)
+            taster = _TasterWidget(be, self._service, room=room,
+                                   begin_change=self._begin_change)
             taster.changed.connect(self.project_changed)
             taster.notes_changed.connect(self.notes_changed)
             taster.structure_changed.connect(self._on_structure_changed)

@@ -535,6 +535,9 @@ class TestFunctionGaMitAdressPraefixAufloesen:
             ],
         )
         room.bedienelemente = [be]
+        # generate() liest nur -- Tastenbelegung vorher ableiten wie die App
+        from knix_arranger.services.sensor_service import refresh_bedienelemente
+        refresh_bedienelemente(project)
 
         rows = BelegungsplanService().generate(project).sensor_rows
         matching = [r for r in rows if r.taste_label == "Taste 2, rechts"]

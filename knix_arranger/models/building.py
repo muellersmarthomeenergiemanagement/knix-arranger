@@ -602,9 +602,16 @@ class SensorFunktion:
     # feststellbar, welche der ggf. mehreren Szenen auf diesem Kanal gemeint ist).
     # Ermoeglicht dem Szenenreport, alle Taster einer Szene automatisch aufzulisten.
     scene_id: str = ""
+    # Langer Tastendruck: SensorFunktion.id der Taste, zu der er gehört
+    # (Bauherrenberatung "lang"). Keine eigene Taste -- zählt nicht mit und
+    # heisst "<Taste> (langer Tastendruck)" wie in der ETS. Aus der ETS
+    # importierte lange Tastendrücke tragen stattdessen diesen Namen als label.
+    press_of: str = ""
+
+    LONG_PRESS_SUFFIX = " (langer Tastendruck)"
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "id": self.id,
             "label": self.label,
             "gewerk_code": self.gewerk_code,
@@ -617,6 +624,9 @@ class SensorFunktion:
             "bedienart": self.bedienart,
             "scene_id": self.scene_id,
         }
+        if self.press_of:
+            d["press_of"] = self.press_of
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> SensorFunktion:
@@ -632,7 +642,31 @@ class SensorFunktion:
             action_type=data.get("action_type", ""),
             bedienart=data.get("bedienart", ""),
             scene_id=data.get("scene_id", ""),
+            press_of=data.get("press_of", ""),
         )
+
+
+def long_press_of(funktionen: list[SensorFunktion], sf: SensorFunktion) -> SensorFunktion | None:
+    """Der lange Tastendruck zu Taste sf: verknüpft über press_of, oder aus
+    der ETS mit dem Namen "<Taste> (langer Tastendruck)"."""
+    long_label = f"{sf.label}{SensorFunktion.LONG_PRESS_SUFFIX}" if sf.label else ""
+    for other in funktionen:
+        if other is sf:
+            continue
+        if other.press_of == sf.id or (long_label and not other.press_of
+                                       and other.label == long_label):
+            return other
+    return None
+
+
+def is_long_press(funktionen: list[SensorFunktion], sf: SensorFunktion) -> bool:
+    """sf ist der lange Tastendruck einer anderen Taste (keine eigene Taste)."""
+    if sf.press_of:
+        return True
+    if sf.label.endswith(SensorFunktion.LONG_PRESS_SUFFIX):
+        base = sf.label[: -len(SensorFunktion.LONG_PRESS_SUFFIX)]
+        return any(o is not sf and o.label == base for o in funktionen)
+    return False
 
 
 @dataclass

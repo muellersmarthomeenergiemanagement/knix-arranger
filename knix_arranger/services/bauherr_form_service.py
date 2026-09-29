@@ -14,7 +14,16 @@ import logging
 from datetime import datetime
 
 from ..models.project import KnxProject
-from ..models.building import Room, Bedienelement, FunctionAssignment, SensorFunktion
+from ..models.building import (
+    Room, Bedienelement, FunctionAssignment, SensorFunktion, is_long_press, long_press_of,
+)
+
+
+def button_funktionen(be: Bedienelement) -> list[SensorFunktion]:
+    """Die Tasten eines Bedienelements -- ohne lange Tastendrücke, die zu
+    einer Taste gehören (siehe SensorFunktion.press_of). Die Tastennummer
+    T1, T2, … im Formular ist die Position in dieser Liste."""
+    return [sf for sf in be.funktionen if not is_long_press(be.funktionen, sf)]
 from ..utils.excel_generator import ExcelGenerator, HAS_OPENPYXL
 from .report_sorting import sorted_rooms
 
@@ -262,7 +271,7 @@ class BauherrFormService:
 
         # Wenn keine function_assignments: SensorFunktionen als Fallback (FA-1410)
         if not result and be.funktionen:
-            for idx, sf in enumerate(be.funktionen):
+            for idx, sf in enumerate(button_funktionen(be)):
                 rocker = (idx // 2) + 1
                 direction = "oben" if idx % 2 == 0 else "unten"
                 result[(rocker, direction)] = self._human_label(sf, idx)
@@ -359,8 +368,10 @@ class BauherrFormService:
         import math
 
         n_buttons = be.channels
-        # Alle definierten SensorFunktionen anzeigen, mindestens n_buttons Slots
-        n_slots = max(n_buttons, len(be.funktionen))
+        # Alle definierten Tasten anzeigen, mindestens n_buttons Slots; lange
+        # Tastendrücke stehen in der Zelle ihrer Taste
+        buttons = button_funktionen(be)
+        n_slots = max(n_buttons, len(buttons))
         n_rows  = math.ceil(n_slots / 2)
 
         # ── Style-Helfer ───────────────────────────────────────────────────
@@ -414,9 +425,11 @@ class BauherrFormService:
             if n_slots == 1:
                 is_right_col = True
 
-            sf       = be.funktionen[slot_idx] if slot_idx < len(be.funktionen) else None
+            sf       = buttons[slot_idx] if slot_idx < len(buttons) else None
             fn_text  = self._button_label(sf) if sf else ""
             bg_color = self._fill_for(fn_text, sf)
+            long_sf  = long_press_of(be.funktionen, sf) if sf else None
+            long_text = self._button_label(long_sf) if long_sf else ""
 
             # Taster-Nummer (T1, T2, …) als kleines Präfix
             t_num = f"T{slot_idx + 1}"
@@ -426,6 +439,8 @@ class BauherrFormService:
                 cell_val  = f"{t_num}  {fn_text}"
                 if bedienart_text:
                     cell_val += f"\n{bedienart_text}"
+                if long_text:
+                    cell_val += f"\nlang: {long_text}"
                 cell_font = Font(name="Inter", bold=True, size=9,
                                  color=_BTN_FONT_FN)
             else:
@@ -808,15 +823,18 @@ class BauherrFormService:
             nonlocal imported_count
             if not val or "Ihr Wunsch" in val:
                 return
-            if sf_idx < len(be.funktionen):
-                sf = be.funktionen[sf_idx]
+            # Zusatzzeilen der Zelle (Bedienart, "lang: …") gehören nicht zum Namen
+            val = val.split("\n")[0].strip()
+            buttons = button_funktionen(be)
+            if sf_idx < len(buttons):
+                sf = buttons[sf_idx]
                 auto = self._button_label(sf)
                 if val != auto:
                     sf.label = val
                     imported_count += 1
                     be.is_auto = False
             else:
-                while len(be.funktionen) < sf_idx:
+                for _ in range(sf_idx - len(buttons)):
                     be.funktionen.append(SF())
                 # NUR das Freitext-Label setzen -- ga_designation bleibt leer,
                 # bis ein Planer dem Wunsch ueber die Verknuepfungsmatrix

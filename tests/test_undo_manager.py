@@ -103,6 +103,39 @@ class TestUndoManagerBasic:
         assert mgr.undo_count == 0
 
 
+class TestObjectStateCommand:
+    """Der Snapshot-Befehl des Hauptfensters: Wiederholen tat früher nichts."""
+
+    def test_undo_redo_undo(self):
+        import copy
+        from knix_arranger.services.undo_manager import ObjectStateCommand
+
+        class Project:
+            def __init__(self):
+                self.name = "vorher"
+                self.items = [1]
+                self._file_path = "a.knxarr"
+
+        project = Project()
+        snapshot = copy.deepcopy(project)
+        project.name = "nachher"
+        project.items.append(2)
+        project._file_path = "b.knxarr"
+
+        mgr = UndoManager()
+        mgr.execute(ObjectStateCommand(project, snapshot, "Test",
+                                       preserve_attrs=("_file_path",)))
+        assert project.name == "nachher"      # execute ändert nichts
+
+        mgr.undo()
+        assert (project.name, project.items) == ("vorher", [1])
+        mgr.redo()
+        assert (project.name, project.items) == ("nachher", [1, 2])
+        mgr.undo()
+        assert (project.name, project.items) == ("vorher", [1])
+        assert project._file_path == "b.knxarr"   # Laufzeitfeld bleibt
+
+
 class TestListCommands:
     def test_list_add(self):
         items = [1, 2, 3]
