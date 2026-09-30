@@ -31,7 +31,14 @@ def license_svc(tmp_path, monkeypatch, rsa_keypair):
     _, public_pem = rsa_keypair
     monkeypatch.setattr(_ls_module, "APPDATA_DIR", str(tmp_path))
     monkeypatch.setattr(_ls_module, "_PUBLIC_KEY_PEM", public_pem)
+    monkeypatch.setattr(_ls_module, "_licensed_to", "")   # nach dem Test zurücksetzen
+    registry = {}
+    monkeypatch.setattr(_ls_module, "_read_registry_last_seen",
+                        lambda: registry.get("LastSeen", ""))
+    monkeypatch.setattr(_ls_module, "_write_registry_last_seen",
+                        lambda v: registry.__setitem__("LastSeen", v))
     svc = LicenseService()
+    svc._registry = registry
     svc._license_file = str(tmp_path / "license.knxlic")
     return svc
 
@@ -281,3 +288,70 @@ class TestLicenseKey:
         info = license_svc.import_license_key(key[:len(key) // 2])
         assert not info.is_valid
         assert "unvollständig" in info.message
+
+
+class TestClockRollback:
+    """Zurückgestellte Systemuhr verlängert eine Lizenz nicht."""
+
+    def _store(self, license_svc, rsa_keypair, expiry):
+        private_key, _ = rsa_keypair
+        _write_license_file(license_svc._license_file, private_key,
+                            _make_payload(license_type="annual", expiry=expiry))
+
+    def test_check_records_last_seen(self, license_svc, rsa_keypair, tmp_path):
+        self._store(license_svc, rsa_keypair, "2099-12-31")
+        assert license_svc.check_license().is_valid
+        today = date.today().isoformat()
+        assert (tmp_path / "usage.dat").read_text(encoding="utf-8") == today
+        assert license_svc._registry["LastSeen"] == today
+
+    def test_rolled_back_clock_uses_last_seen(self, license_svc, rsa_keypair):
+        # Lizenz laut Systemuhr noch 5 Tage gültig, zuletzt gesehen aber
+        # 30 Tage in der Zukunft -> abgelaufen, auch ausserhalb der Kulanz
+        self._store(license_svc, rsa_keypair,
+                    (date.today() + timedelta(days=5)).isoformat())
+        license_svc._registry["LastSeen"] = (date.today() + timedelta(days=30)).isoformat()
+        info = license_svc.check_license()
+        assert not info.is_valid
+        assert "Systemdatum" in info.message
+
+    def test_last_seen_file_alone_counts(self, license_svc, rsa_keypair, tmp_path):
+        # Registry gelöscht, Datei noch da -> trotzdem erkannt
+        self._store(license_svc, rsa_keypair,
+                    (date.today() + timedelta(days=5)).isoformat())
+        (tmp_path / "usage.dat").write_text(
+            (date.today() + timedelta(days=30)).isoformat(), encoding="utf-8")
+        assert not license_svc.check_license().is_valid
+
+    def test_small_clock_difference_tolerated(self, license_svc, rsa_keypair):
+        self._store(license_svc, rsa_keypair, "2099-12-31")
+        license_svc._registry["LastSeen"] = (date.today() + timedelta(days=1)).isoformat()
+        info = license_svc.check_license()
+        assert info.is_valid
+        assert "Systemdatum" not in info.message
+
+    def test_last_seen_never_moves_backwards(self, license_svc, rsa_keypair):
+        self._store(license_svc, rsa_keypair, "2099-12-31")
+        future = (date.today() + timedelta(days=10)).isoformat()
+        license_svc._registry["LastSeen"] = future
+        license_svc.check_license()
+        assert license_svc._registry["LastSeen"] == future
+
+    def test_corrupt_last_seen_ignored(self, license_svc, rsa_keypair, tmp_path):
+        self._store(license_svc, rsa_keypair, "2099-12-31")
+        (tmp_path / "usage.dat").write_text("kaputt", encoding="utf-8")
+        assert license_svc.check_license().is_valid
+
+
+class TestLicensedTo:
+    def test_valid_license_sets_licensee(self, license_svc, rsa_keypair):
+        private_key, _ = rsa_keypair
+        _write_license_file(license_svc._license_file, private_key,
+                            _make_payload(customer="Elektro Muster AG"))
+        license_svc.check_license()
+        assert _ls_module.licensed_to() == "Elektro Muster AG"
+
+    def test_invalid_license_clears_licensee(self, license_svc, monkeypatch):
+        monkeypatch.setattr(_ls_module, "_licensed_to", "Alt")
+        license_svc.check_license()           # keine Datei
+        assert _ls_module.licensed_to() == ""

@@ -3,6 +3,6 @@ pytest>=8.0.0
 openpyxl>=3.1.0
 PyMuPDF>=1.23.0
 cryptography>=41.0.0
-pyinstaller>=6.0.0
+nuitka>=2.7
 pyzipper>=0.3.6
 pywin32>=306; sys_platform == "win32"

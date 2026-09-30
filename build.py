@@ -1,9 +1,15 @@
 """
-Build-Skript fuer KNX Arranger (PyInstaller)
+Build-Skript fuer KNX Arranger (Nuitka, NFA-012/NFA-071)
 Erstellt ein standalone Windows-Bundle unter dist/KNiX_Arranger/
 
+Nuitka uebersetzt den Python-Code in C und kompiliert ihn zu Maschinencode.
+Im Bundle liegen keine .py/.pyc-Dateien des Programms -- der Quellcode ist
+nicht lesbar und die Lizenzpruefung nicht mit einer geaenderten Zeile
+auszuhebeln (anders als beim frueheren PyInstaller-Build).
+
 Voraussetzungen:
-    pip install pyinstaller PySide6 pillow
+    pip install -r requirements.txt
+    C-Compiler: Visual Studio Build Tools (MSVC); auf GitHub Actions vorhanden
 
 Ausfuehren:
     python build.py
@@ -17,6 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 DIST = ROOT / "dist" / "KNiX_Arranger"
+BUILD_DIR = ROOT / "build_nuitka"
 ICO_PATH = ROOT / "icon.ico"
 
 # Einzige Versionsquelle: knix_arranger/__init__.py
@@ -28,7 +35,9 @@ VERSION = ".".join((_parts + ["0", "0", "0", "0"])[:4])
 
 # Daten-Verzeichnisse die ins Bundle kopiert werden muessen
 DATA_DIRS = [
-    ("knix_arranger/config", "knix_arranger/config"),
+    "knix_arranger/config",
+    "knix_arranger/data",
+    "knix_arranger/i18n",
 ]
 
 
@@ -69,8 +78,24 @@ def check_clean_environment():
     print("--force gesetzt, fahre trotzdem fort.")
 
 
+def _qt_translation(filename: str) -> Path:
+    import PySide6
+    return Path(PySide6.__file__).parent / "translations" / filename
+
+
+def check_no_source_in_bundle():
+    """Bricht ab, wenn Quellcode des Programms im Bundle gelandet ist."""
+    leaked = [p for p in (DIST / "knix_arranger").rglob("*")
+              if p.suffix in (".py", ".pyc")]
+    if leaked:
+        print("FEHLER: Quellcode im Bundle gefunden:")
+        for p in leaked[:10]:
+            print(f"  {p.relative_to(DIST)}")
+        sys.exit(1)
+
+
 def build():
-    print(f"=== KNiX Arranger v{_APP_VERSION} – PyInstaller Build ===")
+    print(f"=== KNiX Arranger v{_APP_VERSION} – Nuitka Build ===")
 
     check_clean_environment()
     ensure_icon()
@@ -80,92 +105,51 @@ def build():
         print(f"Loesche altes Build: {DIST}")
         shutil.rmtree(DIST)
 
-    # --add-data Argumente fuer Konfigurationsdateien
-    add_data = []
-    for src, dst in DATA_DIRS:
-        src_path = ROOT / src
-        if src_path.exists():
-            add_data += ["--add-data", f"{src_path}{':' if sys.platform != 'win32' else ';'}{dst}"]
-
     cmd = [
-        sys.executable, "-m", "PyInstaller",
-        "--noconfirm",
-        "--windowed",                          # Kein Konsolenfenster
-        "--onedir",                            # Ordner statt einzelne EXE (schneller, zuverlaessiger)
-        f"--name=KNiX_Arranger",
-        f"--icon={ICO_PATH}",
-        f"--distpath={ROOT / 'dist'}",
-        f"--workpath={ROOT / 'build_tmp'}",
-        f"--specpath={ROOT}",
+        sys.executable, "-m", "nuitka",
+        "--standalone",                        # Ordner statt einzelne EXE (schneller Start)
+        "--assume-yes-for-downloads",
+        "--msvc=latest",
+        "--enable-plugin=pyside6",
+        "--include-qt-plugins=sensible,iconengines,imageformats",
+        "--windows-console-mode=disable",      # Kein Konsolenfenster
+        f"--windows-icon-from-ico={ICO_PATH}",
+        f"--output-dir={BUILD_DIR}",
+        "--output-filename=KNiX_Arranger.exe",
+        "--include-package=knix_arranger",
+        *[f"--include-data-dir={ROOT / d}={d}" for d in DATA_DIRS],
+        "--nofollow-import-to=pytest,tkinter,numpy",
+        # Die generierte MuPDF-Anbindung ist so gross, dass dem C-Compiler der
+        # Speicher ausgeht -- Fremdbibliothek, bleibt als Bytecode im Bundle
+        "--noinclude-custom-mode=pymupdf:bytecode",
+        # Deutsche Standard-Dialoge (main.py laedt qtbase_de) -- Nuitka nimmt
+        # Qt-Uebersetzungen von sich aus nur mit QtWebEngine mit
+        f"--include-data-files={_qt_translation('qtbase_de.qm')}=PySide6/translations/qtbase_de.qm",
         # Metadaten
-        f"--version-file=version_info.txt",    # wird unten erzeugt
-        # Imports die PyInstaller nicht automatisch erkennt
-        "--hidden-import=knix_arranger",
-        "--hidden-import=PySide6.QtSvg",
-        "--hidden-import=PySide6.QtPrintSupport",
-        "--collect-all=knix_arranger",
-        "--exclude-module=numpy",
-        *add_data,
+        "--company-name=Mueller SmartHome & EnergieManagement",
+        "--product-name=KNiX Arranger",
+        "--file-description=KNiX Arranger",
+        f"--file-version={VERSION}",
+        f"--product-version={VERSION}",
         str(ROOT / "run.py"),
     ]
 
-    # Windows Version-Info-Datei erzeugen
-    _write_version_info(ROOT / "version_info.txt")
-
-    print("Starte PyInstaller (kann mehrere Minuten dauern)...")
+    print("Starte Nuitka (kann 20-40 Minuten dauern)...")
     result = subprocess.run(cmd, cwd=ROOT)
-
-    # Temporaere Dateien aufraeumen
-    tmp = ROOT / "build_tmp"
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    spec = ROOT / "KNiX_Arranger.spec"
-    if spec.exists():
-        spec.unlink()
-    vi = ROOT / "version_info.txt"
-    if vi.exists():
-        vi.unlink()
-
     if result.returncode != 0:
-        print("FEHLER: PyInstaller Build fehlgeschlagen.")
+        print("FEHLER: Nuitka Build fehlgeschlagen.")
         sys.exit(1)
+
+    # Nuitka legt das Bundle als <skript>.dist ab
+    DIST.parent.mkdir(exist_ok=True)
+    shutil.move(str(BUILD_DIR / "run.dist"), str(DIST))
+    shutil.rmtree(BUILD_DIR, ignore_errors=True)
+
+    check_no_source_in_bundle()
 
     print(f"\nFertig! Bundle liegt unter: {DIST}")
     print("Zum Weitergeben den gesamten Ordner als ZIP verpacken:")
     print(f"  python release.py  (oder manuell: {DIST})")
-
-
-def _write_version_info(path: Path):
-    """Erzeugt eine Windows-Versionsdatei fuer PyInstaller."""
-    parts = (VERSION + ".0.0.0.0").split(".")[:4]
-    v = ", ".join(parts)
-    path.write_text(f"""
-VSVersionInfo(
-  ffi=FixedFileInfo(
-    filevers=({v}),
-    prodvers=({v}),
-    mask=0x3f,
-    flags=0x0,
-    OS=0x40004,
-    fileType=0x1,
-    subtype=0x0,
-    date=(0, 0)
-  ),
-  kids=[
-    StringFileInfo([
-      StringTable(u'040704B0', [
-        StringStruct(u'CompanyName', u'Mueller SmartHome & EnergieManagement'),
-        StringStruct(u'FileDescription', u'KNiX Arranger'),
-        StringStruct(u'FileVersion', u'{_APP_VERSION}'),
-        StringStruct(u'InternalName', u'KNiX_Arranger'),
-        StringStruct(u'ProductName', u'KNiX Arranger'),
-        StringStruct(u'ProductVersion', u'{_APP_VERSION}'),
-      ])
-    ]),
-    VarFileInfo([VarStruct(u'Translation', [0x0407, 1200])])
-  ]
-)
-""", encoding="utf-8")
 
 
 if __name__ == "__main__":

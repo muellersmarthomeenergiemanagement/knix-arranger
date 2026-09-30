@@ -46,8 +46,26 @@ jobs:
           Set-Content "setup.iss" $iss -Encoding utf8
         shell: pwsh
 
-      - name: Build with PyInstaller
+      # Nuitka kompiliert jedes Mal alle Module nach C -- der Cache der
+      # C-Compiler-Ergebnisse spart bei weiteren Releases viel Zeit.
+      - name: Cache Nuitka
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\Nuitka\Nuitka\Cache
+          key: nuitka-${{ runner.os }}-py312-${{ hashFiles('requirements.txt') }}
+          restore-keys: nuitka-${{ runner.os }}-py312-
+
+      - name: Build with Nuitka
         run: python build.py
+
+      # Kompiliertes Bundle ohne Fenster pruefen (PDF, Daten, Schrift, ...),
+      # bevor ein Installer entsteht
+      - name: Self-test bundle
+        run: |
+          $p = Start-Process "dist\KNiX_Arranger\KNiX_Arranger.exe" -ArgumentList "--selftest" -Wait -PassThru
+          Get-Content "$env:APPDATA\KNiX Arranger\logs\knix_arranger.log" -Tail 20
+          if ($p.ExitCode -ne 0) { exit 1 }
+        shell: pwsh
 
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress

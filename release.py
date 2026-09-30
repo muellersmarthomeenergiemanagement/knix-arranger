@@ -34,7 +34,7 @@ def set_version(new_version: str):
 
 
 def build():
-    print("Starte PyInstaller-Build...")
+    print("Starte Nuitka-Build...")
     result = subprocess.run([sys.executable, "build.py"], cwd=ROOT)
     if result.returncode != 0:
         print("FEHLER: Build fehlgeschlagen.")

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from ... import __version__, APP_NAME, __copyright__
+from ...services.license_service import licensed_to
 from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 
 
@@ -36,6 +37,15 @@ class AboutDialog(QDialog):
         version.setAlignment(Qt.AlignCenter)
         version.setStyleSheet("font-size: 16px; color: #666666;")
         layout.addWidget(version)
+
+        # Lizenznehmer
+        customer = licensed_to()
+        if customer:
+            licensee = QLabel(f"Lizenziert für {customer}")
+            licensee.setAlignment(Qt.AlignCenter)
+            licensee.setWordWrap(True)
+            licensee.setStyleSheet("font-weight: bold; color: #404040;")
+            layout.addWidget(licensee)
 
         # Copyright
         copyright_label = QLabel(__copyright__)

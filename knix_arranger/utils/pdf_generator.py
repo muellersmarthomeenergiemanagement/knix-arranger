@@ -24,7 +24,7 @@ except ImportError:
 from .fonts import (
     INTER_REGULAR as _INTER_REGULAR, INTER_BOLD as _INTER_BOLD,
     register_fonts as _register_fonts, text_length as _text_length,
-    finalize_pdf as _finalize_pdf,
+    finalize_pdf as _finalize_pdf, licensee_note as _licensee_note,
 )
 
 # Akzentfarben für den Abschnittsbalken am linken Rand
@@ -1092,7 +1092,7 @@ class PdfGenerator:
     # ── Footer ────────────────────────────────────────────────────────────────
 
     def _draw_footer(self, page, page_num: int, total: int):
-        """Footer: Bearbeiter links, Seite X/Y rechts."""
+        """Footer: Bearbeiter links, Lizenznehmer Mitte, Seite X/Y rechts."""
         margin = self.MARGIN
         y = self.PAGE_H - self.FOOTER_H + 8
 
@@ -1108,6 +1108,12 @@ class PdfGenerator:
                 bearbeiter += f", {self.user_role}"
             self._txt(page, fitz.Point(margin, y), bearbeiter,
                       7.5, color=(0.5, 0.5, 0.5))
+
+        licensee = _licensee_note()
+        if licensee:
+            tw = self._tw(licensee, 7.5)
+            self._txt(page, fitz.Point((self.PAGE_W - tw) / 2, y),
+                      licensee, 7.5, color=(0.5, 0.5, 0.5))
 
         page_text = f"Seite {page_num} / {total}"
         tw = self._tw(page_text, 7.5)

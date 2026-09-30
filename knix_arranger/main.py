@@ -14,6 +14,10 @@ def main() -> int:
     logger = setup_logging("INFO")
     logger.info(f"{APP_NAME} v{__version__} wird gestartet...")
 
+    if "--selftest" in sys.argv[1:]:
+        from .utils.selftest import run_selftest
+        return run_selftest()
+
     try:
         from PySide6.QtWidgets import QApplication
         from PySide6.QtCore import Qt, QTranslator, QLibraryInfo

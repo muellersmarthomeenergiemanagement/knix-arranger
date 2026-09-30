@@ -6,7 +6,7 @@ import json
 import os
 import shutil
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import base64
 
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -34,6 +34,39 @@ owIDAQAB
 
 GRACE_PERIOD_DAYS = 14   # App startet noch, tägl. Hinweis
 WARNING_DAYS = 7         # Hinweis erst ab 7 Tagen vor Ablauf
+CLOCK_TOLERANCE_DAYS = 1 # Zeitzonen/kleine Uhrkorrekturen nicht als Rückstellung werten
+
+# Zuletzt gesehenes Datum -- doppelt abgelegt (Datei + Registry), damit ein
+# Zurückstellen der Systemuhr eine abgelaufene Lizenz nicht verlängert.
+_LAST_SEEN_FILE = "usage.dat"
+_REGISTRY_KEY = r"Software\KNiX Arranger"
+_REGISTRY_VALUE = "LastSeen"
+
+# Lizenznehmer der laufenden Sitzung (für Info-Dialog und Berichte)
+_licensed_to = ""
+
+
+def licensed_to() -> str:
+    """Name des Lizenznehmers, sobald eine gültige Lizenz geprüft wurde."""
+    return _licensed_to
+
+
+def _read_registry_last_seen() -> str:
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _REGISTRY_KEY) as key:
+            return str(winreg.QueryValueEx(key, _REGISTRY_VALUE)[0])
+    except (ImportError, OSError):
+        return ""
+
+
+def _write_registry_last_seen(value: str) -> None:
+    try:
+        import winreg
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, _REGISTRY_KEY) as key:
+            winreg.SetValueEx(key, _REGISTRY_VALUE, 0, winreg.REG_SZ, value)
+    except (ImportError, OSError) as e:
+        logger.debug(f"LastSeen nicht in Registry gespeichert: {e}")
 
 
 class LicenseInfo:
@@ -49,6 +82,9 @@ class LicenseInfo:
         self.in_grace_period: bool = False   # abgelaufen aber noch innerhalb Kulanz
         self.warning: str = ""               # Hinweis für UI (leer = kein Hinweis)
         self.message: str = ""
+        # Stichtag für den Ablauf: Systemdatum, aber nie vor dem zuletzt
+        # gesehenen Datum (Schutz gegen zurückgestellte Uhr)
+        self.today: date = date.today()
 
     def days_until_expiry(self) -> int | None:
         """Positive Zahl = noch gültig; negative = bereits abgelaufen."""
@@ -56,7 +92,7 @@ class LicenseInfo:
             return None
         try:
             expiry = datetime.strptime(self.expiry_date, "%Y-%m-%d").date()
-            return (expiry - date.today()).days
+            return (expiry - self.today).days
         except ValueError:
             return None
 
@@ -112,6 +148,38 @@ class LicenseService:
 
     def __init__(self):
         self._license_file = os.path.join(APPDATA_DIR, "license.knxlic")
+        self._last_seen_file = os.path.join(APPDATA_DIR, _LAST_SEEN_FILE)
+
+    # ── Zuletzt gesehenes Datum ────────────────────────────────────────────────
+
+    def _last_seen(self) -> date | None:
+        """Spätestes je gesehenes Datum aus Datei und Registry."""
+        values = [_read_registry_last_seen()]
+        try:
+            with open(self._last_seen_file, "r", encoding="utf-8") as f:
+                values.append(f.read().strip())
+        except OSError:
+            pass
+        dates = []
+        for v in values:
+            try:
+                dates.append(date.fromisoformat(v))
+            except (TypeError, ValueError):
+                pass
+        return max(dates) if dates else None
+
+    def _record_last_seen(self, today: date) -> None:
+        last = self._last_seen()
+        if last is not None and last >= today:
+            return
+        value = today.isoformat()
+        try:
+            os.makedirs(APPDATA_DIR, exist_ok=True)
+            with open(self._last_seen_file, "w", encoding="utf-8") as f:
+                f.write(value)
+        except OSError as e:
+            logger.debug(f"LastSeen nicht gespeichert: {e}")
+        _write_registry_last_seen(value)
 
     # ── Validierung ────────────────────────────────────────────────────────────
 
@@ -144,6 +212,12 @@ class LicenseService:
             info.expiry_date = payload.get("expiry", "")
             info.issued_date = payload.get("issued", "")
 
+            last_seen = self._last_seen()
+            clock_behind = (last_seen is not None and
+                            info.today < last_seen - timedelta(days=CLOCK_TOLERANCE_DAYS))
+            if last_seen is not None and last_seen > info.today:
+                info.today = last_seen
+
             days = info.days_until_expiry()
 
             if days is not None and days < 0:
@@ -160,6 +234,11 @@ class LicenseService:
                     info.message = f"Lizenz abgelaufen (Kulanz bis {GRACE_PERIOD_DAYS - days_over} Tage)"
                 else:
                     info.message = f"Lizenz abgelaufen am {info.expiry_date}"
+                if clock_behind:
+                    info.message += (
+                        f". Das Systemdatum liegt vor dem zuletzt verwendeten Datum "
+                        f"({last_seen.strftime('%d.%m.%Y')}) – bitte Datum und Uhrzeit prüfen."
+                    )
                 return info
 
             info.is_valid = True
@@ -213,8 +292,15 @@ class LicenseService:
         return info
 
     def check_license(self) -> LicenseInfo:
-        """Prüft die gespeicherte Lizenz."""
-        return self.validate_license_file(self._license_file)
+        """Prüft die gespeicherte Lizenz und merkt sich den Lizenznehmer."""
+        global _licensed_to
+        info = self.validate_license_file(self._license_file)
+        if info.is_valid:
+            self._record_last_seen(date.today())
+            _licensed_to = info.customer
+        else:
+            _licensed_to = ""
+        return info
 
     # ── EULA-Akzeptanz (NFA-081) ───────────────────────────────────────────────
 

@@ -1,6 +1,7 @@
 # Build-Ausgaben
 dist/
 build/
+build_nuitka/
 __pycache__/
 *.pyc
 *.pyo

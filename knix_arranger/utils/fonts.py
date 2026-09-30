@@ -73,8 +73,9 @@ def _clean_cmap(data: bytes) -> bytes:
 
 def finalize_pdf(doc) -> None:
     """Vor dem Speichern jedes PDFs mit Inter aufrufen: bereinigt die
-    ToUnicode-Tabellen (Textsuche, Kopieren) und öffnet die Lesezeichen-
-    Leiste beim Öffnen, sofern Lesezeichen vorhanden sind."""
+    ToUnicode-Tabellen (Textsuche, Kopieren), öffnet die Lesezeichen-
+    Leiste beim Öffnen, sofern Lesezeichen vorhanden sind, und trägt
+    Programm und Lizenznehmer in die Dokumenteigenschaften ein."""
     for xref in range(1, doc.xref_length()):
         try:
             kind, value = doc.xref_get_key(xref, "ToUnicode")
@@ -89,6 +90,26 @@ def finalize_pdf(doc) -> None:
             doc.update_stream(cmap_xref, cleaned)
     if doc.get_toc():
         doc.set_pagemode("UseOutlines")
+    _set_creator(doc)
+
+
+def licensee_note() -> str:
+    """«Lizenziert für …» für Berichte; leer ohne geprüfte Lizenz."""
+    from ..services.license_service import licensed_to
+    customer = licensed_to()
+    return f"Lizenziert für {customer}" if customer else ""
+
+
+def _set_creator(doc) -> None:
+    from .. import __version__
+    creator = f"KNiX Arranger {__version__}"
+    note = licensee_note()
+    if note:
+        creator += f" – {note}"
+    metadata = dict(doc.metadata or {})
+    metadata["creator"] = creator
+    metadata["producer"] = creator
+    doc.set_metadata(metadata)
 
 
 def font_name(bold: bool = False) -> str:

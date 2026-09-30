@@ -1,7 +1,7 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.18
-**Datum:** 29.09.2026
+**Version:** 3.19
+**Datum:** 30.09.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
 **Status:** Entwurf
@@ -33,6 +33,7 @@
 | 3.16 | 28.09.2026 | M. Mueller / Claude AI | Bericht Aktoren und Gateways im einheitlichen Berichtslayout (FA-907): Uebersicht mit belegten Kanaelen und Seitenzahlen, je Einbauort (Verteiler zuerst) Geraetekarten, geplante Projekte eine Zeile je Kanal mit Gewerk und Raum, importierte Projekte eine Zeile je Kommunikationsobjekt nach Kanal gegliedert. Topologie-Bericht zusaetzlich mit Topologie-Diagramm (FA-904), gleicher Aufbau wie die Ansicht. Koppler und Speisegeraete in Ansicht, Diagramm und Bericht nur, wenn als Geraet vorhanden (FA-1007). PDF-Berichte in allen Viewern durchsuchbar (bereinigte Unicode-Zuordnung der eingebetteten Schrift) und oeffnen mit sichtbarer Lesezeichen-Leiste (FA-858). Geraete ohne Einbauort aus der ETS: Topologie- und Aktoren-Bericht verwenden den zugeordneten Raum als Einbauort, die Topologie-Ansicht zeigt ihn grau und kursiv als Hinweis (Einbauort bleibt leer). Bericht Raeume nach Gewerken neu gegliedert, Raumzuordnung ueber die Bezeichnung statt ueber Aktoren im Verteiler, fehlende Raeume separat (FA-908). Szenenreport nach Szenen-Gruppenadresse gegliedert, Visualisierungs-Szenen und nicht eindeutige Erkennungen separat (FA-1811). Projekt neu aus ETS aufbauen (FA-527); automatische Sicherung vor Import und Neuaufbau (NFA-042). GA-Kommentar als Klartext importiert, Szenennamen daraus, Re-Import behaelt DPT-Nummern (FA-1810a). Szenen-Verwaltung nach Szenen-Adresse gegliedert (FA-1812), Szenenreport mit verknuepften Sendern und Empfaengern (FA-1811) |
 | 3.17 | 28.09.2026 | M. Mueller / Claude AI | Gemeinsamer Import-Ablauf fuer alle ETS-Import-Wege, Report-Pfade im Projekt, Anzeige fehlgeschlagener Import-Schritte (FA-528). KNX Secure: kein Klartext von FDSK/Projektpasswort in Projektdatei und Sicherungen, Master-Passwort beim Import, alte Staende beim Speichern entfernt (FA-2706). Speichern-Frage beim Beenden nur bei Aenderungen, Speicherfehler sichtbar (NFA-045) |
 | 3.18 | 29.09.2026 | M. Mueller / Claude AI | Ansichten lesen nur: Bedienelemente und Tastenbelegung werden nach Aenderungen statt beim Anzeigen neu berechnet; Aenderungen in der Verknuepfungsmatrix setzen Aenderungsmarkierung und Rueckgaengig-Punkt (NFA-046). Verknuepfungsmatrix als Uebersicht, Bearbeiten in der Bauherren-Beratung mit langem Tastendruck (FA-2503); Werkzeugleiste Rueckgaengig/Wiederholen, Wiederholen repariert (NFA-043). ETS-Projektdaten als XML ohne Schluessel fuer Partnerprogramme (FA-2407) |
+| 3.19 | 30.09.2026 | M. Mueller / Claude AI | Auslieferung mit Nuitka nativ kompiliert, kein Quellcode im Bundle, Selbsttest des Bundles im Release-Workflow (NFA-071a). Lizenznehmer im Info-Dialog, in der Berichts-Fusszeile und in den PDF-Eigenschaften (NFA-098b). Zurueckgestellte Systemuhr verlaengert keine Lizenz (NFA-098c) |
 
 ---
 
@@ -1702,6 +1703,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | ID | Anforderung |
 |----|-------------|
 | NFA-071 | Die Auslieferung muss als nativ kompilierte Anwendung erfolgen (bevorzugt Nuitka statt PyInstaller), um Reverse Engineering wesentlich zu erschweren. |
+| NFA-071a | Umsetzung: build.py baut mit Nuitka (--standalone) ein Bundle ohne .py/.pyc-Dateien des Programms; der Build bricht ab, wenn Quellcode im Bundle gefunden wird. Einzig die Fremdbibliothek PyMuPDF bleibt Bytecode (ihre generierte MuPDF-Anbindung sprengt den C-Compiler). Der Release-Workflow cached die Nuitka-Compiler-Ergebnisse und prueft das Bundle vor dem Installer mit `KNiX_Arranger.exe --selftest` (ohne Fenster und Lizenz: Datendateien, Firmenschrift, Qt-Uebersetzung, PDF-Erzeugung, Kryptografie, Excel; Exit-Code 0/1, Details im Log). |
 | NFA-072 | Sicherheitskritische Module (Lizenzpruefung, Aktivierungslogik) muessen zusaetzlich geschuetzt werden (z.B. Cython-Kompilierung zu C-Extensions oder PyArmor-Verschluesselung). |
 | NFA-073 | Die ausfuehrbare Datei (.exe) muss mit einem Code-Signing-Zertifikat signiert werden, um die Authentizitaet sicherzustellen und Windows-SmartScreen-Warnungen zu vermeiden. |
 | NFA-074 | Das System muss beim Start eine Integritaetspruefung der eigenen Programmdateien durchfuehren (Checksummen/Hashes). Bei erkannter Manipulation muss der Start verweigert und eine Warnung angezeigt werden. |
@@ -1755,6 +1757,8 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | NFA-097 | Der Lizenzserver muss einen periodischen Online-Check unterstuetzen: Die Software prueft in konfigurierbaren Intervallen (z.B. alle 30 Tage) die Lizenzgueltigkeit beim Server. Bei fehlender Internetverbindung muss eine Karenzzeit (z.B. 60 Tage) gewaehrt werden, bevor die Software gesperrt wird. |
 | NFA-098 | Fuer den Anfangsbetrieb mit wenigen Kunden muss alternativ ein Offline-Lizenzmodus unterstuetzt werden: Der Lizenzschluessel selbst enthaelt verschluesselt Lizenzinformationen (Typ, Ablaufdatum, Pruefsumme), die lokal validiert werden koennen -- ohne Serveranbindung. |
 | NFA-098a | Umsetzung: Die Lizenz ist eine RSA-signierte Datei (.knxlic). Sie kann im Lizenz-Dialog als Datei ausgewaehlt oder als Lizenzschluessel (Praefix "KNIX1-", Base64url der signierten Datei) per Copy-Paste eingefuegt werden; Leerzeichen und Zeilenumbrueche aus der E-Mail werden ignoriert. In beiden Faellen gilt dieselbe Signaturpruefung. Die Lizenz-E-Mail enthaelt Datei und Schluessel. |
+| NFA-098b | Der Lizenznehmer (Kunde aus der Lizenz) muss sichtbar sein, damit weitergegebene Kopien zuzuordnen sind: im Info-Dialog ("Lizenziert fuer ..."), in der Fusszeile jedes PDF-Berichts (Mitte) und in den PDF-Dokumenteigenschaften (Ersteller/Produzent) aller PDF-Exporte. |
+| NFA-098c | Ein Zurueckstellen der Systemuhr darf eine abgelaufene Lizenz nicht verlaengern: Bei jeder gueltigen Pruefung wird das Datum gespeichert (Datei usage.dat in %APPDATA%\KNiX Arranger und Registry HKCU\Software\KNiX Arranger\LastSeen). Der Ablauf wird ab dem spaeteren Datum aus Systemuhr und gespeichertem Datum berechnet; eine Abweichung von 1 Tag wird toleriert. Ist die Lizenz deshalb abgelaufen, nennt die Meldung das zuletzt verwendete Datum und bittet, Datum und Uhrzeit zu pruefen. |
 
 ### 4.7 Systemvoraussetzungen (NFA-100)
 
