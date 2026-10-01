@@ -309,6 +309,21 @@ class BauherrFormService:
                 parts.append(fa.bedienart)
         return " · ".join(parts)
 
+    def _own_label(self, be: Bedienelement, sf: SensorFunktion | None) -> str:
+        """Eigene Bezeichnung der Taste für den Bauherrn (Bauherrenberatung,
+        Korrekturschicht), sonst ""."""
+        if sf is None:
+            return ""
+        from .bedienelement_layout import parse_button
+        from .user_manual import button_label_key
+        channel = next((fa.button_channel for fa in be.function_assignments
+                        if fa.sf_id == sf.id), "") or sf.label
+        parsed = parse_button(channel)
+        if not parsed:
+            return ""
+        return self.project.ets_corrections.button_labels.get(
+            button_label_key(be, parsed[0]), "")
+
     def _button_label(self, sf: SensorFunktion) -> str:
         """
         Bauherren-lesbarer Label für einen einzelnen Taster-Slot.
@@ -426,7 +441,7 @@ class BauherrFormService:
                 is_right_col = True
 
             sf       = buttons[slot_idx] if slot_idx < len(buttons) else None
-            fn_text  = self._button_label(sf) if sf else ""
+            fn_text  = (self._own_label(be, sf) or self._button_label(sf)) if sf else ""
             bg_color = self._fill_for(fn_text, sf)
             long_sf  = long_press_of(be.funktionen, sf) if sf else None
             long_text = self._button_label(long_sf) if long_sf else ""
@@ -829,7 +844,7 @@ class BauherrFormService:
             if sf_idx < len(buttons):
                 sf = buttons[sf_idx]
                 auto = self._button_label(sf)
-                if val != auto:
+                if val != auto and val != self._own_label(be, sf):
                     sf.label = val
                     imported_count += 1
                     be.is_auto = False

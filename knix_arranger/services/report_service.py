@@ -306,6 +306,15 @@ def _split_long_rows(rows: list[list]) -> list[list]:
     return result
 
 
+def _own_button_labels(project, be, rows) -> dict:
+    """(Taste, Seite) -> eigene Bezeichnung aus der Bauherrenberatung."""
+    from .user_manual import button_label_key
+    labels = project.ets_corrections.button_labels
+    return {(r.key.number, r.key.side): labels[button_label_key(be, r.key)]
+            for r in rows if r.key is not None and not r.key.variant
+            and button_label_key(be, r.key) in labels}
+
+
 def _validation_table_layout(rule_id: str):
     """(Kopfzeile, Spaltenanteile, Ausrichtung, Zeilenfunktion) je Regel."""
     if rule_id == "FA-604":
@@ -1180,6 +1189,12 @@ class ReportService:
                 rows = (group_assignments(be.function_assignments, resolve)
                         if be.function_assignments else [])
                 plan = button_plan(rows, catalog, room.name)
+                own = _own_button_labels(project, be, rows)
+                for entry in plan:   # eigene Bezeichnungen (Bauherrenberatung)
+                    sides = [""] if len(entry["cells"]) == 1 else ["links", "rechts"]
+                    entry["cells"] = [
+                        (own[(entry["number"], side)], "") if (entry["number"], side) in own
+                        else cell for side, cell in zip(sides, entry["cells"])]
                 # Karte (Kopf, Tastenplan, Tabelle) möglichst auf einer Seite
                 estimate = 50 + (len(plan) * 34 + 18 if plan else 0) + 24 + sum(
                     max(14, len(r.gas) * 10.5 + len(r.led_gas) * 9.5 + 2) for r in rows)
@@ -1202,6 +1217,8 @@ class ReportService:
                     for row in rows:
                         if row.key is None:
                             function = row.name
+                        elif not row.key.variant and (row.key.number, row.key.side) in own:
+                            function = own[(row.key.number, row.key.side)]
                         else:
                             t, d = row_function_label(row, catalog, room.name)
                             function = " · ".join(p for p in (t, d) if p) or "–"
