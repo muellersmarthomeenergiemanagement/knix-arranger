@@ -295,27 +295,37 @@ class BelegungsplanExportService:
         from ..utils.pdf_generator import PdfGenerator
 
         pdf = PdfGenerator(
-            title="ETS-Belegungsplan",
+            title="Belegungsplan",
             company_profile=company_profile,
             project_info=project_info,
         )
 
         # ── Sensoren / Taster ──────────────────────────────────────────────────
-        pdf.add_heading(f"ETS-Belegungsplan: {data.project_name}", level=1)
+        pdf.add_heading(f"Belegungsplan (Verknüpfungsmatrix): {data.project_name}", level=1)
         pdf.add_heading("Taster & Sensoren", level=2)
 
-        s_headers = ["Raum-Nr.", "Raumname", "Sensor-Typ", "Taste", "Kn.", "Funktion",
-                     "GA-Bezeichnung", "GA-Adresse", "DPT"]
-        # 495 pts usable width (595 − 2×50); Breiten an typische Inhaltslängen angepasst
-        # (Taste/Funktion brauchten mehr Platz, Kn. deutlich weniger).
-        s_widths = [32.0, 58.0, 62.0, 55.0, 18.0, 78.0, 112.0, 34.0, 46.0]
+        # Hochformat (495 pt): zusammengefasste Spalten statt Wortumbrüchen
+        # ("GA-A|dress|e") -- Raum mit Nummer, Taste mit Kanal, Adresse mit
+        # Bezeichnung. Leere Vorschläge ohne GA (z.B. Verteiler-Räume) entfallen.
+        def ga_cell(address, designation):
+            designation = " ".join((designation or "").split())
+            if address and designation.startswith(address):
+                return designation
+            return f"{address}  {designation}".strip() or "–"
+
+        s_headers = ["Raum", "Typ", "Taste", "Funktion", "Gruppenadresse", "DPT"]
+        s_widths = [76.0, 74.0, 58.0, 86.0, 156.0, 45.0]
         s_rows = []
         for row in data.sensor_rows:
+            if not row.ga_address and not row.ga_designation:
+                continue
             taste, kanal = _split_button_channel(row.taste_label)
+            taste = " ".join(p for p in (taste, kanal) if p and p != "-") or "–"
+            if taste == row.function:   # Sensor-Objekt: Name steht schon unter Funktion
+                taste = "–"
             s_rows.append([
-                row.room_number, row.room_name, row.sensor_type,
-                taste, kanal, row.function,
-                row.ga_designation, row.ga_address, row.dpt,
+                f"{row.room_number} {row.room_name}".strip(), row.sensor_type,
+                taste, row.function, ga_cell(row.ga_address, row.ga_designation), row.dpt,
             ])
         if s_rows:
             pdf.add_table(s_headers, s_rows, col_widths=s_widths)
@@ -326,19 +336,14 @@ class BelegungsplanExportService:
         if data.actor_rows:
             pdf.add_page_break()
             pdf.add_heading("Aktoren", level=2)
-
-            a_headers = ["Linie", "Aktor-Typ", "Phys.Adr.", "Kn.", "Raum-Nr.",
-                         "Gew.", "Funktion", "GA-Bezeichnung", "GA-Adresse", "DPT"]
-            # Linie/Aktor-Typ/GA-Bezeichnung sind meist die längsten Inhalte und
-            # liefen zuvor über; DPT/Gew./GA-Adresse waren überdimensioniert.
-            a_widths = [73.0, 73.0, 38.0, 16.0, 36.0, 20.0, 42.0, 116.0, 36.0, 45.0]
+            a_headers = ["Aktor", "Kanal", "Raum", "Funktion", "Gruppenadresse", "DPT"]
+            a_widths = [112.0, 32.0, 50.0, 50.0, 206.0, 45.0]
             a_rows = []
             for row in data.actor_rows:
                 a_rows.append([
-                    f"{row.area_number}.{row.line_number} {row.line_name}",
-                    row.actor_type, row.physical_address, row.channel_number,
-                    row.room_number, row.gewerk_code, row.function_name,
-                    row.ga_designation, row.ga_address, row.dpt,
+                    f"{row.physical_address}  {row.actor_type}".strip(),
+                    row.channel_number, row.room_number, row.function_name,
+                    ga_cell(row.ga_address, row.ga_designation), row.dpt,
                 ])
             pdf.add_table(a_headers, a_rows, col_widths=a_widths)
 

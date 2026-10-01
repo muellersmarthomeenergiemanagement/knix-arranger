@@ -711,7 +711,7 @@ class DocumentationService:
             BelegungsplanExportService().export_pdf(
                 belegungsplan, path, self._company_profile, self.project.project_info
             )
-            generated_files.append(("Verknüpfungsmatrix", path))
+            generated_files.append(("Belegungsplan (Verknüpfungsmatrix)", path))
 
         # 4e. Szenenreport (FA-1811) -- nur wenn Szenen definiert sind
         if any(s.name for s in self.project.scenes):
@@ -730,6 +730,11 @@ class DocumentationService:
         self.export_checklists_pdf(path, checklists)
         generated_files.append(("Inbetriebnahme-Checklisten", path))
 
+        # 6b. Abnahmeprotokoll (Formular zum Unterschreiben)
+        path = os.path.join(output_dir, f"{prefix}_Abnahmeprotokoll.pdf")
+        self.export_acceptance_protocol(path, self.project.acceptance_protocol)
+        generated_files.append(("Abnahmeprotokoll", path))
+
         # 7. Bedienungsanleitung
         path = os.path.join(output_dir, f"{prefix}_Bedienungsanleitung.pdf")
         self.generate_user_manual(path, language=language)
@@ -745,7 +750,7 @@ class DocumentationService:
         generated_files.append(("GA-Export (CSV)", path))
 
         # 9. DALI-Geräteliste (FA-2805) – nur wenn DALI-Konfigurationen vorhanden
-        if self.project.dali_configs:
+        if any(gw.devices for gw in self.project.dali_configs.values()):
             path = os.path.join(output_dir, f"{prefix}_DALI_Geraete.pdf")
             self.generate_dali_device_list(path)
             generated_files.append(("DALI-Gerätekonfiguration", path))
@@ -857,22 +862,31 @@ class DocumentationService:
         if not infos:
             pdf.add_paragraph("Keine Geräte im Archiv erfasst.")
         else:
-            line_labels = {}
-            for area in self.project.topology.areas:
-                for line in area.lines:
-                    line_labels[line.id] = f"{area.area_number}.{line.line_number}"
-            headers = ["Gerät", "Phys. Adresse", "Linie", "KNX Secure",
+            # Adresse, Linie und Gerätename aus der aktuellen Topologie: das
+            # Archiv kann nach einem Neuaufbau veraltete Linien-IDs und den
+            # englischen Produktnamen aus der ETS tragen
+            by_id = {d.id: (f"{a.area_number}.{ln.line_number}", d)
+                     for a in self.project.topology.areas for ln in a.lines
+                     for d in ln.devices}
+            id_of = {id(v): k for k, v in cfg.device_infos.items()}
+            headers = ["Gerät", "Adresse", "Linie", "KNX Secure",
                        "FDSK" if include_secrets else "FDSK erfasst"]
-            rows = [
-                [
-                    info.device_name, info.physical_address,
-                    line_labels.get(info.line_id, ""),
+            rows = []
+            for info in infos:
+                line_label, device = by_id.get(id_of.get(id(info), ""), ("", None))
+                if device is not None:
+                    name = device.product_name or device.product or info.device_name
+                    address = device.physical_address or info.physical_address
+                else:
+                    name = f"{info.device_name} (nicht mehr in der Topologie)"
+                    address = info.physical_address
+                rows.append([
+                    name, address, line_label,
                     "Ja" if info.secure_supported else "Nein",
                     (info.fdsk or "–") if include_secrets else ("Ja" if info.fdsk else "Nein"),
-                ]
-                for info in infos
-            ]
-            pdf.add_table(headers, rows)
+                ])
+            rows.sort(key=lambda r: physical_address_key(r[1]))
+            pdf.add_table(headers, rows, col_widths=[0.46, 0.12, 0.10, 0.14, 0.18])
 
         warnings = svc.check_mixed_lines(cfg, self.project)
         pdf.add_separator()
@@ -896,6 +910,7 @@ class DocumentationService:
             d.id: d.physical_address
             for area in self.project.topology.areas for line in area.lines for d in line.devices
         }
+        existing_gas = {g.address: g for g in self.project.group_addresses.all_addresses()}
         pdf = self._make_pdf("DALI-Gerätekonfiguration")
         pdf.add_heading("DALI-Gerätekonfiguration", level=1)
         pdf.add_paragraph(f"Projekt: {self.project.name}")
@@ -909,14 +924,18 @@ class DocumentationService:
                 key=lambda item: physical_address_key(gateway_address.get(item[0], "")),
             ):
                 pdf.add_separator()
-                pdf.add_heading(f"DALI-Gateway: {gw.name}", level=2)
-                pdf.add_paragraph(f"Device-ID: {gw_id}")
-                if gw.ga_switch_broadcast:
-                    pdf.add_paragraph(f"GA Schalten (Broadcast): {gw.ga_switch_broadcast}")
-                if gw.ga_dim_broadcast:
-                    pdf.add_paragraph(f"GA Dimmen (Broadcast): {gw.ga_dim_broadcast}")
-                if gw.ga_scene:
-                    pdf.add_paragraph(f"GA Szene: {gw.ga_scene}")
+                address = gateway_address.get(gw_id, "")
+                pdf.add_heading(" · ".join(p for p in (address, gw.name or "DALI-Gateway") if p),
+                                level=2)
+                # Nur Gruppenadressen, die es im Projekt gibt (Vorgaben des
+                # Assistenten ohne GA, z.B. in importierten Projekten, entfallen)
+                for label, addr in (("Schalten (Broadcast)", gw.ga_switch_broadcast),
+                                    ("Dimmen (Broadcast)", gw.ga_dim_broadcast),
+                                    ("Szene", gw.ga_scene)):
+                    ga = existing_gas.get(addr) if addr else None
+                    if ga is not None:
+                        designation = " ".join((ga.designation or "").split())
+                        pdf.add_paragraph(f"GA {label}: {addr}  {designation}")
 
                 rows = svc.generate_device_list(gw, self.project)
                 if rows:
@@ -932,7 +951,8 @@ class DocumentationService:
                     ]
                     pdf.add_table(headers, table_rows)
                 else:
-                    pdf.add_paragraph("Keine EVGs konfiguriert.")
+                    pdf.add_paragraph("Keine EVGs in KNiX erfasst (Konfiguration im Gateway "
+                                      "bzw. in der Inbetriebnahme-Software des Herstellers).")
 
         pdf.save(filepath)
         logger.info(f"DALI-Geräteliste erstellt: {filepath}")
@@ -1009,11 +1029,24 @@ class DocumentationService:
         pdf.add_paragraph(f"Erstellt: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
         pdf.add_separator()
 
-        headers = ["Nr.", "Dokument", "Dateiname"]
+        headers = ["Nr.", "Dokument", "Seiten", "Datei"]
         rows = []
         for i, (doc_name, filepath) in enumerate(generated_files, 1):
-            rows.append([str(i), doc_name, os.path.basename(filepath)])
-        pdf.add_table(headers, rows)
+            pages = ""
+            if filepath.lower().endswith(".pdf"):
+                try:
+                    import fitz
+                    with fitz.open(filepath) as doc:
+                        pages = str(len(doc))
+                except Exception:
+                    pages = ""
+            # Projektpräfix weglassen: der Dateiname bricht sonst mitten im Wort um
+            name = os.path.basename(filepath)
+            short = name[len(prefix) + 1:] if name.startswith(prefix + "_") else name
+            rows.append([str(i), doc_name, pages, short])
+        pdf.add_table(headers, rows, col_widths=[0.07, 0.43, 0.10, 0.40],
+                      align=["right", "left", "right", "left"])
+        pdf.add_paragraph(f"Alle Dateinamen beginnen mit «{prefix}_».")
 
         pdf.save(index_path)
         logger.info(f"Inhaltsverzeichnis erstellt: {index_path}")
