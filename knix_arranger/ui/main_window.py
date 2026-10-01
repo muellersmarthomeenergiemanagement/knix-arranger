@@ -344,6 +344,8 @@ class MainWindow(QMainWindow):
         self._address_tree.ga_modified.connect(self._bus.emit_addresses_changed)
         self._address_table = AddressTableView()
         self._address_table.ga_modified.connect(self._bus.emit_addresses_changed)
+        self._address_tree.gewerk_change_requested.connect(self._assign_gewerk)
+        self._address_table.gewerk_change_requested.connect(self._assign_gewerk)
         self._validation_view = ValidationView()
         self._validation_view.revalidate_requested.connect(self._validate)
         self._gewerk_view = GewerkView()
@@ -422,6 +424,7 @@ class MainWindow(QMainWindow):
         self._topology_view.set_bus(self._bus)
         self._linking_matrix_view.set_bus(self._bus)
         self._bauherr_form_view.set_bus(self._bus)
+        self._customer_quote_view.set_bus(self._bus)
         # Matrix = Übersicht, bearbeitet wird in der Bauherrenberatung
         self._linking_matrix_view.open_in_bauherr.connect(self._open_in_bauherr)
 
@@ -619,6 +622,38 @@ class MainWindow(QMainWindow):
         self._building_view.set_group_addresses(self._project.group_addresses)
         self._co_linking_view.set_project(self._project)
         self._linking_matrix_view.set_project(self._project)
+
+    def _assign_gewerk(self, addresses: list):
+        """Gewerk für GAs festlegen (Korrekturschicht): gilt in allen Berichten,
+        Gewerke-Zahlen und Dokumenten und bleibt beim Re-Import erhalten."""
+        if not self._project or not addresses:
+            return
+        from PySide6.QtWidgets import QInputDialog
+        from ..services.ets_corrections import set_gewerk, ets_gewerk
+        catalog = self._project.gewerk_catalog
+        ga_by_addr = {g.address: g for g in self._project.group_addresses.all_addresses()}
+        first = ga_by_addr.get(addresses[0])
+        keep = "(wie im ETS-Namen)"
+        items = [keep] + [f"{g.code} – {g.name}" for g in sorted(
+            catalog.all_gewerke(), key=lambda g: g.code)]
+        current = next((i for i, t in enumerate(items)
+                        if first and t.split(" – ")[0] == first.gewerk_code), 0)
+        origin = ets_gewerk(first) if first else ""
+        text, ok = QInputDialog.getItem(
+            self, "Gewerk zuordnen",
+            f"Gewerk für {len(addresses)} Gruppenadresse(n)"
+            + (f" (im ETS-Namen: {origin})" if origin else "") + ":\n\n"
+            "Gilt in Berichten, Gewerke-Zahlen und Dokumenten und bleibt beim\n"
+            "Re-Import erhalten. Die ETS selbst wird nicht verändert.",
+            items, current, False)
+        if not ok:
+            return
+        code = "" if text == keep else text.split(" – ")[0]
+        self._bus.begin_change(f"Gewerk {code or 'aus ETS-Namen'} für {len(addresses)} GA")
+        set_gewerk(self._project, list(addresses), code)
+        self._bus.emit_addresses_changed()
+        self._status_bar.set_status(
+            f"Gewerk {code or 'wie im ETS-Namen'} für {len(addresses)} GA festgelegt.")
 
     def _on_addresses_changed(self):
         """Reagiert auf GA-Änderungen (Umbenennen, DPT, etc.) aus beiden Address-Views.
@@ -2078,7 +2113,7 @@ class MainWindow(QMainWindow):
             self._status_bar.set_status("Kein Projekt geöffnet.")
             return
         old_name = self._project.name
-        dialog = ProjectPropertiesDialog(self._project, self)
+        dialog = ProjectPropertiesDialog(self._project, self, bus=self._bus)
         if dialog.exec():
             self._update_views()
             if self._project.name != old_name:

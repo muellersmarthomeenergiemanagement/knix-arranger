@@ -77,6 +77,8 @@ def count_controlled_elements(project) -> ElementCounts:
         if matched is None:
             continue
         code, floor_code, room_nr, elem_nr, _combined = matched
+        # Korrektur zur ETS (z.B. "T." steht im Projekt für Tor -> G)
+        code = project.ets_corrections.gewerk_by_address.get(ga.address, code)
         if catalog.get(code):
             elements.add((code, floor_code, room_nr, int(elem_nr)))
 

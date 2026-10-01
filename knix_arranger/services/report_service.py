@@ -137,6 +137,13 @@ VALIDATION_RULES = {
         "Fehler in der ETS vom KO trennen, Warnungen prüfen – danach in der "
         "Bauherrenberatung oder Topologie ebenfalls trennen.",
     ),
+    "FA-616": (
+        "Abweichung zur ETS",
+        "In KNiX korrigierte Angabe eines importierten Projekts (z.B. das Gewerk "
+        "einer GA, deren ETS-Kürzel nicht den Projektrichtlinien entspricht). "
+        "Alle Dokumente verwenden die Korrektur; die ETS ist unverändert.",
+        "Bei der nächsten Bearbeitung in der ETS nachführen.",
+    ),
     "FA-3308b": (
         "Astro-Gruppenadressen fehlen",
         "Zeitprogramme mit Astro-Schaltpunkten benötigen die Astro-GAs in HG 0 / MG 7.",
@@ -326,6 +333,11 @@ def _validation_table_layout(rule_id: str):
     if rule_id == "FA-610":
         return (["Adresse", "Bezeichnung"], [0.13, 0.87], None,
                 lambda i: [i.address, _clean(i.designation)])
+    if rule_id == "FA-616":
+        return (["Adresse", "Bezeichnung", "Angabe", "ETS", "KNiX"],
+                [0.12, 0.48, 0.14, 0.13, 0.13], None,
+                lambda i: [i.address, _clean(i.designation), i.details.get("field", ""),
+                           i.details.get("ets", ""), i.details.get("knix", "")])
     if rule_id == "FA-614":
         return (["Gerät / KO", "Sendet", "Hört mit", "Bezeichnung", "Einordnung"],
                 [0.25, 0.10, 0.11, 0.30, 0.24], None,

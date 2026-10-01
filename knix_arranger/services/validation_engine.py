@@ -73,8 +73,38 @@ class ValidationEngine:
         if project is not None:
             issues.extend(self._check_astro_gas(structure, project))
             issues.extend(self._check_multi_ga_keys(project))
+            issues.extend(self._check_ets_deviations(project))
+            self._grade_guidelines(issues, project)
 
         return issues
+
+    #: Regeln der Projektrichtlinien (Mittelgruppen, Rückmelde-MG, Bezeichnung)
+    GUIDELINE_RULES = ("FA-607", "FA-608", "FA-610")
+
+    def _grade_guidelines(self, issues: list[ValidationIssue], project) -> None:
+        """Abweichungen von den Projektrichtlinien je nach Projektart: bei aus
+        der ETS importierten Projekten nur dokumentieren (Hinweis), bei mit
+        KNiX geplanten Projekten müssen sie behoben werden (Fehler)."""
+        level = "info" if project.topology.is_imported else "error"
+        for issue in issues:
+            if issue.rule_id in self.GUIDELINE_RULES:
+                issue.level = level
+
+    def _check_ets_deviations(self, project) -> list[ValidationIssue]:
+        """FA-616: in KNiX korrigierte Angaben gegenüber der ETS (Korrekturschicht)."""
+        from .ets_corrections import deviations
+        return [
+            ValidationIssue(
+                "info", "FA-616",
+                f"{d.field} {d.knix_value} statt {d.ets_value} (in KNiX korrigiert, "
+                "ETS unverändert)",
+                d.address,
+                "In der ETS nachführen, sobald das Projekt dort bearbeitet wird",
+                designation=d.designation,
+                details={"field": d.field, "ets": d.ets_value, "knix": d.knix_value},
+            )
+            for d in deviations(project)
+        ]
 
     def _check_multi_ga_keys(self, project) -> list[ValidationIssue]:
         """FA-614: pro Sensorkanal darf nur eine sendende GA verknüpft sein.

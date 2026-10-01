@@ -11,6 +11,7 @@ from ..widgets.search_filter_bar import SearchFilterBar
 from ..dialogs.ga_edit_dialog import GaEditDialog
 from ...models.group_address import GroupAddressStructure, GroupAddress
 from ..column_utils import fit_columns
+from ...services.ets_corrections import gewerk_display
 
 
 class AddressTableView(QWidget):
@@ -18,6 +19,8 @@ class AddressTableView(QWidget):
 
     address_selected = Signal(str)
     ga_modified = Signal()  # Emitted when a GA was edited
+    # Gewerk für die markierten GAs festlegen (Korrekturschicht, MainWindow)
+    gewerk_change_requested = Signal(list)
 
     COLUMNS = [
         "Adresse", "Bezeichnung", "DPT", "Gewerk", "Raum",
@@ -102,7 +105,7 @@ class AddressTableView(QWidget):
                 ga.address,
                 ga.designation if not ga.is_placeholder else "(Reserve)",
                 ga.datapoint_type,
-                ga.gewerk_code,
+                gewerk_display(ga),
                 ga.room_number,
                 str(ga.element_number) if ga.element_number else "",
                 ga.function_name,
@@ -152,9 +155,18 @@ class AddressTableView(QWidget):
             return
         menu = QMenu(self)
         edit_action = menu.addAction("Bearbeiten...")
+        rows = sorted({i.row() for i in self._table.selectedIndexes()})
+        selected = [g.address for g in (self._find_ga_for_row(r) for r in rows) if g]
+        if ga.address not in selected:
+            selected = [ga.address]
+        gewerk_action = menu.addAction(
+            f"Gewerk zuordnen… ({len(selected)} GA)" if len(selected) > 1
+            else "Gewerk zuordnen…")
         action = menu.exec(self._table.viewport().mapToGlobal(pos))
         if action == edit_action:
             self._edit_ga(ga)
+        elif action == gewerk_action:
+            self.gewerk_change_requested.emit(selected)
 
     def _edit_ga(self, ga: GroupAddress):
         """Oeffnet den GA-Bearbeitungsdialog."""
@@ -194,5 +206,5 @@ class AddressTableView(QWidget):
 
         for row in range(self._table.rowCount()):
             gewerk_item = self._table.item(row, 3)
-            visible = gewerk_item and gewerk_item.text() in codes
+            visible = gewerk_item and gewerk_item.text().split(" ")[0] in codes
             self._table.setRowHidden(row, not visible)

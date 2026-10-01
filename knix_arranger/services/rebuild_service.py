@@ -31,6 +31,10 @@ REBUILD_OPTIONS: tuple[RebuildOption, ...] = (
         "client_profile", "Kundenprofil", "Bauherr, Kontaktdaten, Deckblatt",
         True, ("client_profile",)),
     RebuildOption(
+        "ets_corrections", "Korrekturen zur ETS",
+        "In KNiX korrigierte Angaben, z.B. Gewerk einer GA (Abweichungen zur ETS)",
+        True, ("ets_corrections",)),
+    RebuildOption(
         "knx_secure", "KNX-Secure-Archiv",
         "Gerätezertifikate (FDSK), Passwörter, Master-Passwort",
         True, ("knx_secure",)),

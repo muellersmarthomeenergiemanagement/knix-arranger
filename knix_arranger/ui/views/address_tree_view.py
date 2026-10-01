@@ -4,7 +4,7 @@ GA-Baumansicht: HG > MG > UG mit Farbmarkierung (FA-821)
 from __future__ import annotations
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QLabel, QMenu, QPushButton,
+    QLabel, QMenu, QPushButton, QAbstractItemView,
 )
 from PySide6.QtGui import QColor, QBrush
 from PySide6.QtCore import Signal, Qt
@@ -13,6 +13,7 @@ from ..dialogs.ga_edit_dialog import GaEditDialog
 from ..styles import GEWERK_COLORS
 from ...models.group_address import GroupAddressStructure, GroupAddress
 from ..column_utils import fit_columns
+from ...services.ets_corrections import gewerk_display
 
 
 class AddressTreeView(QWidget):
@@ -20,6 +21,8 @@ class AddressTreeView(QWidget):
 
     address_selected = Signal(str)  # GA-Adresse z.B. "2/0/0"
     ga_modified = Signal()  # Emitted when a GA was edited
+    # Gewerk für die markierten GAs festlegen (Korrekturschicht, MainWindow)
+    gewerk_change_requested = Signal(list)
 
     # Qt.UserRole für Adress-String, UserRole+1 für GA-Objekt
     GA_OBJECT_ROLE = Qt.UserRole + 1
@@ -84,6 +87,7 @@ class AddressTreeView(QWidget):
         self._tree.setHeaderLabels([
             "Adresse", "Bezeichnung", "Beschreibung", "DPT", "Gewerk", "Raum",
         ])
+        self._tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._tree.itemClicked.connect(self._on_item_clicked)
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -142,7 +146,7 @@ class AddressTreeView(QWidget):
                         designation,
                         ga.description,
                         ga.datapoint_type,
-                        ga.gewerk_code,
+                        gewerk_display(ga),
                         ga.room_number,
                     ])
                     ga_item.setData(0, Qt.UserRole, ga.address)
@@ -210,9 +214,18 @@ class AddressTreeView(QWidget):
         menu = QMenu(self)
         if isinstance(ga, GroupAddress):
             edit_action = menu.addAction("Bearbeiten…")
+            selected = [i.data(0, Qt.UserRole) for i in self._tree.selectedItems()
+                        if isinstance(i.data(0, self.GA_OBJECT_ROLE), GroupAddress)]
+            if ga.address not in selected:
+                selected = [ga.address]
+            gewerk_action = menu.addAction(
+                f"Gewerk zuordnen… ({len(selected)} GA)" if len(selected) > 1
+                else "Gewerk zuordnen…")
             action = menu.exec(global_pos)
             if action == edit_action:
                 self._edit_ga(ga)
+            elif action == gewerk_action:
+                self.gewerk_change_requested.emit(selected)
         else:
             # HG- oder MG-Knoten: Auf-/Zuklappen anbieten
             expand_act  = menu.addAction("Aufklappen")

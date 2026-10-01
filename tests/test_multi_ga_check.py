@@ -29,6 +29,7 @@ def _project(variant="B"):
     """Taster 1.1.51 mit zwei Doppelbelegungen, Aktor 1.1.15, Gateway 1.2.7."""
     project = KnxProject(name="Chalet")
     project.config.mg_variant = variant
+    project.topology.is_imported = True   # aus der ETS (Richtlinien nur Hinweis)
     halle = Room(number="00", name="Halle")
     sf = SensorFunktion(label="Taste 2, links", ga_designation="12/0/120  Musik_ea",
                         extra_gas=[SensorFunktionGa(ga_designation="12/1/62  S1 Wohnen_ea",

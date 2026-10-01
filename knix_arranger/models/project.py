@@ -21,6 +21,7 @@ from .quotation import Supplier, QuotationRequest, CustomerQuote
 from .documentation import AcceptanceProtocol, CommissioningChecklist
 from .company_profile import CompanyProfile, ProjectInfo
 from .client_profile import ClientProfile
+from .ets_corrections import EtsCorrections
 from .material_list import MaterialList
 from .dali_config import DaliGateway
 from .knx_secure import KnxSecureConfig
@@ -95,6 +96,9 @@ class KnxProject:
     config: ProjectConfig = field(default_factory=ProjectConfig)
     project_info: ProjectInfo = field(default_factory=ProjectInfo)
     client_profile: ClientProfile = field(default_factory=ClientProfile)
+    # Korrekturen an importierten ETS-Daten (Korrekturschicht, siehe
+    # services/ets_corrections) -- die ETS-Daten selbst bleiben unverändert
+    ets_corrections: EtsCorrections = field(default_factory=EtsCorrections)
     areal: Areal = field(default_factory=Areal)
     topology: Topology = field(default_factory=Topology)
     group_addresses: GroupAddressStructure = field(default_factory=GroupAddressStructure)
@@ -204,6 +208,7 @@ class KnxProject:
             "config": self.config.to_dict(),
             "project_info": self.project_info.to_dict(),
             "client_profile": self.client_profile.to_dict(),
+            "ets_corrections": self.ets_corrections.to_dict(),
             "areal": self.areal.to_dict(),
             "topology": self.topology.to_dict(),
             "group_addresses": self.group_addresses.to_dict(),
@@ -257,6 +262,7 @@ class KnxProject:
         project.config = ProjectConfig.from_dict(data.get("config", {}))
         project.project_info = ProjectInfo.from_dict(data.get("project_info", {}))
         project.client_profile = ClientProfile.from_dict(data.get("client_profile", {}))
+        project.ets_corrections = EtsCorrections.from_dict(data.get("ets_corrections"))
         project.areal = Areal.from_dict(data.get("areal", {}))
         project.topology = Topology.from_dict(data.get("topology", {}))
         project.group_addresses = GroupAddressStructure.from_dict(

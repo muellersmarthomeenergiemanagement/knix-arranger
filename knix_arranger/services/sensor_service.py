@@ -756,6 +756,9 @@ def refresh_bedienelemente(project) -> None:
     Daten, und Fehler darin waren kaum nachvollziehbar (Chalet 1.1.40/1.1.52).
     """
     from .knxproj_import_service import KnxprojImportService
+    from .ets_corrections import apply_ets_corrections
+    # Korrekturen zur ETS nach Öffnen/Import/Neuaufbau wieder anwenden
+    apply_ets_corrections(project)
     try:
         KnxprojImportService._create_bedienelemente_from_topology(
             project.topology, project.areal

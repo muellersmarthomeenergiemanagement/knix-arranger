@@ -16,9 +16,10 @@ from ...models.project import KnxProject
 class ProjectPropertiesDialog(QDialog):
     """Dialog zum Bearbeiten aller Projekteigenschaften."""
 
-    def __init__(self, project: KnxProject, parent=None):
+    def __init__(self, project: KnxProject, parent=None, bus=None):
         super().__init__(parent)
         self._project = project
+        self._bus = bus
         self.setWindowTitle("Projekteigenschaften")
         self.setMinimumSize(480, 400)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
@@ -57,8 +58,37 @@ class ProjectPropertiesDialog(QDialog):
         modified_lbl.setStyleSheet("color: #666;")
         form.addRow("Zuletzt geändert:", modified_lbl)
 
+        # Projektart: bestimmt, wie streng die Projektrichtlinien gelten
+        if project.topology.is_imported:
+            kind = ("<b>Aus der ETS importiert</b> – die ETS bleibt massgebend. "
+                    "KNiX dokumentiert; Abweichungen von den Projektrichtlinien "
+                    "werden als Hinweis gezeigt, Korrekturen nur in KNiX gespeichert.")
+        else:
+            kind = ("<b>Mit KNiX geplant</b> – die Projektrichtlinien gelten "
+                    "verbindlich; Abweichungen meldet die Validierung als Fehler.")
+        kind_lbl = QLabel(kind)
+        kind_lbl.setWordWrap(True)
+        kind_lbl.setTextFormat(Qt.RichText)
+        form.addRow("Projektart:", kind_lbl)
+
         general_group.setLayout(form)
         layout.addWidget(general_group)
+
+        # ── Kunde / Bauherr (Kundenprofil: Offerte, Anleitung, Berichtsköpfe) ──
+        client_group = QGroupBox("Kunde / Bauherr")
+        client_row = QHBoxLayout()
+        self._client_summary = QLabel()
+        self._client_summary.setWordWrap(True)
+        self._client_summary.setTextFormat(Qt.RichText)
+        client_row.addWidget(self._client_summary, 1)
+        btn_client = QPushButton("Kundenprofil bearbeiten…")
+        btn_client.setToolTip("Name, Objekt- und Postadresse, Anrede, Kontakt und Foto. "
+                              "Wird für Kundenofferte, Bedienungsanleitung und Berichte verwendet.")
+        btn_client.clicked.connect(self._edit_client)
+        client_row.addWidget(btn_client)
+        client_group.setLayout(client_row)
+        layout.addWidget(client_group)
+        self._update_client_summary()
 
         # ── Konfiguration ──
         config_group = QGroupBox("Projektkonfiguration")
@@ -151,3 +181,19 @@ class ProjectPropertiesDialog(QDialog):
         self._project.config.topology_mode = self._topo_combo.currentText()
         self._project.config.backbone_type = self._backbone_combo.currentText()
         self.accept()
+
+    def _update_client_summary(self) -> None:
+        cp = self._project.client_profile
+        parts = [f"<b>{cp.name}</b>" if cp.name else ""]
+        if cp.object_address:
+            parts.append(f"Objekt: {cp.object_address}")
+        if cp.contact_address:
+            parts.append(f"Post: {cp.contact_address}")
+        text = "<br>".join(p for p in parts if p)
+        self._client_summary.setText(
+            text or "<i>Noch kein Kundenprofil erfasst.</i>")
+
+    def _edit_client(self) -> None:
+        from .client_profile_dialog import edit_client_profile
+        if edit_client_profile(self._project, self, self._bus):
+            self._update_client_summary()
