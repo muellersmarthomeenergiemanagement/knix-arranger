@@ -49,3 +49,14 @@ def test_abnahmeprotokoll_mit_profilen(tmp_path):
                      "Abnahmeentscheid", "Chaletweg 5", "Max Muster, Muster AG"):
         assert expected in text
     assert "Gepruefte" not in text
+
+
+def test_excel_zeilenhoehe_nach_inhalt(tmp_path):
+    import openpyxl
+    path = str(tmp_path / "cl.xlsx")
+    DocumentationService(_project()).export_checklists_excel(path)
+    ws = openpyxl.load_workbook(path).active
+    row = next(r for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value == "1 links")
+    lines = str(ws.cell(row, 3).value).count("\n") + 1
+    assert lines >= 2
+    assert ws.row_dimensions[row].height >= lines * 12

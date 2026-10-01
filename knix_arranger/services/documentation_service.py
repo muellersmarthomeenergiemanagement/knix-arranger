@@ -442,8 +442,7 @@ class DocumentationService:
         excel = ExcelGenerator(title="Inbetriebnahme-Checkliste", project_name=self.project.name)
         excel.set_column_widths(self._CL_XL_WIDTHS)
         excel.set_print_options(orientation="landscape")
-        excel.add_header()
-        excel.add_heading("Inbetriebnahme-Checkliste", level=1)
+        excel.add_header()   # Titel steht bereits im Kopf
         excel.add_empty_row()
 
         def table(rows):

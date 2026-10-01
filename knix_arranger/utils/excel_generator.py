@@ -3,6 +3,7 @@ Excel-Erzeugung (NFA-050)
 Basis-Excel-Engine für Berichte und Formulare mit openpyxl.
 """
 from __future__ import annotations
+import math
 import logging
 from datetime import datetime
 
@@ -190,9 +191,23 @@ class ExcelGenerator:
                                        wrap_text=True)
         self._row += 1
 
-        # Daten-Zeilen
+        # Daten-Zeilen: Höhe aus dem Inhalt der Umbruch-Spalten (Zeilen-
+        # umbrüche und Spaltenbreite) -- eine feste Höhe schnitt mehrzeilige
+        # Zellen ab, Excel passt eine gesetzte Höhe beim Öffnen nicht an
+        def needed_height(row_data) -> float:
+            lines = 1
+            for col_idx, value in enumerate(row_data, 1):
+                if col_idx not in wrap_set or value in (None, ""):
+                    continue
+                width = ws.column_dimensions[get_column_letter(col_idx)].width or 10
+                per_line = max(1, int((width - 2) * 1.1))   # Inter 9 pt, Einzug
+                n = sum(max(1, math.ceil(len(part) / per_line))
+                        for part in str(value).split("\n"))
+                lines = max(lines, n)
+            return max(data_row_height, lines * 12 + 6)
+
         for row_idx, row_data in enumerate(rows):
-            ws.row_dimensions[self._row].height = data_row_height
+            ws.row_dimensions[self._row].height = needed_height(row_data)
             for col_idx, value in enumerate(row_data, 1):
                 cell = ws.cell(row=self._row, column=col_idx, value=value)
                 cell.font = row_font
