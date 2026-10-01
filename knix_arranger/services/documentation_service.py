@@ -236,25 +236,23 @@ class DocumentationService:
         total = sum(len(cl.items) for cl in self.project.checklists)
         return added, total
 
-    # Spaltenköpfe (geteilt zwischen PDF und Excel)
-    _DEV_HEADERS = ["Prüfpunkt", "Beschreibung", "OK", "Bemerkung"]
-    _FN_HEADERS  = ["Kanal", "GA-Bezeichnung", "Funktion", "OK", "Bemerkung"]
+    # Geräte-Grundprüfungen (Erfassung in der Inbetriebnahme-Ansicht je Punkt)
     _DEVICE_CHECKS = [
         ("Montage",           "Gerät montiert und beschriftet"),
         ("Physik. Adresse",   "Physikalische Adresse programmiert"),
         ("Applikation",       "Applikationsprogramm geladen"),
         ("Kommunikation",     "Bustelegramme empfangen und gesendet"),
     ]
+    _DEVICE_CHECK_TEXT = ("montiert und beschriftet · physikalische Adresse · "
+                          "Applikation geladen · Kommunikation")
 
-    # Einheitliches 5-Spalten-Layout für Excel-Checklisten
-    # Beide Tabellentypen (Geräteprüfung + GA-Funktionen) teilen dieselben Spalten,
-    # damit OK und Bemerkung immer in der gleichen Spalte landen.
-    _XL_HEADERS   = ["Typ / Kanal", "Prüfpunkt / GA", "Beschreibung / Funktion",
-                      "OK", "Bemerkung"]
-    _XL_COL_WIDTHS = [16, 28, 32, 6, 34]   # A–E in Zeichen
-    _XL_CENTER_COLS = [4]                   # OK-Spalte zentrieren
-    _XL_WRAP_COLS   = [3, 5]               # Beschreibung + Bemerkung umbrechen
-    _XL_CHECKBOX    = "☐"
+    # Ausdruck (PDF/Excel): eine Zeile je Taste, breite Bemerkungsspalte
+    _CL_HEADERS = ["Taste", "Funktion", "Gruppenadressen", "OK", "Bemerkung"]
+    _CL_PDF_WIDTHS = [0.09, 0.24, 0.31, 0.06, 0.30]
+    _CL_XL_WIDTHS = [10, 30, 42, 8, 46]   # A–E in Zeichen
+    _XL_CENTER_COLS = [4]                 # OK-Spalte zentrieren
+    _XL_WRAP_COLS = [2, 3, 5]
+    _XL_CHECKBOX = "☐"
 
     def _checklist_rooms(self):
         """Alle Räume mit aktuellen Funktionszuordnungen – aus einer Kopie,
@@ -263,191 +261,237 @@ class DocumentationService:
         export_project = project_for_export(self.project)
         return sorted_rooms(export_project.areal)
 
+    def _checklist_sections(self):
+        """Inhalt des Ausdrucks: [(Stockwerk, Raum, [(Titel, Zeilen)])].
+
+        Zeile = (Taste, Funktion, Gruppenadressen, Ergebnis-Schlüssel). Je
+        Taste eine Zeile mit allen GAs (Befehl, LED); die Funktion wie in der
+        Bedienungsanleitung (gesteuertes Objekt, eigene Bezeichnung). Die
+        Schlüssel verweisen auf die je GA erfassten Ergebnisse der
+        Inbetriebnahme-Ansicht (room_id, be_type, be_number, Kanal, GA)."""
+        from .sensor_service import project_for_export
+        from .user_manual import UserManualBuilder
+        from .bedienelement_layout import group_assignments, parse_button
+        from .report_service import _ga_line
+
+        project = project_for_export(self.project)
+        builder = UserManualBuilder(project, snapshot=False)
+        imported = project.topology.is_imported
+        floor_by_room = {}
+        for building in project.areal.buildings:
+            for wing in building.wings:
+                for floor in wing.floors:
+                    for apt in floor.apartments:
+                        for room in apt.rooms:
+                            floor_by_room[room.id] = floor.name
+
+        sections = []
+        for room in sorted_rooms(project.areal):
+            cards = []
+            for be in room.bedienelemente:
+                if not be.is_shown(imported):
+                    continue
+                be_num = be.participant_number or ""
+                rows = []
+                dev_keys = [(room.id, be.element_type, be_num, pt, "")
+                            for pt, _ in self._DEVICE_CHECKS]
+                rows.append(("Gerät", "Grundprüfung", self._DEVICE_CHECK_TEXT, dev_keys))
+                labels = {}
+                if be.function_assignments:
+                    try:
+                        labels = {(kl.key.number, kl.key.side): kl.label
+                                  for kl in builder.key_lines(be, room.name)}
+                    except Exception:
+                        labels = {}
+                fa_keys: dict[tuple, list] = {}
+                for fa in be.function_assignments:
+                    parsed = parse_button(fa.button_channel)
+                    k = ((parsed[0].number, parsed[0].side, parsed[0].variant)
+                         if parsed else ("~", fa.button_channel or fa.description))
+                    fa_keys.setdefault(k, []).append(
+                        (room.id, be.element_type, be_num, fa.button_channel, fa.function_ga))
+                for row in group_assignments(be.function_assignments, builder._resolve):
+                    if row.key is None:
+                        k = ("~", row.name)
+                        taste, function = "–", row.name
+                    else:
+                        k = (row.key.number, row.key.side, row.key.variant)
+                        taste = row.key.label()
+                        function = labels.get((row.key.number, row.key.side), "") \
+                            if not row.key.variant else ""
+                        function = function or (
+                            "langer Tastendruck" if row.key.variant == "lang"
+                            else row.key.variant or "–")
+                    gas = "\n".join(_ga_line(g) for g in row.gas)
+                    if row.led_gas:
+                        gas += "\n" + "\n".join("LED: " + _ga_line(g) for g in row.led_gas)
+                    rows.append((taste, function, gas.strip() or "–", fa_keys.get(k, [])))
+                device = builder.device_by_addr.get(be_num)
+                product = (device.product_name or device.product) if device else be.product_name
+                title = " · ".join(p for p in (be_num or "ohne Adresse",
+                                               be.element_type or "Bedienelement", product) if p)
+                cards.append((title, rows))
+            if cards:
+                floor = floor_by_room.get(room.id, "") or "Ohne Stockwerk"
+                sections.append((floor, f"{room.number} {room.name}".strip(), cards))
+        return sections
+
+    def _saved_results(self) -> dict[tuple, ChecklistItem]:
+        saved: dict[tuple, ChecklistItem] = {}
+        for cl in self.project.checklists:
+            for item in cl.items:
+                saved[(item.room_id, item.be_type, item.be_number,
+                       item.check_type, item.function_ga)] = item
+        return saved
+
+    @staticmethod
+    def _combined_result(keys: list, saved: dict) -> tuple[str, str]:
+        """Ergebnis einer Ausdruckzeile aus den je GA erfassten Punkten:
+        ein Mangel -> Mangel, alle OK/n.a. -> OK, sonst offen."""
+        items = [saved[k] for k in keys if k in saved]
+        notes = "; ".join(dict.fromkeys(i.notes for i in items if i.notes))
+        results = [i.result for i in items if i.result]
+        if "Mangel" in results:
+            return "Mangel", notes
+        if items and len(results) == len(items) and all(r in ("OK", "n/a") for r in results):
+            return "OK", notes
+        return "", notes
+
     def export_checklists_pdf(self, filepath: str,
                               checklists: list[CommissioningChecklist] | None = None):
-        """Exportiert Inbetriebnahme-Checklisten als PDF (FA-1904).
-
-        Struktur: Raum → Sensor/Bedienelement → Geräte-Grundprüfungen + GA-Funktionen.
-        """
-        all_rooms = self._checklist_rooms()
-
+        """Inbetriebnahme-Checkliste als PDF (FA-1904): Stockwerk → Raum →
+        Gerät, je Taste eine Zeile, breite Bemerkungsspalte; danach die
+        Verteiler mit einer Zeile je Gerät."""
+        saved = self._saved_results()
         pdf = self._make_pdf("Inbetriebnahme-Checkliste")
         pdf.add_heading("Inbetriebnahme-Checkliste", level=1)
         pdf.add_paragraph(
-            f"Projekt: {self.project.name} | "
-            f"Datum: {datetime.now().strftime('%d.%m.%Y')}"
-        )
-        pdf.add_separator()
+            f"Projekt: {self.project.name} | Datum: {datetime.now().strftime('%d.%m.%Y')}")
+        pdf.add_note("Hinweis:", "Je Taste eine Zeile mit allen Gruppenadressen. "
+                                 "OK ankreuzen, Mängel in der Spalte Bemerkung festhalten.")
 
-        for room in all_rooms:
-            pdf.add_heading(f"{room.number}  {room.name}", level=2)
+        def mark(keys):
+            result, notes = self._combined_result(keys, saved)
+            return {"OK": "[x]", "Mangel": "[!]"}.get(result, "[ ]"), notes
 
-            active_bes = [be for be in room.bedienelemente if not be.suppressed]
-            if not active_bes:
-                pdf.add_paragraph("Keine Bedienelemente zugeordnet.")
-                continue
-
-            for be in active_bes:
-                addr = f"  [{be.participant_number}]" if be.participant_number else ""
-                pdf.add_heading(f"{be.element_type}{addr}", level=3)
-
-                # Geräte-Grundprüfungen
-                dev_rows = [[pt, desc, "[ ]", ""] for pt, desc in self._DEVICE_CHECKS]
-                pdf.add_table(self._DEV_HEADERS, dev_rows)
-
-                # GA-Funktionsprüfungen
-                if be.function_assignments:
-                    fn_rows = [
-                        [fa.button_channel, fa.function_ga, fa.description, "[ ]", ""]
-                        for fa in be.function_assignments
-                    ]
-                    pdf.add_table(self._FN_HEADERS, fn_rows)
-
-            pdf.add_conditional_break(min_height=80)
+        current_floor = None
+        for floor, room_label, cards in self._checklist_sections():
+            if floor != current_floor:
+                pdf.add_page_break()
+                pdf.add_heading(floor, level=2)
+                current_floor = floor
+            else:
+                pdf.add_conditional_break(min_height=140)
+            pdf.add_heading(room_label, level=3)
+            for title, rows in cards:
+                pdf.add_conditional_break(min_height=min(60 + 26 * len(rows), 400))
+                pdf.add_card_header(title, "", bookmark=f"{room_label}: {title}")
+                table = []
+                for taste, function, gas, keys in rows:
+                    ok, notes = mark(keys)
+                    table.append([taste, function, gas, ok, notes])
+                pdf.add_table(self._CL_HEADERS, table, col_widths=self._CL_PDF_WIDTHS)
 
         # DALI-Notlicht-Prüfpunkte (FA-2804)
         if self.project.dali_configs:
             from .dali_service import DaliService
             svc = DaliService()
+            pdf.add_page_break()
             pdf.add_heading("DALI Notbeleuchtung", level=2)
             for gw in self.project.dali_configs.values():
-                rows = [
-                    [d["category"], d["text"], "[ ]", ""]
-                    for d in svc.generate_emergency_checklist_items(gw)
-                ]
+                rows = [[d["category"], d["text"], "", "[ ]", ""]
+                        for d in svc.generate_emergency_checklist_items(gw)]
                 if rows:
-                    pdf.add_table(self._DEV_HEADERS, rows)
+                    pdf.add_table(self._CL_HEADERS, rows, col_widths=self._CL_PDF_WIDTHS)
 
-        # Verteiler-Geräte (Aktoren, Gateways, Koppler, Netzteile)
-        for location, devices in self._verteiler_devices_by_location().items():
-            pdf.add_heading(f"Verteiler {location}", level=2)
-            for device in devices:
-                label = device.product or device.device_type
-                addr = f"  [{device.physical_address}]" if device.physical_address else ""
-                pdf.add_heading(f"{label}{addr}", level=3)
-                dev_rows = [[pt, desc, "[ ]", ""] for pt, desc in self._DEVICE_CHECKS]
-                pdf.add_table(self._DEV_HEADERS, dev_rows)
-            pdf.add_conditional_break(min_height=80)
+        # Verteiler: eine Zeile je Gerät
+        verteiler = self._verteiler_devices_by_location()
+        if verteiler:
+            pdf.add_page_break()
+            pdf.add_heading("Verteiler", level=2)
+            pdf.add_note("Je Gerät:", self._DEVICE_CHECK_TEXT)
+            from .report_service import _clean_location
+            for location, devices in verteiler.items():
+                pdf.add_heading(_clean_location(location), level=3)
+                table = []
+                for idx, device in enumerate(devices):
+                    label = device.product_name or device.product or device.device_type
+                    number = device.physical_address or f"#{idx + 1}"
+                    keys = [(f"__verteiler__{location}", device.product or device.device_type,
+                             number, pt, "") for pt, _ in self._DEVICE_CHECKS]
+                    ok, notes = mark(keys)
+                    table.append([number, label, "", ok, notes])
+                pdf.add_table(["Adresse", "Gerät", "", "OK", "Bemerkung"], table,
+                              col_widths=[0.09, 0.45, 0.10, 0.06, 0.30])
 
         pdf.save(filepath)
         logger.info(f"Checklisten exportiert: {filepath}")
 
     def export_checklists_excel(self, filepath: str,
                                 checklists: list[CommissioningChecklist] | None = None):
-        """Exportiert Inbetriebnahme-Checklisten als Excel (FA-1904).
-
-        Verwendet gespeicherte Ergebnisse aus project.checklists wenn vorhanden,
-        sonst leere ☐-Checkboxen. Layout: einheitliches 5-Spalten-Schema.
-        """
+        """Inbetriebnahme-Checkliste als Excel (FA-1904), gleiche Gliederung
+        wie das PDF; erfasste Ergebnisse je Zeile zusammengefasst."""
         if not HAS_OPENPYXL:
             raise ImportError("openpyxl wird für Excel-Export benötigt.")
+        saved = self._saved_results()
 
-        # Gespeicherte Ergebnisse: (room_id, be_type, be_number, check_type, function_ga) → item
-        saved: dict[tuple, ChecklistItem] = {}
-        for cl in self.project.checklists:
-            for item in cl.items:
-                saved[(item.room_id, item.be_type, item.be_number,
-                       item.check_type, item.function_ga)] = item
+        def cell(keys):
+            result, notes = self._combined_result(keys, saved)
+            return {"OK": "✓ OK", "Mangel": "⚠ Mangel"}.get(result, self._XL_CHECKBOX), notes
 
-        def _result_cell(item: ChecklistItem | None) -> str:
-            if item is None or not item.result:
-                return self._XL_CHECKBOX
-            return {"OK": "✓ OK", "Mangel": "⚠ Mangel", "n/a": "–"}.get(
-                item.result, self._XL_CHECKBOX
-            )
-
-        def _notes(item: ChecklistItem | None) -> str:
-            return item.notes if item else ""
-
-        all_rooms = self._checklist_rooms()
-
-        excel = ExcelGenerator(
-            title="Inbetriebnahme-Checkliste",
-            project_name=self.project.name,
-        )
-        excel.set_column_widths(self._XL_COL_WIDTHS)
+        excel = ExcelGenerator(title="Inbetriebnahme-Checkliste", project_name=self.project.name)
+        excel.set_column_widths(self._CL_XL_WIDTHS)
         excel.set_print_options(orientation="landscape")
         excel.add_header()
         excel.add_heading("Inbetriebnahme-Checkliste", level=1)
         excel.add_empty_row()
 
-        for room in all_rooms:
-            excel.add_heading(f"{room.number}  {room.name}", level=2)
-            active_bes = [be for be in room.bedienelemente if not be.suppressed]
-            if not active_bes:
-                excel.add_paragraph("Keine Bedienelemente zugeordnet.")
-                excel.add_empty_row(height=4)
-                continue
+        def table(rows):
+            excel.add_table(self._CL_HEADERS, rows, center_cols=self._XL_CENTER_COLS,
+                            wrap_cols=self._XL_WRAP_COLS, data_row_height=20)
 
-            for be in active_bes:
-                addr = f"  [{be.participant_number}]" if be.participant_number else ""
-                excel.add_heading(f"{be.element_type}{addr}", level=3)
-
-                be_num = be.participant_number or ""
-                rows = []
-                for pt, desc in self._DEVICE_CHECKS:
-                    it = saved.get((room.id, be.element_type, be_num, pt, ""))
-                    rows.append(["", pt, desc, _result_cell(it), _notes(it)])
-
-                for fa in be.function_assignments:
-                    it = saved.get((room.id, be.element_type, be_num,
-                                    fa.button_channel, fa.function_ga))
-                    rows.append([
-                        fa.button_channel, fa.function_ga, fa.description,
-                        _result_cell(it), _notes(it),
-                    ])
-
-                if rows:
-                    excel.add_table(
-                        self._XL_HEADERS, rows,
-                        center_cols=self._XL_CENTER_COLS,
-                        wrap_cols=self._XL_WRAP_COLS,
-                        data_row_height=20,
-                    )
+        current_floor = None
+        for floor, room_label, cards in self._checklist_sections():
+            if floor != current_floor:
+                excel.add_heading(floor, level=1)
+                current_floor = floor
+            excel.add_heading(room_label, level=2)
+            for title, rows in cards:
+                excel.add_heading(title, level=3)
+                out = []
+                for taste, function, gas, keys in rows:
+                    ok, notes = cell(keys)
+                    out.append([taste, function, gas, ok, notes])
+                table(out)
                 excel.add_empty_row(height=4)
 
-        # DALI-Notlicht-Prüfpunkte (FA-2804)
         if self.project.dali_configs:
             from .dali_service import DaliService
             svc = DaliService()
-            excel.add_heading("DALI Notbeleuchtung", level=2)
+            excel.add_heading("DALI Notbeleuchtung", level=1)
             for gw in self.project.dali_configs.values():
-                rows = [
-                    ["", d["category"], d["text"],
-                     _result_cell(saved.get(("__dali__", "", d["category"], ""))),
-                     _notes(saved.get(("__dali__", "", d["category"], "")))]
-                    for d in svc.generate_emergency_checklist_items(gw)
-                ]
+                rows = [[d["category"], d["text"], "", self._XL_CHECKBOX, ""]
+                        for d in svc.generate_emergency_checklist_items(gw)]
                 if rows:
-                    excel.add_table(
-                        self._XL_HEADERS, rows,
-                        center_cols=self._XL_CENTER_COLS,
-                        wrap_cols=self._XL_WRAP_COLS,
-                        data_row_height=20,
-                    )
+                    table(rows)
             excel.add_empty_row()
 
-        # Verteiler-Geräte (Aktoren, Gateways, Koppler, Netzteile)
-        for location, devices in self._verteiler_devices_by_location().items():
-            room_id = f"__verteiler__{location}"
-            excel.add_heading(f"Verteiler {location}", level=2)
-            for idx, device in enumerate(devices):
-                label = device.product or device.device_type
-                dev_number = device.physical_address or f"#{idx + 1}"
-                addr = f"  [{device.physical_address}]" if device.physical_address else ""
-                excel.add_heading(f"{label}{addr}", level=3)
-
+        verteiler = self._verteiler_devices_by_location()
+        if verteiler:
+            excel.add_heading("Verteiler", level=1)
+            excel.add_paragraph(f"Je Gerät: {self._DEVICE_CHECK_TEXT}")
+            from .report_service import _clean_location
+            for location, devices in verteiler.items():
+                excel.add_heading(_clean_location(location), level=2)
                 rows = []
-                for pt, desc in self._DEVICE_CHECKS:
-                    it = saved.get((room_id, label, dev_number, pt, ""))
-                    rows.append(["", pt, desc, _result_cell(it), _notes(it)])
-                if rows:
-                    excel.add_table(
-                        self._XL_HEADERS, rows,
-                        center_cols=self._XL_CENTER_COLS,
-                        wrap_cols=self._XL_WRAP_COLS,
-                        data_row_height=20,
-                    )
+                for idx, device in enumerate(devices):
+                    label = device.product_name or device.product or device.device_type
+                    number = device.physical_address or f"#{idx + 1}"
+                    keys = [(f"__verteiler__{location}", device.product or device.device_type,
+                             number, pt, "") for pt, _ in self._DEVICE_CHECKS]
+                    ok, notes = cell(keys)
+                    rows.append([number, label, "", ok, notes])
+                table(rows)
                 excel.add_empty_row(height=4)
 
         excel.save(filepath)
