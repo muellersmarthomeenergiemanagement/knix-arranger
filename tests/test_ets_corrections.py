@@ -180,3 +180,29 @@ def test_import_ablauf_meldet_noch_verbundene_gas():
     pipeline.finalize("x.knxproj", ReimportDiff())
     assert [p.ga_address for p in pipeline.pending_unlinks] == ["12/1/62"]
     assert "12/1/62" not in taster.communication_objects[2].connected_gas
+
+
+def test_korrektur_entfaellt_wenn_ets_nachgefuehrt():
+    project = _project()
+    set_gewerk(project, ["2/2/115"], "G")
+    tor = project.group_addresses.all_addresses()[0]
+    tor.designation = "G.EG.01.03_ea   ( Tor Einstellhalle Berg )"   # Re-Import: in der ETS korrigiert
+    tor.gewerk_code = "G"
+    assert deviations(project) == []
+    apply_ets_corrections(project)
+    assert project.ets_corrections.gewerk_by_address == {}
+    assert tor.gewerk_code == "G"
+
+
+def test_raum_korrektur_entfaellt_wenn_ets_nachgefuehrt():
+    from knix_arranger.services.ets_corrections import check_rooms_after_import, set_device_room
+    project, taster, carnotzet, halle = _project_with_rooms()
+    set_device_room(project, taster, halle)
+    assert check_rooms_after_import(project) == 1      # frische Topologie: Gerät schon in der Halle
+    assert project.ets_corrections.room_by_device == {}
+    # ETS noch nicht nachgeführt: Korrektur bleibt
+    project, taster, carnotzet, halle = _project_with_rooms()
+    set_device_room(project, taster, halle)
+    taster.room_id = carnotzet.id                       # wie frisch aus der ETS
+    assert check_rooms_after_import(project) == 0
+    assert "1.2.6" in project.ets_corrections.room_by_device

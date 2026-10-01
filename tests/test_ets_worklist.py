@@ -18,12 +18,11 @@ def _by_key(items):
     return {i.key: i for i in items}
 
 
-def test_aufgaben_mit_prioritaet_und_handgriff():
+def test_aufgaben_kurz_in_ets_begriffen():
     items = wl.current_items(_project())
     must = [i for i in items if i.priority == wl.PRIO_MUST]
     assert [(i.where, i.rule_id) for i in must] == [("1.1.51 KO 6 «Taste 2, links»", "FA-614")]
-    assert must[0].task.startswith("GA 12/1/62 von diesem Objekt trennen")
-    assert must[0].how == "A: Gerät 1.1.51 → KO 6 → Verbindung zu 12/1/62 löschen, 1.1.51 programmieren."
+    assert must[0].task == "12/1/62 trennen (zweite sendende GA)."
     # Hinweise (z.B. Rückmeldung ausserhalb MG 6/7) gehören nicht in die Liste
     assert not any(i.rule_id == "FA-614" and "12/1/33" in i.key for i in items)
     # Reihenfolge: zuerst Muss, dann Prüfen
@@ -38,10 +37,11 @@ def test_abweichungen_als_unterlagen_bzw_muss():
     items = _by_key(wl.current_items(project))
     gewerk = items["FA-616|Gewerk|1/0/0"]
     assert gewerk.priority == wl.PRIO_DOCS
-    assert "«LD.EG.00.01_ea Licht»" in gewerk.task
+    assert gewerk.task == "Umbenennen in «LD.EG.00.01_ea Licht»."
     unlink = items["FA-616|Verknüpfung|1.1.51|6|12/1/62"]
     assert unlink.priority == wl.PRIO_MUST            # wirkt auf den Bus, bis die ETS trennt
     assert unlink.where == "1.1.51 KO 6 «Taste 2, links»"
+    assert unlink.task == "12/1/62 trennen (in KNiX bereits getrennt)."
     # der FA-614-Fehler ist mit der Trennung in KNiX weg -- keine doppelte Aufgabe
     assert not any(k.startswith("FA-614|1.1.51 KO 6") for k in items)
 
@@ -85,13 +85,13 @@ def test_export_pdf_und_excel(tmp_path):
     pdf = tmp_path / "liste.pdf"
     wl.export_pdf(project, str(pdf))
     text = "".join(page.get_text() for page in fitz.open(str(pdf)))
-    assert "Muss behoben werden" in text and "Handgriffe in der ETS" in text
-    assert "Verbindung zu 12/1/62 löschen" in text
+    assert "Muss behoben werden" in text and "12/1/62 trennen" in text
+    assert "Handgriff" not in text
 
     xlsx = tmp_path / "liste.xlsx"
     wl.export_excel(project, str(xlsx))
     wb = openpyxl.load_workbook(str(xlsx))
-    assert wb.sheetnames[:2] == ["Anleitung", "Arbeitsliste"]
+    assert wb.sheetnames == ["Arbeitsliste"]
     values = [c for row in wb["Arbeitsliste"].iter_rows(values_only=True) for c in row]
     assert "☐ offen" in values
     assert wb["Arbeitsliste"].data_validations.dataValidation

@@ -2,6 +2,23 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.28",
+      "date": "2026-10-01",
+      "neu": [
+        "ETS-Arbeitsliste (Validierung → «ETS-Arbeitsliste…» oder Berichte → Dokumentation, als PDF oder Excel): alles, was in der ETS zu korrigieren ist, knapp in ETS-Begriffen – gegliedert in «Muss behoben werden», «Prüfen» und «Unterlagen nachführen». Nach dem Re-Import zeigt KNiX, was erledigt, neu und noch offen ist.",
+        "Raum eines Geräts korrigieren: in der Topologie Rechtsklick «Raum zuordnen…». Das Bedienelement zieht mit; bei importierten Projekten bleibt die Zuordnung beim Re-Import erhalten, bis die ETS sie selbst liefert.",
+        "In KNiX getrennte GAs bleiben nach einem Re-Import getrennt. Sind sie in der ETS noch verbunden, weist KNiX nach dem Import darauf hin."
+      ],
+      "verbessert": [
+        "Re-Import und Neuaufbau aus der .knxproj behalten Tastenparameter und Szenenwerte aus dem früher eingelesenen Topologie- bzw. Gebäude-Report (die .knxproj enthält sie nicht). Ein Hinweis erinnert daran, den Report neu einzulesen, wenn Parameter in der ETS geändert wurden.",
+        "Korrekturen zur ETS (Gewerk, Raum) entfallen von selbst, sobald die ETS den gleichen Wert liefert."
+      ],
+      "behoben": [
+        "Nach dem Richtigstellen eines Gewerks in der ETS meldete die Validierung weiterhin «Abweichung zur ETS» (z.B. «Gewerk G statt G»).",
+        "Ein Re-Import der .knxproj löschte die Tastenparameter – die Bedienungsanleitung wurde dadurch ungenauer."
+      ]
+    },
+    {
       "version": "1.1.27",
       "date": "2026-10-01",
       "neu": [

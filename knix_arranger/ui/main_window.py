@@ -1154,6 +1154,8 @@ class MainWindow(QMainWindow):
             )
         self._warn_if_channel_conflicts(pipeline.channel_conflicts)
         parts = []
+        if diff.report_params_kept and not pipeline.params_from_report:
+            parts.append(self._report_params_note(pipeline, diff.report_params_kept))
         wl = pipeline.worklist_diff
         if wl is not None and not wl.first and (wl.done or wl.new or wl.open):
             parts.append(
@@ -1186,6 +1188,21 @@ class MainWindow(QMainWindow):
                 + f"\n\nDetails stehen in der Log-Datei im Ordner:\n{get_log_dir()}",
             )
 
+    @staticmethod
+    def _report_params_note(pipeline, count: int) -> str:
+        """Hinweis: Tastenparameter stammen aus einem früher eingelesenen
+        Report, die .knxproj liefert sie nicht."""
+        dated = ""
+        paths = [pipeline.source(k) for k in (TOPOLOGY_XLSX, BUILDING_REPORT)]
+        paths = [p for p in paths if p]
+        if paths:
+            from datetime import datetime
+            newest = max(os.path.getmtime(p) for p in paths)
+            dated = f" vom {datetime.fromtimestamp(newest).strftime('%d.%m.%Y')}"
+        return (f"Tastenparameter und Szenenwerte von {count} Gerät(en) stammen aus dem "
+                f"früher eingelesenen ETS-Report{dated}. Wurden Parameter in der ETS "
+                "geändert: Topologie- oder Gebäude-Report neu einlesen.")
+
     def _import_xlsx(self, filepath: str):
         """Importiert einen ETS6 Topologie-Report oder GA-Report (XLSX) (FA-511, FA-519b).
 
@@ -1212,6 +1229,7 @@ class MainWindow(QMainWindow):
             self._project.topology = topology
             pipeline = ImportPipeline(self._project, importer)
             pipeline.links_from_ets = True
+            pipeline.topology_from_ets = True
             pipeline.set_source(TOPOLOGY_XLSX, filepath)
 
             # Projektname aus Metadaten uebernehmen, falls noch leer
@@ -1620,9 +1638,11 @@ class MainWindow(QMainWindow):
 
         # Neuaufbau (FA-527): nur die Geräte-IDs des bisherigen Stands
         # übernehmen, damit das behaltene KNX-Secure-Archiv passt
+        rebuild_params_kept = 0
         if self._rebuild_id_source is not None:
-            from ..services.rebuild_service import adopt_device_ids
+            from ..services.rebuild_service import adopt_device_ids, adopt_report_params
             adopt_device_ids(self._rebuild_id_source, project)
+            rebuild_params_kept = adopt_report_params(self._rebuild_id_source, project)
 
         # Gemeinsamer Import-Ablauf (ImportPipeline): Ableiten auf dem frisch
         # eingelesenen Projekt, dann Abgleich mit dem bisherigen Stand (alte
@@ -1631,8 +1651,10 @@ class MainWindow(QMainWindow):
         project.custom_gewerke = self._project.custom_gewerke
         pipeline = ImportPipeline(project)
         pipeline.links_from_ets = True
+        pipeline.topology_from_ets = True
         pipeline.derive()
         reconcile_diff = pipeline.reconcile(self._project)
+        reconcile_diff.report_params_kept += rebuild_params_kept
 
         # Projektdaten ins laufende Projekt uebernehmen
         self._project.name = project.name or self._project.name

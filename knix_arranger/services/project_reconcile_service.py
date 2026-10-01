@@ -15,6 +15,20 @@ from ..models.building import Room
 from ..utils.manufacturers import product_key
 
 
+def keep_report_params(old_dev, new_dev) -> bool:
+    """Tastenparameter, Szenenwerte und -auslöser stammen aus den ETS-Reports
+    (Excel); die .knxproj liefert sie (noch) nicht. Ohne diese Übernahme
+    löschte ein Re-Import der .knxproj sie -- die Bedienungsanleitung fiele
+    auf Vermutungen aus dem Datenpunkttyp zurück. Gibt True zurück, wenn
+    etwas übernommen wurde."""
+    kept = False
+    for attr in ("button_configuration", "scene_values", "scene_triggers"):
+        if not getattr(new_dev, attr) and getattr(old_dev, attr):
+            setattr(new_dev, attr, getattr(old_dev, attr))
+            kept = True
+    return kept
+
+
 @dataclass
 class ReimportDiff:
     """Ergebnis von reconcile_reimport() -- Zusammenfassung, was sich seit dem
@@ -28,6 +42,9 @@ class ReimportDiff:
     rooms_removed: list[str] = field(default_factory=list)     # Raumnummern
     manual_gas_restored: int = 0
     manual_gas_conflicts: list[str] = field(default_factory=list)  # Adressen "HG/MG/UG"
+    # Geräte, deren Tastenparameter/Szenenwerte aus dem bisherigen Stand
+    # (früher eingelesener Report) übernommen wurden
+    report_params_kept: int = 0
 
     @property
     def has_removed(self) -> bool:
@@ -144,6 +161,7 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
     }
     new_addrs: set[str] = set()
     devices_matched = 0
+    report_params_kept = 0
     for area in new_project.topology.areas:
         for line in area.lines:
             for new_dev in line.devices:
@@ -182,6 +200,8 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
                     new_dev.installation_location = old_dev.installation_location
                 if not new_dev.serial_number:
                     new_dev.serial_number = old_dev.serial_number
+                if keep_report_params(old_dev, new_dev):
+                    report_params_kept += 1
     devices_new = sorted(new_addrs - old_devices_by_addr.keys())
     devices_removed = sorted(old_devices_by_addr.keys() - new_addrs)
 
@@ -293,6 +313,7 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
         devices_matched=devices_matched, devices_new=devices_new, devices_removed=devices_removed,
         rooms_matched=rooms_matched, rooms_new=rooms_new, rooms_removed=rooms_removed,
         manual_gas_restored=manual_gas_restored, manual_gas_conflicts=manual_gas_conflicts,
+        report_params_kept=report_params_kept,
     )
 
 

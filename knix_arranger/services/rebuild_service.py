@@ -107,6 +107,26 @@ def adopt_device_ids(old: KnxProject, imported: KnxProject) -> int:
     return adopted
 
 
+def adopt_report_params(old: KnxProject, imported: KnxProject) -> int:
+    """Tastenparameter und Szenenwerte aus früher eingelesenen ETS-Reports
+    übernehmen (die .knxproj liefert sie nicht, siehe keep_report_params).
+    Gibt die Anzahl Geräte zurück."""
+    from .project_reconcile_service import keep_report_params
+    old_devices = {
+        d.physical_address: d
+        for area in old.topology.areas for line in area.lines for d in line.devices
+        if d.physical_address
+    }
+    kept = 0
+    for area in imported.topology.areas:
+        for line in area.lines:
+            for device in line.devices:
+                old_dev = old_devices.get(device.physical_address)
+                if old_dev and keep_report_params(old_dev, device):
+                    kept += 1
+    return kept
+
+
 def build_fresh_project(old: KnxProject, keep: set[str]) -> KnxProject:
     """Leeres Projekt am selben Speicherort, mit den gewählten Teilen des
     bisherigen Projekts (Objekte werden übernommen, nicht kopiert – das alte

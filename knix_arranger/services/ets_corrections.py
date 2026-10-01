@@ -29,9 +29,14 @@ def apply_ets_corrections(project) -> int:
     if overrides:
         for ga in project.group_addresses.all_addresses():
             code = overrides.get(ga.address)
-            if code:
-                ga.gewerk_code = code
-                n += 1
+            if not code:
+                continue
+            if ets_gewerk(ga) == code:
+                # in der ETS nachgeführt: Korrektur erledigt
+                del overrides[ga.address]
+                continue
+            ga.gewerk_code = code
+            n += 1
     _apply_rooms(project)
     _apply_unlinks(project)
     return n
@@ -78,7 +83,7 @@ def deviations(project) -> list[Deviation]:
     result = []
     for addr, code in corrections.gewerk_by_address.items():
         ga = by_address.get(addr)
-        if ga is None:
+        if ga is None or ets_gewerk(ga) == code:
             continue
         result.append(Deviation(addr, ga.designation, "Gewerk", ets_gewerk(ga) or "–", code))
 
@@ -180,6 +185,27 @@ def _apply_rooms(project) -> None:
             entry["ets"] = _key_of_room_id(project, device.room_id)
             device.room_id = room.id
         _move_bedienelement(project, pa, room)
+
+
+def check_rooms_after_import(project) -> int:
+    """Nach einem Import mit frischer Topologie, BEVOR die Korrekturen
+    angewendet werden: Steht ein Gerät laut ETS schon im korrigierten Raum,
+    ist die Korrektur dort nachgeführt und entfällt. Gibt die Anzahl
+    entfallener Korrekturen zurück."""
+    entries = project.ets_corrections.room_by_device
+    if not entries:
+        return 0
+    from .multi_ga_check import find_device
+    rooms = rooms_by_key(project)
+    done = []
+    for pa, entry in entries.items():
+        device = find_device(project, pa)
+        target = rooms.get(entry.get("room", ""))
+        if device is not None and target is not None and device.room_id == target[1].id:
+            done.append(pa)
+    for pa in done:
+        del entries[pa]
+    return len(done)
 
 
 # ── Getrennte KO-Verknüpfungen ──────────────────────────────────────────

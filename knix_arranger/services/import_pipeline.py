@@ -106,8 +106,12 @@ class ImportPipeline:
         # GA-Report) -- nur dann lässt sich prüfen, ob in KNiX getrennte
         # Verknüpfungen in der ETS noch bestehen
         self.links_from_ets = False
+        # Topologie samt Raumzuordnung frisch aus der ETS (knxproj, Topologie-Report)
+        self.topology_from_ets = False
         self.pending_unlinks: list = []
         self.worklist_diff = None    # Abgleich der ETS-Arbeitsliste (FA-618)
+        # Tastenparameter in diesem Import frisch aus einem Report gelesen
+        self.params_from_report = False
 
     # ── Hilfen ────────────────────────────────────────────────────────────
 
@@ -172,6 +176,8 @@ class ImportPipeline:
             for path in report_paths:
                 values.update(self.step(label, extract, path, default={}))
             self._apply_to_devices(attr, values)
+            if values and attr == "button_configuration":
+                self.params_from_report = True
 
         # Verteiler-Räume VOR der Raum-Linien-Verknüpfung, damit Geräte im
         # Verteiler dorthin statt in einen Funktionsraum kommen; manuelle
@@ -242,6 +248,9 @@ class ImportPipeline:
         self.step("DALI-Konfiguration", auto_configure_dali, project)
         # In KNiX getrennte Verknüpfungen, die die ETS noch hat (vor dem
         # erneuten Trennen in refresh_bedienelemente)
+        if self.topology_from_ets:
+            from .ets_corrections import check_rooms_after_import
+            self.step("Raum-Korrekturen", check_rooms_after_import, project, default=0)
         if self.links_from_ets:
             from .ets_corrections import check_unlinks_after_import
             self.pending_unlinks = self.step(
