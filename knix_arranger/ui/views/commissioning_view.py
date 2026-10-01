@@ -92,8 +92,18 @@ class CommissioningView(QWidget):
         hdr.addWidget(self._btn_sync)
 
         self._btn_export = QPushButton("Excel exportieren…")
+        self._btn_export.setToolTip(
+            "Checkliste zum Ausfüllen auf der Baustelle: je Stockwerk ein Blatt, "
+            "Spalte OK als Auswahlliste")
         self._btn_export.clicked.connect(self._export_excel)
         hdr.addWidget(self._btn_export)
+
+        self._btn_import = QPushButton("Excel einlesen…")
+        self._btn_import.setToolTip(
+            "Ausgefüllte Checkliste einlesen: Ergebnisse und Bemerkungen werden "
+            "übernommen, «offen» lässt vorhandene Ergebnisse unverändert")
+        self._btn_import.clicked.connect(self._import_excel)
+        hdr.addWidget(self._btn_import)
 
         layout.addLayout(hdr)
 
@@ -610,11 +620,32 @@ class CommissioningView(QWidget):
         )
         self.checklist_changed.emit()
 
-    def _export_excel(self):
-        if not self._project.checklists:
-            QMessageBox.information(self, "Keine Checkliste",
-                                    "Erstellen Sie zuerst eine Checkliste.")
+    def _import_excel(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Ausgefüllte Checkliste einlesen", "", "Excel-Dateien (*.xlsx)")
+        if not path:
             return
+        try:
+            stats = DocumentationService(self._project).import_checklists_excel(path)
+        except Exception as exc:
+            QMessageBox.warning(self, "Einlesen fehlgeschlagen",
+                                f"Die Datei konnte nicht gelesen werden:\n{exc}")
+            return
+        self.refresh()
+        self.checklist_changed.emit()
+        if not stats["rows"]:
+            QMessageBox.information(
+                self, "Keine Checkliste erkannt",
+                "Die Datei enthält keine Zeilen einer von KNiX erzeugten Checkliste.")
+            return
+        unknown = (f"\n{stats['unknown']} Zeilen passen zu keinem Prüfpunkt mehr "
+                   "(Gerät oder Taste inzwischen geändert)." if stats["unknown"] else "")
+        QMessageBox.information(
+            self, "Checkliste eingelesen",
+            f"{stats['rows']} Zeilen gelesen, {stats['items']} Prüfpunkte aktualisiert."
+            + unknown)
+
+    def _export_excel(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Checkliste exportieren",
             f"{self._project.name}_Checklisten.xlsx",

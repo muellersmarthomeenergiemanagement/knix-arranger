@@ -249,7 +249,7 @@ class DocumentationService:
     # Ausdruck (PDF/Excel): eine Zeile je Taste, breite Bemerkungsspalte
     _CL_HEADERS = ["Taste", "Funktion", "Gruppenadressen", "OK", "Bemerkung"]
     _CL_PDF_WIDTHS = [0.09, 0.24, 0.31, 0.06, 0.30]
-    _CL_XL_WIDTHS = [10, 30, 42, 8, 46]   # A–E in Zeichen
+    _CL_XL_WIDTHS = [13, 30, 42, 11, 44]  # A–E in Zeichen
     _XL_CENTER_COLS = [4]                 # OK-Spalte zentrieren
     _XL_WRAP_COLS = [2, 3, 5]
     _XL_CHECKBOX = "☐"
@@ -427,59 +427,70 @@ class DocumentationService:
         pdf.save(filepath)
         logger.info(f"Checklisten exportiert: {filepath}")
 
+    # Auswahl in der Spalte OK (Excel-Auswahlliste) <-> Ergebnis in KNiX
+    XL_CHOICES = {"☐ offen": "", "✓ OK": "OK", "⚠ Mangel": "Mangel", "– n/a": "n/a"}
+    XL_OPEN = "☐ offen"
+
+    @classmethod
+    def _xl_choice(cls, result: str) -> str:
+        return next((k for k, v in cls.XL_CHOICES.items() if v == result), cls.XL_OPEN)
+
     def export_checklists_excel(self, filepath: str,
                                 checklists: list[CommissioningChecklist] | None = None):
-        """Inbetriebnahme-Checkliste als Excel (FA-1904), gleiche Gliederung
-        wie das PDF; erfasste Ergebnisse je Zeile zusammengefasst."""
+        """Inbetriebnahme-Checkliste als Excel (FA-1904) zum Ausfüllen auf der
+        Baustelle und Wiedereinlesen (import_checklists_excel):
+        - Blatt "Übersicht" mit Fortschritt je Stockwerk (Formeln),
+        - je Stockwerk ein Blatt, dazu "Verteiler" und ggf. "DALI Notlicht",
+        - Spalte OK als Auswahlliste (offen / OK / Mangel / n/a) mit Farbe,
+        - ausgeblendete Spalte F mit dem Bezug zu den Prüfpunkten der App."""
         if not HAS_OPENPYXL:
             raise ImportError("openpyxl wird für Excel-Export benötigt.")
+        import json
+        from openpyxl.worksheet.datavalidation import DataValidation
+        from openpyxl.formatting.rule import FormulaRule
+        from openpyxl.styles import PatternFill, Font, Alignment
+        from .report_service import _clean_location
+
         saved = self._saved_results()
+        headers = self._CL_HEADERS + ["Bezug (nicht ändern)"]
+        widths = self._CL_XL_WIDTHS + [4]
 
-        def cell(keys):
+        def row_cells(keys, taste, function, gas):
             result, notes = self._combined_result(keys, saved)
-            return {"OK": "✓ OK", "Mangel": "⚠ Mangel"}.get(result, self._XL_CHECKBOX), notes
+            return [taste, function, gas, self._xl_choice(result), notes,
+                    json.dumps([list(k) for k in keys], ensure_ascii=False)]
 
-        excel = ExcelGenerator(title="Inbetriebnahme-Checkliste", project_name=self.project.name)
-        excel.set_column_widths(self._CL_XL_WIDTHS)
-        excel.set_print_options(orientation="landscape")
-        excel.add_header()   # Titel steht bereits im Kopf
-        excel.add_empty_row()
+        excel = ExcelGenerator(title="Übersicht", project_name=self.project.name)
+        sheets: list[str] = []
+
+        def new_sheet(name: str):
+            excel.add_sheet(name)
+            excel.set_column_widths(widths)
+            excel.set_print_options(orientation="landscape")
+            sheets.append(excel._current_sheet.title)
 
         def table(rows):
-            excel.add_table(self._CL_HEADERS, rows, center_cols=self._XL_CENTER_COLS,
+            excel.add_table(headers, rows, center_cols=self._XL_CENTER_COLS,
                             wrap_cols=self._XL_WRAP_COLS, data_row_height=20)
 
         current_floor = None
         for floor, room_label, cards in self._checklist_sections():
             if floor != current_floor:
-                excel.add_heading(floor, level=1)
+                new_sheet(floor)
+                excel.add_heading(f"Inbetriebnahme-Checkliste – {floor}", level=1)
                 current_floor = floor
             excel.add_heading(room_label, level=2)
             for title, rows in cards:
                 excel.add_heading(title, level=3)
-                out = []
-                for taste, function, gas, keys in rows:
-                    ok, notes = cell(keys)
-                    out.append([taste, function, gas, ok, notes])
-                table(out)
+                table([row_cells(keys, taste, function, gas)
+                       for taste, function, gas, keys in rows])
                 excel.add_empty_row(height=4)
-
-        if self.project.dali_configs:
-            from .dali_service import DaliService
-            svc = DaliService()
-            excel.add_heading("DALI Notbeleuchtung", level=1)
-            for gw in self.project.dali_configs.values():
-                rows = [[d["category"], d["text"], "", self._XL_CHECKBOX, ""]
-                        for d in svc.generate_emergency_checklist_items(gw)]
-                if rows:
-                    table(rows)
-            excel.add_empty_row()
 
         verteiler = self._verteiler_devices_by_location()
         if verteiler:
-            excel.add_heading("Verteiler", level=1)
+            new_sheet("Verteiler")
+            excel.add_heading("Inbetriebnahme-Checkliste – Verteiler", level=1)
             excel.add_paragraph(f"Je Gerät: {self._DEVICE_CHECK_TEXT}")
-            from .report_service import _clean_location
             for location, devices in verteiler.items():
                 excel.add_heading(_clean_location(location), level=2)
                 rows = []
@@ -488,13 +499,139 @@ class DocumentationService:
                     number = device.physical_address or f"#{idx + 1}"
                     keys = [(f"__verteiler__{location}", device.product or device.device_type,
                              number, pt, "") for pt, _ in self._DEVICE_CHECKS]
-                    ok, notes = cell(keys)
-                    rows.append([number, label, "", ok, notes])
+                    rows.append(row_cells(keys, number, label, ""))
                 table(rows)
                 excel.add_empty_row(height=4)
 
+        if self.project.dali_configs:
+            from .dali_service import DaliService
+            svc = DaliService()
+            rows = []
+            for gw in self.project.dali_configs.values():
+                for d in svc.generate_emergency_checklist_items(gw):
+                    keys = [("__dali__", "", "", d["category"], "")]
+                    rows.append(row_cells(keys, d["category"], d["text"], ""))
+            if rows:
+                new_sheet("DALI Notlicht")
+                excel.add_heading("DALI Notbeleuchtung", level=1)
+                table(rows)
+
+        # Auswahlliste, Farben, Bezugsspalte je Blatt
+        green = PatternFill(start_color="DCEFD6", end_color="DCEFD6", fill_type="solid")
+        red = PatternFill(start_color="F8D7D3", end_color="F8D7D3", fill_type="solid")
+        grey = PatternFill(start_color="ECECEC", end_color="ECECEC", fill_type="solid")
+        choices = ",".join(self.XL_CHOICES)
+        for name in sheets:
+            ws = excel.wb[name]
+            last = max(ws.max_row, 2)
+            dv = DataValidation(type="list", formula1=f'"{choices}"', allow_blank=True,
+                                showErrorMessage=True, errorTitle="Ergebnis",
+                                error="Bitte aus der Liste wählen.")
+            ws.add_data_validation(dv)
+            for r in range(1, last + 1):
+                if ws.cell(r, 4).value in self.XL_CHOICES:
+                    dv.add(ws.cell(r, 4))
+            area = f"A1:E{last}"
+            ws.conditional_formatting.add(area, FormulaRule(formula=['$D1="✓ OK"'], fill=green))
+            ws.conditional_formatting.add(area, FormulaRule(formula=['$D1="⚠ Mangel"'], fill=red))
+            ws.conditional_formatting.add(area, FormulaRule(formula=['$D1="– n/a"'], fill=grey))
+            ws.column_dimensions["F"].hidden = True
+            ws.print_area = area
+
+        # Übersicht: Fortschritt je Blatt per Formel
+        ws = excel.wb["Übersicht"]
+        excel._current_sheet = ws
+        excel._row = 1
+        excel.set_column_widths([30, 12, 12, 12, 12, 12])
+        excel.set_print_options(orientation="landscape")
+        excel.add_header()
+        excel.add_empty_row()
+        excel.add_paragraph("In den Blättern je Stockwerk in der Spalte OK auswählen "
+                            "(Zelle anklicken, Pfeil): offen, OK, Mangel oder n/a. "
+                            "Die ausgefüllte Datei lässt sich in KNiX wieder einlesen "
+                            "(Inbetriebnahme → Excel einlesen).")
+        excel.add_empty_row()
+        start = excel._row
+        excel.add_table(["Blatt", "Zeilen", "OK", "Mangel", "n/a", "offen"],
+                        [[n, "", "", "", "", ""] for n in sheets],
+                        center_cols=[2, 3, 4, 5, 6])
+        for i, name in enumerate(sheets):
+            r = start + 1 + i
+            ref = f"'{name}'!D:D"
+            ws.cell(r, 3).value = f'=COUNTIF({ref},"✓ OK")'
+            ws.cell(r, 4).value = f'=COUNTIF({ref},"⚠ Mangel")'
+            ws.cell(r, 5).value = f'=COUNTIF({ref},"– n/a")'
+            ws.cell(r, 6).value = f'=COUNTIF({ref},"☐ offen")'
+            ws.cell(r, 2).value = f"=SUM(C{r}:F{r})"
+        total = start + 1 + len(sheets)
+        ws.cell(total, 1).value = "Total"
+        ws.cell(total, 1).font = Font(name="Inter", size=9, bold=True)
+        for col in range(2, 7):
+            letter = "ABCDEF"[col - 1]
+            c = ws.cell(total, col)
+            c.value = f"=SUM({letter}{start + 1}:{letter}{total - 1})"
+            c.font = Font(name="Inter", size=9, bold=True)
+            c.alignment = Alignment(horizontal="center")
+        excel.wb.active = 0
+
         excel.save(filepath)
         logger.info(f"Checklisten Excel exportiert: {filepath}")
+
+    def import_checklists_excel(self, filepath: str) -> dict:
+        """Liest eine ausgefüllte Checkliste (export_checklists_excel) ein:
+        Ergebnis der Spalte OK und Bemerkung gehen auf alle Prüfpunkte der
+        Zeile (Bezug in Spalte F). "offen" bzw. leer lässt vorhandene
+        Ergebnisse unverändert. Fehlen die Prüfpunkte noch, werden sie aus
+        dem aktuellen Projektstand angelegt.
+
+        Gibt {"rows": gelesene Zeilen, "items": geänderte Prüfpunkte,
+        "unknown": Zeilen ohne passenden Prüfpunkt} zurück."""
+        import json
+        from openpyxl import load_workbook
+
+        if not self.project.checklists:
+            self.init_project_checklists()
+        else:
+            self.sync_project_checklists()
+        by_key: dict[tuple, ChecklistItem] = {}
+        for cl in self.project.checklists:
+            for item in cl.items:
+                by_key[(item.room_id, item.be_type, item.be_number,
+                        item.check_type, item.function_ga)] = item
+
+        stats = {"rows": 0, "items": 0, "unknown": 0}
+        wb = load_workbook(filepath, data_only=True)
+        for ws in wb.worksheets:
+            if ws.title == "Übersicht":
+                continue
+            for row in ws.iter_rows(min_row=1, max_col=6, values_only=True):
+                ref = row[5] if len(row) > 5 else None
+                if not isinstance(ref, str) or not ref.startswith("[["):
+                    continue
+                try:
+                    keys = [tuple(k) for k in json.loads(ref)]
+                except (ValueError, TypeError):
+                    continue
+                choice = (row[3] or "").strip() if isinstance(row[3], str) else ""
+                result = self.XL_CHOICES.get(choice, "")
+                notes = (row[4] or "").strip() if isinstance(row[4], str) else ""
+                items = [by_key[k] for k in keys if k in by_key]
+                stats["rows"] += 1
+                if not items:
+                    stats["unknown"] += 1
+                    continue
+                for item in items:
+                    changed = False
+                    if result and item.result != result:
+                        item.result = result
+                        changed = True
+                    if notes and item.notes != notes:
+                        item.notes = notes
+                        changed = True
+                    if changed:
+                        stats["items"] += 1
+        logger.info(f"Checklisten Excel eingelesen: {filepath} {stats}")
+        return stats
 
     # -- Abnahmeprotokoll (FA-1911) --
 

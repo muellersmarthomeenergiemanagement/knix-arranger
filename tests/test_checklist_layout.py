@@ -55,8 +55,40 @@ def test_excel_zeilenhoehe_nach_inhalt(tmp_path):
     import openpyxl
     path = str(tmp_path / "cl.xlsx")
     DocumentationService(_project()).export_checklists_excel(path)
-    ws = openpyxl.load_workbook(path).active
+    ws = openpyxl.load_workbook(path)["EG"]
     row = next(r for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value == "1 links")
     lines = str(ws.cell(row, 3).value).count("\n") + 1
     assert lines >= 2
     assert ws.row_dimensions[row].height >= lines * 12
+
+
+def test_excel_ausfuellen_und_einlesen(tmp_path):
+    """Blätter je Stockwerk, Auswahlliste OK, Ergebnisse zurück in die App."""
+    import openpyxl
+    project = _project()
+    path = str(tmp_path / "cl.xlsx")
+    DocumentationService(project).export_checklists_excel(path)
+    wb = openpyxl.load_workbook(path)
+    assert wb.sheetnames[0] == "Übersicht" and "EG" in wb.sheetnames
+    ws = wb["EG"]
+    assert ws.column_dimensions["F"].hidden
+    assert ws.data_validations.dataValidation
+    row = next(r for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value == "1 links")
+    assert ws.cell(row, 4).value == "☐ offen"
+    ws.cell(row, 4).value = "⚠ Mangel"
+    ws.cell(row, 5).value = "LED dunkel"
+    wb.save(path)
+
+    stats = DocumentationService(project).import_checklists_excel(path)
+    assert stats["items"] == 2 and stats["unknown"] == 0      # Befehl + Rückmeldung
+    defects = [i for cl in project.checklists for i in cl.items if i.result == "Mangel"]
+    assert {i.function_ga.split()[0] for i in defects} == {"1/0/0", "1/7/0"}
+    assert all(i.notes == "LED dunkel" for i in defects)
+    # «offen» überschreibt vorhandene Ergebnisse nicht
+    DocumentationService(project).export_checklists_excel(path)
+    wb = openpyxl.load_workbook(path)
+    ws = wb["EG"]
+    ws.cell(row, 4).value = "☐ offen"
+    wb.save(path)
+    DocumentationService(project).import_checklists_excel(path)
+    assert all(i.result == "Mangel" for i in defects)
