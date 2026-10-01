@@ -72,7 +72,32 @@ class ValidationEngine:
         # FA-3308b: Astro-GAs prüfen wenn Zeitprogramme mit ASTRO-Schaltpunkten vorhanden
         if project is not None:
             issues.extend(self._check_astro_gas(structure, project))
+            issues.extend(self._check_multi_ga_keys(project))
 
+        return issues
+
+    def _check_multi_ga_keys(self, project) -> list[ValidationIssue]:
+        """FA-614: pro Sensorkanal darf nur eine sendende GA verknüpft sein.
+        Nachweislich zweite sendende GA (Befehls-KO eines anderen Geräts) ist
+        ein Fehler, ohne gefundenen Sender eine Warnung (nicht eindeutig),
+        Rückmeldungen ausserhalb MG 6/7 (Variante B) ein Hinweis, übrige
+        Rückmeldungen in Ordnung."""
+        from .multi_ga_check import find_multi_ga
+        issues = []
+        for f in find_multi_ga(project):
+            if f.level == "ok":
+                continue
+            issues.append(ValidationIssue(
+                f.level, "FA-614",
+                f"{f.ko_text} sendet {f.sent_ga}, weitere GA {f.extra_ga}: {f.reason}",
+                f.extra_ga,
+                "GA in der ETS vom KO trennen und in der Bauherrenberatung "
+                "oder Topologie ebenfalls trennen" if f.is_warning
+                else "Rückmeldung in MG 6/7 verschieben oder so belassen",
+                designation=f.extra_designation,
+                details={"ko": f.ko_text, "sent": f.sent_ga, "reason": f.reason,
+                         "verdict": f.verdict_label},
+            ))
         return issues
 
     def _check_astro_gas(self, structure: GroupAddressStructure,

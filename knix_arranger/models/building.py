@@ -539,7 +539,7 @@ class SensorFunktionGa:
     verloren gehen.
     """
     ga_designation: str = ""
-    role: str = "rueckmeldung"   # "befehl" | "rueckmeldung" | "fremdsteuerung"
+    role: str = "rueckmeldung"   # "befehl" | "rueckmeldung" | "fremdsteuerung" | "mithoeren"
     description: str = ""        # z.B. "Taste 1, links, Signal-LED"
 
     def to_dict(self) -> dict:
@@ -715,7 +715,10 @@ class ControlFunction:
 #: "fremdsteuerung" -- Taste wird durch eine geräteinterne/-fremde GA aus der
 #:                     KNX-Welt beeinflusst, ohne einer physischen Taste
 #:                     zugeordnet zu sein (z.B. Nachtabsenkung LED-Helligkeit)
-_FA_ROLES = ("befehl", "rueckmeldung", "fremdsteuerung")
+#: "mithoeren"     -- weitere GA am sendenden Tasten-KO, die keine Rückmeldung
+#:                     ist (z.B. Befehl einer anderen Bedienstelle): das KO hört
+#:                     nur mit -- als Warnung markiert, siehe services/multi_ga_check
+_FA_ROLES = ("befehl", "rueckmeldung", "fremdsteuerung", "mithoeren")
 
 
 @dataclass

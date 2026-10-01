@@ -36,7 +36,12 @@ from ...services.scene_addressing import (
     scene_target_designation, is_callable_scene,
 )
 from ..dialogs.ga_picker_dialog import GaPickerDialog
-from ..styles import KNX_BLUE, KNX_DARK_GREEN
+from ...services.multi_ga_check import (
+    ROLE_MITHOEREN, VERDICT_AUSSERHALB, find_device, find_multi_ga, ga_address_of,
+    ko_for_ga, unlink_ga,
+)
+from ..styles import COLOR_ERROR, COLOR_INFO, COLOR_WARNING, KNX_BLUE, KNX_DARK_GREEN
+from .topology_view import confirm_unlink
 
 # ── Farben (identisch zum Excel-Formular) ────────────────────────────────────
 _C_HEADER   = "#1A5276"
@@ -61,6 +66,14 @@ _TASTE_POSITION_RE = re.compile(
     r"^taste\s*(\d+)\s*,\s*(links|rechts)\b", re.IGNORECASE
 )
 _SIDE_TO_COL = {"links": 0, "rechts": 1}
+
+# Rolle einer Zusatz-GA an der Taste (SensorFunktionGa.role) für die Chips
+_EXTRA_ROLE_LABELS = {
+    "befehl": "Befehl",
+    "rueckmeldung": "Rückmeldung",
+    "fremdsteuerung": "Fremdsteuerung",
+    ROLE_MITHOEREN: "⚠ Mithören – prüfen",
+}
 
 
 def _parse_taste_position(label: str) -> tuple[int, int] | None:
@@ -194,6 +207,18 @@ class _SlotWidget(QWidget):
         combo_row.addWidget(self._combo, 1)
         layout.addLayout(combo_row)
 
+        # Gruppenadresse(n) der Taste sichtbar machen: gesendete GA klein
+        # unter der Auswahl, weitere GAs als Chips (_rebuild_extra_row)
+        self._ga_lbl = QLabel("")
+        self._ga_lbl.setWordWrap(True)
+        self._ga_lbl.setStyleSheet("color: #455A64; font-size: 11px; border: none;")
+        layout.addWidget(self._ga_lbl)
+        self._warn_lbl = QLabel("")
+        self._warn_lbl.setWordWrap(True)
+        self._warn_lbl.setStyleSheet(
+            f"color: {COLOR_WARNING}; font-size: 11px; font-weight: bold; border: none;")
+        layout.addWidget(self._warn_lbl)
+
         # Zusaetzliche GAs (nur bei "Direkte GA"-Slots, FA-1410d) -- z.B.
         # Dimmen-GA zusaetzlich zur Schalten-GA derselben Taste.
         self._extra_row = QHBoxLayout()
@@ -211,6 +236,7 @@ class _SlotWidget(QWidget):
         )
         self._btn_add_ga.clicked.connect(self._on_add_ga)
         layout.addWidget(self._btn_add_ga)
+        self._findings: dict = {}   # GA -> MultiGaFinding dieser Taste
         self._rebuild_extra_row()
 
         # Langer Tastendruck dieser Taste: eigene Zeile "lang" oder "+ lang".
@@ -556,20 +582,92 @@ class _SlotWidget(QWidget):
         sf = self._sf
         is_direct_ga = bool(sf and sf.ga_designation and not sf.scene_id)
         self._btn_add_ga.setVisible(is_direct_ga)
+        primary = ga_address_of(sf.ga_designation) if sf else ""
+        self._ga_lbl.setText(f"sendet {sf.ga_designation}" if primary else "")
+        self._ga_lbl.setVisible(bool(primary))
+        self._warn_lbl.setVisible(False)
         if not is_direct_ga:
             return
 
+        # Pro Sensorkanal nur eine sendende GA (FA-614): nachgewiesener fremder
+        # Befehl = Fehler, ohne gefundenen Sender = Warnung, Rückmeldungen
+        # ausserhalb MG 6/7 = Hinweis
+        extra_addrs = {ga_address_of(e.ga_designation) for e in sf.extra_gas}
+        self._findings = {
+            f.extra_ga: f for f in find_multi_ga(self._service.project)
+            if f.physical_address == self._be.participant_number
+            and f.extra_ga in extra_addrs
+        }
+        errors = [a for a, f in self._findings.items() if f.is_error]
+        warn = [a for a, f in self._findings.items() if f.level == "warning"]
+        info = [a for a, f in self._findings.items() if f.verdict == VERDICT_AUSSERHALB]
+        if errors or warn:
+            parts = []
+            if errors:
+                parts.append(f"⚠ Zweite sendende GA: {', '.join(errors)} ist der Befehl "
+                             "einer anderen Bedienstelle")
+            if warn:
+                parts.append(f"⚠ Weitere GA {', '.join(warn)} ohne gefundenen Sender "
+                             "(nicht eindeutig)")
+            self._warn_lbl.setText(
+                " · ".join(parts) + f" – pro Sensorkanal nur eine sendende GA "
+                f"({primary}). Prüfen und ggf. trennen (✕).")
+            color = COLOR_ERROR if errors else COLOR_WARNING
+            self._warn_lbl.setStyleSheet(
+                f"color: {color}; font-size: 11px; font-weight: bold; border: none;")
+            self._warn_lbl.setVisible(True)
+        elif info:
+            self._warn_lbl.setText(
+                f"Hinweis: Rückmeldung {', '.join(info)} liegt nicht in MG 6/7.")
+            self._warn_lbl.setStyleSheet(
+                f"color: {COLOR_INFO}; font-size: 11px; border: none;")
+            self._warn_lbl.setVisible(True)
+
         for extra in list(sf.extra_gas):
-            chip = QPushButton(f"{self._service._label_from_ga(extra.ga_designation)}  ✕")
-            chip.setToolTip("Klicken zum Entfernen")
-            chip.setStyleSheet(
-                "QPushButton { font-size: 12px; color: #37474F; background: #ECEFF1; "
-                "border: 1px solid #CFD8DC; border-radius: 8px; padding: 1px 6px; } "
-                "QPushButton:hover { background: #FFCDD2; }"
-            )
+            addr = ga_address_of(extra.ga_designation)
+            role = _EXTRA_ROLE_LABELS.get(extra.role, "")
+            text = f"{addr or self._service._label_from_ga(extra.ga_designation)}"
+            if role:
+                text += f" · {role}"
+            chip = QPushButton(f"{text}  ✕")
+            chip.setToolTip(self._chip_tooltip(extra))
+            if extra.role == ROLE_MITHOEREN:
+                chip.setStyleSheet(
+                    f"QPushButton {{ font-size: 12px; color: {COLOR_WARNING}; "
+                    "background: #FFF3E0; font-weight: bold; "
+                    f"border: 1px solid {COLOR_WARNING}; border-radius: 8px; padding: 1px 6px; }} "
+                    "QPushButton:hover { background: #FFCDD2; }"
+                )
+            else:
+                chip.setStyleSheet(
+                    "QPushButton { font-size: 12px; color: #37474F; background: #ECEFF1; "
+                    "border: 1px solid #CFD8DC; border-radius: 8px; padding: 1px 6px; } "
+                    "QPushButton:hover { background: #FFCDD2; }"
+                )
             chip.clicked.connect(lambda _checked=False, e=extra: self._on_remove_extra(e))
             self._extra_row.addWidget(chip)
         self._extra_row.addStretch()
+
+    def _device_ko(self, extra: SensorFunktionGa):
+        """(Gerät, KO), an dem die Zusatz-GA in der Topologie hängt."""
+        pa = self._be.participant_number
+        addr = ga_address_of(extra.ga_designation)
+        device = find_device(self._service.project, pa) if pa and addr else None
+        co = ko_for_ga(device, addr, extra.description) if device else None
+        return device, co
+
+    def _chip_tooltip(self, extra: SensorFunktionGa) -> str:
+        lines = [extra.ga_designation]
+        device, co = self._device_ko(extra)
+        if co is not None:
+            lines.append(f"{device.physical_address} · KO {co.object_number} "
+                         f"«{co.name or co.object_function}»")
+        finding = self._findings.get(ga_address_of(extra.ga_designation))
+        if finding is not None:
+            lines.append(f"Weitere GA am Sendekanal – {finding.verdict_label}: "
+                         f"{finding.reason}")
+        lines.append("Klicken, um die GA von dieser Taste zu trennen")
+        return "\n".join(lines)
 
     def _on_add_ga(self):
         dlg = GaPickerDialog(self._service.project, self._room, parent=self)
@@ -586,12 +684,27 @@ class _SlotWidget(QWidget):
             self.changed.emit()
 
     def _on_remove_extra(self, extra: SensorFunktionGa):
-        if self._sf is not None and extra in self._sf.extra_gas:
+        """GA von der Taste trennen -- bei importierten Geräten auch am KO
+        (wie in der ETS), sonst käme sie beim nächsten Abgleich zurück."""
+        if self._sf is None or extra not in self._sf.extra_gas:
+            return
+        device, co = self._device_ko(extra)
+        addr = ga_address_of(extra.ga_designation)
+        if co is not None:
+            if not confirm_unlink(self, device.physical_address, co, addr):
+                return
+            self._begin(f"Bauherrenberatung: GA {addr} von "
+                        f"{device.physical_address} KO {co.object_number} getrennt")
+            unlink_ga(self._service.project, device.physical_address,
+                      co.object_number, addr)
+            if extra in self._sf.extra_gas:
+                self._sf.extra_gas.remove(extra)
+        else:
             self._begin("Bauherrenberatung: GA entfernt")
             self._sf.extra_gas.remove(extra)
-            self._be.is_auto = False
-            self._rebuild_extra_row()
-            self.changed.emit()
+        self._be.is_auto = False
+        self._rebuild_extra_row()
+        self.changed.emit()
 
     def _on_delete(self):
         if self._sf is None:

@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem, QPushButton, QAbstractItemView, QMessageBox,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QColor, QFont
 from ...models.project import KnxProject
 from ...services.sensor_service import SensorService
 from ...services.belegungsplan_service import _split_button_channel
@@ -21,6 +21,7 @@ _ROLE_LABELS = {
     "befehl": "Befehl",
     "rueckmeldung": "Rückmeld.",
     "fremdsteuerung": "Fremdsteuerung",
+    "mithoeren": "⚠ Mithören – prüfen",
 }
 
 
@@ -228,7 +229,7 @@ class Step09Functions(QWidget):
                         if fa.role == "befehl" and fa.action_type:
                             action_label = fa.action_type
                         addr = ga_address.get(fa.function_ga, "–")
-                        QTreeWidgetItem(channel_item, [
+                        fa_item = QTreeWidgetItem(channel_item, [
                             "",
                             "",
                             "",
@@ -237,6 +238,8 @@ class Step09Functions(QWidget):
                             fa.function_ga,
                             fa.description,
                         ])
+                        if fa.role == "mithoeren":
+                            _mark_listen_only(fa_item)
 
                     channel_item.setExpanded(True)
 
@@ -254,3 +257,13 @@ class Step09Functions(QWidget):
                 f"{total_assignments} Zuordnungen"
             )
 
+
+def _mark_listen_only(item: QTreeWidgetItem) -> None:
+    """Weitere GA am sendenden Tasten-KO, die keine Rückmeldung ist."""
+    from ..styles import COLOR_WARNING
+    for col in range(item.columnCount()):
+        item.setForeground(col, QColor(COLOR_WARNING))
+        item.setToolTip(col, "Diese GA hängt zusätzlich am sendenden Tasten-KO. "
+                             "Gesendet wird nur die erste GA – diese hier hört die "
+                             "Taste nur mit. Prüfen und ggf. in der Bauherrenberatung "
+                             "oder Topologie von der Taste trennen.")

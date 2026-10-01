@@ -762,6 +762,12 @@ def refresh_bedienelemente(project) -> None:
         )
     except Exception:
         logger.exception("Bedienelement-Adressen aus Topologie nicht ermittelbar")
+    # Weitere GAs an sendenden Tasten-KOs: Rückmeldung oder "Mithören – prüfen"
+    from .multi_ga_check import apply_listen_roles
+    try:
+        apply_listen_roles(project)
+    except Exception:
+        logger.exception("Mehrfach verknüpfte Tasten-KOs nicht prüfbar")
     SensorService().auto_assign_functions(project.all_rooms, project.group_addresses)
 
 

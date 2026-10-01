@@ -1720,7 +1720,7 @@ class MainWindow(QMainWindow):
             return
 
         validator = ValidationEngine(self._project.gewerk_catalog)
-        issues = validator.validate(self._project.group_addresses)
+        issues = validator.validate(self._project.group_addresses, project=self._project)
         self._validation_view.set_issues(issues)
 
         self._overview.update_from_project(self._project)

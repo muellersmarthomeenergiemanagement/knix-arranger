@@ -101,6 +101,9 @@ class SensorRow:
     # Zeilen (Variante 1) sind über die Matrix bewusst nicht editierbar
     # (siehe Schritt 5 Gewerke). Leer wenn nicht editierbar.
     sf_id: str = ""
+    # FunctionAssignment.role ("befehl", "rueckmeldung", "fremdsteuerung",
+    # "mithoeren" = weitere GA am sendenden KO, nur mitgehört -- prüfen)
+    role: str = ""
 
 
 @dataclass
@@ -499,6 +502,7 @@ class BelegungsplanService:
                                     gewerk_code=ga.gewerk_code if ga else "",
                                     be_id=be.id,
                                     sf_id=fa.sf_id,
+                                    role=fa.role,
                                 ))
                         else:
                             rows.extend(self._sensor_rows_from_cos(

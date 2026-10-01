@@ -23,7 +23,9 @@ from ...services.belegungsplan_service import (
     group_actor_rows_by_channel, group_cos_for_display,
     build_ga_by_designation, resolve_ga_display,
 )
+from ...services.multi_ga_check import ga_address_of, ko_for_ga, unlink_ga
 from ..column_utils import fit_columns
+from ..styles import COLOR_WARNING
 
 # Farben für Infrastruktur-Knoten
 _COLOR_COUPLER     = QColor("#1565C0")  # Dunkelblau: Koppler
@@ -37,6 +39,7 @@ _ROLE_LABELS = {
     "befehl": "Befehl",
     "rueckmeldung": "Rückmeld.",
     "fremdsteuerung": "Fremdsteuerung",
+    "mithoeren": "⚠ Mithören – prüfen",
 }
 
 # UserRole-Schlüssel für Baumdaten
@@ -56,6 +59,7 @@ class TopologyView(QWidget):
         self._ga_structure = None  # GroupAddressStructure, siehe set_group_addresses()
         self._belegungsplan = None  # BelegungsplanData, siehe set_project() -- Kanalanzeige Aktoren
         self._areal = None  # Areal, siehe set_project() -- Funktionsanzeige Sensoren/Taster
+        self._project = None  # KnxProject, siehe set_project() -- GA von KO trennen
 
         layout = QVBoxLayout(self)
 
@@ -140,6 +144,7 @@ class TopologyView(QWidget):
         beschriftet werden -- nicht nur bei ETS6-Importen mit echten COs.
         """
         from ...services.belegungsplan_service import BelegungsplanService
+        self._project = project
         self._topology = project.topology
         self._knx_secure = project.knx_secure
         self._ga_structure = project.group_addresses
@@ -518,13 +523,15 @@ class TopologyView(QWidget):
                 for ga_addr in co.connected_gas:
                     ga_obj = ga_by_address.get(ga_addr)
                     label_text = ga_obj.designation if ga_obj else ga_addr
-                    QTreeWidgetItem(ch_item, [
+                    ko_item = QTreeWidgetItem(ch_item, [
                         f"{co_label}{role_suffix}: {label_text}",
                         ga_addr,
                         "",
                         "",
                         ga_obj.datapoint_type if ga_obj else "",
                     ])
+                    ko_item.setData(0, _ROLE_DATA,
+                                    ("ko_ga", device, co.object_number, ga_addr))
 
     def _add_sensor_function_items(self, dev_item: QTreeWidgetItem, device: Device) -> None:
         """Fügt Funktions-Kindknoten unter einem Sensor/Taster ein, analog zu
@@ -569,13 +576,21 @@ class TopologyView(QWidget):
             ch_item.setForeground(0, QColor("#616161"))
             for fa in group_fas:
                 role_label = _ROLE_LABELS.get(fa.role, fa.action_type or "Befehl")
-                QTreeWidgetItem(ch_item, [
+                fa_item = QTreeWidgetItem(ch_item, [
                     f"{role_label}: {fa.description}",
                     resolve_ga_display(fa.function_ga, ga_by_designation),
                     "",
                     "",
                     "",
                 ])
+                if fa.role == "mithoeren":
+                    fa_item.setForeground(0, QColor(COLOR_WARNING))
+                    fa_item.setForeground(1, QColor(COLOR_WARNING))
+                ga_addr = ga_address_of(fa.function_ga)
+                co = ko_for_ga(device, ga_addr, fa.description) if ga_addr else None
+                if co is not None:
+                    fa_item.setData(0, _ROLE_DATA,
+                                    ("ko_ga", device, co.object_number, ga_addr))
 
     # ── Toolbar-Aktionen ──
 
@@ -649,6 +664,28 @@ class TopologyView(QWidget):
                 self._move_device(device, line)
             elif action == prog_act:
                 self._toggle_programmed(device)
+
+        elif kind == "ko_ga":
+            _, device, co_number, ga_addr = data
+            unlink_act = menu.addAction(f"GA {ga_addr} von diesem KO trennen…")
+            if menu.exec(global_pos) == unlink_act:
+                self._unlink_ga(device, co_number, ga_addr)
+
+    def _unlink_ga(self, device: Device, co_number: int, ga_addr: str) -> None:
+        """GA von einem KO trennen wie in der ETS (Tastenbelegung inklusive)."""
+        if self._project is None:
+            return
+        co = next((c for c in device.communication_objects
+                   if c.object_number == co_number), None)
+        if co is None:
+            return
+        if not confirm_unlink(self, device.physical_address, co, ga_addr):
+            return
+        if self._bus:
+            self._bus.begin_change(
+                f"GA {ga_addr} von {device.physical_address} KO {co_number} getrennt")
+        if unlink_ga(self._project, device.physical_address, co_number, ga_addr):
+            self.topology_changed.emit()
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int):
         """Doppelklick: Einbauort bearbeiten (schnellste Aktion)."""
@@ -889,3 +926,28 @@ class TopologyView(QWidget):
         """Setzt die Vordergrundfarbe aller Spalten eines Knotens."""
         for col in range(item.columnCount()):
             item.setForeground(col, color)
+
+
+def confirm_unlink(parent, physical_address: str, co, ga_addr: str) -> bool:
+    """Sicherheitsabfrage vor dem Trennen einer GA von einem KO.
+
+    Am Hauptfenster geöffnet: als Kind einer Taste der Bauherrenberatung
+    erbte die Rückfrage deren Stylesheet (QWidget-Rahmen/Hintergrund), die
+    Buttons waren dann nicht lesbar."""
+    parent = parent.window() if parent is not None else None
+    co_name = co.name or co.object_function
+    others = [g for g in co.connected_gas if g != ga_addr]
+    rest = (f"Am KO bleibt: {', '.join(others)}." if others
+            else "Das KO hat danach keine Gruppenadresse mehr.")
+    box = QMessageBox(QMessageBox.Question, "GA von Taste trennen",
+        f"{ga_addr} wird von {physical_address} KO {co.object_number} "
+        f"«{co_name}» getrennt.\n\n{rest}\n"
+        "Andere Geräte an dieser GA bleiben unverändert.\n\n"
+        "In der ETS dieselbe Änderung vornehmen, sonst kommt die "
+        "Verknüpfung beim nächsten Import zurück.",
+        parent=parent)
+    btn_unlink = box.addButton("Trennen", QMessageBox.AcceptRole)
+    btn_cancel = box.addButton("Abbrechen", QMessageBox.RejectRole)
+    box.setDefaultButton(btn_cancel)
+    box.exec()
+    return box.clickedButton() is btn_unlink

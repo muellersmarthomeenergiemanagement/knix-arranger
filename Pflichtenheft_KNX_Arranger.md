@@ -1,7 +1,7 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.19
-**Datum:** 30.09.2026
+**Version:** 3.20
+**Datum:** 01.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
 **Status:** Entwurf
@@ -34,6 +34,7 @@
 | 3.17 | 28.09.2026 | M. Mueller / Claude AI | Gemeinsamer Import-Ablauf fuer alle ETS-Import-Wege, Report-Pfade im Projekt, Anzeige fehlgeschlagener Import-Schritte (FA-528). KNX Secure: kein Klartext von FDSK/Projektpasswort in Projektdatei und Sicherungen, Master-Passwort beim Import, alte Staende beim Speichern entfernt (FA-2706). Speichern-Frage beim Beenden nur bei Aenderungen, Speicherfehler sichtbar (NFA-045) |
 | 3.18 | 29.09.2026 | M. Mueller / Claude AI | Ansichten lesen nur: Bedienelemente und Tastenbelegung werden nach Aenderungen statt beim Anzeigen neu berechnet; Aenderungen in der Verknuepfungsmatrix setzen Aenderungsmarkierung und Rueckgaengig-Punkt (NFA-046). Verknuepfungsmatrix als Uebersicht, Bearbeiten in der Bauherren-Beratung mit langem Tastendruck (FA-2503); Werkzeugleiste Rueckgaengig/Wiederholen, Wiederholen repariert (NFA-043). ETS-Projektdaten als XML ohne Schluessel fuer Partnerprogramme (FA-2407) |
 | 3.19 | 30.09.2026 | M. Mueller / Claude AI | Auslieferung mit Nuitka nativ kompiliert, kein Quellcode im Bundle, Selbsttest des Bundles im Release-Workflow (NFA-071a). Lizenznehmer im Info-Dialog, in der Berichts-Fusszeile und in den PDF-Eigenschaften (NFA-098b). Zurueckgestellte Systemuhr verlaengert keine Lizenz (NFA-098c) |
+| 3.20 | 01.10.2026 | M. Mueller / Claude AI | Pro Sensorkanal nur eine sendende GA (FA-614): weitere GAs an sendenden Tasten-KOs werden eingeordnet (Variante B: MG 6/7 = Rueckmeldung, sonst nach sendendem KO), zweite sendende GA als Warnung in Validierung, Validierungsbericht, Bericht Bedienelemente, Schritt 12, Topologie, Verknuepfungsmatrix und Bauherrenberatung (Rolle "Mithoeren - pruefen"). Bauherrenberatung zeigt GA-Nummern und Rollen; GA von Taste trennen in Bauherrenberatung und Topologie trennt auch die KO-Verknuepfung des Geraets (FA-614a). Validierungsansicht als Baum Stufe > Regel > Meldung mit Stufenfilter und Suche (FA-615) |
 
 ---
 
@@ -127,7 +128,7 @@ Alle Anforderungen in diesem Pflichtenheft sind nach der MoSCoW-Methode priorisi
 | KNXPROJ-Import | FA-521 bis FA-526 | **(C)** | Vollstaendiger Projektimport in einem Schritt |
 | Uebernahme importierter Projekte | FA-521b bis FA-521g | **(S)** | Importierte Projekte ohne Doppelungen weiterplanen |
 | Validierung (Basis) | FA-601 bis FA-608, FA-610 | **(M)** | Kernfunktionalitaet |
-| Validierung (Topologie) | FA-609, FA-611 bis FA-613 | **(S)** | Erweiterte Pruefungen |
+| Validierung (Topologie) | FA-609, FA-611 bis FA-614 | **(S)** | Erweiterte Pruefungen |
 | Reorganisation | FA-701 bis FA-706 | **(M)** | Kernfunktionalitaet |
 | CSV-Export | FA-801 bis FA-805 | **(M)** | Kernfunktionalitaet |
 | Personalisierung | FA-851 bis FA-854 | **(S)** | Professionelle Berichte |
@@ -621,6 +622,9 @@ Nach einem Import (KNXPROJ oder XLSX-Reports) soll das Projekt im Wizard weiterg
 | FA-611 | Bei importiertem Topologie-Report: Das System muss pruefen, ob alle in Kommunikationsobjekten referenzierten Gruppenadressen in der Gruppenadress-Struktur vorhanden sind (und umgekehrt). |
 | FA-612 | Bei importiertem Topologie-Report: Das System muss pruefen, ob die physikalischen Adressen lueckenlos und korrekt den Linien zugeordnet sind. |
 | FA-613 | Bei importiertem Topologie-Report: Das System muss pruefen, ob jede Linie eine Spannungsversorgung besitzt. |
+| FA-614 | Das System muss pruefen, dass pro Sensorkanal (sendendes Tasten-KO) nur eine sendende Gruppenadresse verknuepft ist. Jede weitere GA am KO wird eingeordnet: bei Variante B sind Mittelgruppen 6 und 7 immer Rueckmeldungen (in Ordnung); sonst entscheidet das KO, das die GA sendet -- Status-KO (Name Status/Rueckmeldung oder ohne Schreiben-Flag) = Rueckmeldung, Befehls-KO einer anderen Bedienstelle oder kein Sender = "Mithoeren - pruefen": Fehler, wenn nachweislich ein Befehls-KO eines anderen Geraets die GA sendet (Planungsregel, die ETS erlaubt es technisch), sonst Warnung (nicht eindeutig). Rueckmeldungen ausserhalb MG 6/7 bei Variante B sind ein Hinweis. Kategorie "Verknuepfung". Warnungen erscheinen in Validierung, Validierungsbericht, Bericht Bedienelemente (eigener Abschnitt), Schritt 12, Topologie, Verknuepfungsmatrix und Bauherrenberatung. |
+| FA-614a | Eine weitere GA muss in der Bauherrenberatung (Chip an der Taste, mit GA-Nummer und Rolle) und in der Topologie (Kontextmenue an der KO-Verknuepfung) nach Rueckfrage von der Taste getrennt werden koennen. Getrennt wird wie in der ETS: die GA wird aus der KO-Verknuepfung des Geraets und aus der Tastenbelegung entfernt, andere Geraete an derselben GA bleiben unveraendert; mit Rueckgaengig-Punkt. |
+| FA-615 | Die Validierungsansicht muss die Meldungen als Baum Stufe (Fehler/Warnungen/Hinweise) > Regel (Titel, Anzahl) > Meldung zeigen, mit Ein-/Ausblenden je Stufe und einem Suchfeld (Adresse, Geraet, Bezeichnung, Regel). Regeln mit mehr als 20 Meldungen sind zugeklappt. |
 
 ### 3.7 Reorganisation bestehender Projekte (FA-700)
 

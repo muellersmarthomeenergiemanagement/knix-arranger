@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 
+from ..styles import COLOR_WARNING
+
 logger = logging.getLogger("knix_arranger.linking_matrix_view")
 
 # Farben
@@ -310,9 +312,15 @@ class LinkingMatrixView(QWidget):
                 entries = cells.get(key)
                 if entries:
                     texts, tooltips = [], []
+                    listen_only = False
                     for e in entries:
                         label = (f"{e.action_type.capitalize()}: {e.function}"
                                  if e.action_type else (e.function or "—"))
+                        if e.role == "mithoeren":
+                            listen_only = True
+                            label = f"⚠ hört mit: {e.ga_address or e.function}"
+                            tooltips.append("Doppelbelegung: weitere GA am sendenden "
+                                            "Tasten-KO – nur mitgehört, prüfen")
                         texts.append(label)
                         detail = e.ga_designation or e.ga_address or ""
                         if e.ga_address and e.ga_address != detail:
@@ -322,6 +330,9 @@ class LinkingMatrixView(QWidget):
                         tooltips.append(detail)
                     item = _make_item("\n".join(texts), color)
                     item.setToolTip("\n".join(tooltips) + hint)
+                    if listen_only:
+                        item.setBackground(QColor("#FFE0B2"))
+                        item.setForeground(QColor(COLOR_WARNING))
                 else:
                     item = _make_item("", color)
                     if hint:

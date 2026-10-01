@@ -125,6 +125,18 @@ VALIDATION_RULES = {
         "Bei importierten Projekten mit eigenem Namensschema kann dieser "
         "Hinweis ignoriert werden.",
     ),
+    "FA-614": (
+        "Verknüpfung: mehrere sendende GAs an einem Sensorkanal",
+        "Planungsregel (die ETS erlaubt es technisch): pro Sensorkanal darf nur "
+        "eine sendende Gruppenadresse verknüpft sein; Rückmeldungen dürfen "
+        "zusätzlich am Kanal hängen. Ein Tasten-KO sendet nur seine erste GA, "
+        "jede weitere hört es nur mit. Fehler: die weitere GA ist nachweislich "
+        "der Befehl einer anderen Bedienstelle. Warnung: kein sendendes KO "
+        "gefunden, nicht eindeutig. Hinweis: Rückmeldung, die bei Variante B "
+        "nicht in MG 6/7 liegt.",
+        "Fehler in der ETS vom KO trennen, Warnungen prüfen – danach in der "
+        "Bauherrenberatung oder Topologie ebenfalls trennen.",
+    ),
     "FA-3308b": (
         "Astro-Gruppenadressen fehlen",
         "Zeitprogramme mit Astro-Schaltpunkten benötigen die Astro-GAs in HG 0 / MG 7.",
@@ -314,6 +326,11 @@ def _validation_table_layout(rule_id: str):
     if rule_id == "FA-610":
         return (["Adresse", "Bezeichnung"], [0.13, 0.87], None,
                 lambda i: [i.address, _clean(i.designation)])
+    if rule_id == "FA-614":
+        return (["Gerät / KO", "Sendet", "Hört mit", "Bezeichnung", "Einordnung"],
+                [0.25, 0.10, 0.11, 0.30, 0.24], None,
+                lambda i: [i.details.get("ko", ""), i.details.get("sent", ""), i.address,
+                           _clean(i.designation), i.details.get("verdict", "")])
     return (["Adresse", "Beschreibung", "Massnahme"], [0.13, 0.52, 0.35], None,
             lambda i: [i.address or "–", i.message, i.suggestion or ""])
 
@@ -1110,6 +1127,31 @@ class ReportService:
                       align=["left", "left", "left", "left", "right"])
         pdf.add_note("Hinweis:", "Das PDF enthält Lesezeichen nach Stockwerk, Raum "
                                  "und Gerät. Jeder Raum beginnt auf einer neuen Seite.")
+
+        # ── Mehrfach verknüpfte Sensorkanäle (FA-614) ────────────────────────
+        from .multi_ga_check import find_multi_ga, VERDICT_RUECKMELDUNG
+        multi = [f for f in find_multi_ga(project) if f.verdict != VERDICT_RUECKMELDUNG]
+        if multi:
+            n_err = sum(1 for f in multi if f.is_error)
+            n_warn = sum(1 for f in multi if f.is_warning and not f.is_error)
+            pdf.add_heading("Sensorkanäle mit mehreren sendenden GAs", level=2,
+                            accent=ACCENT_ERROR if n_err else
+                            ACCENT_WARNING if n_warn else None)
+            pdf.add_note(
+                "Hinweis:",
+                "Pro Sensorkanal darf nur eine sendende Gruppenadresse verknüpft "
+                "sein; Rückmeldungen dürfen zusätzlich am Kanal hängen. Gesendet "
+                "wird nur die erste GA, jede weitere hört der Kanal nur mit. "
+                f"Fehler ({n_err}): die weitere GA ist nachweislich der Befehl einer "
+                f"anderen Bedienstelle – in der ETS trennen. Warnung ({n_warn}): kein "
+                "sendendes KO gefunden, nicht eindeutig – prüfen.")
+            level_prefix = {"error": "Fehler: ", "warning": "Warnung: "}
+            pdf.add_table(
+                ["Gerät / KO", "Sendet", "Weitere GA", "Bezeichnung", "Einordnung"],
+                [[f.ko_text, f.sent_ga, f.extra_ga, _clean(f.extra_designation),
+                  level_prefix.get(f.level, "") + f.verdict_label]
+                 for f in multi],
+                col_widths=[0.25, 0.10, 0.11, 0.30, 0.24])
 
         # ── Stockwerk → Raum → Gerät ─────────────────────────────────────────
         current_floor = None

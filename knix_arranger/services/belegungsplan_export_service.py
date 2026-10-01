@@ -133,7 +133,9 @@ class BelegungsplanExportService:
             row_fill = alt_fill if is_alt else norm_fill
             no_ga = not row.ga_address
 
-            action_label = "Rückmeld." if row.is_feedback else row.action_type
+            listen_only = row.role == "mithoeren"
+            action_label = ("⚠ Mithören – prüfen" if listen_only
+                            else "Rückmeld." if row.is_feedback else row.action_type)
             values = [
                 row.floor_name,
                 row.zone_name,
@@ -151,7 +153,8 @@ class BelegungsplanExportService:
             for col, val in enumerate(values, start=1):
                 cell = ws.cell(row=excel_row, column=col, value=val)
                 cell.font = addr_font if col in _SENSOR_MONO_COLS else data_font
-                cell.fill = warn_fill if (no_ga and col in _SENSOR_WARN_COLS) else row_fill
+                cell.fill = (warn_fill if ((no_ga or listen_only) and col in _SENSOR_WARN_COLS)
+                             else row_fill)
                 cell.alignment = Alignment(vertical="center")
                 cell.border = Border(
                     bottom=Side(style="hair", color="DDDDDD"),
