@@ -16,11 +16,17 @@ class EtsCorrections:
     # GA-Adresse -> Gewerk-Code, der statt des Kürzels im ETS-Namen gilt
     # (z.B. "2/2/100": "G" -- im Chalet steht "T." für Tor, nicht Tagesvorhang)
     gewerk_by_address: dict[str, str] = field(default_factory=dict)
+    # Bezeichnung einer Taste für den Bauherrn (Bedienungsanleitung), z.B.
+    # "1.1.41|1|links|": "Hell" statt "Szene High". Schlüssel siehe
+    # services/user_manual.button_label_key (Gerät bzw. Bedienelement + Taste).
+    button_labels: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {"gewerk_by_address": dict(self.gewerk_by_address)}
+        return {"gewerk_by_address": dict(self.gewerk_by_address),
+                "button_labels": dict(self.button_labels)}
 
     @classmethod
     def from_dict(cls, data: dict | None) -> EtsCorrections:
         data = data or {}
-        return cls(gewerk_by_address=dict(data.get("gewerk_by_address", {})))
+        return cls(gewerk_by_address=dict(data.get("gewerk_by_address", {})),
+                   button_labels=dict(data.get("button_labels", {})))

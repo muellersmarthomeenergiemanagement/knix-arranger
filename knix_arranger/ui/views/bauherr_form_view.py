@@ -140,6 +140,8 @@ class _SlotWidget(QWidget):
     """
 
     changed = Signal()
+    # Bezeichnung für die Bedienungsanleitung geändert (kein Neuberechnen nötig)
+    label_changed = Signal()
     # Diese Taste wurde geloescht (SensorFunktion aus be.funktionen entfernt)
     # -- Positionen aller nachfolgenden Slots verschieben sich, daher muss
     # der komplette Taster-Raster neu aufgebaut werden (siehe _TasterWidget).
@@ -207,6 +209,29 @@ class _SlotWidget(QWidget):
         combo_row.addWidget(self._combo, 1)
         layout.addLayout(combo_row)
 
+        # Bezeichnung für den Bauherrn (Bedienungsanleitung): Platzhalter =
+        # automatische Bezeichnung, eigener Text überschreibt sie
+        self._label_edit = None
+        key = self._button_key() if (sf is not None and long_of is None) else None
+        if key is not None:
+            from ...services.user_manual import button_label_key
+            self._label_key = button_label_key(be, key)
+            label_row = QHBoxLayout()
+            label_row.setSpacing(3)
+            hint = QLabel("In der Anleitung:")
+            hint.setStyleSheet("color: #607D8B; font-size: 11px; border: none;")
+            label_row.addWidget(hint)
+            self._label_edit = QLineEdit(
+                self._project_labels().get(self._label_key, ""))
+            self._label_edit.setPlaceholderText(self._auto_label(key) or "automatisch")
+            self._label_edit.setToolTip(
+                "Bezeichnung dieser Taste in der Bedienungsanleitung, z.B. «Hell» "
+                "statt «Szene High». Leer = automatische Bezeichnung (grau).")
+            self._label_edit.setStyleSheet("font-size: 11px; padding: 1px 3px;")
+            self._label_edit.editingFinished.connect(self._on_label_edited)
+            label_row.addWidget(self._label_edit, 1)
+            layout.addLayout(label_row)
+
         # Gruppenadresse(n) der Taste sichtbar machen: gesendete GA klein
         # unter der Auswahl, weitere GAs als Chips (_rebuild_extra_row)
         self._ga_lbl = QLabel("")
@@ -259,6 +284,7 @@ class _SlotWidget(QWidget):
                 long_slot = _SlotWidget(be, long_sf, service, "lang", room,
                                         begin_change=begin_change, long_of=sf)
                 long_slot.changed.connect(self.changed)
+                long_slot.label_changed.connect(self.label_changed)
                 long_slot.removed.connect(self.removed)
                 layout.addWidget(long_slot)
             elif gewerk_long:
@@ -683,6 +709,40 @@ class _SlotWidget(QWidget):
             self._rebuild_extra_row()
             self.changed.emit()
 
+    # ── Bezeichnung für den Bauherrn ──
+    def _button_key(self):
+        from ...services.bedienelement_layout import parse_button
+        channel = next((fa.button_channel for fa in self._be.function_assignments
+                        if fa.sf_id == self._sf.id), "") or self._sf.label
+        parsed = parse_button(channel)
+        return parsed[0] if parsed else None
+
+    def _project_labels(self) -> dict:
+        return self._service.project.ets_corrections.button_labels
+
+    def _auto_label(self, key) -> str:
+        builder = getattr(self._service, "manual_builder", None)
+        if builder is None:
+            return ""
+        try:
+            lines = builder.key_lines(self._be, self._room.name, use_labels=False)
+        except Exception:
+            return ""
+        return next((kl.label for kl in lines
+                     if (kl.key.number, kl.key.side) == (key.number, key.side)), "")
+
+    def _on_label_edited(self):
+        text = self._label_edit.text().strip()
+        labels = self._project_labels()
+        if text == labels.get(self._label_key, ""):
+            return
+        self._begin(f"Bauherrenberatung: Bezeichnung «{text or 'automatisch'}»")
+        if text:
+            labels[self._label_key] = text
+        else:
+            labels.pop(self._label_key, None)
+        self.label_changed.emit()
+
     def _on_remove_extra(self, extra: SensorFunktionGa):
         """GA von der Taste trennen -- bei importierten Geräten auch am KO
         (wie in der ETS), sonst käme sie beim nächsten Abgleich zurück."""
@@ -850,6 +910,7 @@ class _TasterWidget(QFrame):
             slot = _SlotWidget(be, sf, service, slot_label=slot_label, room=room,
                                begin_change=begin_change)
             slot.changed.connect(self.changed)
+            slot.label_changed.connect(self.notes_changed)
             slot.removed.connect(self.structure_changed)
             grid.addWidget(slot, grid_row, grid_col)
 
@@ -1114,6 +1175,12 @@ class BauherrFormView(QWidget):
                 item.widget().deleteLater()
 
         # Taster-Widgets aufbauen
+        # Automatische Tastenbezeichnungen wie in der Bedienungsanleitung
+        try:
+            from ...services.user_manual import UserManualBuilder
+            self._service.manual_builder = UserManualBuilder(self._project, snapshot=False)
+        except Exception:
+            self._service.manual_builder = None
         for be in _form_elements(room, self._project.topology.is_imported):
             taster = _TasterWidget(be, self._service, room=room,
                                    begin_change=self._begin_change)

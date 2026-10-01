@@ -407,6 +407,13 @@ def object_label(ga, catalog, room_name: str) -> str:
     return _clean(base) or "Funktion"
 
 
+def button_label_key(be, key) -> str:
+    """Schlüssel der Bauherr-Bezeichnung einer Taste: Gerät (physikalische
+    Adresse, übersteht Re-Import und Neuaufbau) bzw. Bedienelement bei
+    geplanten Projekten ohne Adresse, plus Taste/Seite/Variante."""
+    return f"{be.participant_number or be.id}|{key.number}|{key.side}|{key.variant}"
+
+
 # ── Raumbezogene Texte ─────────────────────────────────────────────────────
 
 _SENSOR_TEXT = (
@@ -449,9 +456,12 @@ class _KeyLine:
 class UserManualBuilder:
     """Baut die Bedienungsanleitung in einen PdfGenerator."""
 
-    def __init__(self, project, company_profile=None):
+    def __init__(self, project, company_profile=None, snapshot: bool = True):
+        """snapshot=False: liest das Projekt direkt (Bauherrenberatung, nur
+        zur Anzeige der automatischen Bezeichnungen) statt einer frisch
+        abgeleiteten Kopie."""
         from .sensor_service import project_for_export
-        self.project = project_for_export(project)
+        self.project = project_for_export(project) if snapshot else project
         self.company = company_profile
         self.catalog = self.project.gewerk_catalog
         self.ga_by_address = {g.address: g for g in self.project.group_addresses.all_addresses()}
@@ -522,7 +532,7 @@ class UserManualBuilder:
         return leds
 
     # Tasten eines Bedienelements
-    def key_lines(self, be, room_name: str) -> list[_KeyLine]:
+    def key_lines(self, be, room_name: str, use_labels: bool = True) -> list[_KeyLine]:
         rows = group_assignments(be.function_assignments, self._resolve)
         device = self.device_by_addr.get(be.participant_number or "")
         cfg = parse_button_configuration(device.button_configuration if device else "")
@@ -566,7 +576,9 @@ class UserManualBuilder:
                 # "Ein" sagt bei einer Szene nichts
                 how = ["drücken: Szene abrufen"] + [h for h in how if h.startswith("lang")]
                 short = ""
-            by_key[base] = _KeyLine(row.key, label, short, how, led,
+            own_label = (self.project.ets_corrections.button_labels.get(
+                button_label_key(be, row.key)) if use_labels else "")
+            by_key[base] = _KeyLine(row.key, own_label or label, short, how, led,
                                     scene_text if scene_name else "")
         for base, more in extras.items():
             line = by_key.get(base)

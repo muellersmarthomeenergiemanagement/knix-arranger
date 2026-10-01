@@ -216,3 +216,33 @@ def test_szenenbeschreibung():
     assert builder.scene_description(scene, call, "Musikzimmer") == "Decke 30 %"
     assert builder.scene_description(Scene(name="Nacht"), call, "Musikzimmer") == \
         "stellt das Licht im Raum ein"
+
+
+def test_eigene_bezeichnung_fuer_den_bauherrn():
+    """Bauherrenberatung: «Szene High» heisst in der Anleitung «Hell»."""
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.models.building import Bedienelement, FunctionAssignment
+    from knix_arranger.models.group_address import (
+        GroupAddressStructure, MainGroup, MiddleGroup,
+    )
+    from knix_arranger.services.user_manual import UserManualBuilder, button_label_key
+    project = KnxProject(name="X")
+    ga = GroupAddress(main_group=2, middle_group=4, sub_group=0,
+                      designation="Raum1_Szene High   ( Carnozet )", datapoint_type="Schalten")
+    project.group_addresses = GroupAddressStructure(main_groups=[MainGroup(
+        number=2, name="EG", middle_groups=[MiddleGroup(number=4, group_addresses=[ga])])])
+    be = Bedienelement(element_type="Tastereinheit", participant_number="1.1.41",
+                       function_assignments=[FunctionAssignment(
+                           button_channel="Taste 1, links",
+                           function_ga="2/4/0  Raum1_Szene High   ( Carnozet )")])
+    key = ButtonKey(1, "links")
+    assert button_label_key(be, key) == "1.1.41|1|links|"
+    project.ets_corrections.button_labels["1.1.41|1|links|"] = "Hell"
+    builder = UserManualBuilder(project, snapshot=False)
+    line = builder.key_lines(be, "Carnotzet")[0]
+    assert line.label == "Hell"
+    assert line.how == ["drücken: Szene abrufen"]
+    assert builder.key_lines(be, "Carnotzet", use_labels=False)[0].label == "Szene High"
+    # übersteht Speichern/Laden
+    assert KnxProject.from_dict(project.to_dict()).ets_corrections.button_labels == \
+        {"1.1.41|1|links|": "Hell"}
