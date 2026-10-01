@@ -11,6 +11,7 @@ class ClientProfile:
     name: str = ""             # Auftraggeber / Kundenname
     object_address: str = ""   # Objekt / Bauvorhaben (Adresse des Projekts)
     contact_address: str = ""  # Postadresse des Kunden
+    salutation: str = ""       # Briefanrede, z.B. "Sehr geehrte Frau Muster"
     phone: str = ""
     email: str = ""
     website: str = ""
@@ -24,6 +25,7 @@ class ClientProfile:
             "name": self.name,
             "object_address": self.object_address,
             "contact_address": self.contact_address,
+            "salutation": self.salutation,
             "phone": self.phone,
             "email": self.email,
             "website": self.website,
@@ -39,6 +41,7 @@ class ClientProfile:
             name=data.get("name", ""),
             object_address=data.get("object_address", ""),
             contact_address=data.get("contact_address", ""),
+            salutation=data.get("salutation", ""),
             phone=data.get("phone", ""),
             email=data.get("email", ""),
             website=data.get("website", ""),

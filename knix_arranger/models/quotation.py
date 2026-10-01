@@ -152,6 +152,7 @@ class CustomerQuote:
     status: str = "Entwurf"       # Entwurf, Versendet, Akzeptiert, Abgelehnt, Ueberarbeitung
     customer_name: str = ""
     customer_address: str = ""
+    salutation: str = ""          # Briefanrede, leer = "Sehr geehrte Damen und Herren"
     # Kosten
     material_total: float = 0.0
     material_markup_percent: float = 15.0
@@ -267,6 +268,7 @@ class CustomerQuote:
             "status": self.status,
             "customer_name": self.customer_name,
             "customer_address": self.customer_address,
+            "salutation": self.salutation,
             "material_total": self.material_total,
             "material_markup_percent": self.material_markup_percent,
             "labor_mounting_hours": self.labor_mounting_hours,
@@ -302,6 +304,7 @@ class CustomerQuote:
             status=data.get("status", "Entwurf"),
             customer_name=data.get("customer_name", ""),
             customer_address=data.get("customer_address", ""),
+            salutation=data.get("salutation", ""),
             material_total=data.get("material_total", 0.0),
             material_markup_percent=data.get("material_markup_percent", 15.0),
             labor_mounting_hours=data.get("labor_mounting_hours", 0.0),

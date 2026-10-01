@@ -155,13 +155,8 @@ class ReportsDialog(QDialog):
 
     def _edit_client_profile(self):
         """Öffnet den Kundenprofil-Dialog."""
-        from .client_profile_dialog import ClientProfileDialog
-        dlg = ClientProfileDialog(self._project.client_profile, parent=self)
-        if dlg.exec():
-            self._project.client_profile = dlg.get_profile()
-            cp = self._project.client_profile
-            self._project.project_info.client_name = cp.name
-            self._project.project_info.project_address = cp.object_address
+        from .client_profile_dialog import edit_client_profile
+        if edit_client_profile(self._project, parent=self):
             self._client_summary.setText(self._client_summary_text())
 
     def _export_dir(self, subfolder: str) -> str | None:

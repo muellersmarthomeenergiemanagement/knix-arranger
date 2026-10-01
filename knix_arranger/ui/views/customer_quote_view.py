@@ -8,13 +8,21 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QPushButton, QComboBox, QSpinBox,
     QLineEdit, QGroupBox, QFormLayout, QAbstractItemView,
-    QMessageBox, QDoubleSpinBox, QTabWidget, QFileDialog,
+    QMessageBox, QDoubleSpinBox, QTabWidget, QFileDialog, QPlainTextEdit,
 )
 from PySide6.QtCore import Qt
 from ...models.project import KnxProject
 from ...models.quotation import CustomerQuote, QuotationItem, round_rappen
 from ...services.material_list_export_service import MaterialListExportService
 from ..column_utils import fit_columns
+
+
+def address_block(text: str) -> str:
+    """Postadresse für den Briefkopf: das Kundenprofil speichert sie
+    einzeilig ("Musterstrasse 1, 8000 Zürich") -> eine Zeile je Teil."""
+    if "\n" in text:
+        return text.strip()
+    return "\n".join(p.strip() for p in text.split(",") if p.strip())
 
 
 def _material_signature(ml) -> str:
@@ -34,6 +42,7 @@ class CustomerQuoteView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._project: KnxProject | None = None
+        self._bus = None
 
         layout = QVBoxLayout(self)
 
@@ -121,8 +130,29 @@ class CustomerQuoteView(QWidget):
         self._quote_customer.setPlaceholderText("Name des Bauherrn")
         form.addRow("Kunde:", self._quote_customer)
 
-        self._quote_address = QLineEdit()
+        self._quote_address = QPlainTextEdit()
+        self._quote_address.setPlaceholderText("Strasse\nPLZ Ort")
+        self._quote_address.setFixedHeight(64)
         form.addRow("Adresse:", self._quote_address)
+
+        self._quote_salutation = QLineEdit()
+        self._quote_salutation.setPlaceholderText("Sehr geehrte Damen und Herren")
+        form.addRow("Anrede:", self._quote_salutation)
+
+        self._btn_from_client = QPushButton("Aus Kundenprofil übernehmen")
+        self._btn_from_client.setToolTip(
+            "Name, Postadresse und Anrede aus dem Kundenprofil (Berichte → Kundenprofil) "
+            "in diese Offerte übernehmen. Bestehende Offerten ändern sich sonst "
+            "nicht, wenn das Kundenprofil später angepasst wird.")
+        self._btn_from_client.clicked.connect(self._fill_from_client)
+        self._btn_edit_client = QPushButton("Kundenprofil bearbeiten…")
+        self._btn_edit_client.setToolTip("Bauherr, Objekt- und Postadresse, Anrede "
+                                         "(auch unter Datei → Kundenprofil)")
+        self._btn_edit_client.clicked.connect(self._edit_client)
+        client_row = QHBoxLayout()
+        client_row.addWidget(self._btn_from_client)
+        client_row.addWidget(self._btn_edit_client)
+        form.addRow("", client_row)
 
         self._quote_status = QComboBox()
         # Anzeige mit Umlaut, gespeichert wird der bisherige Wert (Kompatibilität
@@ -548,6 +578,10 @@ class CustomerQuoteView(QWidget):
 
     # ── Public ──
 
+    def set_bus(self, bus) -> None:
+        """ProjectBus für Rückgängig-Punkte (Kundenprofil bearbeiten)."""
+        self._bus = bus
+
     def set_project(self, project: KnxProject):
         self._project = project
         self._refresh_quotes()
@@ -591,7 +625,8 @@ class CustomerQuoteView(QWidget):
         self._quote_rev.setText(cq.revision)
         self._quote_date.setText(cq.date_created)
         self._quote_customer.setText(cq.customer_name)
-        self._quote_address.setText(cq.customer_address)
+        self._quote_address.setPlainText(cq.customer_address)
+        self._quote_salutation.setText(cq.salutation)
 
         idx = self._quote_status.findData(cq.status)
         if idx >= 0:
@@ -693,9 +728,14 @@ class CustomerQuoteView(QWidget):
         if not self._project:
             return
         next_num = len(self._project.customer_quotes) + 1
+        client = getattr(self._project, "client_profile", None)
         cq = CustomerQuote(
             quote_number=f"OF-{date.today().year}-{next_num:03d}",
             date_created=date.today().isoformat(),
+            # Neue Offerte mit den Daten des Kundenprofils vorbelegen
+            customer_name=client.name if client else "",
+            customer_address=address_block(client.contact_address) if client else "",
+            salutation=client.salutation if client else "",
         )
         self._project.customer_quotes.append(cq)
         self._refresh_quotes()
@@ -728,11 +768,33 @@ class CustomerQuoteView(QWidget):
         cq = self._project.customer_quotes[row]
         cq.revision = self._quote_rev.text()
         cq.customer_name = self._quote_customer.text()
-        cq.customer_address = self._quote_address.text()
+        cq.customer_address = self._quote_address.toPlainText().strip()
+        cq.salutation = self._quote_salutation.text().strip().rstrip(",")
         cq.status = self._quote_status.currentData()
         cq.validity_days = self._quote_validity.value()
         cq.payment_terms = self._quote_payment.text()
         self._refresh_quotes()
+
+    def _edit_client(self):
+        if not self._project:
+            return
+        from ..dialogs.client_profile_dialog import edit_client_profile
+        edit_client_profile(self._project, self, self._bus)
+
+    def _fill_from_client(self):
+        """Name, Postadresse und Anrede aus dem Kundenprofil übernehmen
+        (gespeichert wird erst mit "Übernehmen")."""
+        client = getattr(self._project, "client_profile", None) if self._project else None
+        if client is None or not (client.name or client.contact_address or client.salutation):
+            QMessageBox.information(
+                self, "Kundenprofil leer",
+                "Im Kundenprofil sind noch kein Name und keine Postadresse erfasst "
+                "(Berichte → Kundenprofil bearbeiten).",
+            )
+            return
+        self._quote_customer.setText(client.name)
+        self._quote_address.setPlainText(address_block(client.contact_address))
+        self._quote_salutation.setText(client.salutation)
 
     def _get_selected_quote(self) -> CustomerQuote | None:
         if not self._project:
@@ -1357,9 +1419,15 @@ class CustomerQuoteView(QWidget):
         )
         text(LM, y, subject, size=11, bold=True)
         y += 20
+        client = getattr(self._project, "client_profile", None) if self._project else None
+        if client and client.object_address:
+            # Objektadresse aus dem Kundenprofil als zweite Betreffzeile
+            y -= 4
+            text(LM, y, f"Objekt: {client.object_address}", size=10)
+            y += 20
 
         # ── Anrede & Einleitung ──
-        text(LM, y, "Sehr geehrte Damen und Herren,", size=10)
+        text(LM, y, f"{cq.salutation or 'Sehr geehrte Damen und Herren'},", size=10)
         y += LINE + 4
         intro = (
             "gerne unterbreiten wir Ihnen folgende Offerte für die "

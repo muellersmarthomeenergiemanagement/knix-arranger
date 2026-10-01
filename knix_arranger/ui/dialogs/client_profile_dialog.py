@@ -46,6 +46,10 @@ class ClientProfileDialog(QDialog):
         self._contact_address.setPlaceholderText("Postadresse des Kunden")
         data_form.addRow("Postadresse:", self._contact_address)
 
+        self._salutation = QLineEdit()
+        self._salutation.setPlaceholderText("Sehr geehrte Frau Muster  (leer = Damen und Herren)")
+        data_form.addRow("Anrede im Brief:", self._salutation)
+
         self._phone = QLineEdit()
         self._phone.setPlaceholderText("+41 44 000 00 00")
         data_form.addRow("Telefon:", self._phone)
@@ -139,6 +143,7 @@ class ClientProfileDialog(QDialog):
         self._name.setText(p.name)
         self._object_address.setText(p.object_address)
         self._contact_address.setText(p.contact_address)
+        self._salutation.setText(p.salutation)
         self._phone.setText(p.phone)
         self._email.setText(p.email)
         self._website.setText(p.website)
@@ -152,6 +157,7 @@ class ClientProfileDialog(QDialog):
         p.name             = self._name.text().strip()
         p.object_address   = self._object_address.text().strip()
         p.contact_address  = self._contact_address.text().strip()
+        p.salutation       = self._salutation.text().strip().rstrip(",")
         p.phone            = self._phone.text().strip()
         p.email            = self._email.text().strip()
         p.website          = self._website.text().strip()
@@ -218,3 +224,21 @@ class ClientProfileDialog(QDialog):
     def _on_ok(self):
         self.get_profile()
         self.accept()
+
+
+def edit_client_profile(project, parent=None, bus=None) -> bool:
+    """Kundenprofil bearbeiten (Menü Datei, Berichte, Kundenofferte) und
+    Kundenname/Objektadresse in die Projektangaben der Berichtsköpfe
+    übernehmen. True, wenn gespeichert wurde."""
+    if bus is not None:
+        bus.begin_change("Kundenprofil bearbeitet")
+    dlg = ClientProfileDialog(project.client_profile, parent=parent)
+    if not dlg.exec():
+        return False
+    project.client_profile = dlg.get_profile()
+    cp = project.client_profile
+    project.project_info.client_name = cp.name
+    project.project_info.project_address = cp.object_address
+    if bus is not None:
+        bus.any_change.emit("client_profile")
+    return True
