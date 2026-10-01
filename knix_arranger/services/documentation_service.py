@@ -502,88 +502,141 @@ class DocumentationService:
     def create_acceptance_protocol(self, integrator_name: str = "",
                                    client_name: str = "",
                                    ) -> AcceptanceProtocol:
-        """Erzeugt ein leeres Abnahmeprotokoll (FA-1911)."""
+        """Erzeugt ein leeres Abnahmeprotokoll (FA-1911). Integrator und
+        Bauherr ohne Angabe aus Firmen- bzw. Kundenprofil."""
+        company = self._company_profile
+        if not integrator_name and company:
+            integrator_name = ", ".join(
+                p for p in (company.user_name, company.company_name) if p)
+        client = getattr(self.project, "client_profile", None)
+        if not client_name and client:
+            client_name = client.name
         protocol = AcceptanceProtocol(
-            date=datetime.now().strftime("%Y-%m-%d"),
+            date=datetime.now().strftime("%d.%m.%Y"),
             integrator_name=integrator_name,
+            integrator_role=company.role if company else "",
             client_name=client_name,
             checklists=self.create_checklists(),
         )
         return protocol
 
+    def _plant_scope(self) -> list[list[str]]:
+        """Umfang der Anlage für das Abnahmeprotokoll."""
+        project = self.project
+        imported = project.topology.is_imported
+        devices = [d for a in project.topology.areas for ln in a.lines for d in ln.devices
+                   if d.physical_address and not d.physical_address.endswith("-")]
+        lines = sum(1 for a in project.topology.areas for ln in a.lines if ln.devices)
+        bes = [be for r in project.all_rooms for be in r.bedienelemente if be.is_shown(imported)]
+        operable = sum(1 for be in bes if be.is_operable)
+        sensors = len(bes) - operable
+        actors = sum(1 for d in devices if d.device_type in ("actor", "gateway"))
+        gas = sum(1 for ga in project.group_addresses.all_addresses() if not ga.is_placeholder)
+        rooms = sum(1 for r in project.all_rooms if r.bedienelemente)
+        secure = project.knx_secure.enabled if project.knx_secure else False
+        return [
+            ["Busteilnehmer", str(len(devices)), "Linien", str(lines)],
+            ["Bedienelemente", str(operable), "Sensoren", str(sensors)],
+            ["Aktoren und Gateways", str(actors), "Gruppenadressen", str(gas)],
+            ["Räume mit Bedienung", str(rooms), "KNX Secure", "ja" if secure else "nein"],
+        ]
+
     def export_acceptance_protocol(self, filepath: str,
                                    protocol: AcceptanceProtocol | None = None):
-        """Exportiert das Abnahmeprotokoll als PDF/Text (FA-1914)."""
+        """Abnahmeprotokoll als Formular (FA-1911 bis FA-1914): Projektdaten,
+        Umfang der Anlage, übergebene Unterlagen, Prüfergebnisse, Mängelliste
+        mit freien Zeilen, Vorbehalte, Abnahmeentscheid und Unterschriften."""
         if protocol is None:
             protocol = self.create_acceptance_protocol()
+        project = self.project
+        client = getattr(project, "client_profile", None)
+        company = self._company_profile
 
         pdf = self._make_pdf("Abnahmeprotokoll")
-
-        pdf.add_heading("Abnahmeprotokoll", level=1)
-        pdf.add_separator()
+        pdf.add_heading("Abnahmeprotokoll KNX-Installation", level=1)
 
         # Projektdaten
         pdf.add_heading("Projektdaten", level=2)
-        pdf.add_paragraph(f"Projekt: {self.project.name}")
-        pdf.add_paragraph(f"Projektnummer: {self.project.project_number}")
-        pdf.add_paragraph(f"Datum: {protocol.date}")
-        pdf.add_paragraph(f"Integrator: {protocol.integrator_name}")
-        pdf.add_paragraph(f"Bauherr/Auftraggeber: {protocol.client_name}")
-        pdf.add_separator()
+        integrator = protocol.integrator_name
+        if protocol.integrator_role:
+            integrator += f" ({protocol.integrator_role})"
+        contact = " | ".join(p for p in ((company.phone, company.email) if company else ()) if p)
+        rows = [
+            ["Projekt", project.name],
+            ["Projektnummer", project.project_number or "–"],
+            ["Objekt", (client.object_address if client else "") or "–"],
+            ["Bauherr / Auftraggeber", protocol.client_name or "–"],
+            ["Integrator", (integrator + (f"\n{contact}" if contact else "")) or "–"],
+            ["Datum der Abnahme", protocol.date or datetime.now().strftime("%d.%m.%Y")],
+        ]
+        pdf.add_table(["Angabe", ""], rows, col_widths=[0.28, 0.72])
 
-        # Zusammenfassung der Checklisten
-        pdf.add_heading("Prüfergebnisse", level=2)
-        total_items = sum(len(cl.items) for cl in protocol.checklists)
-        ok_items = sum(
-            sum(1 for i in cl.items if i.result == "OK")
-            for cl in protocol.checklists
-        )
-        mangel_items = sum(
-            sum(1 for i in cl.items if i.result == "Mangel")
-            for cl in protocol.checklists
-        )
-        open_items = total_items - ok_items - mangel_items
+        # Umfang der Anlage
+        pdf.add_heading("Umfang der Anlage", level=2)
+        pdf.add_table(["", "Anzahl", "", "Anzahl"], self._plant_scope(),
+                      col_widths=[0.32, 0.18, 0.32, 0.18],
+                      align=["left", "right", "left", "right"])
+        pdf.add_heading("Übergebene Unterlagen", level=3)
+        docs = ["Bedienungsanleitung", "Inbetriebnahme-Checkliste",
+                "Revisionsunterlagen (Berichte, Gruppenadressen)", "ETS-Projektdatei"]
+        if project.knx_secure and project.knx_secure.enabled:
+            docs.append("KNX-Secure-Archiv (vertraulich, separat)")
+        pdf.add_paragraph("\n".join(f"[ ]  {d}" for d in docs))
 
-        pdf.add_paragraph(f"Gepruefte Punkte: {total_items}")
-        pdf.add_paragraph(f"OK: {ok_items}")
-        pdf.add_paragraph(f"Mängel: {mangel_items}")
-        pdf.add_paragraph(f"Noch offen: {open_items}")
-        pdf.add_separator()
+        # Prüfergebnisse aus der Inbetriebnahme
+        pdf.add_heading("Prüfergebnisse der Inbetriebnahme", level=2)
+        items = [i for cl in project.checklists for i in cl.items]
+        if items:
+            ok = sum(1 for i in items if i.result == "OK")
+            defects = sum(1 for i in items if i.result == "Mangel")
+            na = sum(1 for i in items if i.result == "n/a")
+            pdf.add_table(["Prüfpunkte gesamt", "in Ordnung", "Mängel", "nicht anwendbar", "offen"],
+                          [[str(len(items)), str(ok), str(defects), str(na),
+                            str(len(items) - ok - defects - na)]],
+                          align=["right"] * 5)
+        else:
+            pdf.add_paragraph("Die Prüfergebnisse sind in der beiliegenden "
+                              "Inbetriebnahme-Checkliste festgehalten.")
 
-        # Mängelliste
-        if protocol.defects:
-            pdf.add_heading("Mängelliste", level=2)
-            headers = ["Nr.", "Raum", "Gewerk", "Mangel", "Prioritaet", "Status"]
-            rows = []
-            catalog = self.project.gewerk_catalog
-            for defect in protocol.defects:
-                code = defect.gewerk_code or "-"
-                if defect.gewerk_code:
-                    gw = catalog.get(defect.gewerk_code)
-                    code = f"{defect.gewerk_code} – {gw.name}" if gw and gw.name else defect.gewerk_code
-                rows.append([
-                    str(defect.number),
-                    defect.room_name,
-                    code,
-                    defect.description[:40],
-                    defect.priority,
-                    defect.status,
-                ])
-            pdf.add_table(headers, rows)
+        # Mängelliste: erfasste Mängel + freie Zeilen
+        pdf.add_heading("Mängelliste", level=2)
+        rows = []
+        for d in protocol.defects:
+            rows.append([str(d.number), d.room_name, d.description, d.due_date,
+                         "ja" if d.status == "behoben" else ""])
+        for cl in project.checklists:
+            for i in cl.items:
+                if i.result == "Mangel":
+                    where = " · ".join(p for p in (cl.room_name, i.be_number, i.check_type) if p)
+                    rows.append([str(len(rows) + 1), where, i.notes or i.description, "", ""])
+        for _ in range(max(6, 10 - len(rows)) if len(rows) < 10 else 2):
+            rows.append([str(len(rows) + 1), "", "", "", ""])
+        pdf.add_table(["Nr.", "Raum / Gerät", "Mangel", "Frist", "erledigt"], rows,
+                      col_widths=[0.06, 0.26, 0.44, 0.12, 0.12])
 
-        # Ergebnis
-        pdf.add_heading("Ergebnis", level=2)
-        pdf.add_paragraph(f"Abnahmeentscheid: {protocol.result or '(noch offen)'}")
+        # Vorbehalte und Entscheid
+        pdf.add_conditional_break(min_height=300)
+        pdf.add_heading("Vorbehalte / Bemerkungen", level=2)
         if protocol.notes:
-            pdf.add_paragraph(f"Bemerkungen: {protocol.notes}")
-        pdf.add_separator()
+            pdf.add_paragraph(protocol.notes)
+        # Schreiblinien zum Ausfüllen von Hand
+        pdf.add_paragraph("\n".join(["", "_" * 118, "", "_" * 118, "", "_" * 118]))
+        pdf.add_heading("Abnahmeentscheid", level=2)
+        chosen = protocol.result
+        options = ["Abnahme erfolgt", "Abnahme unter Vorbehalt (Mängel gemäss Liste)",
+                   "Abnahme verweigert"]
+        pdf.add_paragraph("\n".join(
+            f"[{'x' if chosen and o.startswith(chosen) else ' '}]  {o}" for o in options))
 
-        # Unterschriftenfelder
+        # Unterschriften
         pdf.add_heading("Unterschriften", level=2)
-        pdf.add_paragraph("")
-        pdf.add_paragraph("_________________________     _________________________")
-        pdf.add_paragraph("Integrator                    Bauherr/Auftraggeber")
-        pdf.add_paragraph(f"{protocol.integrator_name:25s}     {protocol.client_name}")
+        pdf.add_table(
+            ["", "Integrator", "Bauherr / Auftraggeber"],
+            [["Name", protocol.integrator_name, protocol.client_name],
+             ["Ort, Datum", "", ""],
+             # geschützte Leerzeichen: Platz für die Unterschrift
+             ["Unterschrift", " \n \n \n ", " \n \n \n "]],
+            col_widths=[0.18, 0.41, 0.41])
 
         pdf.save(filepath)
         logger.info(f"Abnahmeprotokoll exportiert: {filepath}")

@@ -27,3 +27,25 @@ def test_ergebnis_je_zeile_zusammengefasst():
     assert DocumentationService._combined_result(keys, saved) == ("Mangel", "LED dunkel")
     assert DocumentationService._combined_result(keys[:1], saved) == ("OK", "")
     assert DocumentationService._combined_result([("x",)], saved) == ("", "")
+
+
+def test_abnahmeprotokoll_mit_profilen(tmp_path):
+    import fitz
+    from knix_arranger.models.company_profile import CompanyProfile
+    from knix_arranger.models.client_profile import ClientProfile
+    project = _project()
+    project.client_profile = ClientProfile(name="Anita Muster", object_address="Chaletweg 5")
+    company = CompanyProfile(company_name="Muster AG", user_name="Max Muster",
+                             role="KNX-Systemintegrator")
+    svc = DocumentationService(project, company_profile=company)
+    protocol = svc.create_acceptance_protocol()
+    assert protocol.integrator_name == "Max Muster, Muster AG"
+    assert protocol.client_name == "Anita Muster"
+    assert len(protocol.date) == 10 and protocol.date[2] == "."   # 01.10.2026
+    path = str(tmp_path / "abnahme.pdf")
+    svc.export_acceptance_protocol(path, protocol)
+    text = "".join(pg.get_text() for pg in fitz.open(path))
+    for expected in ("Umfang der Anlage", "Übergebene Unterlagen", "Mängelliste",
+                     "Abnahmeentscheid", "Chaletweg 5", "Max Muster, Muster AG"):
+        assert expected in text
+    assert "Gepruefte" not in text
