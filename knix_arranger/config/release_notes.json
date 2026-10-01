@@ -2,6 +2,30 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.27",
+      "date": "2026-10-01",
+      "neu": [
+        "Bedienungsanleitung für den Bauherrn komplett neu: je Raum jeder Taster als Bild mit Tabelle «Taste – Funktion – Bedienung» in Alltagssprache (z.B. «kurz drücken: Ein · lang drücken: heller»), ohne Gruppenadressen. Die Bedienung stammt aus den ETS-Parametern der Taster; Szenen erscheinen mit Namen und Kurzbeschreibung, dazu ein allgemeiner Teil mit zentralen Funktionen, Hilfe bei Störungen und Ihren Kontaktdaten.",
+        "Bauherrenberatung: Feld «In der Anleitung» unter jeder Taste – eigene Bezeichnung für den Bauherrn (z.B. «Hell» statt «Szene High»). Gilt in Anleitung, Bericht Bedienelemente und Bauherr-Formular und bleibt beim Re-Import erhalten.",
+        "Gewerk einer Gruppenadresse korrigieren: in den GA-Ansichten Rechtsklick «Gewerk zuordnen» (auch für mehrere GAs). Gilt in Berichten, Gewerke-Zahlen und Dokumenten, bleibt beim Re-Import erhalten und erscheint in der Validierung als «Abweichung zur ETS» – die ETS selbst wird nicht verändert.",
+        "Doppelbelegung an Sensorkanälen: Eine zweite sendende GA an einer Taste wird erkannt – als Fehler, wenn nachweislich eine andere Bedienstelle sie sendet, sonst als Warnung. Markiert in Bauherrenberatung, Schritt 12, Topologie, Verknüpfungsmatrix, Validierung und Berichten.",
+        "GA von einer Taste trennen – in der Bauherrenberatung (✕ am GA-Chip, jetzt mit GA-Nummer und Rolle) und in der Topologie (Rechtsklick). Getrennt wird wie in der ETS, inklusive KO-Verknüpfung des Geräts.",
+        "Checkliste als Excel zum Ausfüllen auf der Baustelle: je Stockwerk ein Blatt, Übersicht mit Fortschritt, Spalte OK als Auswahlliste (offen / OK / Mangel / n/a) mit Farbe. Die ausgefüllte Datei lässt sich in der Inbetriebnahme wieder einlesen.",
+        "Kundenofferte übernimmt Name, Adresse und Anrede aus dem Kundenprofil; neues Feld «Anrede im Brief» (z.B. «Sehr geehrte Frau Muster»). Das Kundenprofil ist jetzt auch über Datei → Projekteigenschaften erreichbar."
+      ],
+      "verbessert": [
+        "Validierung als Baum (Stufe → Regel → Meldung) mit Filter nach Stufe und Suchfeld – auch über tausend Hinweise bleiben übersichtlich.",
+        "Projektart in den Projekteigenschaften: Bei aus der ETS importierten Projekten sind Abweichungen von den Projektrichtlinien nur Hinweise, bei mit KNiX geplanten Projekten Fehler.",
+        "Inbetriebnahme-Checkliste: eine Zeile je Taste mit allen Gruppenadressen, gegliedert nach Stockwerk, breite Spalte für Bemerkungen.",
+        "Abnahmeprotokoll als vollständiges Formular: Projektdaten mit Bauherr und Integrator, Umfang der Anlage, übergebene Unterlagen, Mängelliste, Abnahmeentscheid und Unterschriften.",
+        "Revisionspaket mit Abnahmeprotokoll und Seitenzahlen im Inhaltsverzeichnis; Belegungsplan kompakter; DALI-Liste mit physikalischer Adresse; KNX-Secure-Bericht mit Linie und deutschem Gerätenamen.",
+        "Excel-Dokumente: Zeilenhöhe passt sich dem Inhalt an, mehrzeilige Zellen werden nicht mehr abgeschnitten."
+      ],
+      "behoben": [
+        "Die Rückfrage «GA von Taste trennen» war in der Bauherrenberatung nicht lesbar."
+      ]
+    },
+    {
       "version": "1.1.26",
       "date": "2026-09-30",
       "neu": [
