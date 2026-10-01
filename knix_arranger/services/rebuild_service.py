@@ -32,8 +32,13 @@ REBUILD_OPTIONS: tuple[RebuildOption, ...] = (
         True, ("client_profile",)),
     RebuildOption(
         "ets_corrections", "Korrekturen zur ETS",
-        "In KNiX korrigierte Angaben: Gewerk einer GA, Tastenbezeichnungen für den Bauherrn",
+        "In KNiX korrigierte Angaben: Gewerk einer GA, Raum eines Geräts, "
+        "getrennte Verknüpfungen, Tastenbezeichnungen für den Bauherrn",
         True, ("ets_corrections",)),
+    RebuildOption(
+        "ets_worklist", "Stand der ETS-Arbeitsliste",
+        "Damit der nächste Import zeigt, was in der ETS erledigt wurde",
+        True, ("ets_worklist",)),
     RebuildOption(
         "knx_secure", "KNX-Secure-Archiv",
         "Gerätezertifikate (FDSK), Passwörter, Master-Passwort",

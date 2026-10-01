@@ -277,12 +277,14 @@ def ko_for_ga(device, ga_addr: str, ko_name: str = ""):
     return (named or cos or [None])[0]
 
 
-def unlink_ga(project,physical_address: str, co_number: int, ga_addr: str) -> bool:
+def unlink_ga(project, physical_address: str, co_number: int, ga_addr: str,
+              record: bool = True) -> bool:
     """Trennt eine GA von einem KO eines Geräts -- wie in der ETS. Entfernt
     sie aus ``connected_gas`` und aus der Tastenbelegung des zugehörigen
     Bedienelements (SensorFunktion bzw. deren Zusatz-GAs). Andere Geräte an
     derselben GA bleiben unverändert. Gibt False zurück, wenn nichts zu
-    trennen war."""
+    trennen war. Bei importierten Projekten wird die Trennung als Korrektur
+    zur ETS festgehalten (record), damit ein Re-Import sie nicht zurückbringt."""
     device = find_device(project, physical_address)
     if device is None:
         return False
@@ -291,6 +293,9 @@ def unlink_ga(project,physical_address: str, co_number: int, ga_addr: str) -> bo
     if co is None or ga_addr not in co.connected_gas:
         return False
     co.connected_gas.remove(ga_addr)
+    if record:
+        from .ets_corrections import record_unlink
+        record_unlink(project, physical_address, co_number, ga_addr)
     still_on_device = any(ga_addr in c.connected_gas
                           for c in device.communication_objects)
     co_name = co.name or co.object_function

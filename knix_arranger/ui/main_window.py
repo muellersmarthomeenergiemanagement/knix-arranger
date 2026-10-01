@@ -104,6 +104,7 @@ class MainWindow(QMainWindow):
         self._rebuild_id_source: KnxProject | None = None
         self._pending_undo_cmd: ObjectStateCommand | None = None
         self._import_worker_ref: list = [None]  # GC-Schutz für laufenden Import-Worker (run_import)
+        self._export_worker_ref: list = [None]  # GC-Schutz für Exporte aus dem Hauptfenster
 
         # Auto-Save: 30 Sekunden nach letzter Änderung
         self._autosave_timer = QTimer(self)
@@ -348,6 +349,7 @@ class MainWindow(QMainWindow):
         self._address_table.gewerk_change_requested.connect(self._assign_gewerk)
         self._validation_view = ValidationView()
         self._validation_view.revalidate_requested.connect(self._validate)
+        self._validation_view.worklist_requested.connect(self._export_worklist)
         self._gewerk_view = GewerkView()
         self._scene_view = SceneView()
         self._scene_view.request_generate_addresses.connect(
@@ -1151,6 +1153,25 @@ class MainWindow(QMainWindow):
                 "verwaist:\n\n" + diff.details_text(),
             )
         self._warn_if_channel_conflicts(pipeline.channel_conflicts)
+        parts = []
+        wl = pipeline.worklist_diff
+        if wl is not None and not wl.first and (wl.done or wl.new or wl.open):
+            parts.append(
+                f"ETS-Arbeitsliste: {wl.done} Aufgabe(n) in der ETS erledigt, "
+                f"{wl.new} neu, {wl.open} noch offen.\n"
+                "Neue Liste unter Berichte → ETS-Arbeitsliste oder in der Validierung.")
+        if pipeline.pending_unlinks:
+            shown = pipeline.pending_unlinks[:20]
+            more = (f"\n… und {len(pipeline.pending_unlinks) - 20} weitere"
+                    if len(pipeline.pending_unlinks) > 20 else "")
+            parts.append(
+                "Diese Gruppenadressen wurden in KNiX von einer Taste bzw. einem "
+                "Objekt getrennt, sind in der ETS aber noch verbunden. KNiX hat "
+                "sie wieder getrennt – bitte auch in der ETS trennen:\n\n"
+                + "\n".join(f"• {p.text()}" for p in shown) + more
+                + "\n\nSobald die ETS sie nicht mehr liefert, entfällt dieser Hinweis.")
+        if parts:
+            QMessageBox.information(self, "Abgleich mit der ETS", "\n\n".join(parts))
         if pipeline.problems:
             from ..utils.logging_setup import get_log_dir
             shown = pipeline.problems[:15]
@@ -1190,6 +1211,7 @@ class MainWindow(QMainWindow):
             topology.is_imported = True
             self._project.topology = topology
             pipeline = ImportPipeline(self._project, importer)
+            pipeline.links_from_ets = True
             pipeline.set_source(TOPOLOGY_XLSX, filepath)
 
             # Projektname aus Metadaten uebernehmen, falls noch leer
@@ -1608,6 +1630,7 @@ class MainWindow(QMainWindow):
         # er das laufende Projekt ersetzt
         project.custom_gewerke = self._project.custom_gewerke
         pipeline = ImportPipeline(project)
+        pipeline.links_from_ets = True
         pipeline.derive()
         reconcile_diff = pipeline.reconcile(self._project)
 
@@ -1840,6 +1863,28 @@ class MainWindow(QMainWindow):
         profile = self._app.project_service.load_company_profile() if self._app else None
         dialog = ReportsDialog(self._project, self, company_profile=profile)
         dialog.exec()
+        if dialog.project_changed:
+            self._set_dirty(True)
+
+    def _export_worklist(self):
+        """ETS-Arbeitsliste aus der Validierung (FA-618)."""
+        if not self._project:
+            return
+        from .dialogs.reports_dialog import export_worklist
+        profile = self._app.project_service.load_company_profile() if self._app else None
+        folder = self._project.folder_path
+        name = f"{self._project.name}_ETS-Arbeitsliste.pdf"
+        default = os.path.join(folder, "Berichte", name) if folder else name
+        if folder:
+            os.makedirs(os.path.join(folder, "Berichte"), exist_ok=True)
+
+        def done(path, worklist):
+            self._status_bar.set_status(
+                f"ETS-Arbeitsliste erstellt: {path} ({len(worklist.items)} offen, "
+                f"{len(worklist.done)} erledigt)")
+        if export_worklist(self, self._project, default, profile,
+                           self._export_worker_ref, done):
+            self._set_dirty(True)
 
     def _show_settings(self):
         profile = self._app.project_service.load_company_profile()

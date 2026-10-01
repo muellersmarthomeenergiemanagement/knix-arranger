@@ -644,6 +644,7 @@ class TopologyView(QWidget):
         elif kind == "device":
             _, area, line, device = data
             loc_act = menu.addAction("Einbauort bearbeiten…")
+            room_act = menu.addAction("Raum zuordnen…") if self._project else None
             addr_act = None
             move_act = None
             if device.device_type not in ("coupler", "power_supply"):
@@ -658,6 +659,8 @@ class TopologyView(QWidget):
             action = menu.exec(global_pos)
             if action == loc_act:
                 self._edit_device_location(device)
+            elif room_act and action == room_act:
+                self._assign_room(device)
             elif addr_act and action == addr_act:
                 self._edit_physical_address(device, line)
             elif move_act and action == move_act:
@@ -753,6 +756,32 @@ class TopologyView(QWidget):
             device.installation_location = loc.strip()
             self._refresh()
             self._emit_changed()
+
+    def _assign_room(self, device: Device):
+        """Gerät samt Bedienelement einem Raum zuordnen. Bei importierten
+        Projekten eine Korrektur zur ETS (übersteht den Re-Import)."""
+        from ...services.ets_corrections import rooms_by_key, set_device_room
+        rooms = list(rooms_by_key(self._project).values())
+        if not rooms:
+            return
+        labels = [label for label, _room in rooms]
+        current = next((i for i, (_l, r) in enumerate(rooms) if r.id == device.room_id), 0)
+        name = device.physical_address or device.product or device.device_type
+        hint = ("\n\nDie ETS bleibt unverändert; die Zuordnung gilt in allen "
+                "Dokumenten und bleibt beim Re-Import erhalten."
+                if self._project.topology.is_imported else "")
+        label, ok = QInputDialog.getItem(
+            self, "Raum zuordnen", f"Raum für {name}:{hint}", labels, current, False)
+        if not ok:
+            return
+        room = rooms[labels.index(label)][1]
+        if room.id == device.room_id:
+            return
+        if self._bus:
+            self._bus.begin_change(f"{name} dem Raum {label} zugeordnet")
+        set_device_room(self._project, device, room)
+        self._refresh()
+        self._emit_changed()
 
     def _edit_physical_address(self, device: Device, line: Line | None):
         """Setzt die physikalische Adresse manuell und schützt sie mit is_programmed."""

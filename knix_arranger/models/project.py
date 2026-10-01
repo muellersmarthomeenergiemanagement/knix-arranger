@@ -6,6 +6,7 @@ Gemaess Datenmodell Abschnitt 5.1
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
+import copy
 import json
 import sqlite3
 import os
@@ -99,6 +100,9 @@ class KnxProject:
     # Korrekturen an importierten ETS-Daten (Korrekturschicht, siehe
     # services/ets_corrections) -- die ETS-Daten selbst bleiben unverändert
     ets_corrections: EtsCorrections = field(default_factory=EtsCorrections)
+    # Stand der ETS-Arbeitsliste (services/ets_worklist): Runde, letzter Import,
+    # Aufgaben mit erstem Auftreten und Erledigt-Datum
+    ets_worklist: dict = field(default_factory=dict)
     areal: Areal = field(default_factory=Areal)
     topology: Topology = field(default_factory=Topology)
     group_addresses: GroupAddressStructure = field(default_factory=GroupAddressStructure)
@@ -209,6 +213,7 @@ class KnxProject:
             "project_info": self.project_info.to_dict(),
             "client_profile": self.client_profile.to_dict(),
             "ets_corrections": self.ets_corrections.to_dict(),
+            "ets_worklist": copy.deepcopy(self.ets_worklist),
             "areal": self.areal.to_dict(),
             "topology": self.topology.to_dict(),
             "group_addresses": self.group_addresses.to_dict(),
@@ -263,6 +268,7 @@ class KnxProject:
         project.project_info = ProjectInfo.from_dict(data.get("project_info", {}))
         project.client_profile = ClientProfile.from_dict(data.get("client_profile", {}))
         project.ets_corrections = EtsCorrections.from_dict(data.get("ets_corrections"))
+        project.ets_worklist = copy.deepcopy(data.get("ets_worklist") or {})
         project.areal = Areal.from_dict(data.get("areal", {}))
         project.topology = Topology.from_dict(data.get("topology", {}))
         project.group_addresses = GroupAddressStructure.from_dict(

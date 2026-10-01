@@ -139,8 +139,9 @@ VALIDATION_RULES = {
     ),
     "FA-616": (
         "Abweichung zur ETS",
-        "In KNiX korrigierte Angabe eines importierten Projekts (z.B. das Gewerk "
-        "einer GA, deren ETS-Kürzel nicht den Projektrichtlinien entspricht). "
+        "In KNiX korrigierte Angabe eines importierten Projekts: Gewerk einer GA "
+        "(ETS-Kürzel entspricht nicht den Projektrichtlinien), Raum eines Geräts "
+        "oder eine von einer Taste getrennte GA. "
         "Alle Dokumente verwenden die Korrektur; die ETS ist unverändert.",
         "Bei der nächsten Bearbeitung in der ETS nachführen.",
     ),

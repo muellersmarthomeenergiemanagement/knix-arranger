@@ -102,6 +102,12 @@ class ImportPipeline:
         self.channel_conflicts: list[str] = []
         self.gewerke_assigned = 0
         self.scenes_detected = 0
+        # KO-Verknüpfungen stammen frisch aus der ETS (knxproj, Topologie- oder
+        # GA-Report) -- nur dann lässt sich prüfen, ob in KNiX getrennte
+        # Verknüpfungen in der ETS noch bestehen
+        self.links_from_ets = False
+        self.pending_unlinks: list = []
+        self.worklist_diff = None    # Abgleich der ETS-Arbeitsliste (FA-618)
 
     # ── Hilfen ────────────────────────────────────────────────────────────
 
@@ -180,6 +186,7 @@ class ImportPipeline:
         if ga_report:
             self.step("KO-Verbindungen aus GA-Report", importer.enrich_device_ko_connections,
                       project.topology, ga_report)
+            self.links_from_ets = True
 
     def _apply_to_devices(self, attr: str, values: dict) -> None:
         if not values:
@@ -233,9 +240,19 @@ class ImportPipeline:
                   project.group_addresses, project.areal)
         self.step("Szenen-Erkennung", self._detect_scenes)
         self.step("DALI-Konfiguration", auto_configure_dali, project)
+        # In KNiX getrennte Verknüpfungen, die die ETS noch hat (vor dem
+        # erneuten Trennen in refresh_bedienelemente)
+        if self.links_from_ets:
+            from .ets_corrections import check_unlinks_after_import
+            self.pending_unlinks = self.step(
+                "Getrennte Verknüpfungen", check_unlinks_after_import, project, default=[])
         # Tastenbelegung aller Bedienelemente aus ihren Funktionen -- einmal
         # hier statt bei jedem Anzeigen (siehe refresh_bedienelemente)
         self.step("Tastenbelegung aktualisieren", refresh_bedienelemente, project)
+        # ETS-Arbeitsliste: was die Validierung nicht mehr meldet, ist erledigt
+        if project.topology.is_imported:
+            from .ets_worklist import sync_worklist
+            self.worklist_diff = self.step("ETS-Arbeitsliste", sync_worklist, project)
         is_reimport = diff.devices_matched > 0 or diff.rooms_matched > 0
         project.add_changelog_entry(
             "Re-Import" if is_reimport else "Import",

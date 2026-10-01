@@ -49,6 +49,7 @@ class ValidationView(QWidget):
     """Zeigt Validierungsergebnisse als Baum Stufe → Regel → Meldung."""
 
     revalidate_requested = Signal()
+    worklist_requested = Signal()     # ETS-Arbeitsliste erstellen (FA-618)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -63,6 +64,12 @@ class ValidationView(QWidget):
         header.addWidget(title)
         header.addStretch()
 
+        self._btn_worklist = QPushButton("ETS-Arbeitsliste…")
+        self._btn_worklist.setToolTip(
+            "Was in der ETS zu korrigieren ist – mit Anleitung, als PDF oder Excel. "
+            "Nach dem Re-Import zeigt KNiX, was erledigt ist.")
+        self._btn_worklist.clicked.connect(self.worklist_requested.emit)
+        header.addWidget(self._btn_worklist)
         self._btn_validate = QPushButton("Erneut validieren")
         self._btn_validate.clicked.connect(self.revalidate_requested.emit)
         header.addWidget(self._btn_validate)

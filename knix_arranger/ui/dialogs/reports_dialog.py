@@ -12,6 +12,36 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from ..styles import KNX_GREEN, KNX_DARK_GREEN
 from ..export_worker import run_export
+
+
+def export_worklist(parent, project, default_path: str, company_profile, worker_ref,
+                    on_done=None) -> bool:
+    """ETS-Arbeitsliste als PDF oder Excel (FA-618) -- aus dem Berichte-Dialog
+    und der Validierung. Gibt True zurück, wenn dabei der Ausgangsstand für
+    den Vergleich beim nächsten Re-Import gemerkt wurde (Projekt geändert)."""
+    from PySide6.QtWidgets import QFileDialog
+    path, chosen = QFileDialog.getSaveFileName(
+        parent, "ETS-Arbeitsliste speichern", default_path,
+        "PDF-Dateien (*.pdf);;Excel-Dateien (*.xlsx)",
+    )
+    if not path:
+        return False
+    if not os.path.splitext(path)[1]:
+        path += ".xlsx" if "xlsx" in chosen else ".pdf"
+    from ...services import ets_worklist
+    changed = ets_worklist.ensure_baseline(project)
+
+    def do():
+        if path.lower().endswith(".xlsx"):
+            return ets_worklist.export_excel(project, path)
+        return ets_worklist.export_pdf(project, path, company_profile=company_profile)
+
+    def on_success(worklist):
+        if on_done:
+            on_done(path, worklist)
+
+    run_export(parent, "ETS-Arbeitsliste wird erstellt…", do, on_success, worker_ref)
+    return changed
 from ...models.project import KnxProject
 
 
@@ -23,6 +53,8 @@ class ReportsDialog(QDialog):
         self._project = project
         self._company_profile = company_profile
         self._worker_ref: list = [None]  # GC-Schutz für laufenden Worker
+        # Projekt geändert (Ausgangsstand der ETS-Arbeitsliste gemerkt)
+        self.project_changed = False
         self.setWindowTitle("Berichte erstellen")
         self.setMinimumSize(520, 580)
 
@@ -93,6 +125,8 @@ class ReportsDialog(QDialog):
         doc_layout = QGridLayout()
 
         doc_buttons = [
+            ("ETS-Arbeitsliste", "Was in der ETS zu korrigieren ist (PDF oder Excel)",
+             self._gen_worklist),
             ("Inbetriebnahme-Checkliste", "Prüfpunkte pro Raum (PDF)",
              self._gen_checklists_pdf),
             ("Checkliste (Excel)", "Prüfpunkte pro Raum als Excel",
@@ -255,6 +289,15 @@ class ReportsDialog(QDialog):
             ReportService(project, company_profile=company).generate_topology_report(path)
 
         self._run("Topologie-Bericht wird erstellt…", do, f"Topologie-Bericht erstellt: {path}")
+
+    def _gen_worklist(self):
+        def done(path, worklist):
+            self._log_msg(f"ETS-Arbeitsliste erstellt: {path} "
+                          f"({len(worklist.items)} offen, {len(worklist.done)} erledigt)")
+        if export_worklist(self, self._project,
+                           self._default_export_path(f"{self._project.name}_ETS-Arbeitsliste.pdf"),
+                           self._company_profile, self._worker_ref, done):
+            self.project_changed = True
 
     def _gen_checklists_pdf(self):
         path, _ = QFileDialog.getSaveFileName(
