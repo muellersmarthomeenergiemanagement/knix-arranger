@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+from .building_service import BuildingService
 from ..models.project import KnxProject
 from ..models.building import (
     Room, Bedienelement, FunctionAssignment, SensorFunktion, is_long_press, long_press_of,
@@ -630,7 +631,7 @@ class BauherrFormService:
         Projekt mehrfach vorkommt (Import: "00" in OG, EG und DG). Wizard-
         Raumnummern wie "E01" enthalten das Stockwerk bereits."""
         pairs = [
-            (room, floor.short_code or floor.name)
+            (room, BuildingService.floor_label(self.project.areal, floor, short=True))
             for building in self.project.areal.buildings
             for wing in building.wings
             for floor in wing.floors

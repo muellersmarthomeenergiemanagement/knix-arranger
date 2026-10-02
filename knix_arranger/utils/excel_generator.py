@@ -240,8 +240,10 @@ class ExcelGenerator:
         ws.print_options.headings = False
 
     def add_sheet(self, name: str):
-        """Fügt ein neues Tabellenblatt hinzu."""
-        self._current_sheet = self.wb.create_sheet(title=name[:31])
+        """Fügt ein neues Tabellenblatt hinzu. Zeichen, die Excel in
+        Blattnamen nicht erlaubt (z.B. "/" in einem Gebäudenamen), entfallen."""
+        title = "".join(c for c in name if c not in '[]:*?/\\').strip() or "Blatt"
+        self._current_sheet = self.wb.create_sheet(title=title[:31])
         self._row = 1
 
     def save(self, filepath: str):

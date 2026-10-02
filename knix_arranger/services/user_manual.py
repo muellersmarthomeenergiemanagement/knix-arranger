@@ -22,6 +22,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from .building_service import BuildingService
 from .bedienelement_layout import ButtonKey, group_assignments, _PAREN_RE, _SCENE_RE
 from .gewerk_service import GewerkService
 from .report_sorting import sorted_rooms
@@ -623,7 +624,8 @@ class UserManualBuilder:
                 for floor in wing.floors:
                     for apt in floor.apartments:
                         for room in apt.rooms:
-                            floor_by_room[room.id] = floor.name
+                            floor_by_room[room.id] = BuildingService.floor_label(
+                                project.areal, floor)
                             # Zone nur, wenn sie mehr sagt als das Stockwerk
                             if apt.name not in (floor.name, floor.short_code):
                                 zone_by_room[room.id] = apt.name

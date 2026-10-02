@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import logging
 import re
 
+from .building_service import BuildingService
 from .scene_addressing import group_named_scenes
 
 logger = logging.getLogger("knix_arranger.belegungsplan")
@@ -382,7 +383,8 @@ class BelegungsplanService:
                 for floor in wing.floors:
                     for apt in floor.apartments:
                         for room in apt.rooms:
-                            index[room.id] = floor.name
+                            index[room.id] = BuildingService.floor_label(
+                                project.areal, floor)
         return index
 
     def _build_zone_index(self, project) -> dict:

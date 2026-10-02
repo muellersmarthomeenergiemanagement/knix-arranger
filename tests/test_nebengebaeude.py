@@ -192,3 +192,21 @@ class TestBerichte:
         assert "Gebäude: 2" in text
         assert "Einstellhalle" in text
         assert "EG – Erdgeschoss" in text
+
+    def test_berichte_trennen_gleichnamige_stockwerke(self):
+        """Stockwerk-Zuordnung der Berichte: Chalet-EG und Einstellhalle-EG getrennt."""
+        project = self._project_mit_halle()
+        halle_eg = project.areal.buildings[1].wings[0].floors[0]
+        halle_eg.apartments[0].rooms.append(Room(number="EEG01", name="Garage"))
+        from knix_arranger.services.belegungsplan_service import BelegungsplanService
+        index = BelegungsplanService()._build_floor_index(project)
+        chalet_room = project.areal.buildings[0].wings[0].floors[1].apartments[0].rooms[0]
+        assert index[chalet_room.id] == "Erdgeschoss"
+        assert index[halle_eg.apartments[0].rooms[0].id] == "Einstellhalle Erdgeschoss"
+
+    def test_excel_blattname_ohne_ungueltige_zeichen(self):
+        pytest.importorskip("openpyxl")
+        from knix_arranger.utils.excel_generator import ExcelGenerator
+        excel = ExcelGenerator(title="Übersicht", project_name="Test")
+        excel.add_sheet("Halle A/B Erdgeschoss")
+        assert excel._current_sheet.title == "Halle AB Erdgeschoss"

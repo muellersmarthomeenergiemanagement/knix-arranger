@@ -8,6 +8,7 @@ import re
 from collections import Counter, defaultdict
 from datetime import datetime
 
+from .building_service import BuildingService
 from ..models.project import KnxProject
 from ..models.building import Bedienelement
 from ..models.topology import area_coupler, line_coupler, line_title
@@ -674,7 +675,8 @@ class ReportService:
                 for floor in wing.floors:
                     for apt in floor.apartments:
                         for room in apt.rooms:
-                            floor_by_room[room.id] = floor.name
+                            floor_by_room[room.id] = BuildingService.floor_label(
+                                self.project.areal, floor)
                             zone_by_room[room.id] = apt.name
 
         def room_label(room) -> str:
@@ -1106,7 +1108,8 @@ class ReportService:
                 for floor in wing.floors:
                     for apt in floor.apartments:
                         for room in apt.rooms:
-                            floor_by_room[room.id] = floor.name
+                            floor_by_room[room.id] = BuildingService.floor_label(
+                                project.areal, floor)
                             zone_by_room[room.id] = apt.name
 
         def room_label(room) -> str:

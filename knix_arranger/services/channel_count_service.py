@@ -21,6 +21,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 
+from .building_service import BuildingService
 from ..models.building import Areal, GewerkAssignment
 from .gewerk_service import GewerkService
 
@@ -114,7 +115,8 @@ def apply_element_counts(areal: Areal, counts: ElementCounts,
                     for room in apartment.rooms:
                         room_counts = counts.by_room.get(room.id, Counter())
                         label = " ".join(" ".join(p.split()) for p in (
-                            floor.short_code or floor.name, room.number, room.name) if p)
+                            BuildingService.floor_label(areal, floor, short=True),
+                            room.number, room.name) if p)
                         for code in sorted(codes):
                             target = room_counts.get(code, 0)
                             existing = [a for a in room.gewerk_assignments

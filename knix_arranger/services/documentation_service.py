@@ -8,6 +8,7 @@ import logging
 import os
 from datetime import datetime
 
+from .building_service import BuildingService
 from ..models.project import KnxProject
 from ..models.building import Room
 from ..models.documentation import (
@@ -283,7 +284,8 @@ class DocumentationService:
                 for floor in wing.floors:
                     for apt in floor.apartments:
                         for room in apt.rooms:
-                            floor_by_room[room.id] = floor.name
+                            floor_by_room[room.id] = BuildingService.floor_label(
+                                project.areal, floor)
 
         sections = []
         for room in sorted_rooms(project.areal):
