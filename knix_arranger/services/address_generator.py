@@ -21,6 +21,7 @@ from ..models.address_block import (
     create_light_feedback_block_b,
     create_jalousie_block_schema_a, create_jalousie_block_schema_b,
     create_jalousie_feedback_block_b,
+    split_feedback_variant_b,
     create_heating_block_schema,
     create_dali_block_schema,
     create_lc_block_schema, create_lct_block_schema, create_lcw_block_schema,
@@ -30,6 +31,7 @@ from ..models.address_block import (
     create_w_block_schema, create_wp_block_schema, create_mm_block_schema,
     create_generic_5_block_schema, create_generic_10_block_schema,
 )
+from .building_service import BuildingService
 from .naming_engine import NamingEngine
 from .scene_addressing import group_named_scenes, scene_value_mapping_text
 import re
@@ -153,8 +155,9 @@ class AddressGenerator:
         # Pro HG-Nummer eine MainGroup generieren
         for hg_number in sorted(floors_by_hg.keys()):
             floors = floors_by_hg[hg_number]
-            # Name: Alle Stockwerk-Namen zusammensetzen
-            hg_name = " / ".join(f.name for f in floors)
+            # Name: Alle Stockwerk-Namen zusammensetzen; Stockwerke von
+            # Nebengebäuden mit Gebäudename ("Einstellhalle Erdgeschoss")
+            hg_name = " / ".join(BuildingService.floor_label(areal, f) for f in floors)
             main_group = self._generate_merged_floor_addresses(
                 floors, hg_number, hg_name, is_multi_zone=is_multi_zone,
                 existing=existing, warnings=structure.warnings,
@@ -412,6 +415,50 @@ class AddressGenerator:
                     get_or_create_mg(num).group_addresses.extend(gas)
                     claimed.add(num)
 
+        def aligned_feedback_subs(mg_num, assignment_id, fb_schema, count
+                                  ) -> list[int] | None:
+            """Untergruppen der Rückmeldungen = Untergruppen ihrer Befehle im
+            Vorwärtsblock (GA-07). None, wenn der Vorwärtsblock nicht als
+            durchgehender Block in seiner Heimat-MG liegt (Überlauf, manuell
+            verknüpfte Slots) -- dann wird wie bisher angehängt."""
+            forward = sorted(
+                (ga for ga in get_or_create_mg(mg_num).group_addresses
+                 if ga.assignment_id == assignment_id),
+                key=lambda g: g.sub_group,
+            )
+            if not forward or len(forward) != fb_schema.block_size * count:
+                return None
+            return [ga.sub_group for ga in forward]
+
+        def place_aligned_feedback(fb_mg_num, targets, old_gas, gewerk, assignment,
+                                   fb_schema, id_key, room, room_number_ga,
+                                   room_desc) -> None:
+            """Legt den Rückmeldeblock deckungsgleich zum Vorwärtsblock an.
+            Bisherige GAs werden nur übernommen (id bleibt), wenn sie schon
+            auf diesen Untergruppen liegen."""
+            target = get_or_create_mg(fb_mg_num)
+            claimed.add(fb_mg_num)
+            old_by_sub = {
+                ga.sub_group: ga for ga in (old_gas or [])
+                if ga.middle_group == fb_mg_num
+            }
+            reuse = (old_gas is not None and len(old_gas) == len(targets)
+                     and sorted(old_by_sub) == sorted(targets))
+            bs = fb_schema.block_size
+            for idx, element_nr in enumerate(range(1, assignment.count + 1)):
+                for entry in fb_schema.entries:
+                    sub = targets[idx * bs + entry.offset]
+                    ga = old_by_sub[sub] if reuse else GroupAddress(
+                        main_group=hg_number, middle_group=fb_mg_num,
+                        sub_group=sub, assignment_id=id_key,
+                    )
+                    self._fill_entry_fields(
+                        ga, entry, gewerk.code, room_number_ga, element_nr,
+                        room_desc, room.id,
+                    )
+                    target.group_addresses.append(ga)
+            next_free[fb_mg_num] = max(next_free.get(fb_mg_num, 0), max(targets) + 1)
+
         # Bereits existierende GAs (per id) -- fuer die Gueltigkeitspruefung
         # manuell verknuepfter Funktions-Slots (FA-521f, assignment.linked_ga_ids).
         existing_ga_by_id = (
@@ -502,8 +549,16 @@ class AddressGenerator:
                     fb_id_key = f"{assignment.id}:fb"
                     total_len = fb_schema.block_size * assignment.count
                     old_gas = old_by_assignment.pop(fb_id_key, None)
+                    targets = aligned_feedback_subs(
+                        mg_num, assignment.id, fb_schema, assignment.count,
+                    )
 
-                    if old_gas is not None and len(old_gas) == total_len:
+                    if targets is not None:
+                        place_aligned_feedback(
+                            fb_mg_num, targets, old_gas, gewerk, assignment,
+                            fb_schema, fb_id_key, room, room_number_ga, room_desc,
+                        )
+                    elif old_gas is not None and len(old_gas) == total_len:
                         reuse_block(old_gas, fb_schema, gewerk, assignment, room, room_number_ga, room_desc)
                     else:
                         place_new_block(
@@ -706,14 +761,16 @@ class AddressGenerator:
             if product_schema:
                 # Produkt-Block enthält Status-/Meldeobjekte bereits inline
                 return None
-
-            category = gewerk.category
-            # Nur für Variante B
-            if category == "licht":
-                return create_light_feedback_block_b()
-            elif category == "jalousie":
-                return create_jalousie_feedback_block_b()
-            return None
+            # Nur für Variante B: Rückmeldeblock in MG 6 (Licht) / 7 (Jalousie)
+            if gewerk.code not in self._CODE_SCHEMA:
+                if gewerk.category == "licht":
+                    return create_light_feedback_block_b()
+                if gewerk.category == "jalousie":
+                    return create_jalousie_feedback_block_b()
+            base = self._base_schema(gewerk)
+            if base.middle_group not in (0, 1):
+                return None
+            return split_feedback_variant_b(base, base.middle_group + 6)[1]
 
         if product_schema:
             if assignment and assignment.extra_entries:
@@ -724,26 +781,45 @@ class AddressGenerator:
                     product_schema.block_size += 1
             return product_schema
 
-        category = gewerk.category
+        schema = self._base_schema(gewerk)
+        if self.variant == "B" and schema.middle_group in (0, 1):
+            # Eingebettete Rückmeldungen (z.B. LDA, Farblicht) gehören in
+            # Variante B in MG 6/7 -- im Vorwärtsblock bleiben Reserven
+            schema = split_feedback_variant_b(schema, schema.middle_group + 6)[0]
 
-        # Spezifische Schemata nach Gewerk-Code (Vorrang vor Kategorie)
-        _CODE_SCHEMA = {
-            "LDA": create_dali_block_schema,
-            "LC":  create_lc_block_schema,
-            "LCT": create_lct_block_schema,
-            "LCW": create_lcw_block_schema,
-            "DMX": create_dmx_block_schema,
-            "LU":  create_lueftung_block_schema,
-            "KL":  create_kl_block_schema,
-            "EV":  create_ev_block_schema,
-            "PV":  create_pv_block_schema,
-            "SP":  create_sp_block_schema,
-            "W":   create_w_block_schema,
-            "WP":  create_wp_block_schema,
-            "MM":  create_mm_block_schema,
-        }
-        if gewerk.code in _CODE_SCHEMA:
-            schema = _CODE_SCHEMA[gewerk.code]()
+        # Zuweigungs-spezifische Extra-Einträge anhängen
+        if assignment and assignment.extra_entries:
+            schema = copy.deepcopy(schema)
+            for e in assignment.extra_entries:
+                entry = BlockEntry.from_dict(e)
+                entry.offset = schema.block_size
+                schema.entries.append(entry)
+                schema.block_size += 1
+
+        return schema
+
+    # Spezifische Schemata nach Gewerk-Code (Vorrang vor Kategorie)
+    _CODE_SCHEMA = {
+        "LDA": create_dali_block_schema,
+        "LC":  create_lc_block_schema,
+        "LCT": create_lct_block_schema,
+        "LCW": create_lcw_block_schema,
+        "DMX": create_dmx_block_schema,
+        "LU":  create_lueftung_block_schema,
+        "KL":  create_kl_block_schema,
+        "EV":  create_ev_block_schema,
+        "PV":  create_pv_block_schema,
+        "SP":  create_sp_block_schema,
+        "W":   create_w_block_schema,
+        "WP":  create_wp_block_schema,
+        "MM":  create_mm_block_schema,
+    }
+
+    def _base_schema(self, gewerk: Gewerk) -> AddressBlockSchema:
+        """Standard-Blockschema des Gewerks (ohne Produkt und Extra-Einträge)."""
+        category = gewerk.category
+        if gewerk.code in self._CODE_SCHEMA:
+            schema = self._CODE_SCHEMA[gewerk.code]()
         elif category == "licht":
             if self.variant == "A":
                 schema = create_light_block_schema_a()
@@ -764,16 +840,6 @@ class AddressGenerator:
             schema = create_generic_10_block_schema(gewerk.code, gewerk.middle_group)
         else:
             schema = create_generic_5_block_schema(gewerk.code, gewerk.middle_group)
-
-        # Zuweigungs-spezifische Extra-Einträge anhängen
-        if assignment and assignment.extra_entries:
-            schema = copy.deepcopy(schema)
-            for e in assignment.extra_entries:
-                entry = BlockEntry.from_dict(e)
-                entry.offset = schema.block_size
-                schema.entries.append(entry)
-                schema.block_size += 1
-
         return schema
 
 

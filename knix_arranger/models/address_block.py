@@ -511,3 +511,73 @@ def create_generic_10_block_schema(gewerk_code: str, middle_group: int = 4) -> A
             BlockEntry(9, "SPERREN", "SPERREN", "DPST-1-1"),
         ],
     )
+
+
+# ── Variante B: Rückmeldungen in eigener Mittelgruppe (FA-608, GA-07) ────────
+
+# Rückmeldung → Befehl, unter dessen Untergruppe sie in MG 6/7 liegt.
+# Reihenfolge = Vorrang (z.B. "RM WERT" bei Farblicht ohne WERT → HELLIGKEIT).
+_FEEDBACK_COMMANDS = {
+    "": ("E/A",),
+    "WERT": ("WERT", "HELLIGKEIT"),
+    "HELL": ("HELLIGKEIT", "WERT"),
+    "CCT": ("FARBTEMPERATUR",),
+    "FARBE": ("FARBE RGB", "FARBE RGBW", "FARBE"),
+}
+
+
+def feedback_command(feedback_function: str, commands: list[str]) -> str | None:
+    """Befehl, zu dem eine Rückmeldung gehört ("RM WERT" → "WERT",
+    "STATUS POSITION HOEHE" → "POSITION HOEHE"); None, wenn keiner passt."""
+    name = feedback_function.strip().upper()
+    for prefix in ("RM", "STATUS"):
+        if name == prefix or name.startswith(prefix + " "):
+            base = name[len(prefix):].strip()
+            break
+    else:
+        return None
+    for candidate in _FEEDBACK_COMMANDS.get(base, (base,)):
+        if candidate in commands:
+            return candidate
+    return None
+
+
+def split_feedback_variant_b(schema: AddressBlockSchema,
+                             feedback_middle_group: int
+                             ) -> tuple[AddressBlockSchema, AddressBlockSchema | None]:
+    """Teilt einen Block mit eingebetteten Rückmeldungen für Variante B.
+
+    Vorwärtsblock: Rückmeldungen werden Reserve (Blockraster bleibt).
+    Rückmeldeblock: gleich gross, jede Rückmeldung auf dem Offset ihres
+    Befehls (GA-07: gleiche Untergruppe in MG 0/6 bzw. 1/7). Rückmeldungen
+    ohne passenden Befehl belegen den nächsten freien Offset.
+    None als Rückmeldeblock, wenn der Block keine Rückmeldungen enthält.
+    """
+    feedback = [e for e in schema.entries if e.is_feedback and not e.is_reserve]
+    if not feedback:
+        return schema, None
+
+    forward = AddressBlockSchema(
+        gewerk_code=schema.gewerk_code, block_size=schema.block_size,
+        middle_group=schema.middle_group,
+        entries=[
+            BlockEntry(e.offset, is_reserve=True) if e in feedback
+            else BlockEntry.from_dict(e.to_dict())
+            for e in schema.entries
+        ],
+    )
+    offset_of = {e.function: e.offset for e in forward.entries if e.function}
+    slots: dict[int, BlockEntry] = {}
+    for entry in feedback:
+        command = feedback_command(entry.function, list(offset_of))
+        offset = offset_of.get(command, -1)
+        if offset < 0 or offset in slots:
+            offset = next(o for o in range(schema.block_size) if o not in slots)
+        slots[offset] = BlockEntry.from_dict({**entry.to_dict(), "offset": offset})
+    fb = AddressBlockSchema(
+        gewerk_code=schema.gewerk_code, block_size=schema.block_size,
+        middle_group=feedback_middle_group,
+        entries=[slots.get(o, BlockEntry(o, is_reserve=True))
+                 for o in range(schema.block_size)],
+    )
+    return forward, fb

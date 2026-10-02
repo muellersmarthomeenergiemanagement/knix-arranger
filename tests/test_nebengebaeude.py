@@ -151,3 +151,44 @@ class TestGebaeudeauswahl:
         assert steps[0]._floor_list.count() == 1
         # Chalet bleibt unveraendert
         assert len(project.areal.buildings[0].wings[0].floors) == 2
+
+
+class TestBerichte:
+
+    def _project_mit_halle(self) -> KnxProject:
+        project = _chalet_project()
+        halle = Building(name="Einstellhalle", wings=[Wing()])
+        project.areal.buildings.append(halle)
+        floor = BuildingService.add_floor(halle.wings[0], "Erdgeschoss", "EG",
+                                          areal=project.areal)
+        floor.apartments = [Apartment(name="Einstellhalle")]
+        return project
+
+    def test_floor_label(self):
+        project = self._project_mit_halle()
+        chalet_eg = project.areal.buildings[0].wings[0].floors[1]
+        halle_eg = project.areal.buildings[1].wings[0].floors[0]
+        assert BuildingService.floor_label(project.areal, chalet_eg) == "Erdgeschoss"
+        assert BuildingService.floor_label(project.areal, halle_eg) == "Einstellhalle Erdgeschoss"
+        assert BuildingService.floor_label(project.areal, halle_eg, short=True) == "Einstellhalle EG"
+
+    def test_hg_name_mit_gebaeude(self):
+        from knix_arranger.services.address_generator import AddressGenerator
+        project = self._project_mit_halle()
+        structure = AddressGenerator(project.gewerk_catalog, variant="B").generate(project.areal)
+        names = {hg.number: hg.name for hg in structure.main_groups}
+        assert names[3] == "Erdgeschoss"
+        assert names[1] == "Einstellhalle Erdgeschoss"
+
+    def test_projektzusammenfassung_je_gebaeude(self, tmp_path):
+        fitz = pytest.importorskip("fitz")
+        from knix_arranger.services.report_service import ReportService
+        project = self._project_mit_halle()
+        path = str(tmp_path / "zusammenfassung.pdf")
+        ReportService(project).generate_project_summary(path)
+        doc = fitz.open(path)
+        text = "\n".join(page.get_text() for page in doc)
+        doc.close()
+        assert "Gebäude: 2" in text
+        assert "Einstellhalle" in text
+        assert "EG – Erdgeschoss" in text

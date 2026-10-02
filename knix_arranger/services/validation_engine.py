@@ -433,4 +433,52 @@ class ValidationEngine:
                         f"{hg.number}/7/0",
                         "Rückmelde-GAs in MG 7 anlegen",
                     ))
+            issues.extend(self._check_feedback_alignment_b(hg))
+        return issues
+
+    @staticmethod
+    def _is_feedback_function(ga: GroupAddress) -> bool:
+        name = (ga.function_name or "").upper()
+        return any(name == p or name.startswith(p + " ") for p in ("RM", "STATUS"))
+
+    def _check_feedback_alignment_b(self, hg) -> list[ValidationIssue]:
+        """FA-608 / GA-07: in Variante B liegen Rückmeldungen nur in MG 6/7,
+        jeweils unter der Untergruppe ihres Befehls in MG 0/1 (gleiches
+        Element: Gewerk, Raum, Nummer)."""
+        issues = []
+        mgs = {m.number: m for m in hg.middle_groups}
+        for cmd_num, fb_num in ((0, 6), (1, 7)):
+            commands = {
+                ga.sub_group: ga for ga in (mgs[cmd_num].group_addresses
+                                            if cmd_num in mgs else [])
+                if not ga.is_placeholder
+            }
+            for ga in commands.values():
+                if self._is_feedback_function(ga):
+                    issues.append(ValidationIssue(
+                        "warning", "FA-608",
+                        f"Rückmeldung in MG {cmd_num} statt MG {fb_num}",
+                        ga.address,
+                        f"Adressen neu erzeugen (Variante B: Rückmeldungen in MG {fb_num})",
+                        designation=ga.designation,
+                    ))
+            for ga in (mgs[fb_num].group_addresses if fb_num in mgs else []):
+                if ga.is_placeholder:
+                    continue
+                cmd = commands.get(ga.sub_group)
+                same_element = cmd is not None and (
+                    not (ga.gewerk_code and cmd.gewerk_code)
+                    or (ga.gewerk_code, ga.room_number, ga.element_number)
+                    == (cmd.gewerk_code, cmd.room_number, cmd.element_number)
+                )
+                if not same_element:
+                    issues.append(ValidationIssue(
+                        "warning", "FA-608",
+                        f"Rückmeldung ohne Befehl unter {hg.number}/{cmd_num}/"
+                        f"{ga.sub_group} (Untergruppen müssen übereinstimmen)",
+                        ga.address,
+                        "Adressen neu erzeugen oder Rückmeldung auf die "
+                        "Untergruppe des Befehls verschieben",
+                        designation=ga.designation,
+                    ))
         return issues

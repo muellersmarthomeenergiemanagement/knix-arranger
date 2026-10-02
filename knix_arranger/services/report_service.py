@@ -121,10 +121,11 @@ VALIDATION_RULES = {
         "GA in die Soll-Mittelgruppe verschieben oder das Gewerk korrigieren.",
     ),
     "FA-608": (
-        "Fehlende Rückmelde-Mittelgruppe",
+        "Rückmeldungen Variante B",
         "In Variante B gehören Rückmeldungen in eine eigene Mittelgruppe "
-        "(Licht MG 6, Jalousie MG 7).",
-        "",
+        "(Licht MG 6, Jalousie MG 7), jeweils unter derselben Untergruppe "
+        "wie ihr Befehl in MG 0/1 (GA-07).",
+        "Bei geplanten Projekten Adressen in Schritt 10 neu erzeugen.",
     ),
     "FA-610": (
         "Bezeichnung nicht KNX-Swiss-konform",
@@ -807,21 +808,39 @@ class ReportService:
         pdf.add_heading("Gebäudestruktur", level=2)
         floors = p.all_floors
         rooms = p.all_rooms
+        buildings = p.areal.buildings
+        if len(buildings) > 1:
+            pdf.add_paragraph(f"Gebäude: {len(buildings)}")
         pdf.add_paragraph(f"Stockwerke: {len(floors)}")
         pdf.add_paragraph(f"Räume: {len(rooms)}")
 
         if floors:
-            headers = ["Stockwerk", "Räume", "Geräte"]
-            rows = []
-            for floor in floors:
-                room_count = len(floor.all_rooms)
-                device_count = floor.total_devices()
-                rows.append([
-                    floor.name,
-                    str(room_count),
-                    str(device_count),
-                ])
-            pdf.add_table(headers, rows)
+            # Je Gebäude ein Zeilenblock (gemeinsame Schattierung), Zonen je
+            # Stockwerk -- bei Nebengebäuden sonst nicht unterscheidbar
+            multi = len(buildings) > 1
+            headers = (["Gebäude"] if multi else []) + [
+                "Stockwerk", "HG", "Zonen", "Räume", "Geräte"]
+            rows, groups = [], []
+            for b_idx, building in enumerate(buildings):
+                for floor in building.all_floors:
+                    zones = ", ".join(a.name for a in floor.apartments if a.name)
+                    label = (f"{floor.short_code} – {floor.name}"
+                             if floor.short_code and floor.name != floor.short_code
+                             else floor.name or floor.short_code)
+                    rows.append(([building.name] if multi else []) + [
+                        label,
+                        str(floor.main_group_number) if floor.main_group_number > 0 else "–",
+                        zones or "–",
+                        str(len(floor.all_rooms)),
+                        str(floor.total_devices()),
+                    ])
+                    groups.append(b_idx)
+            widths = ([0.20, 0.22, 0.07, 0.31, 0.10, 0.10] if multi
+                      else [0.30, 0.08, 0.42, 0.10, 0.10])
+            align = (["left"] if multi else []) + [
+                "left", "right", "left", "right", "right"]
+            pdf.add_table(headers, rows, col_widths=widths, align=align,
+                          groups=groups if multi else None)
 
         # Topologie
         pdf.add_heading("Topologie", level=2)

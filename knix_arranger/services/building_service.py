@@ -40,6 +40,21 @@ class BuildingService:
         return next((n for n in range(1, 32) if n not in used), preferred)
 
     @staticmethod
+    def floor_label(areal: Areal, floor: Floor, short: bool = False) -> str:
+        """Bezeichnung eines Stockwerks für Berichte und HG-Namen.
+
+        Bei mehreren Gebäuden steht der Gebäudename vor den Stockwerken der
+        Nebengebäude ("Einstellhalle Erdgeschoss"), damit gleichnamige
+        Stockwerke unterscheidbar bleiben; das Hauptgebäude bleibt kurz.
+        """
+        name = (floor.short_code or floor.name) if short else (floor.name or floor.short_code)
+        if len(areal.buildings) > 1:
+            for building in areal.buildings[1:]:
+                if any(f is floor for f in building.all_floors):
+                    return f"{building.name} {name}".strip()
+        return name
+
+    @staticmethod
     def shared_main_groups(areal: Areal) -> dict[int, list[tuple[Building, Floor]]]:
         """Hauptgruppen, die mehreren Stockwerken zugeordnet sind (HG → Stockwerke)."""
         by_hg: dict[int, list[tuple[Building, Floor]]] = {}
