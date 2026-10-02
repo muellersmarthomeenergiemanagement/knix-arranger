@@ -74,6 +74,31 @@ class ProjectService:
         folder_name = self.sanitize_project_folder_name(project_name)
         return os.path.join(workspace_root, folder_name, f"{folder_name}.knxarr")
 
+    def suggest_save_path(self, current_path: str, project_name: str,
+                          workspace_root: str = "") -> str:
+        """Vorschlagspfad für "Speichern unter".
+
+        - Projektordner existiert: bisherige Projektdatei.
+        - Projektordner umbenannt/verschoben: nächster noch vorhandener
+          übergeordneter Ordner (meist das Arbeitsverzeichnis) mit dem
+          bisherigen Dateinamen.
+        - Noch nie gespeichert: Arbeitsverzeichnis, sonst nur der Dateiname.
+        """
+        if current_path:
+            filename = os.path.basename(current_path)
+            folder = os.path.dirname(current_path)
+            while folder and not os.path.isdir(folder):
+                parent = os.path.dirname(folder)
+                if parent == folder:
+                    folder = ""
+                    break
+                folder = parent
+            return os.path.join(folder, filename) if folder else filename
+        filename = f"{self.sanitize_project_folder_name(project_name)}.knxarr"
+        if workspace_root and os.path.isdir(workspace_root):
+            return os.path.join(workspace_root, filename)
+        return filename
+
     def prepare_workspace_project_folder(self, workspace_root: str, project_name: str) -> str:
         """Erstellt {workspace}/{Name}/ mit Unterordnern Revisionen/ und Berichte/.
 

@@ -325,3 +325,38 @@ class TestProjectFolderPath:
 
         assert knxarr_path == str(tmp_path / "Mein Projekt" / "Mein Projekt.knxarr")
         assert not os.path.exists(os.path.dirname(knxarr_path))
+
+
+class TestSuggestSavePath:
+    """Tests fuer ProjectService.suggest_save_path ("Speichern unter")."""
+
+    def test_existing_folder_keeps_current_file(self, tmp_path):
+        svc = ProjectService()
+        project_dir = tmp_path / "Chalet"
+        project_dir.mkdir()
+        current = str(project_dir / "Chalet.knxarr")
+
+        assert svc.suggest_save_path(current, "Chalet") == current
+
+    def test_renamed_folder_falls_back_to_parent(self, tmp_path):
+        svc = ProjectService()
+        current = str(tmp_path / "Chalet_alt" / "Chalet.knxarr")
+
+        assert svc.suggest_save_path(current, "Chalet") == str(tmp_path / "Chalet.knxarr")
+
+    def test_renamed_workspace_falls_back_to_existing_ancestor(self, tmp_path):
+        svc = ProjectService()
+        current = str(tmp_path / "KNX-Projekte_alt" / "Chalet" / "Chalet.knxarr")
+
+        assert svc.suggest_save_path(current, "Chalet") == str(tmp_path / "Chalet.knxarr")
+
+    def test_unsaved_project_uses_workspace(self, tmp_path):
+        svc = ProjectService()
+
+        assert svc.suggest_save_path("", "Haus: Meier", str(tmp_path)) == \
+            str(tmp_path / "Haus Meier.knxarr")
+
+    def test_unsaved_project_without_workspace_returns_filename(self, tmp_path):
+        svc = ProjectService()
+
+        assert svc.suggest_save_path("", "Chalet", str(tmp_path / "fehlt")) == "Chalet.knxarr"

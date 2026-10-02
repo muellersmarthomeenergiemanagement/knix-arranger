@@ -929,6 +929,18 @@ class MainWindow(QMainWindow):
             return False
         if not self._project._file_path:
             return self._save_project_as()
+        folder = os.path.dirname(self._project._file_path)
+        if folder and not os.path.isdir(folder):
+            # Projektordner wurde umbenannt oder verschoben, während das
+            # Projekt offen war: neuen Ort wählen lassen statt Fehlermeldung.
+            QMessageBox.information(
+                self, "Projektordner nicht gefunden",
+                f"Der Projektordner existiert nicht mehr:\n{folder}\n\n"
+                f"Wurde er umbenannt oder verschoben? Bitte wählen Sie im "
+                f"folgenden Dialog den neuen Speicherort. Ihre Änderungen "
+                f"bleiben erhalten.",
+            )
+            return self._save_project_as()
         if not self._write_project(self._project._file_path):
             return False
         self._status_bar.set_status("Projekt gespeichert.")
@@ -937,12 +949,19 @@ class MainWindow(QMainWindow):
     def _save_project_as(self) -> bool:
         if not self._project:
             return False
+        from ..services.project_service import ProjectService
+        project_service = ProjectService()
+        suggestion = project_service.suggest_save_path(
+            self._project._file_path, self._project.name,
+            self._load_app_setting("workspace_root_path", ""),
+        )
         path, _ = QFileDialog.getSaveFileName(
-            self, "Projekt speichern", f"{self._project.name}.knxarr",
+            self, "Projekt speichern", suggestion,
             "KNiX Arranger Projekte (*.knxarr);;Alle Dateien (*.*)",
         )
         if not path or not self._write_project(path):
             return False
+        project_service.add_to_recent(path)
         self._status_bar.set_status(f"Projekt gespeichert: {path}")
         return True
 
