@@ -2,6 +2,29 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.29",
+      "date": "2026-10-02",
+      "neu": [
+        "Steigschema (Seitenleiste «Steigschema» und Topologie-Bericht): Gebäudeschnitt mit dem Verlauf jeder Linie – vom Verteiler mit Linienkoppler und Aktoren durch die Steigzone zu den Räumen mit Teilnehmern, Nebengebäude daneben mit Erdleitung. Klick auf eine Linie hebt sie hervor; Export als PNG oder PDF.",
+        "Einbauort der Aktoren wählbar: in Schritt 8 je Linie ein Verteiler aus Schritt 4 (automatisch der Verteiler der Linie, sonst die HV), abweichend je Aktortyp – z.B. Jalousieaktoren in der UV des Stockwerks. Auch in der Topologie per Doppelklick als Auswahl der Verteiler.",
+        "Frei stehende Nebengebäude im Wizard: Schritt 1 mit Gebäudeauswahl («+ Gebäude», Umbenennen, Entfernen); die Auswahl gilt auch für Zonen und Räume. Jedes Gebäude wird in der Topologie ein eigener Bereich.",
+        "Raumnummern frei gestaltbar mit A–Z, 0–9, - und . (z.B. SEG02 für Zone Studio im EG oder S-EG02). Neue Räume übernehmen das Schema der Zone; doppelte Nummern oder solche ausserhalb des Prüfrahmens werden in Schritt 3 markiert."
+      ],
+      "verbessert": [
+        "Hauptgruppen sind im ganzen Projekt eindeutig: Ein Stockwerk eines Nebengebäudes erhält die nächste freie HG, deren Name enthält das Gebäude (z.B. «Einstellhalle Erdgeschoss»). Die Validierung warnt bei mehrfach vergebener HG.",
+        "Berichte und Projektzusammenfassung gliedern Stockwerke je Gebäude; die Checkliste in Excel erhält je Gebäude-Stockwerk ein eigenes Blatt.",
+        "Szenen: «Gilt für» mit jeder Zone einmal – auch über mehrere Stockwerke, mit einer gemeinsamen Szenen-GA. Eine bestehende Szenen-GA lässt sich in der Planung für den neuen Geltungsbereich neu erzeugen.",
+        "Bezeichnungsprüfung bei geplanten Projekten gegen die Gebäudestruktur: Nach dem Umbenennen eines Raums meldet die Validierung GAs mit der alten Raumnummer.",
+        "Umbenannte feste Zentraladressen (z.B. «ZENTRAL Szene Abwesenheit Komplex») behalten ihren Namen beim Neuerzeugen.",
+        "«Speichern» bei umbenanntem oder verschobenem Projektordner öffnet «Speichern unter» mit passendem Ordnervorschlag statt einer Fehlermeldung."
+      ],
+      "behoben": [
+        "Variante B: Bei DALI (LDA) und Farblicht lagen Rückmeldungen in MG 0 und teils doppelt in MG 6; Rückmeldeblöcke konnten gegenüber dem Befehl versetzt sein. Rückmeldungen liegen jetzt in MG 6/7 unter der Untergruppe ihres Befehls – Adressen in Schritt 10 neu erzeugen. Die Validierung erkennt versetzte Rückmeldungen.",
+        "Raumnummern mit drei Buchstaben (z.B. SEG02) galten als nicht konform mit KNX Swiss.",
+        "Szenen-Auswahl «Raum/Zone» zeigte Zonen über mehrere Stockwerke mehrfach; der Geltungsbereich bestehender Szenen-GAs wurde nicht wirksam."
+      ]
+    },
+    {
       "version": "1.1.28",
       "date": "2026-10-01",
       "neu": [
