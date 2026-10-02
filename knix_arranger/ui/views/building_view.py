@@ -468,7 +468,7 @@ class BuildingView(QWidget):
         name, ok2 = QInputDialog.getText(self, "Stockwerk", "Name:", text=default_name)
         if ok2 and name:
             # BuildingService legt automatisch eine Standard-Wohnung an
-            BuildingService.add_floor(wing, name=name, short_code=code)
+            BuildingService.add_floor(wing, name=name, short_code=code, areal=self._areal)
             self._refresh_tree()
             self.structure_changed.emit()
 

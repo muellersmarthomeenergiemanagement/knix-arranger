@@ -73,6 +73,7 @@ class ValidationEngine:
 
         # FA-3308b: Astro-GAs prüfen wenn Zeitprogramme mit ASTRO-Schaltpunkten vorhanden
         if project is not None:
+            issues.extend(self._check_shared_main_groups(project))
             issues.extend(self._check_astro_gas(structure, project))
             issues.extend(self._check_multi_ga_keys(project))
             issues.extend(self._check_ets_deviations(project))
@@ -91,6 +92,28 @@ class ValidationEngine:
         for issue in issues:
             if issue.rule_id in self.GUIDELINE_RULES:
                 issue.level = level
+
+    def _check_shared_main_groups(self, project) -> list[ValidationIssue]:
+        """FA-411: jedes Stockwerk hat eine eigene Hauptgruppe.
+
+        Teilen sich Stockwerke (meist verschiedener Gebäude) eine HG, landen
+        ihre Adressen in derselben HG und deren Name wird zusammengesetzt
+        (z.B. "Obergeschoss / Erdgeschoss"). Nur bei geplanten Projekten.
+        """
+        if project.topology.is_imported:
+            return []
+        from .building_service import BuildingService
+        issues = []
+        for hg, floors in BuildingService.shared_main_groups(project.areal).items():
+            names = ", ".join(f"{b.name} {f.short_code or f.name}" for b, f in floors)
+            issues.append(ValidationIssue(
+                "warning", "FA-411",
+                f"HG {hg} ist mehreren Stockwerken zugeordnet: {names}",
+                f"HG {hg}",
+                "In Schritt 1 jedem Stockwerk eine eigene Hauptgruppe geben",
+                details={"hg": hg, "floors": names},
+            ))
+        return issues
 
     def _check_ets_deviations(self, project) -> list[ValidationIssue]:
         """FA-616: in KNiX korrigierte Angaben gegenüber der ETS (Korrekturschicht)."""

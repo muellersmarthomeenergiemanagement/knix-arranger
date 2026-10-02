@@ -18,14 +18,17 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QEvent
 from ...models.project import KnxProject
 from ...models.building import Apartment, Wing
+from .building_bar import BuildingBar, BuildingSelection
 
 
 class Step02Apartments(QWidget):
     """Zonen (Wohnungen) gebäudeweit definieren."""
 
-    def __init__(self, project: KnxProject, parent=None):
+    def __init__(self, project: KnxProject, parent=None,
+                 selection: BuildingSelection | None = None):
         super().__init__(parent)
         self._project = project
+        self._selection = selection or BuildingSelection(project)
         self._current_zone_name: str = ""  # Name der gerade selektierten Zone
 
         layout = QVBoxLayout(self)
@@ -37,6 +40,10 @@ class Step02Apartments(QWidget):
         )
         info.setWordWrap(True)
         layout.addWidget(info)
+
+        self._building_bar = BuildingBar(project, self._selection)
+        self._building_bar.changed.connect(self._on_building_changed)
+        layout.addWidget(self._building_bar)
 
         content = QHBoxLayout()
 
@@ -130,10 +137,8 @@ class Step02Apartments(QWidget):
     # ── Hilfsmethoden ──────────────────────────────────────────────────────
 
     def _get_wing(self) -> Wing | None:
-        b = self._project.areal.buildings
-        if not b or not b[0].wings:
-            return None
-        return b[0].wings[0]
+        """Erster Flügel des in Schritt 1–3 gewählten Gebäudes."""
+        return self._selection.wing()
 
     def _all_zone_names(self) -> list[str]:
         """Sortierte Liste eindeutiger Zonennamen über alle Stockwerke."""
@@ -168,6 +173,11 @@ class Step02Apartments(QWidget):
     # ── Refresh ────────────────────────────────────────────────────────────
 
     def on_enter(self):
+        self._building_bar.refresh()
+        self._refresh()
+
+    def _on_building_changed(self):
+        self._current_zone_name = ""
         self._refresh()
 
     def _refresh(self):
@@ -325,7 +335,10 @@ class Step02Apartments(QWidget):
         if not wing or not wing.floors:
             return
 
-        zone_name = self._project.name or "Gebäude"
+        # Nebengebäude: Zone nach dem Gebäude benennen, sonst nach dem Projekt
+        building = self._selection.building()
+        is_main = building is self._project.areal.buildings[0]
+        zone_name = (self._project.name if is_main else building.name) or "Gebäude"
 
         reply = QMessageBox.question(
             self,

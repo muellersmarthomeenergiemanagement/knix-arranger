@@ -25,11 +25,39 @@ class BuildingService:
         return areal
 
     @staticmethod
+    def next_free_main_group(areal: Areal, preferred: int = -1,
+                             ignore: Floor | None = None) -> int:
+        """Hauptgruppe für ein neues Stockwerk: die bevorzugte Nummer, wenn sie
+        im ganzen Areal noch frei ist, sonst die kleinste freie (1–31).
+
+        Verhindert, dass Stockwerke verschiedener Gebäude dieselbe HG erhalten
+        (z.B. jedes "EG" HG 2 aus FLOOR_TO_MAIN_GROUP).
+        """
+        used = {f.main_group_number for f in areal.all_floors
+                if f is not ignore and f.main_group_number > 0}
+        if 0 < preferred <= 31 and preferred not in used:
+            return preferred
+        return next((n for n in range(1, 32) if n not in used), preferred)
+
+    @staticmethod
+    def shared_main_groups(areal: Areal) -> dict[int, list[tuple[Building, Floor]]]:
+        """Hauptgruppen, die mehreren Stockwerken zugeordnet sind (HG → Stockwerke)."""
+        by_hg: dict[int, list[tuple[Building, Floor]]] = {}
+        for building in areal.buildings:
+            for floor in building.all_floors:
+                if floor.main_group_number > 0:
+                    by_hg.setdefault(floor.main_group_number, []).append((building, floor))
+        return {hg: floors for hg, floors in sorted(by_hg.items()) if len(floors) > 1}
+
+    @staticmethod
     def add_floor(wing: Wing, name: str, short_code: str,
-                  main_group: int = -1) -> Floor:
-        """Fügt ein Stockwerk hinzu."""
+                  main_group: int = -1, areal: Areal | None = None) -> Floor:
+        """Fügt ein Stockwerk hinzu. Mit `areal` wird die HG im ganzen Areal
+        eindeutig vergeben (siehe next_free_main_group)."""
         if main_group == -1:
             main_group = FLOOR_TO_MAIN_GROUP.get(short_code, len(wing.floors) + 1)
+            if areal is not None:
+                main_group = BuildingService.next_free_main_group(areal, main_group)
         floor = Floor(name=name, short_code=short_code, main_group_number=main_group)
         # Fuer EFH: Standard-Wohnung/Zone erstellen (FA-107)
         default_apt = Apartment(name=short_code)

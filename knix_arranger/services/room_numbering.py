@@ -68,12 +68,16 @@ def suggest_room_number(areal: Areal, wing: Wing, apt: Apartment, floor: Floor) 
     if schemes:
         scheme = schemes.most_common(1)[0][0]
     else:
+        # Andere Zonen im ganzen Areal, auch in Nebengebäuden
         others: Counter = Counter()
         used_prefixes: set[str] = set()
-        for zone in {a.name for f in wing.floors for a in f.apartments} - {apt.name}:
-            zone_schemes = _zone_schemes(wing, zone)
-            others.update(zone_schemes)
-            used_prefixes.update(s.prefix for s in zone_schemes)
+        for other_wing in (w for b in areal.buildings for w in b.wings):
+            for zone in {a.name for f in other_wing.floors for a in f.apartments}:
+                if other_wing is wing and zone == apt.name:
+                    continue
+                zone_schemes = _zone_schemes(other_wing, zone)
+                others.update(zone_schemes)
+                used_prefixes.update(s.prefix for s in zone_schemes)
         prefixed = [s for s in others.elements() if s.prefix]
         if prefixed:
             template = Counter(prefixed).most_common(1)[0][0]

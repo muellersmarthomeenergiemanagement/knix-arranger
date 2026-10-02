@@ -79,6 +79,13 @@ VALIDATION_RULES = {
         "0/0/0 ist für KNX-Systemmeldungen reserviert.",
         "Adresse auf 0/0/1 oder höher verschieben.",
     ),
+    "FA-411": (
+        "Hauptgruppe mehrfach vergeben",
+        "Mehrere Stockwerke (meist verschiedener Gebäude) teilen sich eine "
+        "Hauptgruppe. Ihre Adressen landen in derselben HG, deren Name wird "
+        "aus den Stockwerken zusammengesetzt.",
+        "In Schritt 1 jedem Stockwerk eine eigene Hauptgruppe geben.",
+    ),
     "FA-601": (
         "Ungültige Gruppenadresse",
         "Die Adresse liegt ausserhalb des zulässigen Bereichs (HG 0–31, MG 0–7, UG 0–255).",

@@ -16,6 +16,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from .step01_building import Step01Building
 from .step02_apartments import Step02Apartments
 from .step03_rooms import Step03Rooms
+from .building_bar import BuildingSelection
 from .step03b_verteiler import Step03bVerteiler
 from .step04_topology import Step04Topology
 from .step05_gewerke import Step05Gewerke
@@ -117,10 +118,12 @@ class WizardController(QDialog):
 
         # Steps
         self._stack = QStackedWidget()
+        building_selection = BuildingSelection(project)
         self._steps: list[QWidget] = [
-            Step01Building(project),    # 1.  Gebäudestruktur
-            Step02Apartments(project),  # 2.  Wohnungen / Zonen
-            Step03Rooms(project),       # 3.  Räume
+            # Schritte 1–3 teilen sich die Gebäudeauswahl (Nebengebäude)
+            Step01Building(project, selection=building_selection),    # 1.  Gebäudestruktur
+            Step02Apartments(project, selection=building_selection),  # 2.  Wohnungen / Zonen
+            Step03Rooms(project, selection=building_selection),       # 3.  Räume
             Step03bVerteiler(project),  # 4.  Elektroverteilungen (HV/UV)
             Step05Gewerke(project),     # 5.  Gewerke (Zuweisung zu Räumen)
             Step05cDevices(project),    # 6.  Gerätekonfiguration (vor Topologie)

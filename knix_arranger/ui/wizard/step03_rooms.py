@@ -25,6 +25,7 @@ from ...models.building import Room, Wing, Floor, Apartment
 from ...services.room_numbering import room_number_warnings, suggest_room_number
 from ..column_utils import fit_columns
 from ..styles import COLOR_WARNING
+from .building_bar import BuildingBar, BuildingSelection
 
 
 # UserRole-Schlüssel für Tree-Items
@@ -36,9 +37,11 @@ _KIND_ROOM       = "room"        # (room, apartment, floor)
 class Step03Rooms(QWidget):
     """Räume pro Zone und Stockwerk anlegen."""
 
-    def __init__(self, project: KnxProject, parent=None):
+    def __init__(self, project: KnxProject, parent=None,
+                 selection: BuildingSelection | None = None):
         super().__init__(parent)
         self._project = project
+        self._selection = selection or BuildingSelection(project)
         # Clipboard: {"type": "floor", "rooms": [...]}
         #         oder {"type": "zone", "floors": [{"rooms": [...]}, ...]}
         self._room_clipboard: dict | None = None
@@ -53,6 +56,10 @@ class Step03Rooms(QWidget):
         )
         info.setWordWrap(True)
         layout.addWidget(info)
+
+        self._building_bar = BuildingBar(project, self._selection)
+        self._building_bar.changed.connect(self._refresh)
+        layout.addWidget(self._building_bar)
 
         content = QHBoxLayout()
 
@@ -144,10 +151,8 @@ class Step03Rooms(QWidget):
     # ── Hilfsmethoden ──────────────────────────────────────────────────────
 
     def _get_wing(self) -> Wing | None:
-        b = self._project.areal.buildings
-        if not b or not b[0].wings:
-            return None
-        return b[0].wings[0]
+        """Erster Flügel des in Schritt 1–3 gewählten Gebäudes."""
+        return self._selection.wing()
 
     def _all_zone_names(self) -> list[str]:
         wing = self._get_wing()
@@ -190,6 +195,7 @@ class Step03Rooms(QWidget):
     # ── Refresh ────────────────────────────────────────────────────────────
 
     def on_enter(self):
+        self._building_bar.refresh()
         self._refresh()
 
     def _refresh(self):

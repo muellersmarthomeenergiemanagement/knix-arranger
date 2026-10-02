@@ -1,5 +1,9 @@
 """
-Wizard Schritt 1: Gebäudestruktur (Stockwerke anlegen)
+Wizard Schritt 1: Gebäudestruktur (Gebäude und Stockwerke anlegen)
+
+Frei stehende Nebengebäude werden als eigenes Gebäude erfasst (Auswahl
+oben, gilt auch für Schritt 2 und 3). Hauptgruppen sind im ganzen Areal
+eindeutig (FA-411).
 """
 from __future__ import annotations
 from PySide6.QtWidgets import (
@@ -9,27 +13,38 @@ from PySide6.QtWidgets import (
     QDialogButtonBox, QComboBox,
 )
 from PySide6.QtCore import Qt, QEvent
+from PySide6.QtGui import QBrush, QColor
 from ...models.project import KnxProject
-from ...models.building import Floor, Wing, Building, Areal, STANDARD_FLOOR_NAMES, FLOOR_TO_MAIN_GROUP
+from ...models.building import Floor, Wing, STANDARD_FLOOR_NAMES, FLOOR_TO_MAIN_GROUP
 from ...services.building_service import BuildingService
+from ..styles import COLOR_WARNING
+from .building_bar import BuildingBar, BuildingSelection
 
 
 class Step01Building(QWidget):
     """Stockwerke des Gebäudes anlegen."""
 
-    def __init__(self, project: KnxProject, parent=None):
+    def __init__(self, project: KnxProject, parent=None,
+                 selection: BuildingSelection | None = None):
         super().__init__(parent)
         self._project = project
         self._service = BuildingService()
+        self._selection = selection or BuildingSelection(project)
 
         layout = QVBoxLayout(self)
 
         info = QLabel(
-            "Definieren Sie die Stockwerke Ihres Gebäudes.\n"
-            "Jedes Stockwerk erhält automatisch eine Hauptgruppen-Nummer."
+            "Definieren Sie die Stockwerke Ihres Gebäudes. Frei stehende "
+            "Nebengebäude (z.B. Einstellhalle) mit '+ Gebäude' separat anlegen – "
+            "die Auswahl gilt auch für Zonen und Räume.\n"
+            "Jedes Stockwerk erhält automatisch eine eigene Hauptgruppen-Nummer."
         )
         info.setWordWrap(True)
         layout.addWidget(info)
+
+        self._building_bar = BuildingBar(project, self._selection, editable=True)
+        self._building_bar.changed.connect(self._refresh_list)
+        layout.addWidget(self._building_bar)
 
         content = QHBoxLayout()
 
@@ -113,6 +128,7 @@ class Step01Building(QWidget):
         return super().eventFilter(obj, event)
 
     def on_enter(self):
+        self._building_bar.refresh()
         self._refresh_list()
 
     def on_leave(self):
@@ -120,29 +136,38 @@ class Step01Building(QWidget):
 
     def _ensure_wing(self):
         """Stellt sicher, dass Areal/Building/Wing existieren."""
-        if not self._project.areal.buildings:
-            building = Building(name=self._project.name or "Gebäude")
-            self._project.areal.buildings.append(building)
-        if not self._project.areal.buildings[0].wings:
-            wing = Wing(name="Hauptgebäude")
-            self._project.areal.buildings[0].wings.append(wing)
+        self._selection.wing()
 
     def _get_wing(self) -> Wing:
-        self._ensure_wing()
-        return self._project.areal.buildings[0].wings[0]
+        return self._selection.wing()
+
+    def _next_hg(self, preferred: int = -1, ignore: Floor | None = None) -> int:
+        return BuildingService.next_free_main_group(self._project.areal, preferred, ignore)
 
     def _refresh_list(self):
         self._floor_list.clear()
         wing = self._get_wing()
+        shared = BuildingService.shared_main_groups(self._project.areal)
         for floor in wing.floors:
             item = QListWidgetItem(f"HG {floor.main_group_number}: {floor.short_code} - {floor.name}")
             item.setData(Qt.UserRole, floor)
+            others = [
+                f"{b.name} {f.short_code}"
+                for b, f in shared.get(floor.main_group_number, []) if f is not floor
+            ]
+            if others:
+                item.setForeground(QBrush(QColor(COLOR_WARNING)))
+                item.setToolTip(
+                    f"HG {floor.main_group_number} ist auch vergeben an: "
+                    + ", ".join(others)
+                )
             self._floor_list.addItem(item)
 
     def _add_floor(self):
         wing = self._get_wing()
-        hg = len(wing.floors) + 1
-        floor = Floor(name=f"Stockwerk {hg}", short_code=f"S{hg}", main_group_number=hg)
+        n = len(wing.floors) + 1
+        floor = Floor(name=f"Stockwerk {n}", short_code=f"S{n}",
+                      main_group_number=self._next_hg(n))
         wing.floors.append(floor)
         self._refresh_list()
 
@@ -211,7 +236,7 @@ class Step01Building(QWidget):
             if code in existing_codes:
                 continue
             name = STANDARD_FLOOR_NAMES.get(code, f"Stockwerk {code}")
-            hg = FLOOR_TO_MAIN_GROUP.get(code, len(wing.floors) + 1)
+            hg = self._next_hg(FLOOR_TO_MAIN_GROUP.get(code, len(wing.floors) + 1))
             wing.floors.append(Floor(name=name, short_code=code, main_group_number=hg))
             existing_codes.add(code)
             added += 1
@@ -281,8 +306,10 @@ class Step01Building(QWidget):
             return
 
         # Vorhandene Gebäude-Metadaten behalten, nur Stockwerke ersetzen
-        building = self._project.areal.buildings[0]
         wing.floors = new_wing.floors
+        # HG der Vorlage nur behalten, wenn kein anderes Gebäude sie belegt
+        for floor in wing.floors:
+            floor.main_group_number = self._next_hg(floor.main_group_number, ignore=floor)
         # Wohnungen/Räume aus Vorlage ebenfalls übernehmen
         self._refresh_list()
 
@@ -297,3 +324,11 @@ class Step01Building(QWidget):
         floor.main_group_number = self._hg_spin.value()
         self._refresh_list()
         self._floor_list.setCurrentRow(row)
+        item = self._floor_list.item(row)
+        if item and item.toolTip():
+            QMessageBox.warning(
+                self, "Hauptgruppe mehrfach vergeben",
+                item.toolTip() + "\n\nDie Adressen beider Stockwerke landen in "
+                "derselben Hauptgruppe. Nächste freie HG: "
+                f"{self._next_hg(ignore=floor)}.",
+            )
