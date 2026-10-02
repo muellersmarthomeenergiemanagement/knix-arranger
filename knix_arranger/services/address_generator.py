@@ -33,10 +33,16 @@ from ..models.address_block import (
 )
 from .building_service import BuildingService
 from .naming_engine import NamingEngine
-from .scene_addressing import group_named_scenes, scene_value_mapping_text
+from .scene_addressing import (
+    group_named_scenes, normalize_scene_scopes, scene_value_mapping_text,
+)
 import re
 
 logger = logging.getLogger("knix_arranger.address_generator")
+
+# Feste Zentraladressen in HG 0 (Alle Lichter, Jalousien, Szene Abwesenheit):
+# eine umbenannte Bezeichnung bleibt beim Neuerzeugen erhalten
+_FIXED_CENTRAL_ADDRESSES = frozenset({"0/0/1", "0/0/2", "0/1/1", "0/1/2", "0/4/1"})
 
 _DPT_DOT_RE = re.compile(r"^(DPST?)-(\d+)\.(\d+)$")
 
@@ -113,6 +119,7 @@ class AddressGenerator:
         # Zeitsteuerung angelegt (ensure_astro_gas) – vor einem evtl.
         # Variantenwechsel sichern, damit sie keine Neugenerierung verlieren.
         existing_astro = self._existing_astro_middle_group(existing)
+        existing_central = self._existing_central_by_address(existing)
 
         if existing is not None and existing.variant != self.variant:
             existing = None  # Variantenwechsel erzwingt vollständige Neuordnung
@@ -135,6 +142,15 @@ class AddressGenerator:
                 existing_astro if mg.number == 7 else mg
                 for mg in central_hg.middle_groups
             ]
+        # Feste Zentraladressen: vom Integrator vergebene Bezeichnung und id
+        # behalten (z.B. "ZENTRAL Szene Abwesenheit Komplex")
+        for mg in central_hg.middle_groups:
+            for ga in mg.group_addresses:
+                old = existing_central.get(ga.address)
+                if (ga.address in _FIXED_CENTRAL_ADDRESSES and old is not None
+                        and old.function_name == ga.function_name):
+                    ga.designation = old.designation
+                    ga.id = old.id
         structure.main_groups.append(central_hg)
 
         # Stockwerke nach HG-Nummer gruppieren (verhindert Duplikate)
@@ -576,6 +592,18 @@ class AddressGenerator:
         return hg
 
     @staticmethod
+    def _existing_central_by_address(
+        existing: GroupAddressStructure | None,
+    ) -> dict[str, GroupAddress]:
+        """GAs der bisherigen HG 0 nach Adresse."""
+        if existing is None:
+            return {}
+        hg0 = next((h for h in existing.main_groups if h.number == 0), None)
+        if hg0 is None:
+            return {}
+        return {ga.address: ga for mg in hg0.middle_groups for ga in mg.group_addresses}
+
+    @staticmethod
     def _existing_astro_middle_group(
         existing: GroupAddressStructure | None,
     ) -> MiddleGroup | None:
@@ -902,6 +930,8 @@ def regenerate_addresses(project, variant: str | None = None) -> RegenerationRes
     (existing=), Astro-GAs (FA-3308) werden berücksichtigt (project=).
     """
     variant = variant or project.config.mg_variant
+    # Zonen-Szenen aller Stockwerke einer Zone teilen sich eine GA
+    normalize_scene_scopes(project)
     old = project.group_addresses
     manual_gas = [ga for ga in old.all_addresses() if ga.is_manual]
     old_keys = _ga_keys(old)

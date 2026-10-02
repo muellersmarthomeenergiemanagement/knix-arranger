@@ -124,7 +124,7 @@ def test_geltungsbereich_gilt_fuer_alle_szenen_der_adresse(qapp):
     view = _view(project)
     group = view._overview.addresses[1]
     view._select_scene(group)
-    view._scene_scope.setCurrentIndex(view._scene_scope.findData("central"))
+    view._scene_target.setCurrentIndex(view._scene_target.findData("central|"))
     view._apply_address_changes()
     assert [(s.scope, s.scope_id) for s in project.scenes if s.name in ("Kochen", "Essen")] \
         == [("central", ""), ("central", "")]

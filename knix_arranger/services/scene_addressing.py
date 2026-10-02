@@ -24,11 +24,63 @@ def build_scope_label_lookup(areal) -> dict[str, str]:
     for room in areal.all_rooms:
         if room.name:
             lookup[room.id] = room.name
-    for floor in areal.all_floors:
-        for apt in floor.apartments:
-            if apt.name:
-                lookup[apt.id] = apt.name
+    multi = len(areal.buildings) > 1
+    for b_idx, building, name, apts in _zones(areal):
+        if name:
+            label = f"{building.name} / {name}" if multi and b_idx > 0 else name
+            for apt in apts:
+                lookup[apt.id] = label
     return lookup
+
+
+def _zones(areal):
+    """(Gebäude, Zonenname, [Apartment je Stockwerk]) je Zone und Flügel.
+
+    Eine Zone über mehrere Stockwerke (Maisonette, EFH) besteht aus einem
+    Apartment je Stockwerk mit gleichem Namen; massgebend ist das erste.
+    """
+    for b_idx, building in enumerate(areal.buildings):
+        for wing in building.wings:
+            zones: dict[str, list] = {}
+            for floor in wing.floors:
+                for apt in floor.apartments:
+                    zones.setdefault(apt.name, []).append(apt)
+            for name, apts in zones.items():
+                yield b_idx, building, name, apts
+
+
+def zone_choices(areal) -> list[tuple[str, str]]:
+    """(Anzeige, scope_id) je Zone -- jede Zone einmal, auch wenn sie über
+    mehrere Stockwerke geht; bei Nebengebäuden mit Gebäudename."""
+    multi = len(areal.buildings) > 1
+    return [
+        (f"{building.name} / {name}" if multi and b_idx > 0 else name, apts[0].id)
+        for b_idx, building, name, apts in _zones(areal) if name
+    ]
+
+
+def canonical_zone_id(areal, apt_id: str) -> str:
+    """scope_id einer Zone: id des ersten Apartments gleichen Namens im
+    selben Flügel (alle Stockwerke einer Zone teilen sich eine Szenen-GA)."""
+    for _b_idx, _building, _name, apts in _zones(areal):
+        if any(a.id == apt_id for a in apts):
+            return apts[0].id
+    return apt_id
+
+
+def normalize_scene_scopes(project) -> int:
+    """Vereinheitlicht Zonen-Geltungsbereiche: scope "apartment" und die
+    scope_id der Zone (nicht eines einzelnen Stockwerks). Gibt die Anzahl
+    geänderter Szenen zurück."""
+    changed = 0
+    for scene in project.scenes:
+        if scene.scope not in ("apartment", "zone") or not scene.scope_id:
+            continue
+        zone_id = canonical_zone_id(project.areal, scene.scope_id)
+        if (scene.scope, scene.scope_id) != ("apartment", zone_id):
+            scene.scope, scene.scope_id = "apartment", zone_id
+            changed += 1
+    return changed
 
 
 def scene_group_key(scene) -> str:

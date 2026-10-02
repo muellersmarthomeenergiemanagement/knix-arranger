@@ -28,14 +28,12 @@ from ...services.scene_value_linking import (
 )
 from ...services.scene_addressing import (
     build_scope_label_lookup, group_named_scenes, is_bound_scene, scene_group_key,
+    canonical_zone_id, normalize_scene_scopes, zone_choices,
 )
 from ...services.scene_overview import (
-    SCOPE_LABELS, SceneAddress, build_scene_overview, linked_devices, scope_text,
+    SceneAddress, build_scene_overview, linked_devices, scope_text,
 )
 from ..column_utils import fit_columns
-
-# Interne Scope-Codes (im Datenmodell gespeichert) -> Anzeigetext.
-_SCOPE_LABELS = SCOPE_LABELS
 
 _ROLE = Qt.UserRole
 _COLOR_HINT = QColor("#757575")
@@ -181,17 +179,15 @@ class SceneView(QWidget):
         self._address_comment.setWordWrap(True)
         address_form.addRow("Kommentar:", self._address_comment)
 
-        self._scene_scope = QComboBox()
-        for code, label in _SCOPE_LABELS.items():
-            self._scene_scope.addItem(label, code)
-        self._scene_scope.setToolTip(
+        # Ein Feld für Geltungsbereich und Ziel ("Zone Chalet Wohnung"),
+        # Daten "scope|scope_id" -- jede Zone einmal, auch über mehrere Stockwerke
+        self._scene_target = QComboBox()
+        self._scene_target.setToolTip(
             "Gilt für alle Szenen dieser Adresse. Szenen mit gleichem "
-            "Geltungsbereich (+ Raum/Zone) teilen sich beim Generieren der "
-            "Adressen (Schritt 10) eine gemeinsame Szenenaufruf-GA."
+            "Geltungsbereich teilen sich beim Generieren der Adressen "
+            "(Schritt 10) eine gemeinsame Szenenaufruf-GA."
         )
-        address_form.addRow("Geltungsbereich:", self._scene_scope)
-        self._scene_scope_id = QComboBox()
-        address_form.addRow("Raum/Zone:", self._scene_scope_id)
+        address_form.addRow("Gilt für:", self._scene_target)
         self._btn_apply_address = QPushButton("Geltungsbereich übernehmen")
         self._btn_apply_address.clicked.connect(self._apply_address_changes)
         address_form.addRow("", self._btn_apply_address)
@@ -311,25 +307,18 @@ class SceneView(QWidget):
     def set_project(self, project: KnxProject):
         """Setzt das aktive Projekt."""
         self._project = project
+        if project is not None:
+            normalize_scene_scopes(project)
         self._update_scope_combos()
         self._refresh_table()
 
     def _update_scope_combos(self):
-        """Füllt die Raum/Zone-Combo mit Projektdaten."""
-        self._scene_scope_id.clear()
+        """Füllt "Gilt für" mit Zentral, den Zonen und den Räumen."""
+        self._scene_target.clear()
         if not self._project:
             return
-
-        self._scene_scope_id.addItem("(Zentral / Alle)", "")
-        for room in self._project.all_rooms:
-            self._scene_scope_id.addItem(
-                f"{room.number} - {room.name}", room.id
-            )
-        for floor in self._project.all_floors:
-            for apt in floor.apartments:
-                self._scene_scope_id.addItem(
-                    f"Zone: {apt.name}", apt.id
-                )
+        for label, scope, scope_id in self._scope_choices():
+            self._scene_target.addItem(label, f"{scope}|{scope_id}")
 
     # --- Baum ---
 
@@ -539,12 +528,16 @@ class SceneView(QWidget):
                 self._address_devices.addItem("keine Geräte verknüpft")
         anchor = group.anchor_scene
         if anchor is not None:
-            idx = self._scene_scope.findData(anchor.scope or "central")
-            if idx >= 0:
-                self._scene_scope.setCurrentIndex(idx)
-            scope_idx = self._scene_scope_id.findData(anchor.scope_id)
-            if scope_idx >= 0:
-                self._scene_scope_id.setCurrentIndex(scope_idx)
+            idx = self._scene_target.findData(self._target_key(anchor.scope, anchor.scope_id))
+            self._scene_target.setCurrentIndex(max(idx, 0))
+
+    def _target_key(self, scope: str, scope_id: str) -> str:
+        """Eintrag in "Gilt für" zu einem Geltungsbereich."""
+        if not scope_id or scope in ("", "central"):
+            return "central|"
+        if scope in ("apartment", "zone"):
+            return f"apartment|{canonical_zone_id(self._project.areal, scope_id)}"
+        return f"{scope}|{scope_id}"
 
     def _fill_scene(self, scene: Scene, address: SceneAddress | None):
         self._scene_name.setText(scene.name)
@@ -618,10 +611,10 @@ class SceneView(QWidget):
         """(Anzeige, scope, scope_id) für die Wahl einer neuen Szenen-Adresse."""
         choices = [("Zentral", "central", "")]
         if self._project:
+            choices += [(f"Zone {label}", "apartment", zone_id)
+                        for label, zone_id in zone_choices(self._project.areal)]
             choices += [(f"Raum {r.number} {r.name}".strip(), "room", r.id)
                         for r in self._project.all_rooms]
-            choices += [(f"Zone {apt.name}", "apartment", apt.id)
-                        for floor in self._project.all_floors for apt in floor.apartments]
         return choices
 
     def _add_scene(self):
@@ -847,33 +840,74 @@ class SceneView(QWidget):
     # --- Übernehmen ---
 
     def _apply_address_changes(self):
-        """Setzt den Geltungsbereich für alle Szenen der ausgewählten Adresse."""
+        """Setzt den Geltungsbereich für alle Szenen der ausgewählten Adresse.
+
+        Bei einer bereits bestehenden Szenen-GA eines geplanten Projekts wird
+        angeboten, sie als Szenen-GA des neuen Geltungsbereichs neu zu
+        erzeugen (sonst bliebe der Geltungsbereich reine Beschriftung).
+        """
         group = self._get_selected_address()
         if group is None:
             return
-        new_scope = self._scene_scope.currentData()
-        new_scope_id = self._scene_scope_id.currentData() or ""
-
-        # Ein Geltungsbereich "Raum"/"Wohnung/Zone"/"Zone" ohne konkretes Ziel
-        # ist ein inkonsistenter Zustand: scene_addressing.scene_group_key()
-        # wertet ausschliesslich scope_id aus (scope_id or "central") -- die
-        # Szene wuerde unbemerkt als zentrale Szene behandelt und taucht in
-        # der Bedienungsanleitung in keinem Raum-Abschnitt auf
-        # (documentation_service.py: scope=="room" and scope_id==room.id).
-        if new_scope != "central" and not new_scope_id:
-            QMessageBox.warning(
-                self, "Geltungsbereich unvollständig",
-                "Bitte wählen Sie unter 'Raum/Zone' ein konkretes Ziel aus, "
-                "wenn der Geltungsbereich nicht 'Zentral' ist -- sonst kann "
-                "die Szene später nicht korrekt zugeordnet werden."
-            )
-            return
+        new_scope, new_scope_id = (self._scene_target.currentData() or "central|").split("|", 1)
         if new_scope == "central":
             new_scope_id = ""
+        anchor = group.anchor_scene
+        current = self._target_key(anchor.scope, anchor.scope_id) if anchor else "central|"
+        if current == f"{new_scope}|{new_scope_id}":
+            return
+
+        select = group.scenes[0] if group.scenes else group.anchor_scene
+        if not group.planned and not self._project.topology.is_imported:
+            label = self._scene_target.currentText()
+            reply = QMessageBox.question(
+                self, "Bestehende Szenen-Adresse",
+                f"Die Szenen-Adresse {group.ga.address} "
+                f"«{' '.join(group.designation.split())}» besteht bereits.\n\n"
+                f"Soll sie in Schritt 10 als Szenen-GA für «{label}» neu erzeugt "
+                f"werden? Die bisherige GA wird entfernt, die Szenen behalten "
+                f"Namen und Nummern.\n\n"
+                f"Nein: Geltungsbereich nur als Beschriftung, GA bleibt.",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                QMessageBox.Yes,
+            )
+            if reply == QMessageBox.Cancel:
+                return
+            if reply == QMessageBox.Yes:
+                moved = self._release_address(group, new_scope, new_scope_id)
+                self._refresh_table(select=moved[0] if moved else False)
+                return
+
         for scene in group.all_scenes:
             scene.scope = new_scope
             scene.scope_id = new_scope_id
-        self._refresh_table(select=group.scenes[0] if group.scenes else group.anchor_scene)
+        self._refresh_table(select=select)
+
+    def _release_address(self, group, scope: str, scope_id: str) -> list:
+        """Löst die Szenen von ihrer bestehenden GA: Sie werden geplante
+        Szenen des neuen Geltungsbereichs (GA entsteht in Schritt 10), der
+        Erkennungs-Eintrag der GA (Nr. 0) und die GA selbst entfallen."""
+        address = group.ga.address
+        if group.channel is not None and group.channel in self._project.scenes:
+            self._project.scenes.remove(group.channel)
+        probe = Scene(scope=scope, scope_id=scope_id)
+        used = {s.scene_number for s in self._project.scenes
+                if not s.is_detected and not s.source_ga_addresses
+                and scene_group_key(s) == scene_group_key(probe)}
+        moved = []
+        for scene in group.scenes:
+            scene.scope, scene.scope_id = scope, scope_id
+            scene.is_detected = False
+            scene.source_ga_addresses = []
+            if scene.scene_number < 1 or scene.scene_number in used:
+                scene.scene_number = next((n for n in range(1, 65) if n not in used), 0)
+            used.add(scene.scene_number)
+            moved.append(scene)
+        for hg in self._project.group_addresses.main_groups:
+            for mg in hg.middle_groups:
+                mg.group_addresses = [ga for ga in mg.group_addresses
+                                      if ga.address != address]
+        return moved
 
     def _apply_changes(self):
         """Übernimmt Änderungen an der ausgewählten Szene (Name, Nummer,
