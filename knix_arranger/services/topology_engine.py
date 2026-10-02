@@ -14,6 +14,7 @@ sollen Geräte derselben Zone auf einer gemeinsamen Linie liegen.
 from __future__ import annotations
 import logging
 from collections import defaultdict
+from .verteiler_service import VerteilerPlacement
 from ..models.building import Areal, Room
 from ..models.topology import Topology, Area, Line, Device
 from ..models.gewerk import GewerkCatalog
@@ -303,6 +304,8 @@ class TopologyEngine:
         room_by_id = {r.id: r for r in all_rooms}
 
         multi_area = len(topology.areas) > 1
+        # Einbauort aus den Verteilern (Schritt 4): je Linie, je Aktortyp
+        placement = VerteilerPlacement(all_rooms)
 
         for area in topology.areas:
             # Speisegerät Bereichslinie (T-06) – nur bei mehreren Bereichen
@@ -318,6 +321,7 @@ class TopologyEngine:
 
             for idx, line in enumerate(area.lines):
                 line.devices.clear()
+                placement.apply_line(line)
 
                 # Bereichskoppler (Kap. 3.5.1, Adresse B.0.0) –
                 # nur bei mehreren Bereichen, in erste Linie eingefügt
@@ -391,7 +395,9 @@ class TopologyEngine:
                                     manufacturer=actor.product.manufacturer,
                                     order_number=actor.product.order_number,
                                     application_program=actor.product.application_program,
-                                    installation_location=actor.uv_location or line.uv_location,
+                                    installation_location=(
+                                        placement.actor_location(line, actor.actor_type)
+                                        or actor.uv_location),
                                     datasheets=list(actor.product.datasheets),
                                 ))
                 else:
@@ -420,7 +426,9 @@ class TopologyEngine:
                                 manufacturer=actor.product.manufacturer,
                                 order_number=actor.product.order_number,
                                 application_program=actor.product.application_program,
-                                installation_location=actor.uv_location or line.uv_location,
+                                installation_location=(
+                                    placement.actor_location(line, actor.actor_type)
+                                    or actor.uv_location),
                                 datasheets=list(actor.product.datasheets),
                             ))
 

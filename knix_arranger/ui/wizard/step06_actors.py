@@ -6,15 +6,18 @@ import logging
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget,
     QTreeWidgetItem, QPushButton, QAbstractItemView, QGroupBox,
-    QMessageBox,
+    QMessageBox, QComboBox,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
 from ...models.project import KnxProject
 from ...models.building import ActorAssignment
 from ...models.material_list import MaterialEntry
 from ...services.actor_service import ActorService
 from ...services.topology_engine import TopologyEngine
+from ...services.verteiler_service import (
+    VerteilerPlacement, apply_device_locations, verteiler_label,
+)
 from .recompute_guard import RecomputeGuard, KEY_DEVICES
 from ..column_utils import fit_columns
 
@@ -33,8 +36,11 @@ class Step06Actors(QWidget):
         layout = QVBoxLayout(self)
 
         info = QLabel(
-            "Die benötigten Aktoren werden automatisch aus den\n"
-            "Gewerk-Zuweisungen berechnet und liniengerecht verteilt."
+            "Die benötigten Aktoren werden automatisch aus den "
+            "Gewerk-Zuweisungen berechnet und liniengerecht verteilt.\n"
+            "Einbauort: je Linie einen Verteiler wählen (Verteiler aus Schritt 4), "
+            "einzelne Aktortypen können in einem anderen Verteiler sitzen – "
+            "z.B. Jalousieaktoren in der UV des Stockwerks für kurze Leitungen."
         )
         info.setWordWrap(True)
         layout.addWidget(info)
@@ -144,9 +150,6 @@ class Step06Actors(QWidget):
         bold_font = QFont()
         bold_font.setBold(True)
 
-        # Room-ID → Room Lookup für Verteiler-Zuweisung
-        room_by_id = {r.id: r for r in all_rooms}
-
         # Line-coupler_address → Line Lookup
         line_by_address = {
             line.coupler_address: line
@@ -154,28 +157,22 @@ class Step06Actors(QWidget):
             for line in area.lines
         }
 
-        # Verteiler-Zuweisung: vor dem Befüllen alle betroffenen VT leeren
-        cleared_vt_ids: set[str] = set()
+        # Verteiler-Zuweisung: gewählter Verteiler je Linie bzw. Aktortyp
+        placement = VerteilerPlacement(all_rooms)
+        if not topology.is_imported:
+            for vt, _room in placement.refs:
+                vt.actor_assignments = []
+        cleared_vt_ids: set[str] = {vt.id for vt, _room in placement.refs} \
+            if not topology.is_imported else set()
 
         for result in line_results:
             num_actors = len(result.actors)
             total_actors += num_actors
             total_lines += 1
 
-            # Verteiler der Linie ermitteln (erster Raum mit Verteiler)
             line_obj = line_by_address.get(result.coupler_address)
-            target_vt = None
-            if line_obj:
-                for rid in line_obj.assigned_room_ids:
-                    room = room_by_id.get(rid)
-                    if room and room.has_verteiler:
-                        target_vt = room.verteiler[0]
-                        break
-
-            vt_label = (
-                f"{target_vt.verteiler_type} {target_vt.name}".strip()
-                if target_vt else "–"
-            )
+            line_ref = placement.for_line(line_obj) if line_obj else None
+            vt_label = verteiler_label(*line_ref) if line_ref else "–"
 
             # Linien-Knoten
             line_item = QTreeWidgetItem(self._tree, [
@@ -187,6 +184,13 @@ class Step06Actors(QWidget):
             ])
             line_item.setFont(0, bold_font)
             line_item.setExpanded(True)
+            if line_obj is not None and placement.refs and not topology.is_imported:
+                default = placement.default_for_line(line_obj)
+                self._tree.setItemWidget(line_item, 4, self._verteiler_combo(
+                    placement, line_obj.verteiler_id,
+                    f"automatisch: {verteiler_label(*default) if default else '–'}",
+                    lambda vt_id, line=line_obj: self._set_line_verteiler(line, vt_id),
+                ))
 
             # Anforderungen als Unter-Knoten
             if result.requirements:
@@ -211,27 +215,39 @@ class Step06Actors(QWidget):
                 ])
                 actor_item.setFont(0, bold_font)
                 for actor in result.actors:
-                    QTreeWidgetItem(actor_item, [
+                    ref = (placement.for_actor(line_obj, actor.actor_type)
+                           if line_obj else None)
+                    row = QTreeWidgetItem(actor_item, [
                         "",
                         actor.actor_type,
                         str(actor.channels),
                         actor.product.manufacturer or "-",
-                        vt_label,
+                        verteiler_label(*ref) if ref else "–",
                     ])
+                    if line_obj is not None and placement.refs and not topology.is_imported:
+                        self._tree.setItemWidget(row, 4, self._verteiler_combo(
+                            placement, line_obj.actor_verteiler.get(actor.actor_type, ""),
+                            "wie Linie",
+                            lambda vt_id, line=line_obj, t=actor.actor_type:
+                                self._set_actor_verteiler(line, t, vt_id),
+                        ))
                 actor_item.setExpanded(True)
 
-            # Verteiler-Zuweisung: Aktoren in den Verteiler eintragen
-            if target_vt:
+            # Verteiler-Zuweisung: Aktoren in ihren Verteiler eintragen
+            for actor in result.actors:
+                ref = placement.for_actor(line_obj, actor.actor_type) if line_obj else None
+                if ref is None:
+                    continue
+                target_vt = ref[0]
                 if target_vt.id not in cleared_vt_ids:
                     target_vt.actor_assignments = []
                     cleared_vt_ids.add(target_vt.id)
-                for actor in result.actors:
-                    target_vt.actor_assignments.append(ActorAssignment(
-                        actor_type=actor.actor_type,
-                        manufacturer=actor.product.manufacturer,
-                        order_number=actor.product.order_number,
-                        product_name=actor.product.product_name,
-                    ))
+                target_vt.actor_assignments.append(ActorAssignment(
+                    actor_type=actor.actor_type,
+                    manufacturer=actor.product.manufacturer,
+                    order_number=actor.product.order_number,
+                    product_name=actor.product.product_name,
+                ))
 
         fit_columns(self._tree)
 
@@ -252,6 +268,11 @@ class Step06Actors(QWidget):
                 preserve_manual=True,
             )
             self._guard.mark_done(self._project, KEY_DEVICES)
+        apply_device_locations(topology, all_rooms)
+        if not placement.refs and not topology.is_imported:
+            self._summary.setText(
+                self._summary.text() + " – keine Verteiler erfasst: Einbauort "
+                "in Schritt 4 (Elektroverteilungen) festlegen")
 
         # Materialliste aggregieren und anzeigen (FA-1306)
         all_actors = [actor for r in line_results for actor in r.actors]
@@ -265,6 +286,29 @@ class Step06Actors(QWidget):
                 entry.get("order_number") or "–",
             ])
         fit_columns(self._mat_tree)
+
+    def _verteiler_combo(self, placement: VerteilerPlacement, current_id: str,
+                         auto_text: str, on_change) -> QComboBox:
+        """Auswahl des Verteilers (erster Eintrag = automatisch / wie Linie)."""
+        combo = QComboBox()
+        combo.addItem(auto_text, "")
+        for vt, room in placement.refs:
+            combo.addItem(verteiler_label(vt, room), vt.id)
+        combo.setCurrentIndex(max(0, combo.findData(current_id)))
+        combo.currentIndexChanged.connect(lambda _i: on_change(combo.currentData() or ""))
+        return combo
+
+    def _set_line_verteiler(self, line, vt_id: str) -> None:
+        line.verteiler_id = vt_id
+        # Neu aufbauen erst nach dem Signal: _calculate() löscht die Auswahl selbst
+        QTimer.singleShot(0, self._calculate)
+
+    def _set_actor_verteiler(self, line, actor_type: str, vt_id: str) -> None:
+        if vt_id:
+            line.actor_verteiler[actor_type] = vt_id
+        else:
+            line.actor_verteiler.pop(actor_type, None)
+        QTimer.singleShot(0, self._calculate)
 
     def _transfer_to_material_list(self):
         """

@@ -239,6 +239,10 @@ class Line:
     assigned_floor_ids: list[str] = field(default_factory=list)
     assigned_room_ids: list[str] = field(default_factory=list)
     uv_location: str = ""         # Zugeordnete UV, z.B. "UV2"
+    # Gewählter Verteiler (Verteiler.id, leer = automatisch) und Abweichungen
+    # je Aktortyp, z.B. {"Jalousieaktor 8-fach": <id UV Halle>}
+    verteiler_id: str = ""
+    actor_verteiler: dict[str, str] = field(default_factory=dict)
     devices: list[Device] = field(default_factory=list)
     # Berechnet
     device_count: int = 0
@@ -260,6 +264,8 @@ class Line:
             "assigned_floor_ids": self.assigned_floor_ids,
             "assigned_room_ids": self.assigned_room_ids,
             "uv_location": self.uv_location,
+            "verteiler_id": self.verteiler_id,
+            "actor_verteiler": dict(self.actor_verteiler),
             "devices": [d.to_dict() for d in self.devices],
             "device_count": self.device_count,
             "topology_form": self.topology_form,
@@ -279,6 +285,8 @@ class Line:
             # reconcile_reimport) beim Laden bereinigen
             assigned_room_ids=list(dict.fromkeys(data.get("assigned_room_ids", []))),
             uv_location=data.get("uv_location", ""),
+            verteiler_id=data.get("verteiler_id", ""),
+            actor_verteiler=dict(data.get("actor_verteiler", {})),
             device_count=data.get("device_count", 0),
             topology_form=data.get("topology_form", "Linie"),
             trunk_length=float(data.get("trunk_length", 0.0)),

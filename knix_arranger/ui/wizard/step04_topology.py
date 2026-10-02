@@ -15,6 +15,7 @@ from ...models.topology import (
     Area, Line, Device,
     area_coupler, line_coupler, line_power_supplies, power_supply_address,
 )
+from ...services.verteiler_service import carry_over_line_verteiler
 from ...services.topology_engine import TopologyEngine
 from ..dialogs.topology_assignment_dialog import TopologyAssignmentDialog
 from ..column_utils import fit_columns
@@ -536,7 +537,10 @@ class Step04Topology(QWidget):
             self._project.all_rooms, self._project.gewerk_catalog
         )
 
+        previous = self._project.topology
         self._project.topology = engine.calculate_topology(self._project.areal)
+        # In Schritt 8 gewählte Verteiler je Linie (Zone) beibehalten
+        carry_over_line_verteiler(previous, self._project.topology)
 
         # Aktoren und Sensoren aus Gewerk-Zuweisungen ableiten und Adressen vergeben
         engine.populate_devices(

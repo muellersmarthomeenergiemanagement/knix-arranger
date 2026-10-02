@@ -24,6 +24,7 @@ from ...services.belegungsplan_service import (
     build_ga_by_designation, resolve_ga_display,
 )
 from ...services.multi_ga_check import ga_address_of, ko_for_ga, unlink_ga
+from ...services.verteiler_service import VerteilerPlacement, verteiler_label
 from ..column_utils import fit_columns
 from ..styles import COLOR_WARNING
 
@@ -729,31 +730,71 @@ class TopologyView(QWidget):
             self._refresh()
             self._emit_changed()
 
+    def _placement(self) -> VerteilerPlacement | None:
+        """Verteiler aus Schritt 4 (nur bei geplanten Projekten)."""
+        if self._project is None or self._project.topology.is_imported:
+            return None
+        placement = VerteilerPlacement(self._project.all_rooms)
+        return placement if placement.refs else None
+
+    def _ask_location(self, title: str, label: str, current: str,
+                      placement: VerteilerPlacement | None) -> tuple[str, str, bool]:
+        """Einbauort wählen: Verteiler aus Schritt 4 oder Freitext.
+        Gibt (Text, Verteiler-id oder "", ok) zurück."""
+        if placement is None:
+            loc, ok = QInputDialog.getText(self, title, label, text=current)
+            return loc.strip(), "", ok
+        items = [verteiler_label(vt, room) for vt, room in placement.refs]
+        ids = {verteiler_label(vt, room): vt.id for vt, room in placement.refs}
+        if current and current not in items:
+            items.append(current)
+        loc, ok = QInputDialog.getItem(
+            self, title, label + "\n(Verteiler aus Schritt 4 oder eigener Text)",
+            items, items.index(current) if current in items else 0, True,
+        )
+        loc = loc.strip()
+        return loc, ids.get(loc, ""), ok
+
     def _edit_line_uv(self, line: Line):
-        loc, ok = QInputDialog.getText(
-            self, "UV-Einbauort bearbeiten",
+        loc, vt_id, ok = self._ask_location(
+            "UV-Einbauort bearbeiten",
             f"Einbauort für Linie {line.line_number} – {line.name}:",
-            text=line.uv_location or "",
+            line.uv_location or "", self._placement(),
         )
         if ok:
             if self._bus:
                 self._bus.begin_change(f"UV-Einbauort Linie {line.line_number} bearbeiten")
-            line.uv_location = loc.strip()
+            line.verteiler_id = vt_id
+            line.uv_location = loc
             self._refresh()
             self._emit_changed()
 
     def _edit_device_location(self, device: Device):
-        loc, ok = QInputDialog.getText(
-            self, "Einbauort bearbeiten",
-            f"Einbauort für »{device.product or device.device_type}«:",
-            text=device.installation_location,
+        placement = self._placement()
+        line = next((l for a in (self._project.topology.areas if self._project else [])
+                     for l in a.lines if device in l.devices), None)
+        per_type = (placement is not None and line is not None
+                    and device.device_type in ("actor", "gateway") and device.product
+                    and not device.is_programmed)
+        label = f"Einbauort für »{device.product or device.device_type}«:"
+        if per_type:
+            label += f"\nGilt für alle »{device.product}« der Linie {line.name}."
+        loc, vt_id, ok = self._ask_location(
+            "Einbauort bearbeiten", label, device.installation_location, placement,
         )
         if ok:
             if self._bus:
                 self._bus.begin_change(
                     f"Einbauort »{device.product or device.device_type}« bearbeiten"
                 )
-            device.installation_location = loc.strip()
+            if per_type and vt_id:
+                # Bleibt bei einer Neuberechnung der Aktoren erhalten (Schritt 8)
+                line.actor_verteiler[device.product] = vt_id
+                for other in line.devices:
+                    if other.product == device.product and not other.is_programmed:
+                        other.installation_location = loc
+            else:
+                device.installation_location = loc
             self._refresh()
             self._emit_changed()
 
