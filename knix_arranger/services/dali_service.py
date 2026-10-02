@@ -29,7 +29,9 @@ _GA_RE = re.compile(r"^\d+/\d+/\d+$")
 # LDA-GA-Bezeichnung: "LDA_001_01 E/A" → (room_nr="001", elem_nr="01", func="E/A")
 # KNiX-eigene NamingEngine-Konvention ("KNX Swiss Bezeichnungskonzept"),
 # vergeben von der App selbst beim Neu-Generieren von Adressen (Schritt 7).
-_LDA_PREFIX_RE = re.compile(r"^LDA_(\w+)_(\d{2})\s+(.+)$", re.IGNORECASE)
+# Raumteil ohne "_" und Leerzeichen, damit auch Raumnummern mit "-" oder "."
+# (z.B. "S-EG02", siehe utils/validators.ROOM_NUMBER_PATTERN) erkannt werden.
+_LDA_PREFIX_RE = re.compile(r"^LDA_([^_\s]+)_(\d{2})\s+(.+)$", re.IGNORECASE)
 
 # LDA-GA-Bezeichnung nach ETS6-XLSX-Importkonvention (siehe
 # xlsx_import_service._GA_FLOOR_ROOM_RE): "LDA.OG.00.02_ea" bzw. mehrere per

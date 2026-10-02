@@ -121,7 +121,9 @@ VALIDATION_RULES = {
     ),
     "FA-610": (
         "Bezeichnung nicht KNX-Swiss-konform",
-        "Erwartetes Format: GEWERK_RAUM_NR FUNKTION (Klartext).",
+        "Erwartetes Format: GEWERK_RAUM_NR FUNKTION (Klartext). Die "
+        "Raumnummer ist frei gestaltbar (A–Z, 0–9, - und .), muss bei "
+        "geplanten Projekten aber ein Raum der Gebäudestruktur sein.",
         "Bei importierten Projekten mit eigenem Namensschema kann dieser "
         "Hinweis ignoriert werden.",
     ),
@@ -341,8 +343,10 @@ def _validation_table_layout(rule_id: str):
         return (["Adresse", "Bezeichnung", "Kollidiert mit"], [0.13, 0.435, 0.435], None,
                 lambda i: [i.address, _clean(i.designation), _clean(i.details.get("other", ""))])
     if rule_id == "FA-610":
-        return (["Adresse", "Bezeichnung"], [0.13, 0.87], None,
-                lambda i: [i.address, _clean(i.designation)])
+        return (["Adresse", "Bezeichnung", "Befund"], [0.13, 0.62, 0.25], None,
+                lambda i: [i.address, _clean(i.designation),
+                           f"Raum {i.details['room']} fehlt" if i.details.get("room")
+                           else "Format"])
     if rule_id == "FA-616":
         return (["Adresse", "Bezeichnung", "Angabe", "ETS", "KNiX"],
                 [0.12, 0.48, 0.14, 0.13, 0.13], None,

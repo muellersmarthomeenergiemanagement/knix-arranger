@@ -7,7 +7,9 @@ import re
 import logging
 from ..models.group_address import GroupAddressStructure, GroupAddress
 from ..models.gewerk import GewerkCatalog
-from ..utils.validators import is_valid_ga, is_valid_designation
+from ..utils.validators import (
+    is_valid_ga, is_valid_designation, designation_room_number,
+)
 from .dpt_suggestion import suggest_dpt
 
 logger = logging.getLogger("knix_arranger.validation")
@@ -62,7 +64,7 @@ class ValidationEngine:
         issues.extend(self._check_valid_addresses(all_gas))
         issues.extend(self._check_duplicates(all_gas))
         issues.extend(self._check_dpt(all_gas))
-        issues.extend(self._check_naming(all_gas))
+        issues.extend(self._check_naming(all_gas, self._planned_room_numbers(project)))
         issues.extend(self._check_middle_group_assignment(all_gas))
         issues.extend(self._check_block_integrity(structure))
 
@@ -272,8 +274,26 @@ class ValidationEngine:
                     ))
         return issues
 
-    def _check_naming(self, addresses: list[GroupAddress]) -> list[ValidationIssue]:
-        """FA-606, FA-610: Prüft Bezeichnungskonformitaet."""
+    @staticmethod
+    def _planned_room_numbers(project) -> set[str] | None:
+        """Raumnummern der Gebäudestruktur bei mit KNiX geplanten Projekten.
+
+        None bei importierten Projekten (Bezeichnungen stammen aus der ETS)
+        oder wenn noch keine Räume erfasst sind -- dann nur Formatprüfung.
+        """
+        if project is None or project.topology.is_imported:
+            return None
+        numbers = {r.number for r in project.areal.all_rooms if r.number}
+        return numbers or None
+
+    def _check_naming(self, addresses: list[GroupAddress],
+                      room_numbers: set[str] | None = None) -> list[ValidationIssue]:
+        """FA-606, FA-610: Prüft Bezeichnungskonformitaet.
+
+        Raumnummern sind frei gestaltbar (Prüfrahmen siehe
+        utils/validators.ROOM_NUMBER_PATTERN). Bei geplanten Projekten muss
+        der Raumteil zusätzlich ein Raum der Gebäudestruktur sein.
+        """
         issues = []
         for ga in addresses:
             if ga.is_placeholder or ga.central == "true":
@@ -288,6 +308,19 @@ class ValidationEngine:
                         "Erwartetes Format: GEWERK_RAUM_NR FUNKTION (Klartext)",
                         designation=ga.designation,
                     ))
+                elif room_numbers is not None:
+                    room = designation_room_number(ga.designation)
+                    if room not in room_numbers:
+                        issues.append(ValidationIssue(
+                            "info", "FA-610",
+                            f"Raum {room} der Bezeichnung fehlt in der "
+                            f"Gebäudestruktur: '{ga.designation}'",
+                            ga.address,
+                            "Raumnummer in Schritt 3 prüfen oder Adressen in "
+                            "Schritt 7 neu erzeugen",
+                            designation=ga.designation,
+                            details={"room": room},
+                        ))
         return issues
 
     def _check_middle_group_assignment(self, addresses: list[GroupAddress]) -> list[ValidationIssue]:

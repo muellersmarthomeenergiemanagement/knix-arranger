@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.21
+**Version:** 3.22
 **Datum:** 01.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -36,6 +36,7 @@
 | 3.19 | 30.09.2026 | M. Mueller / Claude AI | Auslieferung mit Nuitka nativ kompiliert, kein Quellcode im Bundle, Selbsttest des Bundles im Release-Workflow (NFA-071a). Lizenznehmer im Info-Dialog, in der Berichts-Fusszeile und in den PDF-Eigenschaften (NFA-098b). Zurueckgestellte Systemuhr verlaengert keine Lizenz (NFA-098c) |
 | 3.20 | 01.10.2026 | M. Mueller / Claude AI | Pro Sensorkanal nur eine sendende GA (FA-614): weitere GAs an sendenden Tasten-KOs werden eingeordnet (Variante B: MG 6/7 = Rueckmeldung, sonst nach sendendem KO), zweite sendende GA als Warnung in Validierung, Validierungsbericht, Bericht Bedienelemente, Schritt 12, Topologie, Verknuepfungsmatrix und Bauherrenberatung (Rolle "Mithoeren - pruefen"). Bauherrenberatung zeigt GA-Nummern und Rollen; GA von Taste trennen in Bauherrenberatung und Topologie trennt auch die KO-Verknuepfung des Geraets (FA-614a). Validierungsansicht als Baum Stufe > Regel > Meldung mit Stufenfilter und Suche (FA-615). Bedienungsanleitung fuer den Bauherrn neu (FA-2001 bis FA-2004): je Taster Tastenplan und Bedienung in Alltagssprache aus den ETS-Parametern, Szenennamen aus dem GA-Kommentar, keine GA-Nummern. Kundenprofil in den Projekteigenschaften, Kundenofferte uebernimmt Name, Adresse und Anrede. Korrekturschicht fuer importierte Projekte (FA-616), Projektart und Richtlinien-Abstufung (FA-617). Inbetriebnahme-Checkliste je Taste eine Zeile nach Stockwerk gegliedert (FA-1904), Abnahmeprotokoll als Formular mit Umfang, Unterlagen und Maengelliste (FA-1911 bis FA-1914), Revisionspaket mit Abnahmeprotokoll und Seitenzahlen im Inhaltsverzeichnis, DALI-Liste nur mit erfassten EVGs, KNX-Secure-Bericht mit Linie und Geraetenamen aus der Topologie. Checkliste Excel: Blaetter Uebersicht (Fortschritt per Formel), je Stockwerk, Verteiler; Spalte OK als Auswahlliste mit Farbe; ausgefuellte Datei in der Inbetriebnahme einlesbar (Ergebnisse und Bemerkungen, "offen" ueberschreibt nichts) |
 | 3.21 | 01.10.2026 | M. Mueller / Claude AI | Korrekturschicht erweitert: Raum eines Geraets (FA-616a, Topologie "Raum zuordnen...") und getrennte KO-Verknuepfungen (FA-616b) ueberstehen Re-Import und Neuaufbau; Hinweis nach dem Re-Import auf GAs, die in KNiX getrennt, in der ETS aber noch verbunden sind. Re-Import und Neuaufbau aus der .knxproj behalten Tastenparameter und Szenenwerte aus den Reports (FA-528a). ETS-Arbeitsliste (FA-618), knapp in ETS-Begriffen, mit Abgleich erledigt/neu/offen nach dem Re-Import |
+| 3.22 | 02.10.2026 | M. Mueller / Claude AI | Raumnummern frei gestaltbar im Pruefrahmen A-Z, 0-9, - und . (BZ-03a), z.B. Zonen-Praefix SEG02 oder S-EG02; Schritt 3 warnt bei Raumnummern ausserhalb des Pruefrahmens und bei doppelten Nummern im Projekt und schlaegt fuer neue Raeume die Nummer im Schema der Zone vor (FA-102a). Bezeichnungspruefung (FA-610) bei geplanten Projekten gegen die Gebaeudestruktur: der Raumteil muss ein vorhandener Raum sein. "Speichern" bei umbenanntem oder verschobenem Projektordner fuehrt zu "Speichern unter" mit Ordnervorschlag |
 
 ---
 
@@ -285,6 +286,7 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 |----|-------------|
 | FA-101 | Das System muss die Erfassung einer Gebaeudestruktur mit folgender Hierarchie ermoeglichen: Areal > Gebaeude > Gebaeude-Fluegel > Stockwerk > Wohnung/Zone > Raum. |
 | FA-102 | Pro Wohnung/Zone muessen beliebig viele Raeume mit eindeutiger Raumnummer angelegt werden koennen (z.B. E01, E02, ... oder UG01, EG01, OG01). |
+| FA-102a | Fuer einen neuen Raum schlaegt das System die naechste freie Nummer im Schema der Zone vor, gelernt aus deren Raeumen (auch auf anderen Stockwerken): Zonen-Praefix + Stockwerkkuerzel + Trennzeichen + laufende Nummer (z.B. SEG04, LEG01). Neue Zone in einem Projekt mit Zonen-Praefixen: erster noch freier Buchstabe des Zonennamens. Sonst Stockwerkkuerzel + Nummer. Raumnummern ausserhalb des Pruefrahmens (BZ-03a) oder im Projekt doppelt werden in Schritt 3 orange markiert (Tooltip mit Grund) und nach Uebernehmen, Massenerfassung und Einfuegen gemeldet. |
 | FA-103 | Das System muss die gaengigen Stockwerksbezeichnungen unterstuetzen: UG (Untergeschoss), EG (Erdgeschoss), OG (Obergeschoss), DG (Dachgeschoss), sowie nummerierte Varianten (1.OG, 2.OG etc.). |
 | FA-104 | Das System muss vordefinierte Gebaeudevorlagen anbieten (z.B. EFH, MFH, Zweckbau), die als Ausgangsbasis fuer die Strukturerfassung dienen. |
 | FA-105 | Der Benutzer muss die Gebaeudestruktur manuell anpassen koennen (Stockwerke, Wohnungen/Zonen und Raeume hinzufuegen, entfernen, umbenennen, verschieben). |
@@ -620,7 +622,7 @@ Nach einem Import (KNXPROJ oder XLSX-Reports) soll das Projekt im Wizard weiterg
 | FA-607 | Das System muss pruefen, ob die Mittelgruppen-Zuordnung korrekt ist (z.B. Licht-Gewerke in Mittelgruppe 0, Jalousie in Mittelgruppe 1). |
 | FA-608 | Das System muss bei Variante B pruefen, ob zu jedem Schalt-Element die zugehoerigen Rueckmeldungen in MG 6 (Licht) bzw. MG 7 (Jalousie) vorhanden sind und identische Untergruppenadressen haben. |
 | FA-609 | Das System muss die Einhaltung der empfohlenen Geraeteanzahl pro Linie pruefen (Warnung bei > 85, Fehler bei > 100 bzw. > 256 Geraeten). |
-| FA-610 | Das System muss die Bezeichnungen auf Konformitaet mit dem KNX Swiss Bezeichnungskonzept pruefen (Format: Gewerk_Raum_Nummer). |
+| FA-610 | Das System muss die Bezeichnungen auf Konformitaet mit dem KNX Swiss Bezeichnungskonzept pruefen (Format: Gewerk_Raum_Nummer, Raumnummer im Pruefrahmen BZ-03a). Bei mit KNiX geplanten Projekten muss der Raumteil zudem eine Raumnummer der Gebaeudestruktur sein (Befund "Raum fehlt", z.B. nach Umbenennen eines Raums ohne neue Adressen). |
 | FA-611 | Bei importiertem Topologie-Report: Das System muss pruefen, ob alle in Kommunikationsobjekten referenzierten Gruppenadressen in der Gruppenadress-Struktur vorhanden sind (und umgekehrt). |
 | FA-612 | Bei importiertem Topologie-Report: Das System muss pruefen, ob die physikalischen Adressen lueckenlos und korrekt den Linien zugeordnet sind. |
 | FA-613 | Bei importiertem Topologie-Report: Das System muss pruefen, ob jede Linie eine Spannungsversorgung besitzt. |
@@ -2068,6 +2070,7 @@ KNX-Projekt
 | BZ-01 | Label besteht aus: Gewerke-Kuerzel + "_" + Raumnummer + "_" + fortlaufende Nummer |
 | BZ-02 | Gewerke-Kuerzel: gemaess Gewerke-Katalog (Kap. 10.1) |
 | BZ-03 | Raumnummer: eindeutig pro Stockwerk, auf Grundrissplaenen ersichtlich |
+| BZ-03a | Pruefrahmen Raumnummer: Grossbuchstaben A-Z, Ziffern 0-9, "-" und "." nur zwischen Buchstaben/Ziffern (z.B. E01, SEG02, S-EG02, S.EG.02). Kein Unterstrich (Trennzeichen der Bezeichnung), kein Leerzeichen (trennt die Funktion ab). |
 | BZ-04 | Fortlaufende Nummer: beginnt pro Raum und Gewerk bei 01 |
 | BZ-05 | Optionale Ergaenzung: Raumname und/oder Schaltgruppe in Klammern |
 | BZ-06 | Dasselbe Label wird verwendet in: Installationsplan, Elektroschema, ETS |

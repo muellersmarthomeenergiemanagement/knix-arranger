@@ -4,7 +4,9 @@ Wizard Schritt 3: Räume anlegen
 Baum-Struktur: Zone → Stockwerk → Räume
 Jeder Raum bekommt eine floor_id (physisches Stockwerk) und gehört zu
 einer Zone (Apartment).  Bei EFH (eine Zone) wird stockwerkbasiert
-nummeriert (E01, O01), bei MFH zonenbasiert (W1-01, W2-03).
+nummeriert (E01, O01). Verwendet das Projekt ein Zonen-Präfix (z.B. SEG02
+für Zone "Chalet Studio" im EG), wird es für neue Räume übernommen.
+Raumnummern ausserhalb des Prüfrahmens oder doppelte werden markiert.
 """
 from __future__ import annotations
 import copy
@@ -17,9 +19,12 @@ from PySide6.QtWidgets import (
     QTextEdit, QMessageBox,
 )
 from PySide6.QtCore import Qt, QEvent
+from PySide6.QtGui import QBrush, QColor
 from ...models.project import KnxProject
 from ...models.building import Room, Wing, Floor, Apartment
+from ...services.room_numbering import room_number_warnings, suggest_room_number
 from ..column_utils import fit_columns
+from ..styles import COLOR_WARNING
 
 
 # UserRole-Schlüssel für Tree-Items
@@ -42,8 +47,9 @@ class Step03Rooms(QWidget):
         layout = QVBoxLayout(self)
         info = QLabel(
             "Legen Sie Räume pro Zone (Wohnung) und Stockwerk an.\n"
-            "EFH: Raumnummern nach Stockwerk (E01, O01).  "
-            "MFH: Raumnummern nach Zone (W1-01, W2-01)."
+            "Raumnummern frei wählbar mit A–Z, 0–9, - und . (z.B. E01, SEG02, "
+            "S-EG02); neue Räume übernehmen das Schema der Zone. "
+            "Orange markiert: doppelt oder ausserhalb des Prüfrahmens."
         )
         info.setWordWrap(True)
         layout.addWidget(info)
@@ -103,7 +109,7 @@ class Step03Rooms(QWidget):
         detail = QGroupBox("Raum-Details")
         form = QFormLayout()
         self._room_number = QLineEdit()
-        self._room_number.setPlaceholderText("z.B. E01")
+        self._room_number.setPlaceholderText("z.B. E01 oder SEG02")
         self._room_name   = QLineEdit()
         self._room_name.setPlaceholderText("z.B. Schlafzimmer")
         form.addRow("Raumnummer:", self._room_number)
@@ -160,9 +166,26 @@ class Step03Rooms(QWidget):
         return {f.id: f for f in wing.floors}
 
     def _suggest_room_number(self, apt: Apartment, floor: Floor) -> str:
-        """Schlägt die nächste Raumnummer vor: Stockwerkkürzel + laufende Nummer."""
-        existing = len(apt.rooms)
-        return f"{floor.short_code}{existing + 1:02d}"
+        """Nächste freie Raumnummer im Schema der Zone (z.B. SEG04, E03)."""
+        return suggest_room_number(self._project.areal, self._get_wing(), apt, floor)
+
+    def _warn_room_numbers(self, rooms: list[Room]) -> None:
+        """Zeigt die Warnungen zu den Raumnummern der übergebenen Räume."""
+        lines = []
+        for room in rooms:
+            for warning in room_number_warnings(self._project.areal, room):
+                lines.append(f"{room.number} {room.name}: {warning}")
+        if not lines:
+            return
+        shown = lines[:15]
+        if len(lines) > len(shown):
+            shown.append(f"… und {len(lines) - len(shown)} weitere")
+        QMessageBox.warning(
+            self, "Raumnummer prüfen",
+            "\n".join(shown) + "\n\nDie Validierung der Gruppenadressen "
+            "setzt eindeutige Raumnummern im Prüfrahmen voraus "
+            "(A–Z, 0–9, - und .).",
+        )
 
     # ── Refresh ────────────────────────────────────────────────────────────
 
@@ -207,6 +230,10 @@ class Step03Rooms(QWidget):
                     room_item = QTreeWidgetItem(floor_item, [
                         room.name, room.number, str(room.total_devices()),
                     ])
+                    warnings = room_number_warnings(self._project.areal, room)
+                    if warnings:
+                        room_item.setForeground(1, QBrush(QColor(COLOR_WARNING)))
+                        room_item.setToolTip(1, "\n".join(warnings))
                     room_item.setData(0, Qt.UserRole, (_KIND_ROOM, room, apt, floor))
                     self._item_index[(_KIND_ROOM, id(room))] = room_item
 
@@ -311,7 +338,10 @@ class Step03Rooms(QWidget):
 
         new_dict = copy.deepcopy(room.to_dict())
         new_dict["id"] = str(uuid.uuid4())
-        new_dict["number"] = _increment_room_number(room.number)
+        number = _increment_room_number(room.number)
+        if any(r.number == number for r in self._project.areal.all_rooms):
+            number = self._suggest_room_number(apt, floor)
+        new_dict["number"] = number
         new_room = Room.from_dict(new_dict)
         new_room.floor_id = floor.id
 
@@ -377,6 +407,7 @@ class Step03Rooms(QWidget):
 
         self._refresh()
         self._select_by_data(_KIND_ZONE_FLOOR, apt)
+        self._warn_room_numbers(apt.rooms)
 
     # ── Kopieren / Einfügen ────────────────────────────────────────────────
 
@@ -492,6 +523,7 @@ class Step03Rooms(QWidget):
             apt.rooms.append(Room.from_dict(new_dict))
         self._refresh()
         self._select_by_data(_KIND_ZONE_FLOOR, apt)
+        self._warn_room_numbers(apt.rooms)
 
     def _paste_zone(self):
         """Fügt eine kopierte Zone index-basiert in die Ziel-Zone ein."""
@@ -546,6 +578,9 @@ class Step03Rooms(QWidget):
         self._refresh()
         if first_apt:
             self._select_by_data(_KIND_ZONE_FLOOR, first_apt)
+        self._warn_room_numbers([
+            r for apt, _floor in zone_floor_pairs[:n_paste] for r in apt.rooms
+        ])
 
         if n_src != n_dst:
             QMessageBox.information(
@@ -564,10 +599,13 @@ class Step03Rooms(QWidget):
         if not kind or kind[0] != _KIND_ROOM:
             return
         room = kind[1]
-        room.number = self._room_number.text()
+        number_changed = room.number != self._room_number.text().strip()
+        room.number = self._room_number.text().strip()
         room.name   = self._room_name.text()
         self._refresh()
         self._select_by_data(_KIND_ROOM, room)
+        if number_changed:
+            self._warn_room_numbers([room])
 
     # ── Tree-Navigation ────────────────────────────────────────────────────
 
@@ -587,4 +625,5 @@ def _increment_room_number(number: str) -> str:
     if m:
         prefix, digits = m.group(1), m.group(2)
         return f"{prefix}{int(digits) + 1:0{len(digits)}d}"
-    return number + "_2"
+    # "-" statt "_": der Unterstrich trennt in der GA-Bezeichnung den Raum ab
+    return number + "-2"
