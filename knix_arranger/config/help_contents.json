@@ -135,6 +135,10 @@
     "linking_matrix": {
       "title": "Sensor-Aktor-Verknüpfungsmatrix",
       "content_html": "<h3>Sensor-Aktor-Matrix</h3><p>Zeigt die vollständige Verlinkungsübersicht aller Sensoren und Aktoren.</p><table border='0' cellspacing='0' cellpadding='6' style='width:100%; border-collapse:collapse; font-size:12px;'><tr style='background:#1B5E20; color:white;'><td style='padding:6px 10px;'><b>Dimension</b></td><td style='padding:6px 10px;'><b>Inhalt</b></td></tr><tr style='background:#F1F8E9;'><td style='padding:5px 10px; border-bottom:1px solid #C5E1A5;'>Zeilen</td><td style='padding:5px 10px; border-bottom:1px solid #C5E1A5;'>Sensoren (Bedienelemente) mit Taste und Funktion</td></tr><tr style='background:white;'><td style='padding:5px 10px; border-bottom:1px solid #C5E1A5;'>Spalten</td><td style='padding:5px 10px; border-bottom:1px solid #C5E1A5;'>Aktoren mit Kanal und GA</td></tr><tr style='background:#F1F8E9;'><td style='padding:5px 10px;'>Zelle</td><td style='padding:5px 10px;'>Sensor → Aktor verknüpft (grüne Markierung)</td></tr></table><br><p><b>Export:</b> Als XLSX-Tabelle für ETS-Programmierung und Dokumentation.</p>"
+    },
+    "riser_diagram": {
+      "title": "Steigschema",
+      "content_html": "<h3>Steigschema</h3><p>Gebäudeschnitt mit dem Verlauf der KNX-Linien: Stockwerke übereinander, Nebengebäude daneben. Jede Linie ist eine eigene Farbe und läuft vom Verteiler mit Linienkoppler und Aktoren durch die Steigzone zu ihren Stockwerken. Ein Punkt unter einem Raum zeigt, dass dort Teilnehmer der Linie sitzen. Linien in ein anderes Gebäude verlaufen als Erdleitung (gestrichelt).</p><ul><li><b>Klick auf eine Linie</b> oder ihren Eintrag rechts hebt sie hervor.</li><li><b>Strg + Mausrad</b> zoomt, ziehen verschiebt.</li><li><b>Tooltips</b> zeigen Raum, Verteiler und Linie.</li></ul><p><b>Tipp:</b> Den Verteiler einer Linie und einzelner Aktortypen wählen Sie im Wizard Schritt 8. So lassen sich lange Wege erkennen und Linien kompakt planen. Das Steigschema ist auch Teil des Topologie-Berichts (Querformat-Seite).</p>"
     }
   }
 }

@@ -221,6 +221,12 @@ class PdfGenerator:
         """
         self._blocks.append({"type": "topology_schema", "areas": areas})
 
+    def add_riser_diagram(self, title: str, diagram) -> None:
+        """Steigschema (services.riser_diagram.RiserDiagram) auf einer eigenen
+        Querformat-Seite mit Titel; folgende Inhalte beginnen wieder auf einer
+        Hochformat-Seite."""
+        self._blocks.append({"type": "riser_diagram", "title": title, "diagram": diagram})
+
     def add_topology_diagram(self, areas: list[dict], backbone: str = "") -> None:
         """Topologie-Diagramm wie in der Ansicht "Topologie-Diagramm": je
         Bereich eine Spalte mit Kopf, darunter die Kette aus Knoten
@@ -292,6 +298,9 @@ class PdfGenerator:
                 lines += ["", "=" * 70, ""]
             elif btype == "link":
                 lines += [f"  -> {block['text']}  [ {block['url']} ]", ""]
+            elif btype == "riser_diagram":
+                lines += [f"## {block['title']}"]
+                lines += [f"  {e.title}: {e.detail}" for e in block["diagram"].legend] + [""]
             elif btype == "topology_schema":
                 for area in block["areas"]:
                     lines.append(f"[{area['title']}]  {area['info']}")
@@ -348,8 +357,12 @@ class PdfGenerator:
         page, y = self._new_page(doc)
         bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
 
+        self._portrait_pending = False
         for block in self._blocks:
             btype = block["type"]
+            if self._portrait_pending:
+                self._portrait_pending = False
+                page, y = self._new_page(doc)
 
             if btype == "page_break":
                 page, y = self._new_page(doc)
@@ -451,6 +464,9 @@ class PdfGenerator:
             elif btype == "topology_diagram":
                 page, y = self._draw_topology_diagram(doc, page, y, block)
 
+            elif btype == "riser_diagram":
+                page, y = self._draw_riser_diagram(doc, page, y, block)
+
             elif btype == "table":
                 page, y = self._draw_table(doc, page, y, block["headers"], block["rows"],
                                            block.get("col_widths"), block.get("align"),
@@ -463,7 +479,9 @@ class PdfGenerator:
         for i, pg in enumerate(doc):
             if i < cover_offset:
                 continue
+            self.PAGE_W, self.PAGE_H = pg.rect.width, pg.rect.height
             self._draw_footer(pg, i + 1 - cover_offset, total)
+        del self.PAGE_W, self.PAGE_H     # zurück auf Hochformat (Klassenwerte)
 
         if filepath is None:
             doc.close()
@@ -491,6 +509,7 @@ class PdfGenerator:
         page = doc.new_page(width=self.PAGE_W, height=self.PAGE_H)
         _register_fonts(page)
         y = self._draw_header(page)
+        self._fresh_y = y          # y einer noch leeren Seite
         self._cur_page = page
         self._bar_y0 = y - 8
         return page, y
@@ -751,6 +770,67 @@ class PdfGenerator:
             self._txt(page, fitz.Point(x + 10, y), label, 7.5, color=(0.35, 0.35, 0.35))
             x += 10 + self._tw(label, 7.5) + 14
         return page, y + 14
+
+    @staticmethod
+    def _rgb(color: str) -> tuple | None:
+        if not color:
+            return None
+        return tuple(int(color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+
+    def _draw_riser_diagram(self, doc, page, y: float, block: dict) -> tuple:
+        """Zeichnet das Steigschema auf eine Querformat-Seite, auf die Fläche
+        skaliert. Titel als Abschnittsüberschrift mit Lesezeichen. Eine noch
+        leere Hochformat-Seite davor (z.B. Bericht nur mit Steigschema) entfällt."""
+        diagram = block["diagram"]
+        self._close_section_bar(self.PAGE_H - self.MARGIN - self.FOOTER_H)
+        if page.number == len(doc) - 1 and abs(y - self._fresh_y) < 0.5:
+            doc.delete_page(len(doc) - 1)
+        self.PAGE_W, self.PAGE_H = self.__class__.PAGE_H, self.__class__.PAGE_W
+        page, y = self._new_page(doc)
+        self._sec_title, self._sub_title, self._accent = "", "", None
+        y += 18
+        self._txt(page, fitz.Point(self.MARGIN, y), block["title"], 11, bold=True)
+        self._add_bookmark(2, block["title"], len(doc))
+        y += 12
+        bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
+        if diagram.is_empty:
+            self._txt(page, fitz.Point(self.MARGIN, y + 10),
+                      "Keine Gebäudestruktur vorhanden.", 9)
+        else:
+            scale = min(1.0, self.content_width / diagram.width,
+                        (bottom - y) / diagram.height)
+            x0 = self.MARGIN + (self.content_width - diagram.width * scale) / 2
+            y0 = y + 6
+
+            def pt(x, yy):
+                return fitz.Point(x0 + x * scale, y0 + yy * scale)
+
+            from ..services.riser_diagram import Dot, Label, Path, Rect
+            for shape in diagram.shapes:
+                if isinstance(shape, Rect):
+                    page.draw_rect(
+                        fitz.Rect(pt(shape.x, shape.y), pt(shape.x + shape.w, shape.y + shape.h)),
+                        color=self._rgb(shape.stroke), fill=self._rgb(shape.fill),
+                        width=shape.width * scale if shape.stroke else 0)
+                elif isinstance(shape, Path):
+                    page.draw_polyline(
+                        [pt(*p) for p in shape.points], color=self._rgb(shape.color),
+                        width=shape.width * scale,
+                        dashes=f"[{3 * scale:.2f} {2 * scale:.2f}] 0" if shape.dash else None)
+                elif isinstance(shape, Dot):
+                    page.draw_circle(pt(shape.x, shape.y), shape.r * scale,
+                                     color=None, fill=self._rgb(shape.fill))
+                elif isinstance(shape, Label) and shape.text:
+                    fs = shape.size * scale
+                    dx = {"left": 0.0, "center": 0.5, "right": 1.0}[shape.align] \
+                        * self._tw(shape.text, fs, shape.bold)
+                    p = pt(shape.x, shape.y)
+                    self._txt(page, fitz.Point(p.x - dx, p.y), shape.text, fs,
+                              bold=shape.bold, color=self._rgb(shape.color))
+        # Folgende Blöcke wieder im Hochformat (siehe _save_pdf)
+        del self.PAGE_W, self.PAGE_H
+        self._portrait_pending = True
+        return page, bottom
 
     def _wrap_lines(self, text: str, avail_w: float, fs: float) -> list[str]:
         """Wie _wrap_cell, behält aber Zeilenumbrüche im Text."""

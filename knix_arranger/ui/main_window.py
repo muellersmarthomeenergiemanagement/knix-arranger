@@ -32,6 +32,7 @@ from .views.help_view import HelpView
 from .views.material_list_view import MaterialListView
 from .views.co_linking_view import CoLinkingView
 from .views.topology_diagram_view import TopologyDiagramView
+from .views.riser_diagram_view import RiserDiagramView
 from .views.linking_matrix_view import LinkingMatrixView
 from .views.cable_length_view import CableLengthView
 from .views.dali_config_view import DaliConfigView
@@ -367,6 +368,7 @@ class MainWindow(QMainWindow):
         self._linking_matrix_view = LinkingMatrixView()
         self._cable_length_view = CableLengthView()
         self._topology_diagram_view = TopologyDiagramView()
+        self._riser_diagram_view = RiserDiagramView()
         self._dali_config_view = DaliConfigView(self._project)
         self._knx_secure_view = KnxSecureView(self._project)
         self._time_program_view = TimeProgramView(self._project)
@@ -395,6 +397,7 @@ class MainWindow(QMainWindow):
             "datasheets": self._datasheet_view,
             "topology_report": self._topology_report_view,
             "topology_diagram": self._topology_diagram_view,
+            "riser_diagram": self._riser_diagram_view,
             "material_list": self._material_list_view,
             "co_linking": self._co_linking_view,
             "linking_matrix": self._linking_matrix_view,
@@ -509,6 +512,8 @@ class MainWindow(QMainWindow):
                 self._datasheet_view.set_project(self._project)
             elif key == "topology_diagram":
                 self._topology_diagram_view.set_project(self._project)
+            elif key == "riser_diagram":
+                self._riser_diagram_view.set_project(self._project)
 
         view = self._views.get(key)
         if view:
@@ -537,6 +542,7 @@ class MainWindow(QMainWindow):
         self._linking_matrix_view.set_project(self._project)
         self._cable_length_view.set_project(self._project)
         self._topology_diagram_view.set_project(self._project)
+        self._riser_diagram_view.set_project(self._project)
         self._dali_config_view.set_project(self._project)
         self._knx_secure_view.set_project(self._project)
         self._time_program_view.set_project(self._project)

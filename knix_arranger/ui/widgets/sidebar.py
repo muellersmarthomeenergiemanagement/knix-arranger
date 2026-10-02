@@ -75,6 +75,7 @@ NAV_GROUPS: list[tuple[str, list[tuple[str, str, str]]]] = [
     ("Topologie & Geräte", [
         ("topology",          "Topologie",           "topology-star-3"),
         ("topology_diagram",  "Topologie-Diagramm",  "chart-dots-3"),
+        ("riser_diagram",     "Steigschema",         "stairs"),
         ("topology_report",   "Topologie-Report",    "report"),
         ("material_list",     "Materialliste",       "list-details"),
         ("datasheets",        "Produktdatenblätter", "file-description"),

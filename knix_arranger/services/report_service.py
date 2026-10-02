@@ -9,6 +9,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 
 from .building_service import BuildingService
+from .riser_diagram import build_riser_diagram
 from ..models.project import KnxProject
 from ..models.building import Bedienelement
 from ..models.topology import area_coupler, line_coupler, line_title
@@ -915,6 +916,14 @@ class ReportService:
         pdf.save(filepath)
         logger.info(f"Projektzusammenfassung erstellt: {filepath}")
 
+    def generate_riser_report(self, filepath: str):
+        """Steigschema allein als PDF (Querformat), siehe FA-905a."""
+        pdf = self._make_pdf("Steigschema")
+        pdf.add_riser_diagram(f"Steigschema – {self.project.name}",
+                              build_riser_diagram(self.project))
+        pdf.save(filepath)
+        logger.info(f"Steigschema erstellt: {filepath}")
+
     def generate_topology_report(self, filepath: str):
         """Erzeugt den Topologie-Bericht als PDF/Text.
 
@@ -952,6 +961,11 @@ class ReportService:
         diagram = build_topology_diagram(self.project, include_empty_lines=False)
         pdf.add_heading("Topologie-Diagramm", level=2)
         pdf.add_topology_diagram(diagram["areas"], diagram["backbone"])
+
+        # ── Steigschema: Verlauf der Linien im Gebäudeschnitt (Querformat) ──
+        riser = build_riser_diagram(self.project)
+        if not riser.is_empty:
+            pdf.add_riser_diagram("Steigschema", riser)
 
         # ── Übersicht: Prinzipschema und Kennzahlen ─────────────────────────
         pdf.add_conditional_break(min_height=250)
