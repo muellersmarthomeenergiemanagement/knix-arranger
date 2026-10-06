@@ -132,3 +132,31 @@ class TestStep05Column:
         item.setText("Decke;Wand ")
         assert assignment.element_labels == ["Decke", "Wand"]
         assert step._table.item(0, _COL_LABEL).text() == "Decke; Wand"
+
+    def test_tooltip_mapping_warning_and_width(self, qapp):
+        from knix_arranger.ui.styles import COLOR_WARNING
+        from knix_arranger.ui.wizard.step05_gewerke import (
+            Step05Gewerke, _COL_COUNT, _COL_LABEL, _LABEL_MIN_WIDTH,
+        )
+
+        assignment = GewerkAssignment(gewerk_code="J", count=3)
+        project = KnxProject(name="Test")
+        project.areal = _areal(assignment)
+        step = Step05Gewerke(project)
+        step._refresh_table()
+        assert step._table.columnWidth(_COL_LABEL) >= _LABEL_MIN_WIDTH
+
+        step._table.item(0, _COL_LABEL).setText("; Süd; West; Ost")
+        item = step._table.item(0, _COL_LABEL)
+        tip = item.toolTip()
+        assert "01  – (nur Raumname)" in tip and "02  Süd" in tip and "03  West" in tip
+        assert "J_E01_02 … (Wohnen Süd)" in tip
+        assert "«Ost» wird nicht verwendet" in tip
+        assert item.foreground().color().name().upper() == COLOR_WARNING.upper()
+
+        # Anzahl erhöhen: Ost wird Element 04, Warnung verschwindet
+        step._table.item(0, _COL_COUNT).setText("4")
+        item = step._table.item(0, _COL_LABEL)
+        assert "04  Ost" in item.toolTip()
+        assert "nicht verwendet" not in item.toolTip()
+        assert item.foreground().color().name().upper() != COLOR_WARNING.upper()

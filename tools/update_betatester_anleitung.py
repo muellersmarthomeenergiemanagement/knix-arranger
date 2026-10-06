@@ -602,6 +602,34 @@ def build_document() -> Document:
         tipp="Mit «Aus Raum erstellen» können Sie die Gewerke eines gut konfigurierten "
              "Raums als wiederverwendbare Vorlage speichern.")
 
+    # Bezeichnung je Gewerk-Element (FA-403)
+    add_body(doc, "Bezeichnung je Element. Die Spalte «Bezeichnung» unterscheidet "
+                  "mehrere Elemente desselben Gewerks im Raum. Je Element ein Text, "
+                  "getrennt mit Strichpunkt: der erste Text gehört zu Element 01, der "
+                  "zweite zu 02 usw. Beispiel Raum E01 Wohnen, Gewerk J, Anzahl 3, "
+                  "Bezeichnung «Nord; Süd; West»:",
+             bold_parts=["Bezeichnung je Element."])
+    add_table_2col(doc,
+        header=("Element", "GA-Bezeichnungen"),
+        rows=[
+            ("01", "J_E01_01 AUF/AB (Wohnen Nord), J_E01_01 STOPP (Wohnen Nord) …"),
+            ("02", "J_E01_02 … (Wohnen Süd)"),
+            ("03", "J_E01_03 … (Wohnen West)"),
+        ])
+    add_bullet(doc, "Zuordnung prüfen: Mauszeiger auf die Zelle – der Tooltip zeigt "
+                    "«01 Nord · 02 Süd · 03 West».")
+    add_bullet(doc, "Element ohne Text: Stelle leer lassen, z. B. «; Süd» – nur Element 02 "
+                    "erhält einen Zusatz, die anderen nur den Raumnamen.")
+    add_bullet(doc, "Mehr Texte als Elemente: Die Zelle wird orange. Die überzähligen Texte "
+                    "bleiben gespeichert und gelten wieder, sobald die Anzahl steigt.")
+    add_bullet(doc, "Die Reihenfolge der Texte ändert nur die Namen, nicht die Adressen. "
+                    "Die Nummer 01, 02 … ist auch die Reihenfolge der Aktorkanäle.")
+    add_bullet(doc, "Der Text erscheint auch in der Bauherrenberatung und bei den "
+                    "Bedienelementen, z. B. «J – Auf/Ab (Süd)» statt «#2». Die "
+                    "GA-Bezeichnungen werden beim Verlassen von Schritt 5 nachgeführt "
+                    "(nicht bei Projekten aus der ETS – dort gilt die ETS).")
+    doc.add_paragraph()
+
     add_wizard_step(doc, 6, "Gerätekonfiguration",
         "Legen Sie pro Raum fest, welche physischen Bedienelemente vorhanden sind – "
         "Tastereinheiten, Präsenz- und Bewegungsmelder, Thermostate usw. Das geschieht "

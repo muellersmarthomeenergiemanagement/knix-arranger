@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QDialog,
 )
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QBrush, QColor
 from ...models.project import KnxProject
 from ...models.building import GewerkAssignment
 from ...models.device import GEWERK_TO_SENSOR_TYPE
@@ -24,6 +25,7 @@ from ..dialogs.gewerk_channel_assign_dialog import GewerkChannelAssignDialog
 from ..dialogs.gewerk_suggestion_review_dialog import GewerkSuggestionReviewDialog
 from ...services.gewerk_suggestion_service import suggest_gewerk_assignments
 from ..column_utils import fit_columns
+from ..styles import COLOR_WARNING
 from ..widgets.collapsible_section import CollapsibleSection
 from .recompute_guard import RecomputeGuard, KEY_ADDRESSES
 
@@ -42,6 +44,39 @@ _NUM_COLS    = 10
 
 # Trennzeichen der Klartexte mehrerer Elemente in der Spalte "Bezeichnung"
 _LABEL_SEP = ";"
+# Raumnummer und -name an der Zelle "Bezeichnung" (für das Beispiel im Tooltip)
+_ROOM_ROLE = Qt.UserRole + 1
+# Mindestbreite der Spalte "Bezeichnung" in Pixel
+_LABEL_MIN_WIDTH = 220
+
+
+def label_hint(ga: GewerkAssignment, room_number: str, room_name: str) -> tuple[str, bool]:
+    """Tooltip der Spalte "Bezeichnung": welcher Text zu welchem Element
+    gehört, und ob mehr Texte als Elemente erfasst sind (FA-403).
+    Gibt (Tooltip, Warnung) zurück."""
+    labels = ga.element_labels
+    # Beispiel mit dem ersten erfassten Text, sonst ein frei gewähltes Wort
+    nr, text = next(((n, ga.element_label(n)) for n in range(1, ga.count + 1)
+                     if ga.element_label(n)), (1, "Decke"))
+    example = (f"{ga.gewerk_code}_{room_number}_{nr:02d} … "
+               f"({' '.join(p for p in (room_name, text) if p)})")
+    lines = [
+        "Bezeichnung je Element, getrennt mit «;» – erster Text = Element 01,",
+        "zweiter = Element 02 usw. Steht in jeder GA des Elements nach dem",
+        f"Raumnamen, z.B. {example}.",
+        "",
+    ]
+    for nr in range(1, ga.count + 1):
+        text = ga.element_label(nr)
+        lines.append(f"{nr:02d}  {text}" if text else f"{nr:02d}  – (nur Raumname)")
+    unused = labels[ga.count:]
+    warning = any(unused)
+    if warning:
+        lines += ["", f"⚠ {len(labels)} Texte, aber Anzahl {ga.count}: "
+                      f"«{'; '.join(t for t in unused if t)}» wird nicht verwendet."]
+    lines += ["", "Doppelklick zum Bearbeiten. Leere Stelle = Element ohne Text, "
+                  "z.B. «; Süd» nur für Element 02."]
+    return "\n".join(lines), warning
 
 # Kompaktes Padding für die Buttons in der Aktions-Spalte: Das globale
 # QPushButton-Padding (8px 16px) schnitt deren Text ab ("rodukt", "' Kanal (").
@@ -469,13 +504,8 @@ class Step05Gewerke(QWidget):
                 label_item = QTableWidgetItem(
                     f"{_LABEL_SEP} ".join(ga.element_labels))
                 label_item.setData(Qt.UserRole, ga)
-                label_item.setToolTip(
-                    "Klartext zur Unterscheidung, z.B. \"Decke\" oder \"Wand\".\n"
-                    "Steht in jeder GA-Bezeichnung nach dem Raumnamen:\n"
-                    "LDA_E01_01 E/A (Wohnen Decke)\n"
-                    "Bei Anzahl > 1 je Element einen Text, getrennt mit \";\",\n"
-                    "z.B. \"Decke; Wand\". Doppelklick zum Bearbeiten."
-                )
+                label_item.setData(_ROOM_ROLE, (room.number, room.name))
+                self._style_label_item(label_item)
                 self._table.setItem(i, _COL_LABEL, label_item)
 
                 # Anzahl – editierbar: wie viele Kanäle / Elemente dieser Funktion
@@ -589,7 +619,20 @@ class Step05Gewerke(QWidget):
                     self._table.setItem(i, col, it)
 
         fit_columns(self._table, stretch_to_fit=False)
+        # Bezeichnung: Platz zum Eintippen auch bei leeren Zellen, z.B. «Nord; Süd; West»
+        if self._table.columnWidth(_COL_LABEL) < _LABEL_MIN_WIDTH:
+            self._table.setColumnWidth(_COL_LABEL, _LABEL_MIN_WIDTH)
         self._apply_filter()
+
+    @staticmethod
+    def _style_label_item(item: QTableWidgetItem) -> None:
+        """Tooltip mit der Zuordnung Text → Element; orange, wenn mehr Texte
+        als Elemente erfasst sind."""
+        ga = item.data(Qt.UserRole)
+        number, name = item.data(_ROOM_ROLE) or ("", "")
+        tooltip, warning = label_hint(ga, number, name)
+        item.setToolTip(tooltip)
+        item.setForeground(QBrush(QColor(COLOR_WARNING)) if warning else QBrush())
 
     def _on_item_changed(self, item: QTableWidgetItem):
         """Speichert Anzahl bzw. Bezeichnung direkt ins Modell."""
@@ -601,10 +644,11 @@ class Step05Gewerke(QWidget):
         if item.column() == _COL_LABEL:
             ga.set_element_labels(item.text().split(_LABEL_SEP))
             normalized = f"{_LABEL_SEP} ".join(ga.element_labels)
+            self._refreshing = True
             if item.text() != normalized:
-                self._refreshing = True
                 item.setText(normalized)
-                self._refreshing = False
+            self._style_label_item(item)
+            self._refreshing = False
             return
         try:
             val = int(item.text())
@@ -614,6 +658,12 @@ class Step05Gewerke(QWidget):
         if item.column() == _COL_COUNT:
             if 1 <= val <= 20:
                 ga.count = val
+                # Zuordnung der Bezeichnungen hängt von der Anzahl ab
+                label_item = self._table.item(item.row(), _COL_LABEL)
+                if label_item is not None:
+                    self._refreshing = True
+                    self._style_label_item(label_item)
+                    self._refreshing = False
             else:
                 self._refreshing = True
                 item.setText(str(ga.count))
