@@ -19,7 +19,9 @@ from .group_address import GroupAddressStructure
 from .gewerk import Gewerk, GewerkCatalog
 from .scene import Scene
 from .quotation import Supplier, QuotationRequest, CustomerQuote
-from .documentation import AcceptanceProtocol, CommissioningChecklist, RevisionRecord
+from .documentation import (
+    AcceptanceProtocol, CommissioningChecklist, RevisionRecord, UserManualSettings,
+)
 from .company_profile import CompanyProfile, ProjectInfo
 from .client_profile import ClientProfile
 from .ets_corrections import EtsCorrections
@@ -114,6 +116,8 @@ class KnxProject:
     checklists: list[CommissioningChecklist] = field(default_factory=list)
     # Erstellte Revisionsstände der Revisionsunterlagen (FA-2106)
     revisions: list[RevisionRecord] = field(default_factory=list)
+    # Anpassungen der Bedienungsanleitung (FA-2005)
+    manual_settings: UserManualSettings = field(default_factory=UserManualSettings)
     custom_gewerk_templates: dict[str, dict] = field(default_factory=dict)
     material_list: MaterialList = field(default_factory=MaterialList)
     # DALI-Konfigurationen: gateway_device_id → DaliGateway (FA-2801)
@@ -225,6 +229,7 @@ class KnxProject:
             "customer_quotes": [cq.to_dict() for cq in self.customer_quotes],
             "checklists": [c.to_dict() for c in self.checklists],
             "revisions": [r.to_dict() for r in self.revisions],
+            "manual_settings": self.manual_settings.to_dict(),
             "custom_gewerk_templates": self.custom_gewerk_templates,
             "material_list": self.material_list.to_dict(),
             "dali_configs": {k: v.to_dict() for k, v in self.dali_configs.items()},
@@ -273,6 +278,7 @@ class KnxProject:
         project.ets_corrections = EtsCorrections.from_dict(data.get("ets_corrections"))
         project.ets_worklist = copy.deepcopy(data.get("ets_worklist") or {})
         project.revisions = [RevisionRecord.from_dict(r) for r in data.get("revisions", [])]
+        project.manual_settings = UserManualSettings.from_dict(data.get("manual_settings"))
         project.areal = Areal.from_dict(data.get("areal", {}))
         project.topology = Topology.from_dict(data.get("topology", {}))
         project.group_addresses = GroupAddressStructure.from_dict(

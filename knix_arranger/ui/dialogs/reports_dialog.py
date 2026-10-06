@@ -135,6 +135,8 @@ class ReportsDialog(QDialog):
              self._gen_acceptance),
             ("Bedienungsanleitung", "Raumweise Anleitung für Bauherren",
              self._gen_manual),
+            ("Anleitung anpassen…", "Eigene Texte, Abschnitte, Text je Raum, Taster-Fotos",
+             self._edit_manual),
             ("Bauherr-Formular", "Funktionsdefinition als Excel",
              self._gen_bauherr_form),
             ("Revisionspaket", "Komplettes Dokumentationspaket",
@@ -362,6 +364,14 @@ class ReportsDialog(QDialog):
             DocumentationService(project, company_profile=self._company_profile).generate_user_manual(path)
 
         self._run("Bedienungsanleitung wird erstellt…", do, f"Bedienungsanleitung erstellt: {path}")
+
+    def _edit_manual(self):
+        """Anpassungen der Bedienungsanleitung für dieses Projekt (FA-2005)."""
+        from .user_manual_settings_dialog import UserManualSettingsDialog
+        dlg = UserManualSettingsDialog(self._project, self)
+        if dlg.exec() == QDialog.Accepted:
+            self._project.manual_settings = dlg.settings
+            self._log_msg("Anpassungen der Bedienungsanleitung übernommen.")
 
     def _gen_bauherr_form(self):
         path, _ = QFileDialog.getSaveFileName(

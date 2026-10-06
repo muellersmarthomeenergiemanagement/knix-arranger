@@ -172,13 +172,14 @@ class PdfGenerator:
         self._blocks.append({"type": "card_header", "title": title,
                              "detail": detail, "bookmark": bookmark})
 
-    def add_button_plan(self, rows: list[dict]) -> None:
+    def add_button_plan(self, rows: list[dict], photo: str = "") -> None:
         """Tastenplan eines Tasters, so wie er an der Wand aussieht.
 
         rows: je Tastenpaar {"number": int, "cells": [(Titel, Detail), ...]}
         mit einer Zelle (ganze Taste) oder zwei Zellen (links, rechts);
-        eine leere Zelle ist ("", "")."""
-        self._blocks.append({"type": "button_plan", "rows": rows})
+        eine leere Zelle ist ("", "").
+        photo: optionales Foto des montierten Tasters, rechts daneben."""
+        self._blocks.append({"type": "button_plan", "rows": rows, "photo": photo})
 
     def add_note(self, label: str, text: str):
         """Kurzer Erläuterungstext mit fettem Präfix, z.B. 'Massnahme: …'."""
@@ -430,7 +431,8 @@ class PdfGenerator:
                 page, y = self._draw_card_header(doc, page, y, block)
 
             elif btype == "button_plan":
-                page, y = self._draw_button_plan(doc, page, y, block["rows"])
+                page, y = self._draw_button_plan(doc, page, y, block["rows"],
+                                                 block.get("photo", ""))
 
             elif btype == "conditional_break":
                 bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
@@ -863,8 +865,12 @@ class PdfGenerator:
             self._add_bookmark(self._heading_level + 1, block["bookmark"], len(doc))
         return page, y + h + 8
 
-    def _draw_button_plan(self, doc, page, y: float, rows: list[dict]) -> tuple:
-        """Tasten als Raster: je Tastenpaar eine Zeile, links/rechts nebeneinander."""
+    PHOTO_H = 130.0   # Höhe des Taster-Fotos neben dem Tastenplan
+
+    def _draw_button_plan(self, doc, page, y: float, rows: list[dict],
+                          photo: str = "") -> tuple:
+        """Tasten als Raster: je Tastenpaar eine Zeile, links/rechts nebeneinander.
+        Ein Foto des montierten Tasters steht rechts daneben."""
         if not rows:
             return page, y
         bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
@@ -873,8 +879,18 @@ class PdfGenerator:
         width = 2 * cell_w
         x0 = float(self.MARGIN)
         height = len(rows) * row_h
-        if y + height + 10 > bottom:
+        show_photo = bool(photo) and os.path.isfile(photo)
+        block_h = max(height, self.PHOTO_H) if show_photo else height
+        if y + block_h + 10 > bottom:
             page, y = self._new_page(doc)
+        if show_photo:
+            px0 = x0 + width + 24
+            try:
+                page.insert_image(
+                    fitz.Rect(px0, y - 4, self.PAGE_W - self.MARGIN, y - 4 + self.PHOTO_H),
+                    filename=photo, keep_proportion=True)
+            except Exception:
+                show_photo = False
         # Rahmen wie ein Tasterrahmen
         page.draw_rect(fitz.Rect(x0 - 4, y - 4, x0 + width + 4, y + height + 4),
                        color=(0.70, 0.70, 0.70), fill=(0.97, 0.97, 0.98), width=0.8)
@@ -900,7 +916,7 @@ class PdfGenerator:
                 for li, line in enumerate(self._wrap_cell(detail, avail, 7)[:2] if detail else []):
                     self._txt(page, fitz.Point(tx, rect.y0 + 19 + li * 8.5), line, 7,
                               color=(0.40, 0.40, 0.40))
-        return page, y + height + 14
+        return page, y + (max(height, self.PHOTO_H) if show_photo else height) + 14
 
     def _wrap_cell(self, text: str, avail_w: float, fs: float) -> list[str]:
         """Bricht Zellentext an Wortgrenzen um; bei Einzelwörtern zeichenweise."""

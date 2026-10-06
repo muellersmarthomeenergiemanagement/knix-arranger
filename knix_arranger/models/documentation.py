@@ -202,3 +202,37 @@ class RevisionRecord:
     def from_dict(cls, data: dict) -> RevisionRecord:
         return cls(number=data.get("number", ""), date=data.get("date", ""),
                    note=data.get("note", ""), parts=list(data.get("parts", [])))
+
+
+@dataclass
+class UserManualSettings:
+    """Anpassungen der Bedienungsanleitung je Projekt (FA-2005).
+
+    texts:     eigener Text statt des Standardtexts, Schlüssel siehe
+               user_manual.MANUAL_TEXTS ("intro", "haus", "tipps", "stoerungen")
+    hidden:    ausgeblendete Abschnitte, siehe user_manual.MANUAL_SECTIONS
+    custom_sections: eigene Abschnitte [{"title": …, "text": …}] im Teil
+               Allgemeines
+    room_texts: Zusatztext je Raum, Schlüssel ets_corrections.room_key
+               ("EG|08"), da Raum-IDs keinen Neuaufbau überleben
+    photos:    Foto je Taster (Bildpfad), Schlüssel user_manual.photo_key
+    """
+    texts: dict[str, str] = field(default_factory=dict)
+    hidden: list[str] = field(default_factory=list)
+    custom_sections: list[dict] = field(default_factory=list)
+    room_texts: dict[str, str] = field(default_factory=dict)
+    photos: dict[str, str] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {"texts": dict(self.texts), "hidden": list(self.hidden),
+                "custom_sections": [dict(s) for s in self.custom_sections],
+                "room_texts": dict(self.room_texts), "photos": dict(self.photos)}
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> UserManualSettings:
+        data = data or {}
+        return cls(texts=dict(data.get("texts", {})),
+                   hidden=list(data.get("hidden", [])),
+                   custom_sections=[dict(s) for s in data.get("custom_sections", [])],
+                   room_texts=dict(data.get("room_texts", {})),
+                   photos=dict(data.get("photos", {})))

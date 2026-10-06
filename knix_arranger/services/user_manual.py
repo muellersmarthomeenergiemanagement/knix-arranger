@@ -17,12 +17,14 @@ Heizung). Sensoren erscheinen nur als Satz, nie mit Objektliste.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from .building_service import BuildingService
+from .ets_corrections import room_key
 from .bedienelement_layout import ButtonKey, group_assignments, _PAREN_RE, _SCENE_RE
 from .gewerk_service import GewerkService
 from .report_sorting import sorted_rooms
@@ -442,6 +444,51 @@ def _friendly_type(be) -> str:
     return {"Tastereinheit": "Taster"}.get(t, t)
 
 
+# ── Anpassungen (FA-2005) ──────────────────────────────────────────────────
+
+# Anpassbare Texte: Schlüssel -> (Bezeichnung, Standardtext). Der Standard der
+# Bedientipps hängt vom Projekt ab (Dimmen, Storen, …) und steht daher nicht hier.
+MANUAL_TEXTS: dict[str, tuple[str, str]] = {
+    "intro": ("Einleitung",
+              "Diese Anleitung zeigt Ihnen Raum für Raum, was die Taster in Ihrem Haus "
+              "bewirken und wie Sie sie bedienen. Jeder Taster ist so abgebildet, wie er "
+              "an der Wand aussieht."),
+    "haus": ("Ihr Haus in Kürze",
+             "Ihr Haus ist mit KNX ausgestattet. Taster, Präsenzmelder und Sensoren "
+             "geben ihre Befehle über eine eigene Steuerleitung an Schaltgeräte im "
+             "Verteiler weiter, die Licht, Storen und Heizung steuern. Deshalb kann ein "
+             "Taster auch Leuchten in einem anderen Raum schalten, und Funktionen lassen "
+             "sich später ohne neue Leitungen ändern."),
+    "tipps": ("So bedienen Sie Ihre Taster", ""),
+    "stoerungen": ("Wenn etwas nicht funktioniert", "\n".join(f"• {tip}" for tip in (
+        "Eine Leuchte reagiert nicht: zuerst prüfen, ob das Leuchtmittel defekt ist "
+        "und ob im Sicherungskasten eine Sicherung ausgelöst hat.",
+        "Mehrere Taster reagieren nicht mehr: Bitte nichts selbst verändern und uns "
+        "kontaktieren – vermutlich ist die Steuerung betroffen.",
+        "Storen fahren nicht: Bei Wind oder Frost sind sie zum Schutz oft gesperrt "
+        "und fahren erst wieder, wenn die Gefahr vorbei ist.",
+    ))),
+}
+
+# Ausblendbare Abschnitte: Schlüssel -> Bezeichnung
+MANUAL_SECTIONS: dict[str, str] = {
+    "haus": "Ihr Haus in Kürze",
+    "tipps": "So bedienen Sie Ihre Taster",
+    "zentral": "Zentrale Funktionen",
+    "stoerungen": "Wenn etwas nicht funktioniert",
+    "ansprechpartner": "Ihr Ansprechpartner",
+    "szenen": "Szenen je Taster",
+    "automatisch": "Automatische Funktionen je Raum",
+}
+
+
+def photo_key(room_key: str, be) -> str:
+    """Schlüssel des Taster-Fotos: Gerät (physikalische Adresse) bzw. bei
+    geplanten Projekten Raum + Nummer der Tastereinheit -- beides übersteht
+    die Neuberechnung, bei der Bedienelemente neue IDs erhalten."""
+    return be.participant_number or f"{room_key}|T{be.taster_index}"
+
+
 # ── Dokument ───────────────────────────────────────────────────────────────
 
 @dataclass
@@ -465,6 +512,7 @@ class UserManualBuilder:
         self.project = project_for_export(project) if snapshot else project
         self.company = company_profile
         self.catalog = self.project.gewerk_catalog
+        self.settings = getattr(self.project, "manual_settings", None)
         self.ga_by_address = {g.address: g for g in self.project.group_addresses.all_addresses()}
         # Geplante Projekte verweisen auf GAs per Bezeichnung ("LDA_M01_01 E/A")
         from .belegungsplan_service import build_ga_by_designation
@@ -618,7 +666,7 @@ class UserManualBuilder:
     def build(self, pdf, custom_intro: str = "") -> None:
         project = self.project
         imported = project.topology.is_imported
-        floor_by_room, zone_by_room = {}, {}
+        floor_by_room, zone_by_room, key_by_room = {}, {}, {}
         for building in project.areal.buildings:
             for wing in building.wings:
                 for floor in wing.floors:
@@ -626,6 +674,7 @@ class UserManualBuilder:
                         for room in apt.rooms:
                             floor_by_room[room.id] = BuildingService.floor_label(
                                 project.areal, floor)
+                            key_by_room[room.id] = room_key(floor, room)
                             # Zone nur, wenn sie mehr sagt als das Stockwerk
                             if apt.name not in (floor.name, floor.short_code):
                                 zone_by_room[room.id] = apt.name
@@ -701,6 +750,10 @@ class UserManualBuilder:
                 pdf.add_conditional_break(min_height=min(170 + 34 * first, 560) if cards else 120)
             pdf.add_anchor(f"room:{room.id}")
             pdf.add_heading(self._room_label(room, zone_by_room), level=3)
+            rkey = key_by_room.get(room.id, "")
+            room_text = self._settings_value("room_texts", rkey)
+            if room_text:
+                pdf.add_paragraph(room_text)
             for i, (be, lines) in enumerate(cards):
                 device = self.device_by_addr.get(be.participant_number or "")
                 location = (device.installation_location or "").strip() if device else ""
@@ -714,7 +767,8 @@ class UserManualBuilder:
                     f"Gerätenummer {be.participant_number}" if be.participant_number else "",
                     bookmark=f"{room.name}: {title}",
                 )
-                pdf.add_button_plan(self.plan(lines))
+                pdf.add_button_plan(self.plan(lines),
+                                    photo=self._photo(photo_key(rkey, be)))
                 # Gleiche Leuchtanzeige bei allen Tasten: einmal unter der Tabelle
                 leds = {kl.led for kl in lines}
                 common_led = leds.pop() if len(leds) == 1 else ""
@@ -729,7 +783,7 @@ class UserManualBuilder:
                     pdf.add_note(f"{label}:", f"{text} (alle Tasten)")
                 scene_lines = [f"{kl.label.removeprefix('Szene ')}: {kl.scene_text}"
                                for kl in lines if kl.scene_text]
-                if scene_lines:
+                if scene_lines and self._shown("szenen"):
                     pdf.add_heading("Szenen", level=4)
                     pdf.add_paragraph("\n".join(f"• {line}" for line in scene_lines))
                 thermostat = sorted(n for n, philo in parse_button_configuration(
@@ -740,11 +794,52 @@ class UserManualBuilder:
                     pdf.add_note("Raumthermostat:",
                                  f"Taste {keys}: gewünschte Raumtemperatur höher oder "
                                  "tiefer einstellen.")
-            if specials:
+            if specials and self._shown("automatisch"):
                 pdf.add_conditional_break(min_height=40 + 14 * len(specials))
                 pdf.add_heading("Automatisch", level=4)
                 pdf.add_paragraph("\n".join(f"• {sp}" for sp in specials))
             pdf.add_separator()
+
+    # ── Anpassungen (FA-2005) ──
+
+    def _shown(self, section: str) -> bool:
+        return not (self.settings and section in self.settings.hidden)
+
+    def _settings_value(self, attr: str, key: str) -> str:
+        if not self.settings or not key:
+            return ""
+        return (getattr(self.settings, attr).get(key) or "").strip()
+
+    def _text(self, key: str) -> str:
+        """Eigener Text des Projekts, sonst der Standardtext."""
+        return self._settings_value("texts", key) or MANUAL_TEXTS[key][1]
+
+    def _photo(self, key: str) -> str:
+        path = self._settings_value("photos", key)
+        folder = getattr(self.project, "folder_path", None)
+        if path and not os.path.isabs(path) and folder:
+            path = os.path.join(folder, path)
+        return path
+
+    @staticmethod
+    def default_tips(uses) -> str:
+        """Standard der Bedientipps, abhängig von den Funktionen im Projekt."""
+        tips = ["Kurz drücken: Antippen, z.B. Licht ein oder aus."]
+        if uses["lang"] or uses["dimmen"] or uses["jalousie"]:
+            tips.append("Lang drücken: Taste gedrückt halten (etwa eine Sekunde oder länger).")
+        if uses["dimmen"]:
+            tips.append("Dimmen: Taste gedrückt halten, bis die gewünschte Helligkeit "
+                        "erreicht ist, dann loslassen.")
+        if uses["jalousie"]:
+            tips.append("Storen: lang drücken fährt ganz auf oder ab; kurz drücken stoppt "
+                        "die Fahrt oder verstellt die Lamellen.")
+        if uses["doppel"]:
+            tips.append("Doppelklick: zweimal kurz hintereinander drücken.")
+        if uses["led"]:
+            tips.append("Leuchtanzeigen an den Tasten zeigen, ob die Funktion eingeschaltet ist.")
+        if uses["nacht"]:
+            tips.append("Nachts werden die Leuchtanzeigen automatisch gedimmt.")
+        return "\n".join(f"• {tip}" for tip in tips)
 
     def _first_ga(self, be, key: ButtonKey):
         for fa in be.function_assignments:
@@ -772,10 +867,7 @@ class UserManualBuilder:
             f"Für: {who}" if who else "", obj, f"Projekt: {project.name}",
             f"Stand: {datetime.now().strftime('%d.%m.%Y')}") if p))
         pdf.add_separator()
-        pdf.add_paragraph(custom_intro or (
-            "Diese Anleitung zeigt Ihnen Raum für Raum, was die Taster in Ihrem Haus "
-            "bewirken und wie Sie sie bedienen. Jeder Taster ist so abgebildet, wie er "
-            "an der Wand aussieht."))
+        pdf.add_paragraph(custom_intro or self._text("intro"))
         pdf.add_heading("Inhalt", level=2)
         rows = [["Allgemeines", "So bedienen Sie Ihre Taster, zentrale Funktionen, bei Störungen, Kontakt",
                  PageRef("general")]]
@@ -792,31 +884,13 @@ class UserManualBuilder:
         pdf.add_page_break()
         pdf.add_anchor("general")
         pdf.add_heading("Allgemeines", level=2)
-        pdf.add_heading("Ihr Haus in Kürze", level=3)
-        pdf.add_paragraph(
-            "Ihr Haus ist mit KNX ausgestattet. Taster, Präsenzmelder und Sensoren "
-            "geben ihre Befehle über eine eigene Steuerleitung an Schaltgeräte im "
-            "Verteiler weiter, die Licht, Storen und Heizung steuern. Deshalb kann ein "
-            "Taster auch Leuchten in einem anderen Raum schalten, und Funktionen lassen "
-            "sich später ohne neue Leitungen ändern.")
-        pdf.add_heading("So bedienen Sie Ihre Taster", level=3)
-        tips = ["Kurz drücken: Antippen, z.B. Licht ein oder aus."]
-        if uses["lang"] or uses["dimmen"] or uses["jalousie"]:
-            tips.append("Lang drücken: Taste gedrückt halten (etwa eine Sekunde oder länger).")
-        if uses["dimmen"]:
-            tips.append("Dimmen: Taste gedrückt halten, bis die gewünschte Helligkeit "
-                        "erreicht ist, dann loslassen.")
-        if uses["jalousie"]:
-            tips.append("Storen: lang drücken fährt ganz auf oder ab; kurz drücken stoppt "
-                        "die Fahrt oder verstellt die Lamellen.")
-        if uses["doppel"]:
-            tips.append("Doppelklick: zweimal kurz hintereinander drücken.")
-        if uses["led"]:
-            tips.append("Leuchtanzeigen an den Tasten zeigen, ob die Funktion eingeschaltet ist.")
-        if uses["nacht"]:
-            tips.append("Nachts werden die Leuchtanzeigen automatisch gedimmt.")
-        pdf.add_paragraph("\n".join(f"• {tip}" for tip in tips))
-        if central:
+        if self._shown("haus"):
+            pdf.add_heading("Ihr Haus in Kürze", level=3)
+            pdf.add_paragraph(self._text("haus"))
+        if self._shown("tipps"):
+            pdf.add_heading("So bedienen Sie Ihre Taster", level=3)
+            pdf.add_paragraph(self._text("tipps") or self.default_tips(uses))
+        if central and self._shown("zentral"):
             pdf.add_heading("Zentrale Funktionen", level=3)
             pdf.add_paragraph("Diese Tasten wirken auf mehrere Räume oder das ganze Haus:")
             seen = set()
@@ -827,15 +901,18 @@ class UserManualBuilder:
                 seen.add((label, room))
                 rows.append([label, f"{room} – {where}"])
             pdf.add_table(["Funktion", "Wo"], rows, col_widths=[0.4, 0.6])
-        pdf.add_heading("Wenn etwas nicht funktioniert", level=3)
-        pdf.add_paragraph("\n".join(f"• {tip}" for tip in (
-            "Eine Leuchte reagiert nicht: zuerst prüfen, ob das Leuchtmittel defekt ist "
-            "und ob im Sicherungskasten eine Sicherung ausgelöst hat.",
-            "Mehrere Taster reagieren nicht mehr: Bitte nichts selbst verändern und uns "
-            "kontaktieren – vermutlich ist die Steuerung betroffen.",
-            "Storen fahren nicht: Bei Wind oder Frost sind sie zum Schutz oft gesperrt "
-            "und fahren erst wieder, wenn die Gefahr vorbei ist.",
-        )))
+        if self._shown("stoerungen"):
+            pdf.add_heading("Wenn etwas nicht funktioniert", level=3)
+            pdf.add_paragraph(self._text("stoerungen"))
+        for section in (self.settings.custom_sections if self.settings else []):
+            title = (section.get("title") or "").strip()
+            text = (section.get("text") or "").strip()
+            if title or text:
+                pdf.add_heading(title or "Hinweis", level=3)
+                if text:
+                    pdf.add_paragraph(text)
+        if not self._shown("ansprechpartner"):
+            return
         c = self.company
         if c and (c.company_name or c.user_name):
             pdf.add_heading("Ihr Ansprechpartner", level=3)
