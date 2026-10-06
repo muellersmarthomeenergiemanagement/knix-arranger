@@ -184,6 +184,22 @@ class Room:
         else:
             self.te_types[str(te_idx)] = te_type
 
+    def gewerk_element_label(self, gewerk_code: str, element_nr: int) -> str:
+        """Klartext eines Gewerk-Elements in diesem Raum (FA-403), z.B. "Decke"."""
+        for assignment in self.gewerk_assignments:
+            if assignment.gewerk_code == gewerk_code:
+                return assignment.element_label(element_nr)
+        return ""
+
+    def gewerk_element_suffix(self, gewerk_code: str, element_nr: int,
+                              numbered: bool) -> str:
+        """Anzeige-Zusatz eines Gewerk-Elements in Auswahllisten: der
+        Klartext in Klammern, sonst (falls `numbered`) die Nummer "#2"."""
+        label = self.gewerk_element_label(gewerk_code, element_nr)
+        if label:
+            return f" ({label})"
+        return f" #{element_nr}" if numbered else ""
+
     @property
     def has_verteiler(self) -> bool:
         """True wenn mindestens ein Verteiler (HV/UV/...) im Raum vorhanden."""
@@ -304,6 +320,25 @@ class GewerkAssignment:
     # Dasselbe für die Elemente 2..count (z.B. zweiter Storen bei "J ×2"),
     # je Element ein eigener Aktor-Kanal. Zugriff über element_links().
     linked_ga_ids_by_element: dict[int, dict[str, str]] = field(default_factory=dict)
+    # Klartext je Element (FA-403), Index 0 = Element 1, z.B. ["Decke", "Wand"].
+    # Wird in jeder GA-Bezeichnung des Elements an den Raumnamen angehängt:
+    # "LDA_E01_01 E/A (Wohnen Decke)".
+    element_labels: list[str] = field(default_factory=list)
+
+    def element_label(self, element_nr: int) -> str:
+        """Klartext eines Elements (1-basiert), leer wenn keiner erfasst ist."""
+        if 1 <= element_nr <= len(self.element_labels):
+            return self.element_labels[element_nr - 1]
+        return ""
+
+    def set_element_labels(self, labels: list[str]) -> None:
+        """Setzt die Klartexte; Klammern werden entfernt (sie begrenzen den
+        Klartext in der Bezeichnung), leere Einträge am Ende abgeschnitten."""
+        cleaned = [" ".join(l.replace("(", " ").replace(")", " ").split())
+                   for l in labels]
+        while cleaned and not cleaned[-1]:
+            cleaned.pop()
+        self.element_labels = cleaned
 
     def element_links(self, element_nr: int) -> dict[str, str]:
         """Verknüpfte GAs eines Elements (1-basiert), veränderbar."""
@@ -331,6 +366,7 @@ class GewerkAssignment:
             "linked_ga_ids_by_element": {
                 str(nr): links for nr, links in self.linked_ga_ids_by_element.items() if links
             },
+            "element_labels": self.element_labels,
         }
 
     @classmethod
@@ -356,6 +392,7 @@ class GewerkAssignment:
         obj.linked_ga_ids_by_element = {
             int(nr): links for nr, links in data.get("linked_ga_ids_by_element", {}).items()
         }
+        obj.element_labels = list(data.get("element_labels", []))
         return obj
 
 

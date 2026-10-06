@@ -353,8 +353,7 @@ class _SlotWidget(QWidget):
             # automatisch alle ab (siehe Klassen-Docstring).
             fn_names = " + ".join(fn[2] for fn in GEWERK_PRIMARY_FUNCTIONS[code])
             display = f"{code} – {fn_names}"
-            if count > 1:
-                display += f" #{elem_nr}"
+            display += room.gewerk_element_suffix(code, elem_nr, count > 1)
             display += f"   ·   {room.number} {room.name}"
             return display
 

@@ -273,6 +273,7 @@ class _SensorFunktionDialog(QDialog):
         if sf.ga_designation:
             return f"GA: {sf.label or sf.ga_designation}"
         room_lbl = ""
+        src = self._room
         if sf.source_room_id:
             src = next((r for r in self._all_rooms if r.id == sf.source_room_id), None)
             room_lbl = f" [{src.number} {src.name}]" if src else " [Fremdraum]"
@@ -281,7 +282,10 @@ class _SensorFunktionDialog(QDialog):
             gewerk_name = f"{sf.gewerk_code} – {desc}"
             break
         lbl = sf.label or gewerk_name
-        if sf.element_number > 1:
+        if src is not None:
+            lbl += src.gewerk_element_suffix(
+                sf.gewerk_code, sf.element_number, sf.element_number > 1)
+        elif sf.element_number > 1:
             lbl += f" #{sf.element_number}"
         return f"{lbl}{room_lbl}"
 
@@ -298,9 +302,8 @@ class _SensorFunktionDialog(QDialog):
                     continue
                 seen.add(key)
                 first_desc = GEWERK_PRIMARY_FUNCTIONS[code][0][2] if GEWERK_PRIMARY_FUNCTIONS.get(code) else code
-                display = f"{code} – {first_desc}"
-                if assignment.count > 1:
-                    display += f" #{elem_nr}"
+                display = f"{code} – {first_desc}" + self._room.gewerk_element_suffix(
+                    code, elem_nr, assignment.count > 1)
                 self._own_combo.addItem(display, (code, elem_nr))
 
     def _refresh_other_gewerk(self):
@@ -320,9 +323,8 @@ class _SensorFunktionDialog(QDialog):
                     continue
                 seen.add(key)
                 first_desc = GEWERK_PRIMARY_FUNCTIONS[code][0][2] if GEWERK_PRIMARY_FUNCTIONS.get(code) else code
-                display = f"{code} – {first_desc}"
-                if assignment.count > 1:
-                    display += f" #{elem_nr}"
+                display = f"{code} – {first_desc}" + other_room.gewerk_element_suffix(
+                    code, elem_nr, assignment.count > 1)
                 self._other_gewerk_combo.addItem(display, (code, elem_nr, other_room.id))
 
     def _add_own(self):
@@ -639,7 +641,7 @@ class Step08Sensors(QWidget):
             item.setForeground(col, QBrush(color))
         for sf in be.funktionen:
             sf_item = QTreeWidgetItem(item, [
-                f"    → {self._sf_display(sf)}", "", "", "",
+                f"    → {self._sf_display(sf, room)}", "", "", "",
             ])
             sf_item.setData(0, Qt.UserRole, None)
         item.setExpanded(bool(be.funktionen))
@@ -659,10 +661,11 @@ class Step08Sensors(QWidget):
         suffix = "…" if n > 4 else ""
         return ", ".join(unique[:4]) + suffix
 
-    def _sf_display(self, sf: SensorFunktion) -> str:
+    def _sf_display(self, sf: SensorFunktion, room=None) -> str:
         if sf.ga_designation:
             return sf.label or sf.ga_designation
         room_lbl = ""
+        src = room
         if sf.source_room_id:
             src = next((r for r in self._project.all_rooms
                         if r.id == sf.source_room_id), None)
@@ -671,7 +674,10 @@ class Step08Sensors(QWidget):
             sf.gewerk_code, [("", "", sf.gewerk_code)]
         )[0][2]
         lbl = sf.label or f"{sf.gewerk_code} – {first_desc}"
-        if sf.element_number > 1:
+        if src is not None:
+            lbl += src.gewerk_element_suffix(
+                sf.gewerk_code, sf.element_number, sf.element_number > 1)
+        elif sf.element_number > 1:
             lbl += f" #{sf.element_number}"
         return f"{lbl}{room_lbl}"
 

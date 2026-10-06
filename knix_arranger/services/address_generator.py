@@ -212,9 +212,12 @@ class AddressGenerator:
     def _fill_entry_fields(self, ga: GroupAddress, entry: BlockEntry,
                            gewerk_code: str, room_number: str,
                            element_number: int, room_name: str,
-                           room_id: str) -> None:
+                           room_id: str, element_label: str = "") -> None:
         """Setzt die inhaltlichen Felder einer GA gemäß Schema-Entry.
-        Position (main/middle/sub_group) und id bleiben unberührt."""
+        Position (main/middle/sub_group) und id bleiben unberührt.
+
+        Klartext in Klammern (FA-403) bei jeder GA des Elements: Raumname,
+        ergänzt um den Klartext des Elements, z.B. "(Wohnen Decke)"."""
         if entry.is_reserve or not entry.function:
             ga.designation = NamingEngine.create_placeholder_designation()
             ga.is_placeholder = True
@@ -225,7 +228,7 @@ class AddressGenerator:
             ga.element_number = 0
             ga.function_name = ""
         else:
-            desc = room_name if entry.offset == 0 and room_name else ""
+            desc = " ".join(p for p in (room_name, element_label) if p)
             ga.designation = NamingEngine.create_designation(
                 gewerk_code, room_number, element_number,
                 entry.function, desc,
@@ -241,12 +244,13 @@ class AddressGenerator:
     def _update_block_in_place(self, existing_gas: list[GroupAddress],
                                schema: AddressBlockSchema, gewerk_code: str,
                                room_number: str, element_number: int,
-                               room_name: str, room_id: str) -> None:
+                               room_name: str, room_id: str,
+                               element_label: str = "") -> None:
         """Aktualisiert bestehende GAs inhaltlich, ohne ihre Position/id zu ändern."""
         for ga, entry in zip(existing_gas, schema.entries):
             self._fill_entry_fields(
                 ga, entry, gewerk_code, room_number, element_number,
-                room_name, room_id,
+                room_name, room_id, element_label,
             )
 
     def _generate_merged_floor_addresses(
@@ -406,7 +410,7 @@ class AddressGenerator:
                     )
                     self._fill_entry_fields(
                         ga, entry, gewerk.code, room_number_ga, element_nr,
-                        room_desc, room.id,
+                        room_desc, room.id, assignment.element_label(element_nr),
                     )
                     target.group_addresses.append(ga)
                     cursor += 1
@@ -422,7 +426,7 @@ class AddressGenerator:
                 chunk = old_gas[idx * block_len:(idx + 1) * block_len]
                 self._update_block_in_place(
                     chunk, schema, gewerk.code, room_number_ga, element_nr,
-                    room_desc, room.id,
+                    room_desc, room.id, assignment.element_label(element_nr),
                 )
                 by_num: dict[int, list[GroupAddress]] = {}
                 for ga in chunk:
@@ -470,7 +474,7 @@ class AddressGenerator:
                     )
                     self._fill_entry_fields(
                         ga, entry, gewerk.code, room_number_ga, element_nr,
-                        room_desc, room.id,
+                        room_desc, room.id, assignment.element_label(element_nr),
                     )
                     target.group_addresses.append(ga)
             next_free[fb_mg_num] = max(next_free.get(fb_mg_num, 0), max(targets) + 1)

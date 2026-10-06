@@ -34,10 +34,14 @@ _COL_ROOM    = 2
 _COL_NUMBER  = 3
 _COL_GCODE   = 4
 _COL_GNAME   = 5
-_COL_COUNT   = 6   # Anzahl (Taster / Kanäle) dieser Funktion
-_COL_EXTRA   = 7   # Anzahl Extra-GAs (Info-Spalte)
-_COL_ACTION  = 8
-_NUM_COLS    = 9
+_COL_LABEL   = 6   # Klartext je Element (FA-403), z.B. "Decke; Wand"
+_COL_COUNT   = 7   # Anzahl (Taster / Kanäle) dieser Funktion
+_COL_EXTRA   = 8   # Anzahl Extra-GAs (Info-Spalte)
+_COL_ACTION  = 9
+_NUM_COLS    = 10
+
+# Trennzeichen der Klartexte mehrerer Elemente in der Spalte "Bezeichnung"
+_LABEL_SEP = ";"
 
 # Kompaktes Padding für die Buttons in der Aktions-Spalte: Das globale
 # QPushButton-Padding (8px 16px) schnitt deren Text ab ("rodukt", "' Kanal (").
@@ -218,6 +222,7 @@ class Step05Gewerke(QWidget):
             (_COL_NUMBER, "Raumnr."),
             (_COL_GCODE,  "Gewerk"),
             (_COL_GNAME,  "Name"),
+            (_COL_LABEL,  "Bezeichnung"),
         ]
 
         self._filter_timer = QTimer(self)
@@ -241,14 +246,14 @@ class Step05Gewerke(QWidget):
         self._table.setColumnCount(_NUM_COLS)
         self._table.setHorizontalHeaderLabels([
             "Stockwerk", "Wohnung/Zone", "Raum", "Raumnr.",
-            "Gewerk", "Name", "Anzahl", "+GAs", "Aktion",
+            "Gewerk", "Name", "Bezeichnung", "Anzahl", "+GAs", "Aktion",
         ])
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         # KEIN setStretchLastSection: quetscht sonst bei vielen Spalten die
         # uebrigen Spaltenkoepfe unlesbar schmal, siehe fit_columns()-Aufruf
         # unten (stretch_to_fit=False) und address_table_view.py.
-        self._table.itemChanged.connect(self._on_count_changed)
+        self._table.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self._table)
 
         # ── Gewerk hinzufügen (inkl. Schnell-Buttons, ein gemeinsamer
@@ -460,6 +465,19 @@ class Step05Gewerke(QWidget):
                     it.setFlags(_ro)
                     self._table.setItem(i, col, it)
 
+                # Bezeichnung – editierbar: Klartext je Element, getrennt mit ";"
+                label_item = QTableWidgetItem(
+                    f"{_LABEL_SEP} ".join(ga.element_labels))
+                label_item.setData(Qt.UserRole, ga)
+                label_item.setToolTip(
+                    "Klartext zur Unterscheidung, z.B. \"Decke\" oder \"Wand\".\n"
+                    "Steht in jeder GA-Bezeichnung nach dem Raumnamen:\n"
+                    "LDA_E01_01 E/A (Wohnen Decke)\n"
+                    "Bei Anzahl > 1 je Element einen Text, getrennt mit \";\",\n"
+                    "z.B. \"Decke; Wand\". Doppelklick zum Bearbeiten."
+                )
+                self._table.setItem(i, _COL_LABEL, label_item)
+
                 # Anzahl – editierbar: wie viele Kanäle / Elemente dieser Funktion
                 count_item = QTableWidgetItem(str(ga.count))
                 count_item.setData(Qt.UserRole, ga)
@@ -562,6 +580,7 @@ class Step05Gewerke(QWidget):
                 for col, text in [
                     (_COL_GCODE,  ""),
                     (_COL_GNAME,  "(keine Gewerke)"),
+                    (_COL_LABEL,  ""),
                     (_COL_COUNT,  ""),
                     (_COL_EXTRA,  ""),
                 ]:
@@ -572,12 +591,20 @@ class Step05Gewerke(QWidget):
         fit_columns(self._table, stretch_to_fit=False)
         self._apply_filter()
 
-    def _on_count_changed(self, item: QTableWidgetItem):
-        """Speichert Anzahl direkt ins Modell."""
-        if self._refreshing or item.column() != _COL_COUNT:
+    def _on_item_changed(self, item: QTableWidgetItem):
+        """Speichert Anzahl bzw. Bezeichnung direkt ins Modell."""
+        if self._refreshing or item.column() not in (_COL_COUNT, _COL_LABEL):
             return
         ga = item.data(Qt.UserRole)
         if not isinstance(ga, GewerkAssignment):
+            return
+        if item.column() == _COL_LABEL:
+            ga.set_element_labels(item.text().split(_LABEL_SEP))
+            normalized = f"{_LABEL_SEP} ".join(ga.element_labels)
+            if item.text() != normalized:
+                self._refreshing = True
+                item.setText(normalized)
+                self._refreshing = False
             return
         try:
             val = int(item.text())

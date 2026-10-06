@@ -172,6 +172,24 @@ class BauherrFormService:
                 return room
         return None
 
+    def _element_suffix(self, sf: SensorFunktion) -> str:
+        """Klartext des Gewerk-Elements in Klammern (FA-403), sonst bei
+        Element > 1 die Nummer, z.B. "(Decke)" bzw. "(2)"."""
+        room = (self._room_by_id(sf.source_room_id) if sf.source_room_id
+                else self._room_of_sf(sf))
+        label = room.gewerk_element_label(sf.gewerk_code, sf.element_number) if room else ""
+        if label:
+            return f" ({label})"
+        return f" ({sf.element_number})" if sf.element_number > 1 else ""
+
+    def _room_of_sf(self, sf: SensorFunktion) -> Room | None:
+        """Raum des Bedienelements, zu dem die Sensorfunktion gehört."""
+        for room in self.project.all_rooms:
+            for be in room.bedienelemente:
+                if any(f is sf for f in be.funktionen):
+                    return room
+        return None
+
     def _device_product_name(self, be: Bedienelement) -> str:
         """Produktname für die Anzeige: bevorzugt den Live-Wert aus dem per
         physikalischer Adresse verknüpften Device der Topologie.
@@ -222,11 +240,9 @@ class BauherrFormService:
                 if sf.source_room_id:
                     room = self._room_by_id(sf.source_room_id)
                     room_name = room.name if room else "anderer Raum"
-                    return f"{label}  →  {room_name}"
-                # Mehrere Elemente desselben Typs: Nummer anhängen
-                if sf.element_number > 1:
-                    return f"{label} ({sf.element_number})"
-                return label
+                    return f"{label}{self._element_suffix(sf)}  →  {room_name}"
+                # Klartext bzw. bei mehreren Elementen die Nummer anhängen
+                return f"{label}{self._element_suffix(sf)}"
             # Fallback: Gewerk-Name aus Katalog
             gewerk = self.project.gewerk_catalog.get(sf.gewerk_code)
             return gewerk.name if gewerk else sf.gewerk_code
@@ -341,10 +357,8 @@ class BauherrFormService:
             if sf.source_room_id:
                 room = self._room_by_id(sf.source_room_id)
                 room_name = room.name if room else "anderer Raum"
-                return f"{label}  →  {room_name}"
-            if sf.element_number > 1:
-                return f"{label} ({sf.element_number})"
-            return label
+                return f"{label}{self._element_suffix(sf)}  →  {room_name}"
+            return f"{label}{self._element_suffix(sf)}"
         return ""
 
     # ── Grafische Taster-Darstellung (Einzel-Taster) ──────────────────────────
