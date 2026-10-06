@@ -74,6 +74,17 @@ class QuotationItem:
     unit_price: float = 0.0
     total_price: float = 0.0
     notes: str = ""
+    # Offerte des Lieferanten (FA-1622)
+    discount_percent: float = 0.0     # Rabatt auf den Einzelpreis
+    delivery_time: str = ""           # Lieferfrist, z.B. "3 Wochen"
+
+    @property
+    def net_unit_price(self) -> float:
+        """Einzelpreis nach Rabatt."""
+        return self.unit_price * (1 - self.discount_percent / 100)
+
+    def update_total(self) -> None:
+        self.total_price = round(self.net_unit_price * self.quantity, 2)
 
     def to_dict(self) -> dict:
         return {
@@ -86,6 +97,8 @@ class QuotationItem:
             "unit_price": self.unit_price,
             "total_price": self.total_price,
             "notes": self.notes,
+            "discount_percent": self.discount_percent,
+            "delivery_time": self.delivery_time,
         }
 
     @classmethod
@@ -100,6 +113,8 @@ class QuotationItem:
             unit_price=data.get("unit_price", 0.0),
             total_price=data.get("total_price", 0.0),
             notes=data.get("notes", ""),
+            discount_percent=data.get("discount_percent", 0.0),
+            delivery_time=data.get("delivery_time", ""),
         )
 
 
@@ -114,10 +129,14 @@ class QuotationRequest:
     delivery_date_requested: str = ""
     status: str = "Entwurf"   # Entwurf, Versendet, Erhalten, Zugeschlagen, Abgelehnt
     items: list[QuotationItem] = field(default_factory=list)
+    # Sammelanfrage (FA-1615): Anfragen mit derselben group_id fragen dieselben
+    # Positionen bei verschiedenen Lieferanten an (Preisvergleich FA-1623)
+    group_id: str = ""
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "group_id": self.group_id,
             "request_number": self.request_number,
             "supplier_id": self.supplier_id,
             "date_created": self.date_created,
@@ -137,6 +156,7 @@ class QuotationRequest:
             date_sent=data.get("date_sent", ""),
             delivery_date_requested=data.get("delivery_date_requested", ""),
             status=data.get("status", "Entwurf"),
+            group_id=data.get("group_id", ""),
         )
         qr.items = [QuotationItem.from_dict(i) for i in data.get("items", [])]
         return qr

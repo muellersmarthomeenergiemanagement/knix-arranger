@@ -1,5 +1,5 @@
 """
-Offertanfragen-Verwaltung (FA-1601 bis FA-1615)
+Offertanfragen-Verwaltung (FA-1601 bis FA-1625)
 """
 from __future__ import annotations
 import os
@@ -9,12 +9,108 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QPushButton, QComboBox, QSpinBox,
     QLineEdit, QGroupBox, QFormLayout, QAbstractItemView,
-    QMessageBox, QDoubleSpinBox, QTabWidget, QTextEdit, QFileDialog,
+    QMessageBox, QDoubleSpinBox, QTabWidget, QTextEdit, QFileDialog, QDialog,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QBrush, QColor
 from ...models.project import KnxProject
 from ...models.quotation import Supplier, QuotationRequest, QuotationItem
+from ...services.quotation_compare import chf
 from ..column_utils import fit_columns
+
+# Spalten der Positionstabelle (Offerte des Lieferanten, FA-1622)
+_COL_PRICE    = 5
+_COL_DISCOUNT = 6
+_COL_TOTAL    = 7
+_COL_DELIVERY = 8
+_COL_NOTES    = 9
+_ITEM_COLS    = 10
+
+_CHEAPEST_BG = "#C8E6C9"
+
+
+class _ComparisonDialog(QDialog):
+    """Preisvergleich der Offerten (FA-1623) mit PDF-Export (FA-1624)."""
+
+    def __init__(self, project, comparison, company_profile_fn, parent=None):
+        super().__init__(parent)
+        self._project = project
+        self._comparison = comparison
+        self._company_profile_fn = company_profile_fn
+        self.setWindowTitle("Preisvergleich")
+        self.setMinimumSize(860, 480)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(
+            "Nettobeträge je Position in CHF (Einzelpreis abzüglich Rabatt, mal Menge). "
+            "Grün: günstigster Anbieter je Position und gesamt."))
+
+        n = len(comparison.suppliers)
+        table = QTableWidget(len(comparison.rows) + 1, 2 + n)
+        table.setHorizontalHeaderLabels(["Position", "Menge"] + comparison.suppliers)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.verticalHeader().setVisible(False)
+        right = Qt.AlignRight | Qt.AlignVCenter
+        for r, row in enumerate(comparison.rows):
+            table.setItem(r, 0, QTableWidgetItem(row.label))
+            qty = QTableWidgetItem(str(row.quantity))
+            qty.setTextAlignment(right)
+            table.setItem(r, 1, qty)
+            for i, value in enumerate(row.totals):
+                cell = QTableWidgetItem(chf(value))
+                cell.setTextAlignment(right)
+                if row.delivery[i]:
+                    cell.setToolTip(f"Lieferfrist: {row.delivery[i]}")
+                if row.cheapest == i:
+                    cell.setBackground(QBrush(QColor(_CHEAPEST_BG)))
+                table.setItem(r, 2 + i, cell)
+        last = len(comparison.rows)
+        total_label = QTableWidgetItem("Total")
+        font = total_label.font()
+        font.setBold(True)
+        total_label.setFont(font)
+        table.setItem(last, 0, total_label)
+        for i, total in enumerate(comparison.totals):
+            text = chf(total)
+            if comparison.missing[i]:
+                text += f"  ({comparison.missing[i]} ohne Preis)"
+            cell = QTableWidgetItem(text)
+            cell.setFont(font)
+            cell.setTextAlignment(right)
+            if comparison.cheapest_total == i:
+                cell.setBackground(QBrush(QColor(_CHEAPEST_BG)))
+            table.setItem(last, 2 + i, cell)
+        fit_columns(table)
+        layout.addWidget(table)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        pdf_btn = QPushButton("Als PDF…")
+        pdf_btn.clicked.connect(self._export_pdf)
+        buttons.addWidget(pdf_btn)
+        close_btn = QPushButton("Schliessen")
+        close_btn.setObjectName("secondary")
+        close_btn.clicked.connect(self.accept)
+        buttons.addWidget(close_btn)
+        layout.addLayout(buttons)
+
+    def _export_pdf(self) -> None:
+        from ...services.quotation_compare import write_comparison_pdf
+        folder = self._project.folder_path if self._project else None
+        start = os.path.join(folder, "Berichte", "Offertanfragen") if folder else ""
+        if start:
+            os.makedirs(start, exist_ok=True)
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Preisvergleich als PDF speichern",
+            os.path.join(start, f"Preisvergleich_{self._project.name}.pdf".replace(" ", "_")),
+            "PDF-Datei (*.pdf)")
+        if not filepath:
+            return
+        try:
+            write_comparison_pdf(self._project, self._comparison,
+                                 self._company_profile_fn(), filepath)
+            os.startfile(filepath)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export fehlgeschlagen", f"Fehler beim Export:\n{exc}")
 
 
 class QuotationView(QWidget):
@@ -137,9 +233,9 @@ class QuotationView(QWidget):
         # Anfragen-Tabelle
         left = QVBoxLayout()
         self._request_table = QTableWidget()
-        self._request_table.setColumnCount(5)
+        self._request_table.setColumnCount(6)
         self._request_table.setHorizontalHeaderLabels([
-            "Nr.", "Lieferant", "Datum", "Status", "Positionen",
+            "Nr.", "Lieferant", "Datum", "Status", "Positionen", "Sammelanfrage",
         ])
         self._request_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._request_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -230,11 +326,15 @@ class QuotationView(QWidget):
         items_layout = QVBoxLayout()
 
         self._items_table = QTableWidget()
-        self._items_table.setColumnCount(7)
+        self._items_table.setColumnCount(_ITEM_COLS)
         self._items_table.setHorizontalHeaderLabels([
             "Pos.", "Hersteller", "Best.-Nr.", "Produkt", "Menge",
-            "Angebotspreis (CHF)", "Bemerkung Lieferant",
+            "Einzelpreis (CHF)", "Rabatt %", "Netto gesamt", "Lieferfrist",
+            "Bemerkung Lieferant",
         ])
+        self._items_table.setToolTip(
+            "Offerte des Lieferanten erfassen (FA-1622): Einzelpreis, Rabatt, "
+            "Lieferfrist und Bemerkung per Doppelklick.")
         self._items_table.setEditTriggers(
             QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
         )
@@ -277,6 +377,20 @@ class QuotationView(QWidget):
         bottom_layout.addWidget(self._btn_remove_item)
 
         bottom_layout.addStretch()
+
+        self._btn_more_suppliers = QPushButton("An weitere Lieferanten…")
+        self._btn_more_suppliers.setToolTip(
+            "Sammelanfrage: dieselben Positionen zusätzlich bei weiteren\n"
+            "Lieferanten anfragen, für den Preisvergleich (FA-1615)")
+        self._btn_more_suppliers.clicked.connect(self._send_to_more_suppliers)
+        bottom_layout.addWidget(self._btn_more_suppliers)
+
+        self._btn_compare = QPushButton("Preisvergleich…")
+        self._btn_compare.setToolTip(
+            "Offerten der Sammelanfrage nebeneinander, günstigster Anbieter je\n"
+            "Position und gesamt hervorgehoben; als PDF speicherbar (FA-1623, FA-1624)")
+        self._btn_compare.clicked.connect(self._show_comparison)
+        bottom_layout.addWidget(self._btn_compare)
 
         self._btn_award = QPushButton("Zuschlag erteilen…")
         self._btn_award.setToolTip(
@@ -399,14 +513,23 @@ class QuotationView(QWidget):
             return
 
         requests = self._project.quotation_requests
+        # Sammelanfrage: erste Anfrage der Gruppe als Bezeichnung
+        group_label = {}
+        for qr in requests:
+            if qr.group_id and qr.group_id not in group_label:
+                group_label[qr.group_id] = qr.request_number
         self._request_table.setRowCount(len(requests))
         for i, qr in enumerate(requests):
             supplier_name = self._get_supplier_name(qr.supplier_id)
+            status = qr.status + (f" ({qr.date_sent})" if qr.status == "Versendet"
+                                  and qr.date_sent else "")
             self._request_table.setItem(i, 0, QTableWidgetItem(qr.request_number))
             self._request_table.setItem(i, 1, QTableWidgetItem(supplier_name))
             self._request_table.setItem(i, 2, QTableWidgetItem(qr.date_created))
-            self._request_table.setItem(i, 3, QTableWidgetItem(qr.status))
+            self._request_table.setItem(i, 3, QTableWidgetItem(status))
             self._request_table.setItem(i, 4, QTableWidgetItem(str(len(qr.items))))
+            self._request_table.setItem(i, 5, QTableWidgetItem(
+                group_label.get(qr.group_id, "") if qr.group_id else ""))
         fit_columns(self._request_table)
 
     def _get_supplier_name(self, supplier_id: str) -> str:
@@ -450,12 +573,16 @@ class QuotationView(QWidget):
             self._items_table.setItem(i, 3, _ro(item.product_name))
             self._items_table.setItem(i, 4, _ro(str(item.quantity)))
 
-            # Angebotspreis: editierbar
-            price_text = f"{item.unit_price:,.2f}" if item.unit_price else ""
-            self._items_table.setItem(i, 5, QTableWidgetItem(price_text))
-
-            # Bemerkung: editierbar
-            self._items_table.setItem(i, 6, QTableWidgetItem(item.notes))
+            # Offerte des Lieferanten: editierbar (FA-1622)
+            price_text = f"{item.unit_price:.2f}" if item.unit_price else ""
+            self._items_table.setItem(i, _COL_PRICE, QTableWidgetItem(price_text))
+            discount = f"{item.discount_percent:g}" if item.discount_percent else ""
+            self._items_table.setItem(i, _COL_DISCOUNT, QTableWidgetItem(discount))
+            total = _ro(chf(item.net_unit_price * item.quantity) if item.unit_price else "")
+            total.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self._items_table.setItem(i, _COL_TOTAL, total)
+            self._items_table.setItem(i, _COL_DELIVERY, QTableWidgetItem(item.delivery_time))
+            self._items_table.setItem(i, _COL_NOTES, QTableWidgetItem(item.notes))
 
         fit_columns(self._items_table)
         self._items_table.blockSignals(False)
@@ -499,6 +626,9 @@ class QuotationView(QWidget):
         qr.supplier_id = self._req_supplier.currentData() or ""
         qr.delivery_date_requested = self._req_delivery.text()
         qr.status = self._req_status.currentText()
+        # Versanddatum festhalten (FA-1621)
+        if qr.status == "Versendet" and not qr.date_sent:
+            qr.date_sent = date.today().isoformat()
         self._refresh_requests()
 
     def _get_selected_request(self) -> QuotationRequest | None:
@@ -556,27 +686,114 @@ class QuotationView(QWidget):
         if row < 0 or row >= len(qr.items):
             return
 
-        if col == 5:  # Angebotspreis
-            text = table_item.text().replace("'", "").replace(",", ".").strip()
+        item = qr.items[row]
+        if col in (_COL_PRICE, _COL_DISCOUNT):
+            text = table_item.text().replace("'", "").replace(",", ".").replace("%", "").strip()
             try:
-                price = float(text) if text else 0.0
+                value = float(text) if text else 0.0
+                if col == _COL_DISCOUNT and not 0 <= value <= 100:
+                    raise ValueError
             except ValueError:
                 # Ungültige Eingabe nicht still verwerfen: Anzeige würde sonst
                 # vom Modell abweichen (Zelle zeigt den ungültigen Text, das
                 # Modell behält den alten Preis, ohne dass der Nutzer das merkt).
+                what = "Preis" if col == _COL_PRICE else "Rabatt (0–100 %)"
                 QMessageBox.warning(
-                    self, "Ungültiger Preis",
-                    f"'{table_item.text()}' ist keine gültige Zahl.\n"
+                    self, f"Ungültiger {what.split(' ')[0]}",
+                    f"'{table_item.text()}' ist kein gültiger {what}.\n"
                     "Der vorherige Wert bleibt erhalten."
                 )
+                old = item.unit_price if col == _COL_PRICE else item.discount_percent
                 self._items_table.blockSignals(True)
-                table_item.setText(f"{qr.items[row].unit_price:.2f}")
+                table_item.setText(f"{old:.2f}" if col == _COL_PRICE else f"{old:g}")
                 self._items_table.blockSignals(False)
                 return
-            qr.items[row].unit_price = price
-            qr.items[row].total_price = price * qr.items[row].quantity
-        elif col == 6:  # Bemerkung
-            qr.items[row].notes = table_item.text()
+            if col == _COL_PRICE:
+                item.unit_price = value
+            else:
+                item.discount_percent = value
+            item.update_total()
+            # Offerte eingetragen: Anfrage gilt als erhalten (FA-1621)
+            if item.unit_price and qr.status in ("Entwurf", "Versendet"):
+                qr.status = "Erhalten"
+            # Neu aufbauen erst nach diesem Signal -- die sendende Zelle würde
+            # sonst mitten im Aufruf gelöscht
+            QTimer.singleShot(0, lambda: self._after_offer_changed(qr))
+        elif col == _COL_DELIVERY:
+            item.delivery_time = table_item.text().strip()
+        elif col == _COL_NOTES:
+            item.notes = table_item.text()
+
+    # ── Sammelanfrage und Preisvergleich (FA-1615, FA-1623, FA-1624) ──
+
+    def _send_to_more_suppliers(self) -> None:
+        from PySide6.QtWidgets import QDialog, QListWidget, QListWidgetItem, QDialogButtonBox
+        from ...services.quotation_compare import send_to_more_suppliers
+        qr = self._selected_request_or_hint()
+        if not qr:
+            return
+        candidates = [s for s in self._project.suppliers if s.id != qr.supplier_id]
+        if not candidates:
+            QMessageBox.information(
+                self, "Keine weiteren Lieferanten",
+                "Bitte zuerst im Register «Lieferanten» weitere Lieferanten erfassen.")
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Sammelanfrage")
+        layout = QVBoxLayout(dlg)
+        layout.addWidget(QLabel(
+            f"Positionen von {qr.request_number} zusätzlich anfragen bei:"))
+        listing = QListWidget()
+        for s in candidates:
+            item = QListWidgetItem(s.company_name or "(ohne Name)")
+            item.setData(Qt.UserRole, s.id)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Unchecked)
+            listing.addItem(item)
+        layout.addWidget(listing)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        chosen = [listing.item(i).data(Qt.UserRole) for i in range(listing.count())
+                  if listing.item(i).checkState() == Qt.Checked]
+        created = send_to_more_suppliers(self._project, qr, chosen)
+        self._refresh_requests()
+        if created:
+            QMessageBox.information(
+                self, "Sammelanfrage erstellt",
+                f"{len(created)} weitere Offertanfrage(n) erstellt: "
+                + ", ".join(r.request_number for r in created)
+                + ".\nVersand je Anfrage mit «Per E-Mail…» oder «Als PDF…».")
+
+    def _show_comparison(self) -> None:
+        from ...services.quotation_compare import build_comparison, comparison_set
+        qr = self._selected_request_or_hint()
+        if not qr:
+            return
+        requests = comparison_set(self._project, qr)
+        if len(requests) < 2:
+            QMessageBox.information(
+                self, "Preisvergleich",
+                "Für einen Vergleich braucht es mindestens zwei Offerten mit Preisen – "
+                "z.B. eine Sammelanfrage («An weitere Lieferanten…») mit erfassten "
+                "Offerten.")
+            return
+        _ComparisonDialog(self._project, build_comparison(self._project, requests),
+                          self._company_profile, self).exec()
+
+    def _after_offer_changed(self, qr: QuotationRequest) -> None:
+        """Netto gesamt und Status nach einer Preis- oder Rabatteingabe."""
+        row = self._request_table.currentRow()
+        self._refresh_requests()
+        if row >= 0:
+            self._request_table.setCurrentCell(row, 0)
+        idx = self._req_status.findText(qr.status)
+        if idx >= 0:
+            self._req_status.setCurrentIndex(idx)
+        self._refresh_items(qr)
 
     def _award_contract(self) -> None:
         """
@@ -597,39 +814,33 @@ class QuotationView(QWidget):
             )
             return
 
-        total = sum(it.unit_price * it.quantity for it in items_with_price)
+        from ...services.quotation_compare import award
+        total = sum(it.net_unit_price * it.quantity for it in items_with_price)
+        others = [r for r in self._project.quotation_requests
+                  if qr.group_id and r is not qr and r.group_id == qr.group_id]
         reply = QMessageBox.question(
             self, "Zuschlag erteilen",
             f"Offertanfrage '{qr.request_number}' den Zuschlag erteilen?\n\n"
             f"  Positionen mit Preis: {len(items_with_price)}\n"
-            f"  Materialwert (Einkauf): CHF {total:,.2f}\n\n"
-            "Die eingetragenen Preise werden in die Materialliste übernommen.",
+            f"  Materialwert netto (Einkauf): CHF {chf(total)}\n\n"
+            "Die Nettopreise (nach Rabatt) werden in die Materialliste übernommen."
+            + (f"\nDie {len(others)} übrigen Anfrage(n) der Sammelanfrage werden "
+               "auf «Abgelehnt» gesetzt." if others else ""),
             QMessageBox.Yes | QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
             return
 
-        # Status setzen
-        qr.status = "Zugeschlagen"
-        idx = self._req_status.findText("Zugeschlagen")
+        updated, rejected = award(self._project, qr)
+        idx = self._req_status.findText(qr.status)
         if idx >= 0:
             self._req_status.setCurrentIndex(idx)
-
-        # Preise in Materialliste zurueckschreiben (Matching via order_number + manufacturer)
-        if self._project:
-            for item in qr.items:
-                if not item.order_number or not item.unit_price:
-                    continue
-                for entry in self._project.material_list.entries:
-                    if (entry.order_number == item.order_number
-                            and entry.manufacturer == item.manufacturer):
-                        entry.unit_price = item.unit_price
-
         self._refresh_requests()
         QMessageBox.information(
             self, "Zuschlag erteilt",
             f"Offertanfrage '{qr.request_number}' wurde auf 'Zugeschlagen' gesetzt.\n"
-            f"Einkaufspreise wurden in die Materialliste übernommen.",
+            f"{updated} Einkaufspreis(e) in die Materialliste übernommen."
+            + (f"\n{rejected} Anfrage(n) auf «Abgelehnt» gesetzt." if rejected else ""),
         )
 
     def _generate_from_material_list(self) -> None:
@@ -906,6 +1117,8 @@ class QuotationView(QWidget):
                 item.quantity,
                 item.unit,
                 "",   # Angebotspreis (vom Lieferanten auszufüllen)
+                "",   # Rabatt %
+                "",   # Lieferfrist
                 "",   # Bemerkung Lieferant
             ]
             for item in qr.items
@@ -913,16 +1126,17 @@ class QuotationView(QWidget):
         gen.add_table(
             headers=[
                 "Pos.", "Hersteller", "Bestellnummer", "Produktbezeichnung",
-                "Menge", "Einheit", "Angebotspreis (CHF)", "Bemerkung Lieferant",
+                "Menge", "Einheit", "Angebotspreis (CHF)", "Rabatt %",
+                "Lieferfrist", "Bemerkung Lieferant",
             ],
             rows=pos_rows,
-            col_widths=[6, 18, 18, 40, 8, 10, 22, 30],
+            col_widths=[6, 18, 18, 40, 8, 10, 22, 10, 14, 30],
         )
 
         gen.add_empty_row()
         gen.add_paragraph(
-            "Bitte füllen Sie die Spalten 'Angebotspreis' und 'Bemerkung' aus "
-            "und senden Sie dieses Dokument zurück."
+            "Bitte füllen Sie die Spalten 'Angebotspreis', 'Rabatt', 'Lieferfrist' "
+            "und 'Bemerkung' aus und senden Sie dieses Dokument zurück."
         )
 
         if not filepath.endswith(".xlsx"):
