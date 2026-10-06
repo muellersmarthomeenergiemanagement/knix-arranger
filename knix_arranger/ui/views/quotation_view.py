@@ -2,6 +2,8 @@
 Offertanfragen-Verwaltung (FA-1601 bis FA-1615)
 """
 from __future__ import annotations
+import os
+import tempfile
 from datetime import date
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
@@ -167,6 +169,16 @@ class QuotationView(QWidget):
         btn_layout.addWidget(self._btn_remove_request)
         btn_layout.addWidget(self._btn_generate_requests)
         btn_layout.addWidget(self._btn_export_request)
+        self._btn_pdf_request = QPushButton("Als PDF…")
+        self._btn_pdf_request.setToolTip("Ausgewählte Offertanfrage als PDF speichern")
+        self._btn_pdf_request.clicked.connect(self._export_request_pdf)
+        btn_layout.addWidget(self._btn_pdf_request)
+        self._btn_mail_request = QPushButton("Per E-Mail…")
+        self._btn_mail_request.setToolTip(
+            "E-Mail-Entwurf an den Lieferanten mit der Offertanfrage als PDF-Anhang\n"
+            "im Standard-Mailprogramm öffnen")
+        self._btn_mail_request.clicked.connect(self._email_request)
+        btn_layout.addWidget(self._btn_mail_request)
         btn_layout.addStretch()
         left.addLayout(btn_layout)
 
@@ -718,6 +730,95 @@ class QuotationView(QWidget):
             sup = next((s for s in self._project.suppliers if s.id == sup_id), None)
             if sup and mfr not in sup.brands:
                 sup.brands.append(mfr)
+
+    # ── PDF und E-Mail (FA-1614 a, c) ──
+
+    def _selected_request_or_hint(self) -> QuotationRequest | None:
+        qr = self._get_selected_request()
+        if not qr:
+            QMessageBox.information(
+                self, "Keine Anfrage gewählt",
+                "Bitte zuerst eine Offertanfrage auswählen.",
+            )
+        return qr
+
+    def _supplier(self, supplier_id: str) -> Supplier | None:
+        if not self._project:
+            return None
+        return next((s for s in self._project.suppliers if s.id == supplier_id), None)
+
+    def _requests_folder(self) -> str:
+        """Ablage im Projektordner (Berichte/Offertanfragen), sonst Temp-Ordner."""
+        folder = self._project.folder_path if self._project else None
+        if folder:
+            return os.path.join(folder, "Berichte", "Offertanfragen")
+        return os.path.join(tempfile.gettempdir(), "KNiX_Offertanfragen")
+
+    @staticmethod
+    def _company_profile():
+        from ...services.project_service import ProjectService
+        try:
+            return ProjectService().load_company_profile()
+        except Exception:
+            return None
+
+    def _export_request_pdf(self) -> None:
+        from ...services.quotation_request_service import (
+            request_filename, write_request_pdf,
+        )
+        qr = self._selected_request_or_hint()
+        if not qr:
+            return
+        supplier = self._supplier(qr.supplier_id)
+        folder = self._requests_folder()
+        os.makedirs(folder, exist_ok=True)
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Offertanfrage als PDF speichern",
+            os.path.join(folder, request_filename(qr, supplier, "pdf")),
+            "PDF-Datei (*.pdf)",
+        )
+        if not filepath:
+            return
+        try:
+            write_request_pdf(self._project, qr, supplier, self._company_profile(), filepath)
+            os.startfile(filepath)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export fehlgeschlagen", f"Fehler beim Export:\n{exc}")
+
+    def _email_request(self) -> None:
+        from ...services.quotation_request_service import write_request_email
+        qr = self._selected_request_or_hint()
+        if not qr:
+            return
+        supplier = self._supplier(qr.supplier_id)
+        if not supplier or not supplier.email:
+            reply = QMessageBox.question(
+                self, "Keine E-Mail-Adresse",
+                "Für diesen Lieferanten ist keine E-Mail-Adresse erfasst.\n"
+                "Entwurf trotzdem ohne Empfänger erstellen?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
+        try:
+            eml_path = write_request_email(
+                self._project, qr, supplier, self._company_profile(), self._requests_folder())
+            os.startfile(eml_path)
+        except Exception as exc:
+            QMessageBox.critical(
+                self, "E-Mail nicht erstellt",
+                f"Der E-Mail-Entwurf konnte nicht erstellt oder geöffnet werden:\n{exc}\n\n"
+                "Die Offertanfrage lässt sich mit «Als PDF…» speichern und von Hand senden.")
+            return
+        if qr.status == "Entwurf":
+            reply = QMessageBox.question(
+                self, "Als versendet markieren?",
+                "Der E-Mail-Entwurf wurde im Mailprogramm geöffnet.\n"
+                "Offertanfrage nach dem Senden als «Versendet» markieren?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if reply == QMessageBox.Yes:
+                qr.status = "Versendet"
+                qr.date_sent = date.today().isoformat()
+                self._refresh_requests()
 
     def _export_request_excel(self) -> None:
         """Exportiert die ausgewählte Offertanfrage als .xlsx (FA-1614)."""
