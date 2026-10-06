@@ -397,7 +397,7 @@ def build_document() -> Document:
 
     add_heading2(doc, "4.1  Menüleiste")
     add_table_2col(doc, [
-        ("Datei",    "Neues Projekt, Öffnen, Speichern, Speichern unter, Import (ETS6/CSV/KNXPROJ), CSV-Export, Projekteigenschaften (Ctrl+P)"),
+        ("Datei",    "Neues Projekt, Öffnen, Speichern, Speichern unter, Import (ETS6/CSV/KNXPROJ), CSV-Export, Projekteigenschaften (Ctrl+P, mit Status «Gruppenadressen in die ETS übertragen»: ab dann stehen die Adressen fest)"),
         ("Bearbeiten", "Rückgängig (Ctrl+Z), Wiederholen (Ctrl+Y), Einstellungen"),
         ("Ansicht",  "Wizard starten (Ctrl+W), Projekt validieren (Ctrl+V)"),
         ("Hilfe",    "Hilfe (F1), Erste Schritte (Tour), Bedienungsanleitung (PDF), Was ist neu, "
@@ -669,6 +669,8 @@ def build_document() -> Document:
         eingabe=[
             "Manuelle Kanalzuweisung bei Bedarf",
             "UV-Zuordnung eines Aktors ändern (Zuweisungs-Dialog)",
+            "Gateways: je Gewerk «gemeinsam für das Projekt» (z. B. Revox für Studio "
+            "und Wohnung: ein Gateway mit 2 Zonen) oder «je Linie» (DALI)",
         ],
         berechnet=[
             "Schalt-, Dimm-, Jalousie- und Heizungsaktoren aus den Gewerken",
@@ -806,10 +808,14 @@ def build_document() -> Document:
             ("Offertanfragen",
              "Lieferanten und Anfragen verwalten; Offertanfragen automatisch aus der "
              "Materialliste erzeugen, als Excel oder PDF speichern oder «Per E-Mail…» "
-             "als Entwurf mit PDF-Anhang im Mailprogramm öffnen."),
+             "als Entwurf mit PDF-Anhang im Mailprogramm öffnen. «An weitere "
+             "Lieferanten…» fragt dieselben Positionen bei mehreren an; Offerten mit "
+             "Preis, Rabatt und Lieferfrist erfassen, «Preisvergleich…» als PDF."),
             ("Kundenofferte",
              "Automatische Angebotskalkulation basierend auf Materialliste und den "
-             "Stundensätzen aus dem Firmenprofil."),
+             "Stundensätzen aus dem Firmenprofil. Nachkalkulation je Offerte und "
+             "«Auswertung aller Projekte…» mit Marge, Abweichungen und Vorschlägen "
+             "für die Richtwerte."),
             ("Produktdatenblätter",
              "Produktdatenblätter zu den zugewiesenen Geräten, inkl. Online-Suche "
              "und Speichern von Links."),
@@ -834,8 +840,10 @@ def build_document() -> Document:
              "Berechnung und Prüfung der Kabellängen zwischen Verteilungen und Geräten "
              "je Linie."),
             ("DALI-Konfiguration",
-             "DALI-Gruppen und EVGs – automatisch aus importierten GAs ermittelt. "
-             "Nur relevant wenn DALI-Leuchten (LDA-Gewerk) vorhanden."),
+             "DALI-Gruppen und EVGs. Geplante Projekte: je LDA-Element eine Gruppe "
+             "mit allen ihren GAs, Name aus der Bezeichnung (z. B. «Wohnen Decke»); "
+             "importierte: aus den GAs bzw. KO-Namen ermittelt. Nur relevant wenn "
+             "DALI-Leuchten (LDA-Gewerk) vorhanden."),
             ("KNX Secure",
              "Konfiguration der KNX-Secure-Schlüssel für gesicherte Linien und Geräte."),
             ("Zeitsteuerung",
@@ -857,8 +865,9 @@ def build_document() -> Document:
             ("Berichte",
              "Sammelstelle zum Erzeugen von Berichten und Dokumentation "
              "(Revisionspaket, Abnahmeprotokoll u. a.). «Anleitung anpassen…» "
-             "passt die Bedienungsanleitung je Projekt an: eigene Texte, Abschnitte, "
-             "Text je Raum und Foto je Taster."),
+             "passt die Bedienungsanleitung je Projekt an: Sprache (Deutsch, "
+             "Französisch, Italienisch, Englisch), eigene Texte, Abschnitte, Text je "
+             "Raum und Foto je Taster."),
         ]
     )
     doc.add_paragraph()

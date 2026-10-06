@@ -2,6 +2,24 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.31",
+      "date": "2026-10-06",
+      "neu": [
+        "Bedienungsanleitung in Deutsch, Französisch, Italienisch und Englisch: Sprache des Bauherrn unter Berichte → «Anleitung anpassen…». Raumnamen und Bezeichnungen aus der ETS bleiben, wie sie erfasst sind.",
+        "Gateways gemeinsam für das Projekt oder je Linie (Schritt 8, Bereich «Gateways»): z.B. ein Revox-Gateway für Studio und Wohnung statt zwei. Vorgabe gemeinsam für Multimedia, Wärmepumpe, PV, Speicher, Wallbox, Lüftung und Klima; DALI und DMX je Linie.",
+        "Projektstatus «Gruppenadressen in die ETS übertragen» (Datei → Projekteigenschaften, auch nach dem CSV-Export angeboten): ab dann stehen die Adressen fest, «Adressen neu ordnen» ist gesperrt.",
+        "Offertanfragen: «An weitere Lieferanten…» fragt dieselben Positionen bei mehreren Lieferanten an; Offerten mit Preis, Rabatt und Lieferfrist erfassen, «Preisvergleich…» mit dem günstigsten Anbieter je Position und gesamt, als PDF. Der Zuschlag übernimmt die Nettopreise und lehnt die übrigen Anfragen ab.",
+        "Nachkalkulation → «Auswertung aller Projekte…»: Marge geplant und tatsächlich, häufigste Abweichungen, Verlauf über die Zeit und Vorschläge für die Richtwerte der Aufwandsschätzung."
+      ],
+      "verbessert": [
+        "DALI in geplanten Projekten: je LDA-Element eine DALI-Gruppe mit allen ihren Gruppenadressen (Schalten, Dimmen, Wert, Status, Szene, Störung), benannt nach der Bezeichnung aus Schritt 5, z.B. «Wohnen Decke». Die Konfiguration entsteht beim Öffnen der DALI-Ansicht; die DALI-Geräteliste zeigt die Gruppen und liegt auch ohne erfasste EVGs im Revisionspaket.",
+        "Schritt 5, Spalte «Bezeichnung»: breiter; der Tooltip zeigt, welcher Text zu welchem Element gehört (01 Nord, 02 Süd …), überzählige Texte färben die Zelle orange. Anleitung in der Hilfe zu Schritt 5 und im Handbuch."
+      ],
+      "behoben": [
+        "DALI: Bei neuen Projekten wurden Gruppenadressen einzelner Leuchtengruppen als Broadcast-Adressen des Gateways eingetragen und dabei Elemente vermischt (Schalten von «Decke», Szene von «Wand»). Früher so gespeicherte Einträge werden beim Öffnen bereinigt."
+      ]
+    },
+    {
       "version": "1.1.30",
       "date": "2026-10-06",
       "neu": [
