@@ -472,6 +472,13 @@ class CustomerQuoteView(QWidget):
         self._btn_postcalc.clicked.connect(self._run_postcalc)
         actual_form.addRow("", self._btn_postcalc)
 
+        self._btn_postcalc_all = QPushButton("Auswertung aller Projekte…")
+        self._btn_postcalc_all.setToolTip(
+            "Marge und Abweichungen aller nachkalkulierten Projekte, Verlauf und\n"
+            "Vorschläge für die Richtwerte der Aufwandsschätzung (FA-2205, FA-2206)")
+        self._btn_postcalc_all.clicked.connect(self._show_postcalc_overview)
+        actual_form.addRow("", self._btn_postcalc_all)
+
         actual_group.setLayout(actual_form)
         left.addWidget(actual_group)
         left.addStretch()
@@ -1036,6 +1043,21 @@ class CustomerQuoteView(QWidget):
 
         self._update_result(cq)
         self._refresh_quotes()
+
+    def _show_postcalc_overview(self) -> None:
+        """Nachkalkulation aller Projekte (FA-2205, FA-2206)."""
+        from PySide6.QtWidgets import QApplication
+        from ...services.post_calc_overview import default_project_files, load_results
+        from ...services.project_service import ProjectService
+        from ..dialogs.post_calc_overview_dialog import PostCalcOverviewDialog
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            results = load_results(default_project_files(), current=self._project)
+            service = ProjectService()
+            profile = service.load_company_profile()
+        finally:
+            QApplication.restoreOverrideCursor()
+        PostCalcOverviewDialog(results, profile, service.save_company_profile, self).exec()
 
     def _count_programmable_devices(self) -> int:
         """Zählt Busgeräte, die programmiert/in Betrieb genommen werden müssen
