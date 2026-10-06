@@ -222,11 +222,14 @@ class UserManualSettings:
     custom_sections: list[dict] = field(default_factory=list)
     room_texts: dict[str, str] = field(default_factory=dict)
     photos: dict[str, str] = field(default_factory=dict)
+    # Sprache des Bauherrn (FA-2006): "de", "fr", "it", "en"
+    language: str = "de"
 
     def to_dict(self) -> dict:
         return {"texts": dict(self.texts), "hidden": list(self.hidden),
                 "custom_sections": [dict(s) for s in self.custom_sections],
-                "room_texts": dict(self.room_texts), "photos": dict(self.photos)}
+                "room_texts": dict(self.room_texts), "photos": dict(self.photos),
+                "language": self.language}
 
     @classmethod
     def from_dict(cls, data: dict | None) -> UserManualSettings:
@@ -235,4 +238,5 @@ class UserManualSettings:
                    hidden=list(data.get("hidden", [])),
                    custom_sections=[dict(s) for s in data.get("custom_sections", [])],
                    room_texts=dict(data.get("room_texts", {})),
-                   photos=dict(data.get("photos", {})))
+                   photos=dict(data.get("photos", {})),
+                   language=data.get("language", "de"))

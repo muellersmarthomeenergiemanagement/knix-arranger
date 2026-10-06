@@ -107,6 +107,10 @@ class PdfGenerator:
 
         self._blocks: list[dict] = []
         self._client_profile = None   # ClientProfile für Deckblatt
+        # Beschriftungen von Kopf und Fuss; die Bedienungsanleitung setzt sie
+        # in der Sprache des Bauherrn (FA-2006)
+        self.labels = {"customer": "Kunde", "object": "Objekt", "date": "Datum",
+                       "page": "Seite", "continued": "Fortsetzung"}
 
         # Laufender Abschnitt beim Rendern (Akzentbalken, Fortsetzungstitel)
         self._sec_title = ""
@@ -535,7 +539,7 @@ class PdfGenerator:
         if not parts:
             return y
         fs = 8.5
-        label = "  –  ".join(parts) + "  (Fortsetzung)"
+        label = "  –  ".join(parts) + f"  ({self.labels['continued']})"
         label = self._wrap_cell(label, self.content_width, fs)[0]
         color = self._accent or (0.3, 0.3, 0.3)
         self._txt(page, fitz.Point(self.MARGIN, y + fs - 4), label, fs,
@@ -1171,9 +1175,9 @@ class PdfGenerator:
             yr += 14
 
         for label, value in [
-            ("Kunde",  self.client_name),
-            ("Objekt", self.project_address),
-            ("Datum",  self.project_date),
+            (self.labels["customer"], self.client_name),
+            (self.labels["object"], self.project_address),
+            (self.labels["date"], self.project_date),
         ]:
             if not value:
                 continue
@@ -1211,7 +1215,7 @@ class PdfGenerator:
             self._txt(page, fitz.Point((self.PAGE_W - tw) / 2, y),
                       licensee, 7.5, color=(0.5, 0.5, 0.5))
 
-        page_text = f"Seite {page_num} / {total}"
+        page_text = f"{self.labels['page']} {page_num} / {total}"
         tw = self._tw(page_text, 7.5)
         self._txt(page, fitz.Point(self.PAGE_W - margin - tw, y),
                   page_text, 7.5, color=(0.5, 0.5, 0.5))

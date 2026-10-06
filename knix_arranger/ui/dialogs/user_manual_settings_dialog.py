@@ -12,11 +12,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTabWidget, QWidget,
     QPlainTextEdit, QCheckBox, QListWidget, QListWidgetItem, QLineEdit,
-    QFileDialog, QSplitter, QFormLayout,
+    QFileDialog, QSplitter, QFormLayout, QComboBox,
 )
 
 from ...models.documentation import UserManualSettings
 from ...services.ets_corrections import room_key
+from ...services.manual_i18n import MANUAL_LANGUAGES, ManualLanguage, language_name
 from ...services.user_manual import MANUAL_SECTIONS, MANUAL_TEXTS, photo_key
 
 PHOTO_FOLDER = "Fotos"
@@ -90,6 +91,17 @@ class UserManualSettingsDialog(QDialog):
     def _texts_tab(self) -> QWidget:
         page = QWidget()
         form = QFormLayout(page)
+        # Sprache des Bauherrn (FA-2006)
+        self._language = QComboBox()
+        for code in MANUAL_LANGUAGES:
+            self._language.addItem(language_name(code), code)
+        idx = self._language.findData(self.settings.language)
+        self._language.setCurrentIndex(max(idx, 0))
+        self._language.setToolTip(
+            "Sprache der Anleitung. Eigene Texte bitte in dieser Sprache erfassen; "
+            "Raumnamen und Bezeichnungen aus dem Projekt bleiben, wie sie erfasst sind.")
+        self._language.currentIndexChanged.connect(self._update_placeholders)
+        form.addRow("Sprache der Anleitung:", self._language)
         self._text_edits: dict[str, QPlainTextEdit] = {}
         for key, (label, default) in MANUAL_TEXTS.items():
             edit = QPlainTextEdit(self.settings.texts.get(key, ""))
@@ -103,7 +115,14 @@ class UserManualSettingsDialog(QDialog):
             row.addWidget(reset, alignment=Qt.AlignTop)
             form.addRow(f"{label}:", row)
             self._text_edits[key] = edit
+        self._update_placeholders()
         return page
+
+    def _update_placeholders(self, *_args) -> None:
+        """Standardtexte der gewählten Sprache grau im leeren Feld."""
+        lang = ManualLanguage(self._language.currentData() or "de")
+        for key, edit in self._text_edits.items():
+            edit.setPlaceholderText(lang.text(key) if key != "tipps" else _TIPS_PLACEHOLDER)
 
     # ── Abschnitte ──
 
@@ -326,4 +345,5 @@ class UserManualSettingsDialog(QDialog):
             if r.get("title", "").strip() or r.get("text", "").strip()]
         s.room_texts = {k: v.strip() for k, v in self._room_texts.items() if v.strip()}
         s.photos = dict(self._photos)
+        s.language = self._language.currentData() or "de"
         self.accept()

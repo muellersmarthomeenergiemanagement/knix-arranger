@@ -25,6 +25,7 @@ from datetime import datetime
 
 from .building_service import BuildingService
 from .ets_corrections import room_key
+from .manual_i18n import ManualLanguage
 from .bedienelement_layout import ButtonKey, group_assignments, _PAREN_RE, _SCENE_RE
 from .gewerk_service import GewerkService
 from .report_sorting import sorted_rooms
@@ -446,28 +447,15 @@ def _friendly_type(be) -> str:
 
 # ── Anpassungen (FA-2005) ──────────────────────────────────────────────────
 
-# Anpassbare Texte: Schlüssel -> (Bezeichnung, Standardtext). Der Standard der
-# Bedientipps hängt vom Projekt ab (Dimmen, Storen, …) und steht daher nicht hier.
+# Anpassbare Texte: Schlüssel -> (Bezeichnung, deutscher Standardtext). Die
+# Standardtexte stehen in i18n/manual_<sprache>.json (FA-2006). Der Standard
+# der Bedientipps hängt vom Projekt ab (Dimmen, Storen, …) und steht daher nicht hier.
+_DE = ManualLanguage("de")
 MANUAL_TEXTS: dict[str, tuple[str, str]] = {
-    "intro": ("Einleitung",
-              "Diese Anleitung zeigt Ihnen Raum für Raum, was die Taster in Ihrem Haus "
-              "bewirken und wie Sie sie bedienen. Jeder Taster ist so abgebildet, wie er "
-              "an der Wand aussieht."),
-    "haus": ("Ihr Haus in Kürze",
-             "Ihr Haus ist mit KNX ausgestattet. Taster, Präsenzmelder und Sensoren "
-             "geben ihre Befehle über eine eigene Steuerleitung an Schaltgeräte im "
-             "Verteiler weiter, die Licht, Storen und Heizung steuern. Deshalb kann ein "
-             "Taster auch Leuchten in einem anderen Raum schalten, und Funktionen lassen "
-             "sich später ohne neue Leitungen ändern."),
+    "intro": ("Einleitung", _DE.text("intro")),
+    "haus": ("Ihr Haus in Kürze", _DE.text("haus")),
     "tipps": ("So bedienen Sie Ihre Taster", ""),
-    "stoerungen": ("Wenn etwas nicht funktioniert", "\n".join(f"• {tip}" for tip in (
-        "Eine Leuchte reagiert nicht: zuerst prüfen, ob das Leuchtmittel defekt ist "
-        "und ob im Sicherungskasten eine Sicherung ausgelöst hat.",
-        "Mehrere Taster reagieren nicht mehr: Bitte nichts selbst verändern und uns "
-        "kontaktieren – vermutlich ist die Steuerung betroffen.",
-        "Storen fahren nicht: Bei Wind oder Frost sind sie zum Schutz oft gesperrt "
-        "und fahren erst wieder, wenn die Gefahr vorbei ist.",
-    ))),
+    "stoerungen": ("Wenn etwas nicht funktioniert", _DE.text("stoerungen")),
 }
 
 # Ausblendbare Abschnitte: Schlüssel -> Bezeichnung
@@ -492,11 +480,11 @@ def photo_key(room_key: str, be) -> str:
 
 # ── Zeitsteuerung in Alltagssprache (FA-3307a) ────────────────────────────
 
-def _time_words(sp) -> str:
+def _time_words(sp, lang: ManualLanguage = _DE) -> str:
     """"07:00 Uhr" bzw. "Sonnenuntergang + 15 min"."""
     if sp.time_type != "ASTRO":
-        return f"{sp.fixed_time} Uhr"
-    event = "Sonnenaufgang" if sp.astro_event == "SUNRISE" else "Sonnenuntergang"
+        return lang.text("time_oclock", time=sp.fixed_time)
+    event = lang.text("sunrise" if sp.astro_event == "SUNRISE" else "sunset")
     offset = sp.astro_offset_min
     if not offset:
         return event
@@ -520,14 +508,17 @@ def _action_words(sp, ga) -> str:
     return value
 
 
-def _period_words(sp) -> str:
+def _period_words(sp, lang: ManualLanguage = _DE) -> str:
+    # Tag und Monat ohne Jahr im Format der Sprache: 06.10. bzw. 06/10
+    day_month = "%d/%m" if "/" in lang.date_format else "%d.%m."
+
     def fmt(value: str) -> str:
         try:
-            return datetime.strptime(value, "%Y-%m-%d").strftime("%d.%m.")
+            return datetime.strptime(value, "%Y-%m-%d").strftime(day_month)
         except ValueError:
             return value or "…"
     if not (sp.date_range_start or sp.date_range_end):
-        return "ganzjährig"
+        return lang.text("all_year")
     return f"{fmt(sp.date_range_start)} – {fmt(sp.date_range_end)}"
 
 
@@ -546,15 +537,22 @@ class _KeyLine:
 class UserManualBuilder:
     """Baut die Bedienungsanleitung in einen PdfGenerator."""
 
-    def __init__(self, project, company_profile=None, snapshot: bool = True):
+    def __init__(self, project, company_profile=None, snapshot: bool = True,
+                 language: str | None = None):
         """snapshot=False: liest das Projekt direkt (Bauherrenberatung, nur
         zur Anzeige der automatischen Bezeichnungen) statt einer frisch
-        abgeleiteten Kopie."""
+        abgeleiteten Kopie.
+        language: Sprache der Anleitung (FA-2006); ohne Angabe die des
+        Projekts (Anleitung anpassen), sonst Deutsch."""
         from .sensor_service import project_for_export
         self.project = project_for_export(project) if snapshot else project
         self.company = company_profile
         self.catalog = self.project.gewerk_catalog
         self.settings = getattr(self.project, "manual_settings", None)
+        self.lang = ManualLanguage(
+            language or (self.settings.language if self.settings else "") or "de")
+        self.t = self.lang.text        # fester Text
+        self.p = self.lang.phrase      # erzeugter Text
         self.ga_by_address = {g.address: g for g in self.project.group_addresses.all_addresses()}
         # Geplante Projekte verweisen auf GAs per Bezeichnung ("LDA_M01_01 E/A")
         from .belegungsplan_service import build_ga_by_designation
@@ -762,26 +760,37 @@ class UserManualBuilder:
                     uses["led"] |= bool(kl.led)
                     first = self._first_ga(be, kl.key)
                     if first is not None and first.main_group == 0:
-                        central.append((kl.label, room.name, f"{_friendly_type(be)}, Taste {kl.key.label()}"))
+                        central.append((kl.label, room.name, _friendly_type(be),
+                                        kl.key.label()))
             device = [self.device_by_addr.get(be.participant_number or "") for be, _ in cards]
             uses["nacht"] |= any(d and "nachtabsenkung" in d.button_configuration.lower()
                                  or (d and any("nachtabsenkung" in (c.name or "").lower()
                                                for c in d.communication_objects))
                                  for d in device)
-            specials = [sensor_sentence(be.element_type, be.product_name) for be in sensors]
-            specials += [sensor_sentence(d.product or "", d.product_name) for d in extra_sensors.get(room.id, [])]
+            # gleich in der Sprache des Bauherrn (FA-2006)
+            specials = [self.p(sensor_sentence(be.element_type, be.product_name)) for be in sensors]
+            specials += [self.p(sensor_sentence(d.product or "", d.product_name))
+                         for d in extra_sensors.get(room.id, [])]
             if heating and not any("thermostat" in (be.element_type or "").lower() for be, _ in cards):
-                specials.append("Heizung: Die Raumtemperatur wird automatisch geregelt.")
+                specials.append(self.t("heating_auto"))
             specials = list(dict.fromkeys(specials))
             if cards or specials:
                 entries.append((room, cards, specials))
+
+        # Kopf, Fuss und Datum in der Sprache des Bauherrn (FA-2006, NFA-156)
+        t, p = self.t, self.p
+        if hasattr(pdf, "labels"):
+            pdf.labels = {key: t(f"label_{key}") for key in
+                          ("customer", "object", "date", "page", "continued")}
+            pdf.title = t("title")
+            pdf.project_date = self.lang.date()
 
         self._intro(pdf, entries, floor_by_room, zone_by_room, custom_intro)
         self._general(pdf, uses, central)
 
         current_floor = None
         for room, cards, specials in entries:
-            floor = floor_by_room.get(room.id, "") or "Ohne Stockwerk"
+            floor = p(floor_by_room.get(room.id, "")) or t("no_floor")
             if floor != current_floor:
                 pdf.add_page_break()
                 pdf.add_heading(floor, level=2)
@@ -799,46 +808,47 @@ class UserManualBuilder:
             for i, (be, lines) in enumerate(cards):
                 device = self.device_by_addr.get(be.participant_number or "")
                 location = (device.installation_location or "").strip() if device else ""
-                title = _friendly_type(be)
+                title = p(_friendly_type(be))
                 if location and room.name.lower() not in location.lower():
                     title += f" – {location}"
                 if i:
                     pdf.add_conditional_break(min_height=min(120 + 34 * len(lines), 520))
                 pdf.add_card_header(
                     title,
-                    f"Gerätenummer {be.participant_number}" if be.participant_number else "",
+                    t("device_number", pa=be.participant_number) if be.participant_number else "",
                     bookmark=f"{room.name}: {title}",
                 )
-                pdf.add_button_plan(self.plan(lines),
+                plan = [{"number": row["number"],
+                         "cells": [(p(title), p(detail)) for title, detail in row["cells"]]}
+                        for row in self.plan(lines)]
+                pdf.add_button_plan(plan,
                                     photo=self._photo(photo_key(rkey, be)))
                 # Gleiche Leuchtanzeige bei allen Tasten: einmal unter der Tabelle
                 leds = {kl.led for kl in lines}
                 common_led = leds.pop() if len(leds) == 1 else ""
                 pdf.add_table(
-                    ["Taste", "Funktion", "Bedienung"],
-                    [[kl.key.label(), kl.label,
-                      ("\n".join(kl.how), "" if common_led else kl.led)] for kl in lines],
+                    [t("col_key"), t("col_function"), t("col_operation")],
+                    [[p(kl.key.label()), p(kl.label),
+                      (p("\n".join(kl.how)), "" if common_led else p(kl.led))] for kl in lines],
                     col_widths=[0.13, 0.32, 0.55],
                 )
                 if common_led:
                     label, _, text = common_led.partition(": ")
-                    pdf.add_note(f"{label}:", f"{text} (alle Tasten)")
-                scene_lines = [f"{kl.label.removeprefix('Szene ')}: {kl.scene_text}"
+                    pdf.add_note(f"{p(label)}:", f"{p(text)} ({t('all_keys')})")
+                scene_lines = [f"{kl.label.removeprefix('Szene ')}: {p(kl.scene_text)}"
                                for kl in lines if kl.scene_text]
                 if scene_lines and self._shown("szenen"):
-                    pdf.add_heading("Szenen", level=4)
+                    pdf.add_heading(t("scenes"), level=4)
                     pdf.add_paragraph("\n".join(f"• {line}" for line in scene_lines))
                 thermostat = sorted(n for n, philo in parse_button_configuration(
                     device.button_configuration if device else "").philosophy.items()
                     if "thermostat" in philo.lower())
                 if thermostat:
-                    keys = " und ".join(str(n) for n in thermostat)
-                    pdf.add_note("Raumthermostat:",
-                                 f"Taste {keys}: gewünschte Raumtemperatur höher oder "
-                                 "tiefer einstellen.")
+                    keys = f" {t('and')} ".join(str(n) for n in thermostat)
+                    pdf.add_note(t("thermostat_label"), t("thermostat_text", keys=keys))
             if specials and self._shown("automatisch"):
                 pdf.add_conditional_break(min_height=40 + 14 * len(specials))
-                pdf.add_heading("Automatisch", level=4)
+                pdf.add_heading(t("automatic"), level=4)
                 pdf.add_paragraph("\n".join(f"• {sp}" for sp in specials))
             pdf.add_separator()
 
@@ -851,22 +861,23 @@ class UserManualBuilder:
             return
         rooms = {r.id: r.name for r in self.project.all_rooms}
         ga_by_id = {g.id: g for g in self.project.group_addresses.all_addresses()}
-        pdf.add_heading("Automatische Zeitsteuerung", level=3)
-        pdf.add_paragraph("Diese Funktionen laufen automatisch nach Uhrzeit oder "
-                          "Sonnenstand. Sie können jederzeit von Hand übersteuert werden.")
+        t, p = self.t, self.p
+        pdf.add_heading(t("heading_zeit"), level=3)
+        pdf.add_paragraph(t("time_intro"))
         for tp in programs:
             rows = []
             for dp in tp.day_profiles:
-                days = ", ".join(dp.weekdays) or "–"
+                days = ", ".join(p(day) for day in dp.weekdays) or "–"
                 for sp in dp.switch_points:
                     ga = ga_by_id.get(sp.target_ga_id)
                     room = rooms.get(ga.room_id, "") if ga else ""
-                    what = object_label(ga, self.catalog, room) if ga else "–"
+                    what = p(object_label(ga, self.catalog, room)) if ga else "–"
                     where = f"{room} – {what}" if room and what and what != room else (what or room)
-                    rows.append([_time_words(sp), where or "–", _action_words(sp, ga),
-                                 days, _period_words(sp)])
+                    rows.append([_time_words(sp, self.lang), where or "–",
+                                 p(_action_words(sp, ga)), days, _period_words(sp, self.lang)])
             pdf.add_note(f"{tp.name}:", "")
-            pdf.add_table(["Zeitpunkt", "Was", "Aktion", "Tage", "Zeitraum"], rows,
+            pdf.add_table([t("col_time"), t("col_what"), t("col_action"), t("col_days"),
+                           t("col_period")], rows,
                           col_widths=[0.20, 0.32, 0.12, 0.20, 0.16])
 
     # ── Anpassungen (FA-2005) ──
@@ -880,8 +891,9 @@ class UserManualBuilder:
         return (getattr(self.settings, attr).get(key) or "").strip()
 
     def _text(self, key: str) -> str:
-        """Eigener Text des Projekts, sonst der Standardtext."""
-        return self._settings_value("texts", key) or MANUAL_TEXTS[key][1]
+        """Eigener Text des Projekts, sonst der Standardtext der Sprache."""
+        return self._settings_value("texts", key) or (
+            self.lang.text(key) if key != "tipps" else "")
 
     def _photo(self, key: str) -> str:
         path = self._settings_value("photos", key)
@@ -890,25 +902,22 @@ class UserManualBuilder:
             path = os.path.join(folder, path)
         return path
 
-    @staticmethod
-    def default_tips(uses) -> str:
+    def default_tips(self, uses) -> str:
         """Standard der Bedientipps, abhängig von den Funktionen im Projekt."""
-        tips = ["Kurz drücken: Antippen, z.B. Licht ein oder aus."]
+        keys = ["tip_short"]
         if uses["lang"] or uses["dimmen"] or uses["jalousie"]:
-            tips.append("Lang drücken: Taste gedrückt halten (etwa eine Sekunde oder länger).")
+            keys.append("tip_long")
         if uses["dimmen"]:
-            tips.append("Dimmen: Taste gedrückt halten, bis die gewünschte Helligkeit "
-                        "erreicht ist, dann loslassen.")
+            keys.append("tip_dim")
         if uses["jalousie"]:
-            tips.append("Storen: lang drücken fährt ganz auf oder ab; kurz drücken stoppt "
-                        "die Fahrt oder verstellt die Lamellen.")
+            keys.append("tip_blinds")
         if uses["doppel"]:
-            tips.append("Doppelklick: zweimal kurz hintereinander drücken.")
+            keys.append("tip_double")
         if uses["led"]:
-            tips.append("Leuchtanzeigen an den Tasten zeigen, ob die Funktion eingeschaltet ist.")
+            keys.append("tip_led")
         if uses["nacht"]:
-            tips.append("Nachts werden die Leuchtanzeigen automatisch gedimmt.")
-        return "\n".join(f"• {tip}" for tip in tips)
+            keys.append("tip_night")
+        return "\n".join(f"• {self.t(key)}" for key in keys)
 
     def _first_ga(self, be, key: ButtonKey):
         for fa in be.function_assignments:
@@ -929,64 +938,65 @@ class UserManualBuilder:
         from ..utils.pdf_generator import PageRef
         project = self.project
         client = getattr(project, "client_profile", None)
-        pdf.add_heading("Bedienungsanleitung", level=1)
+        t = self.t
+        pdf.add_heading(t("title"), level=1)
         who = client.name if client and client.name else ""
         obj = client.object_address if client and client.object_address else ""
-        pdf.add_paragraph(" | ".join(p for p in (
-            f"Für: {who}" if who else "", obj, f"Projekt: {project.name}",
-            f"Stand: {datetime.now().strftime('%d.%m.%Y')}") if p))
+        pdf.add_paragraph(" | ".join(part for part in (
+            t("for", name=who) if who else "", obj, t("project", name=project.name),
+            t("status", date=self.lang.date())) if part))
         pdf.add_separator()
         pdf.add_paragraph(custom_intro or self._text("intro"))
-        pdf.add_heading("Inhalt", level=2)
-        rows = [["Allgemeines", "So bedienen Sie Ihre Taster, zentrale Funktionen, bei Störungen, Kontakt",
-                 PageRef("general")]]
+        pdf.add_heading(t("toc"), level=2)
+        rows = [[t("general"), t("toc_general"), PageRef("general")]]
         for room, cards, _specials in entries:
-            floor = floor_by_room.get(room.id, "")
+            floor = self.p(floor_by_room.get(room.id, ""))
             n = len(cards)
-            what = f"{n} Taster" if n else "nur automatische Funktionen"
+            what = t("toc_buttons", n=n) if n else t("toc_auto_only")
             rows.append([floor, self._room_label(room, zone_by_room) + f"  ({what})",
                          PageRef(f"room:{room.id}")])
-        pdf.add_table(["Stockwerk", "Raum", "Seite"], rows,
+        pdf.add_table([t("col_floor"), t("col_room"), t("col_page")], rows,
                       col_widths=[0.22, 0.68, 0.10], align=["left", "left", "right"])
 
     def _general(self, pdf, uses, central):
         pdf.add_page_break()
         pdf.add_anchor("general")
-        pdf.add_heading("Allgemeines", level=2)
+        t, p = self.t, self.p
+        pdf.add_heading(t("general"), level=2)
         if self._shown("haus"):
-            pdf.add_heading("Ihr Haus in Kürze", level=3)
+            pdf.add_heading(t("heading_haus"), level=3)
             pdf.add_paragraph(self._text("haus"))
         if self._shown("tipps"):
-            pdf.add_heading("So bedienen Sie Ihre Taster", level=3)
+            pdf.add_heading(t("heading_tipps"), level=3)
             pdf.add_paragraph(self._text("tipps") or self.default_tips(uses))
         if central and self._shown("zentral"):
-            pdf.add_heading("Zentrale Funktionen", level=3)
-            pdf.add_paragraph("Diese Tasten wirken auf mehrere Räume oder das ganze Haus:")
+            pdf.add_heading(t("heading_zentral"), level=3)
+            pdf.add_paragraph(t("central_intro"))
             seen = set()
             rows = []
-            for label, room, where in central:
+            for label, room, kind, key in central:
                 if (label, room) in seen:
                     continue
                 seen.add((label, room))
-                rows.append([label, f"{room} – {where}"])
-            pdf.add_table(["Funktion", "Wo"], rows, col_widths=[0.4, 0.6])
+                rows.append([p(label), t("central_where", room=room, type=p(kind), key=p(key))])
+            pdf.add_table([t("col_function"), t("col_where")], rows, col_widths=[0.4, 0.6])
         if self._shown("zeitsteuerung"):
             self._time_programs(pdf)
         if self._shown("stoerungen"):
-            pdf.add_heading("Wenn etwas nicht funktioniert", level=3)
+            pdf.add_heading(t("heading_stoerungen"), level=3)
             pdf.add_paragraph(self._text("stoerungen"))
         for section in (self.settings.custom_sections if self.settings else []):
             title = (section.get("title") or "").strip()
             text = (section.get("text") or "").strip()
             if title or text:
-                pdf.add_heading(title or "Hinweis", level=3)
+                pdf.add_heading(title or t("hint"), level=3)
                 if text:
                     pdf.add_paragraph(text)
         if not self._shown("ansprechpartner"):
             return
         c = self.company
         if c and (c.company_name or c.user_name):
-            pdf.add_heading("Ihr Ansprechpartner", level=3)
+            pdf.add_heading(t("heading_kontakt"), level=3)
             person = ", ".join(p for p in (c.user_name, c.role) if p)
             lines = [c.company_name, person, c.address,
                      " | ".join(p for p in (c.phone, c.email, c.website) if p)]

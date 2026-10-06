@@ -793,22 +793,24 @@ class DocumentationService:
 
     # -- Bedienungsanleitung (FA-2001) --
 
-    def generate_user_manual(self, filepath: str, language: str = "de",
+    def generate_user_manual(self, filepath: str, language: str | None = None,
                              custom_intro: str = "",
                              include_scenes: bool = True):
         """Erzeugt die Bedienungsanleitung für den Bauherrn (FA-2001 bis
-        FA-2004), siehe services/user_manual.py. Derzeit nur Deutsch;
-        language und include_scenes bleiben für bestehende Aufrufe erhalten."""
+        FA-2006), siehe services/user_manual.py. language: "de", "fr", "it"
+        oder "en"; ohne Angabe die Sprache aus «Anleitung anpassen».
+        include_scenes bleibt für bestehende Aufrufe erhalten."""
         from .user_manual import UserManualBuilder
         pdf = self._make_pdf("Bedienungsanleitung")
-        UserManualBuilder(self.project, self._company_profile).build(pdf, custom_intro)
+        UserManualBuilder(self.project, self._company_profile,
+                          language=language).build(pdf, custom_intro)
         pdf.save(filepath)
         logger.info(f"Bedienungsanleitung erstellt: {filepath}")
 
     # -- Revisionspaket (FA-2100) --
 
     def generate_revision_package(self, output_dir: str, revision: str = "",
-                                   language: str = "de", parts=None,
+                                   language: str | None = None, parts=None,
                                    revision_date: str = "", note: str = ""):
         """Erzeugt ein komplettes Revisionspaket (FA-2101 bis FA-2106).
 
