@@ -129,6 +129,12 @@ VALIDATION_RULES = {
         "wie ihr Befehl in MG 0/1 (GA-07).",
         "Bei geplanten Projekten Adressen in Schritt 10 neu erzeugen.",
     ),
+    "FA-609": (
+        "Geräteanzahl je Linie",
+        "Empfohlen sind höchstens 85 Geräte je Linie, realisiert höchstens 100 "
+        "(KNX Swiss), im Modus TP-64 höchstens 64.",
+        "Linie aufteilen oder Reserve einplanen.",
+    ),
     "FA-610": (
         "Bezeichnung nicht KNX-Swiss-konform",
         "Erwartetes Format: GEWERK_RAUM_NR FUNKTION (Klartext). Die "
@@ -136,6 +142,28 @@ VALIDATION_RULES = {
         "geplanten Projekten aber ein Raum der Gebäudestruktur sein.",
         "Bei importierten Projekten mit eigenem Namensschema kann dieser "
         "Hinweis ignoriert werden.",
+    ),
+    "FA-611": (
+        "Verknüpfung mit Gruppenadresse",
+        "Warnung: ein Kommunikationsobjekt ist mit einer GA verknüpft, die in "
+        "der GA-Struktur fehlt. Hinweis (importierte Projekte): eine GA ist "
+        "mit keinem Kommunikationsobjekt verknüpft.",
+        "Fehlende GA anlegen bzw. Verknüpfung prüfen; unverknüpfte GAs "
+        "verknüpfen oder als Reserve belassen.",
+    ),
+    "FA-612": (
+        "Physikalische Adresse",
+        "Die physikalische Adresse passt nicht zu Bereich und Linie des Geräts, "
+        "ist doppelt vergeben, ungültig oder verwendet Teilnehmer 0, der dem "
+        "Koppler vorbehalten ist.",
+        "Freie Adresse in der Linie des Geräts vergeben.",
+    ),
+    "FA-613": (
+        "Linie ohne Spannungsversorgung",
+        "Jede Linie mit Busteilnehmern braucht eine eigene Spannungsversorgung. "
+        "Bei importierten Projekten nur Hinweis: Spannungsversorgungen ohne "
+        "Busanschluss fehlen in vielen ETS-Projekten.",
+        "Spannungsversorgung mit Drossel vorsehen bzw. in der Topologie erfassen.",
     ),
     "FA-614": (
         "Verknüpfung: mehrere sendende GAs an einem Sensorkanal",

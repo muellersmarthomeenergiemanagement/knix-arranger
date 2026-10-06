@@ -77,6 +77,9 @@ class ValidationEngine:
             issues.extend(self._check_astro_gas(structure, project))
             issues.extend(self._check_multi_ga_keys(project))
             issues.extend(self._check_ets_deviations(project))
+            # FA-609, FA-611 bis FA-613: Topologie
+            from .topology_validation import check_topology
+            issues.extend(check_topology(project))
             self._grade_guidelines(issues, project)
 
         return issues
