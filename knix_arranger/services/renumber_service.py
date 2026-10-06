@@ -185,7 +185,8 @@ def remap_ga_references(project, address_map: dict[str, str]) -> int:
                      "ga_status_value", "ga_status_fault"):
             setattr(gw, name, swap(getattr(gw, name)))
         for group in gw.groups:
-            for name in ("ga_switch", "ga_dim", "ga_value"):
+            for name in ("ga_switch", "ga_dim", "ga_value", "ga_status", "ga_scene",
+                         "ga_fault"):
                 setattr(group, name, swap(getattr(group, name)))
 
     for area in project.topology.areas:

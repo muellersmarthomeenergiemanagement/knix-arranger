@@ -65,6 +65,10 @@ class DaliGroup:
     ga_switch: str = ""               # Schalten Gruppe
     ga_dim: str = ""                  # Dimmen Gruppe
     ga_value: str = ""                # Helligkeitswert Gruppe
+    # Weitere GAs je Gruppe, wie sie KNiX je LDA-Element erzeugt (FA-2803)
+    ga_status: str = ""               # Rückmeldung Helligkeitswert (sonst Schalten)
+    ga_scene: str = ""                # Szene der Gruppe
+    ga_fault: str = ""                # Störung der Gruppe
 
     def to_dict(self) -> dict:
         return {
@@ -74,6 +78,9 @@ class DaliGroup:
             "ga_switch": self.ga_switch,
             "ga_dim": self.ga_dim,
             "ga_value": self.ga_value,
+            "ga_status": self.ga_status,
+            "ga_scene": self.ga_scene,
+            "ga_fault": self.ga_fault,
         }
 
     @classmethod
@@ -85,6 +92,9 @@ class DaliGroup:
             ga_switch=d.get("ga_switch", ""),
             ga_dim=d.get("ga_dim", ""),
             ga_value=d.get("ga_value", ""),
+            ga_status=d.get("ga_status", ""),
+            ga_scene=d.get("ga_scene", ""),
+            ga_fault=d.get("ga_fault", ""),
         )
 
 

@@ -34,7 +34,16 @@ _CG_DEVS   = 2
 _CG_SWITCH = 3
 _CG_DIM    = 4
 _CG_VALUE  = 5
-_CG_COLS   = 6
+_CG_STATUS = 6
+_CG_SCENE  = 7
+_CG_FAULT  = 8
+_CG_COLS   = 9
+
+# Spalte -> Feld der DaliGroup für die GA-Spalten der Gruppentabelle
+_CG_GA_FIELDS = {
+    _CG_SWITCH: "ga_switch", _CG_DIM: "ga_dim", _CG_VALUE: "ga_value",
+    _CG_STATUS: "ga_status", _CG_SCENE: "ga_scene", _CG_FAULT: "ga_fault",
+}
 
 
 class DaliConfigView(QWidget):
@@ -118,6 +127,8 @@ class DaliConfigView(QWidget):
     def refresh(self):
         """Liest Gateways aus Topologie neu ein und aktualisiert die Anzeige."""
         self._gw_list.clear()
+        # Geplante Projekte: Gruppen aus der Planung (je LDA-Element eine Gruppe)
+        self._service.configure_planned(self._project)
         gateways = self._service.get_dali_gateways_from_topology(self._project)
 
         # Nur Gateways anzeigen, die aktuell in der Topologie vorhanden sind.
@@ -274,7 +285,8 @@ class DaliConfigView(QWidget):
         self._groups_table = QTableWidget()
         self._groups_table.setColumnCount(_CG_COLS)
         self._groups_table.setHorizontalHeaderLabels([
-            "Nr.", "Name", "Geräte (Adressen)", "GA Schalten", "GA Dimmen", "GA Wert"
+            "Nr.", "Name", "Geräte (Adressen)", "GA Schalten", "GA Dimmen", "GA Wert",
+            "GA Status", "GA Szene", "GA Störung",
         ])
         self._groups_table.horizontalHeader().setSectionResizeMode(
             _CG_NAME, QHeaderView.Stretch
@@ -355,9 +367,8 @@ class DaliConfigView(QWidget):
                 # Bearbeitung erfolgt über den EVG-Dialog.
                 devs_item.setFlags(devs_item.flags() & ~Qt.ItemIsEditable)
                 self._groups_table.setItem(i, _CG_DEVS, devs_item)
-                self._groups_table.setItem(i, _CG_SWITCH, QTableWidgetItem(grp.ga_switch))
-                self._groups_table.setItem(i, _CG_DIM,    QTableWidgetItem(grp.ga_dim))
-                self._groups_table.setItem(i, _CG_VALUE,  QTableWidgetItem(grp.ga_value))
+                for col, attr in _CG_GA_FIELDS.items():
+                    self._groups_table.setItem(i, col, QTableWidgetItem(getattr(grp, attr)))
             fit_columns(self._groups_table)
         finally:
             self._populating = False
@@ -379,7 +390,7 @@ class DaliConfigView(QWidget):
         text = item.text().strip()
         if col == _CG_NAME:
             grp.name = text
-        elif col in (_CG_SWITCH, _CG_DIM, _CG_VALUE):
+        elif col in _CG_GA_FIELDS:
             if text and not _GA_RE.match(text):
                 QMessageBox.warning(
                     self, "Ungültige GA-Adresse",
@@ -387,12 +398,7 @@ class DaliConfigView(QWidget):
                 )
                 self._populate_groups_table(self._current_gw)
                 return
-            if col == _CG_SWITCH:
-                grp.ga_switch = text
-            elif col == _CG_DIM:
-                grp.ga_dim = text
-            else:
-                grp.ga_value = text
+            setattr(grp, _CG_GA_FIELDS[col], text)
         self._project.touch()
 
     def _add_group(self):
@@ -652,10 +658,16 @@ class DaliConfigView(QWidget):
         n = self._service.link_gas_from_structure(gw, self._project)
         self._populate_ga_tab(gw)
         self._populate_scenes_table(gw)
+        planned_hint = (
+            "\n\nIn geplanten Projekten erzeugt KNiX keine Broadcast-GAs: jede "
+            "DALI-Gruppe hat ihre eigenen GAs (Register «Gruppen»). Eine "
+            "Broadcast-GA, z.B. die Zentraladresse «Alle Lichter AUS», hier bei "
+            "Bedarf von Hand eintragen."
+            if not self._project.topology.is_imported else "")
         QMessageBox.information(
             self, "GAs verknüpft",
-            f"{n} KNX-Gruppenadresse(n) automatisch dem Gateway zugeordnet."
-            if n else "Keine passenden GAs gefunden."
+            (f"{n} KNX-Gruppenadresse(n) automatisch dem Gateway zugeordnet."
+             if n else "Keine passenden GAs gefunden.") + planned_hint
         )
 
 

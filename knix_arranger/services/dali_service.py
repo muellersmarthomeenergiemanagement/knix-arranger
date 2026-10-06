@@ -354,6 +354,25 @@ _KO_EVG_RE = re.compile(
 )
 
 
+# Geplante Projekte: Funktion einer LDA-GA (GroupAddress.function_name) ->
+# Feld der DALI-Gruppe. RM WERT hat beim Status Vorrang vor RM.
+_PLANNED_FUNC_TO_FIELD = {
+    "E/A": "ga_switch", "DIM": "ga_dim", "WERT": "ga_value",
+    "RM WERT": "ga_status", "RM": "ga_status",
+    "SZENE": "ga_scene", "STOERUNG": "ga_fault",
+}
+# Gruppen je DALI-Gateway (DALI-Standard)
+DALI_MAX_GROUPS = 16
+
+
+def _address_key(address: str) -> tuple:
+    """Numerische Sortierung "2/0/5" < "2/0/15" (als Text wäre es umgekehrt)."""
+    try:
+        return tuple(int(p) for p in address.split("/"))
+    except ValueError:
+        return (999, 999, 999)
+
+
 class DaliService:
     """Verwaltung der DALI-Konfigurationen eines Projekts."""
 
@@ -421,6 +440,17 @@ class DaliService:
         all_gas = project.group_addresses.all_addresses()
         linked = 0
 
+        # Von KNiX erzeugte LDA-GAs eines Raum-Elements ("LDA_E01_01 E/A",
+        # Gewerk LDA mit Raumbezug) gehören zu genau einer Gruppe (siehe
+        # derive_groups_from_planning), sie sind keine Broadcast-GAs. Sie hier
+        # einzutragen, mischte GAs verschiedener Gruppen (Schalten von Element
+        # 01, Szene von Element 02). In geplanten Projekten findet auch die
+        # Stichwortsuche nur Raum-GAs anderer Gewerke ("LD_E01_01 DIM").
+        element_gas = {ga.address for ga in all_gas
+                       if ga.gewerk_code == "LDA" and ga.room_id}
+        planned = not project.topology.is_imported
+        all_gas = [ga for ga in all_gas if ga.address not in element_gas]
+
         # ── Schritt 1: Räume auf der Gateway-Linie ermitteln ─────────────────
         room_numbers: set[str] = set()
         if dali_gw.gateway_device_id:
@@ -473,15 +503,17 @@ class DaliService:
                 if excl_lc and (func_lc == excl_lc or func_lc.startswith(excl_lc + " ")):
                     continue
                 priority = 0 if room_nrs & room_numbers else 1
-                candidates.append((priority, ga.address))
+                candidates.append((priority, _address_key(ga.address), ga.address))
             if candidates:
-                return sorted(candidates)[0][1]
+                return sorted(candidates)[0][2]
             return ""
 
         # ── Schritt 3: Keyword-Fallback für nicht-LDA-GAs ────────────────────
         def find_ga_keyword(keywords: list[str], exclude: list[str] = None) -> str:
             exclude = exclude or []
             for ga in all_gas:
+                if planned and ga.room_id and ga.gewerk_code:
+                    continue          # Raum-GA eines anderen Gewerks, kein DALI-Broadcast
                 text = (ga.designation or "").lower()
                 if any(kw in text for kw in keywords) and \
                    not any(ex in text for ex in exclude):
@@ -592,6 +624,101 @@ class DaliService:
             ]
         return items
 
+    # ── Geplante Projekte ─────────────────────────────────────────────────────
+
+    def derive_groups_from_planning(self, dali_gw: DaliGateway, device, project) -> int:
+        """DALI-Gruppen eines geplanten Projekts: je LDA-Element eine Gruppe mit
+        allen GAs dieses Elements (Schalten, Dimmen, Wert, Status, Szene,
+        Störung) -- aus den Feldern der GA (Gewerk, Raum, Element, Funktion),
+        nicht aus dem Bezeichnungstext.
+
+        Berücksichtigt nur Räume der Linie des Gateways; liegen mehrere
+        DALI-Gateways auf einer Linie, erhält jedes der Reihe nach bis zu 16
+        Gruppen. Gruppenname: Raum + Bezeichnung des Elements aus Schritt 5
+        ("Wohnen Decke"), ohne Bezeichnung Raum bzw. Raum + Nummer.
+        Gibt die Anzahl Gruppen zurück."""
+        line = next((ln for area in project.topology.areas for ln in area.lines
+                     if any(d.id == device.id for d in ln.devices)), None)
+        room_ids = set(line.assigned_room_ids) if line and line.assigned_room_ids else None
+        rooms = [r for r in project.all_rooms if room_ids is None or r.id in room_ids]
+        room_order = {r.id: i for i, r in enumerate(rooms)}
+
+        groups: dict[tuple[str, int], dict[str, str]] = {}
+        for ga in sorted(project.group_addresses.all_addresses(),
+                         key=lambda g: _address_key(g.address)):
+            if ga.is_placeholder or ga.gewerk_code != "LDA" or ga.room_id not in room_order:
+                continue
+            field = _PLANNED_FUNC_TO_FIELD.get((ga.function_name or "").upper())
+            if not field:
+                continue
+            slots = groups.setdefault((ga.room_id, ga.element_number), {})
+            # RM WERT vor RM, sonst erste Adresse
+            if field not in slots or (field == "ga_status"
+                                      and ga.function_name.upper() == "RM WERT"):
+                slots[field] = ga.address
+
+        keys = sorted(groups, key=lambda k: (room_order[k[0]], k[1]))
+        # Mehrere DALI-Gateways auf derselben Linie: der Reihe nach je 16 Gruppen
+        if line is not None:
+            line_gateways = [d.id for d in line.devices if self._is_dali_gateway(d)]
+            idx = line_gateways.index(device.id) if device.id in line_gateways else 0
+            keys = keys[idx * DALI_MAX_GROUPS:(idx + 1) * DALI_MAX_GROUPS]
+        else:
+            keys = keys[:DALI_MAX_GROUPS]
+
+        room_by_id = {r.id: r for r in rooms}
+        dali_gw.groups = []
+        for number, (room_id, element) in enumerate(keys):
+            dali_gw.groups.append(DaliGroup(
+                number=number, name=self._planned_group_name(room_by_id[room_id], element),
+                **groups[(room_id, element)]))
+        logger.info(f"DALI: {len(dali_gw.groups)} Gruppen aus der Planung für "
+                    f"Gateway '{dali_gw.name}'.")
+        return len(dali_gw.groups)
+
+    @staticmethod
+    def _planned_group_name(room, element: int) -> str:
+        """"Wohnen Decke" aus der Bezeichnung in Schritt 5; ohne Bezeichnung
+        "Wohnen" bzw. bei mehreren Elementen "Wohnen 2"."""
+        assignment = next((a for a in room.gewerk_assignments if a.gewerk_code == "LDA"), None)
+        label = assignment.element_label(element) if assignment else ""
+        if label:
+            return f"{room.name} {label}"
+        if assignment and assignment.count > 1:
+            return f"{room.name} {element}"
+        return room.name
+
+    def configure_planned(self, project) -> int:
+        """Richtet die DALI-Gateways eines geplanten Projekts ein: Gruppen aus
+        der Planung, sofern noch keine erfasst sind. Bereinigt Gateway-Felder,
+        die (aus früheren Versionen) auf Gruppen-GAs zeigen -- geplante Projekte
+        haben keine Broadcast-GAs. Gibt die Anzahl neu angelegter Gruppen zurück."""
+        if project.topology.is_imported:
+            return 0
+        group_gas = {ga.address for ga in project.group_addresses.all_addresses()
+                     if ga.gewerk_code == "LDA" and ga.room_id}
+        created = 0
+        for device in self.get_dali_gateways_from_topology(project):
+            gw = self.get_or_create(project, device.id,
+                                    name=device.product_name or device.product or "DALI-Gateway")
+            for attr in ("ga_switch_broadcast", "ga_dim_broadcast", "ga_scene",
+                         "ga_status_value", "ga_status_fault"):
+                if getattr(gw, attr) in group_gas:
+                    setattr(gw, attr, "")
+            if not gw.groups:
+                created += self._derive_groups(gw, device, project)
+        return created
+
+    def _derive_groups(self, dali_gw: DaliGateway, device, project) -> int:
+        """Geplante Projekte aus den Feldern der GAs; fehlen diese (GAs nur mit
+        Bezeichnung, z.B. von Hand angelegt), über die Bezeichnung wie beim
+        Import."""
+        if not project.topology.is_imported:
+            count = self.derive_groups_from_planning(dali_gw, device, project)
+            if count:
+                return count
+        return self._derive_groups_from_import(dali_gw, device, project)
+
     def rederive_groups(self, project, dali_gw: DaliGateway) -> int:
         """Ersetzt die Gruppen des Gateways durch eine neue Ableitung aus den
         Gruppenadressen (wie beim Öffnen eines Projekts ohne Gruppen). Gibt
@@ -605,7 +732,7 @@ class DaliService:
         if device is None:
             return -1
         dali_gw.groups = []
-        count = self._derive_groups_from_import(dali_gw, device, project)
+        count = self._derive_groups(dali_gw, device, project)
         self.sync_groups_from_devices(dali_gw)
         return count
 

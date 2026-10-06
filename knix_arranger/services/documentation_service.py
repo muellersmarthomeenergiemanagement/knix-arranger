@@ -1165,6 +1165,18 @@ class DocumentationService:
                         designation = " ".join((ga.designation or "").split())
                         pdf.add_paragraph(f"GA {label}: {addr}  {designation}")
 
+                # Gruppen mit ihren GAs (für die Parametrierung des Gateways)
+                if gw.groups:
+                    pdf.add_heading("Gruppen", level=3)
+                    pdf.add_table(
+                        ["Gr.", "Name", "Schalten", "Dimmen", "Wert", "Status", "Szene",
+                         "Störung"],
+                        [[str(g.number), g.name, g.ga_switch, g.ga_dim, g.ga_value,
+                          g.ga_status, g.ga_scene, g.ga_fault]
+                         for g in sorted(gw.groups, key=lambda g: g.number)],
+                        col_widths=[0.06, 0.26, 0.11, 0.11, 0.11, 0.11, 0.12, 0.12],
+                    )
+
                 rows = svc.generate_device_list(gw, self.project)
                 if rows:
                     headers = ["Adr.", "Name", "EVG-Typ", "Raum", "Gruppen", "Notlicht", "Modus"]
