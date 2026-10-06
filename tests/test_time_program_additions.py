@@ -105,11 +105,18 @@ class TestService:
         assert sps[0].date_range_start == "2026-04-01"
         assert tps.missing_target_count(tp) == 2
 
-    def test_timed_ga_ids_only_active(self):
+    def test_timed_ga_programs_only_active(self):
         project = _project()
-        assert len(tps.timed_ga_ids(project)) == 2
-        project.time_programs[0].active = False
-        assert tps.timed_ga_ids(project) == set()
+        second = tps.duplicate_program(project, project.time_programs[0])
+        second.name = "Ferien"
+        programs = tps.timed_ga_programs(project)
+        assert len(programs) == 2
+        assert all(names == ["Morgen", "Ferien"] for names in programs.values())
+        assert tps.timed_label(["Morgen"]) == "Zeitprogramm: Morgen"
+        assert tps.timed_label(["Morgen", "Ferien"]) == "Zeitprogramme: Morgen, Ferien"
+        for tp in project.time_programs:
+            tp.active = False
+        assert tps.timed_ga_programs(project) == {}
 
     def test_holiday_count(self):
         assert tps.holiday_count("CH", 2026) > 5
@@ -180,18 +187,20 @@ class TestAddressViews:
         from knix_arranger.ui.views.address_table_view import AddressTableView
         from knix_arranger.ui.views.address_tree_view import AddressTreeView
         project = _project()
-        timed = tps.timed_ga_ids(project)
+        timed = tps.timed_ga_programs(project)
         table = AddressTableView()
         table.set_timed_gas(timed)
         table.set_structure(project.group_addresses)
         notes_col = table.COLUMNS.index("Notizen")
-        assert {table._table.item(r, notes_col).text() for r in range(2)} == {"[T]"}
+        assert {table._table.item(r, notes_col).text() for r in range(2)} == {
+            "Zeitprogramm: Morgen"}
 
         tree = AddressTreeView()
         tree.set_timed_gas(timed)
         tree.set_structure(project.group_addresses)
         ga_item = tree._tree.topLevelItem(0).child(0).child(0)
-        assert ga_item.text(2).startswith("[T]")
+        assert ga_item.text(2) == "⏱"
+        assert ga_item.toolTip(2) == "Zeitprogramm: Morgen"
 
 
 class TestDocuments:

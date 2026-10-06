@@ -246,10 +246,32 @@ def missing_target_count(tp: TimeProgram) -> int:
     return sum(1 for _, sp in tp.all_switch_points if not sp.target_ga_id)
 
 
+def timed_ga_programs(project) -> dict[str, list[str]]:
+    """GA-id -> Namen der aktiven Zeitprogramme, die sie schalten (FA-3306d).
+    Angezeigt als "Zeitprogramm: …" bzw. Uhr-Symbol -- kein Buchstabenkürzel,
+    das mit einem Gewerk-Kürzel (T = Tagesvorhang/Tor) verwechselt würde."""
+    result: dict[str, list[str]] = {}
+    for tp in project.time_programs:
+        if not tp.active:
+            continue
+        for _, sp in tp.all_switch_points:
+            if sp.target_ga_id:
+                names = result.setdefault(sp.target_ga_id, [])
+                if tp.name not in names:
+                    names.append(tp.name)
+    return result
+
+
 def timed_ga_ids(project) -> set[str]:
-    """GAs, die ein aktives Zeitprogramm schaltet (Kürzel "[T]", FA-3306d)."""
-    return {sp.target_ga_id for tp in project.time_programs if tp.active
-            for _, sp in tp.all_switch_points if sp.target_ga_id}
+    """GAs, die ein aktives Zeitprogramm schaltet."""
+    return set(timed_ga_programs(project))
+
+
+def timed_label(names: list[str]) -> str:
+    """Hinweistext für die GA-Ansichten, z.B. "Zeitprogramm: Morgen, Abend"."""
+    if not names:
+        return ""
+    return ("Zeitprogramme: " if len(names) > 1 else "Zeitprogramm: ") + ", ".join(names)
 
 
 def holiday_count(country: str, year: int) -> int:

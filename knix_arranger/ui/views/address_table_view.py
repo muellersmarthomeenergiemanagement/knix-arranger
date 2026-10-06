@@ -12,6 +12,7 @@ from ..dialogs.ga_edit_dialog import GaEditDialog
 from ...models.group_address import GroupAddressStructure, GroupAddress
 from ..column_utils import fit_columns
 from ...services.ets_corrections import gewerk_display
+from ...services.time_program_service import timed_label
 
 
 class AddressTableView(QWidget):
@@ -89,10 +90,11 @@ class AddressTableView(QWidget):
         """Verbindet die View mit dem zentralen ProjectBus."""
         self._bus = bus
 
-    def set_timed_gas(self, ga_ids: set[str]) -> None:
-        """GAs, die ein aktives Zeitprogramm schaltet: Kürzel "[T]" in der
-        Spalte Notizen (FA-3306d). Wirkt beim nächsten set_structure."""
-        self._timed_ids = set(ga_ids)
+    def set_timed_gas(self, programs: dict[str, list[str]]) -> None:
+        """GAs, die ein aktives Zeitprogramm schaltet (GA-id -> Programmnamen):
+        "Zeitprogramm: …" in der Spalte Notizen (FA-3306d). Wirkt beim
+        nächsten set_structure."""
+        self._timed = dict(programs)
 
     def set_structure(self, structure: GroupAddressStructure):
         self._structure = structure
@@ -116,13 +118,11 @@ class AddressTableView(QWidget):
                 ga.function_name,
                 ga.central,
                 ga.security,
-                "[T]" if ga.id in getattr(self, "_timed_ids", ()) else "",
+                timed_label(getattr(self, "_timed", {}).get(ga.id, [])),
             ]
             for col, text in enumerate(items):
                 item = QTableWidgetItem(text)
                 item.setData(Qt.UserRole, ga.id)
-                if text == "[T]" and col == len(items) - 1:
-                    item.setToolTip("Kürzel [T]: wird von einem aktiven Zeitprogramm geschaltet (FA-3306d)")
                 if ga.is_placeholder:
                     item.setForeground(Qt.gray)
                 self._table.setItem(row, col, item)

@@ -14,6 +14,7 @@ from ..styles import GEWERK_COLORS
 from ...models.group_address import GroupAddressStructure, GroupAddress
 from ..column_utils import fit_columns
 from ...services.ets_corrections import gewerk_display
+from ...services.time_program_service import timed_label
 
 
 class AddressTreeView(QWidget):
@@ -110,10 +111,15 @@ class AddressTreeView(QWidget):
         """Verbindet die View mit dem zentralen ProjectBus."""
         self._bus = bus
 
-    def set_timed_gas(self, ga_ids: set[str]) -> None:
-        """GAs, die ein aktives Zeitprogramm schaltet: Kürzel "[T]" vor der
-        Beschreibung (FA-3306d). Wirkt beim nächsten set_structure."""
-        self._timed_ids = set(ga_ids)
+    # Uhr-Symbol statt Buchstabenkürzel: "[T]" wäre mit dem Gewerk T
+    # (Tagesvorhang, in ETS-Projekten auch Tor) verwechselbar
+    TIMED_MARK = "⏱"
+
+    def set_timed_gas(self, programs: dict[str, list[str]]) -> None:
+        """GAs, die ein aktives Zeitprogramm schaltet (GA-id -> Programmnamen):
+        Uhr-Symbol vor der Beschreibung, Programmnamen im Tooltip (FA-3306d).
+        Wirkt beim nächsten set_structure."""
+        self._timed = dict(programs)
 
     def set_structure(self, structure: GroupAddressStructure):
         """Setzt die anzuzeigende GA-Struktur."""
@@ -146,11 +152,12 @@ class AddressTreeView(QWidget):
                     else:
                         # Sub → Description → Fallback, damit immer ein Text erscheint
                         designation = ga.designation or ga.description or "(keine Bezeichnung)"
-                    timed = ga.id in getattr(self, "_timed_ids", ())
+                    timed = getattr(self, "_timed", {}).get(ga.id, [])
                     ga_item = QTreeWidgetItem(mg_item, [
                         ga.address,
                         designation,
-                        " ".join(p for p in ("[T]" if timed else "", ga.description) if p),
+                        " ".join(p for p in (self.TIMED_MARK if timed else "",
+                                             ga.description) if p),
                         ga.datapoint_type,
                         gewerk_display(ga),
                         ga.room_number,
@@ -158,7 +165,7 @@ class AddressTreeView(QWidget):
                     ga_item.setData(0, Qt.UserRole, ga.address)
                     ga_item.setData(0, self.GA_OBJECT_ROLE, ga)
                     if timed:
-                        ga_item.setToolTip(2, "Kürzel [T]: wird von einem aktiven Zeitprogramm geschaltet (FA-3306d)")
+                        ga_item.setToolTip(2, timed_label(timed))
 
                     # Farbmarkierung nach Gewerk-Kategorie
                     color = self._get_gewerk_color(ga.gewerk_code)

@@ -485,9 +485,9 @@ class MainWindow(QMainWindow):
             return
         if self._project:
             if key in ("addresses", "addresses_table"):
-                # Zeitprogramme seither geändert: Kürzel [T] nachführen (FA-3306d)
-                from ..services.time_program_service import timed_ga_ids
-                if timed_ga_ids(self._project) != getattr(self._address_tree, "_timed_ids", set()):
+                # Zeitprogramme seither geändert: Hinweis nachführen (FA-3306d)
+                from ..services.time_program_service import timed_ga_programs
+                if timed_ga_programs(self._project) != getattr(self._address_tree, "_timed", {}):
                     self._set_address_views()
             elif key == "overview":
                 self._overview.update_from_project(self._project)
@@ -676,10 +676,10 @@ class MainWindow(QMainWindow):
             f"Gewerk {code or 'wie im ETS-Namen'} für {len(addresses)} GA festgelegt.")
 
     def _set_address_views(self):
-        """Beide GA-Ansichten neu laden, inkl. Kürzel [T] für GAs, die ein
+        """Beide GA-Ansichten neu laden, inkl. Hinweis auf GAs, die ein
         aktives Zeitprogramm schaltet (FA-3306d)."""
-        from ..services.time_program_service import timed_ga_ids
-        timed = timed_ga_ids(self._project)
+        from ..services.time_program_service import timed_ga_programs
+        timed = timed_ga_programs(self._project)
         for view in (self._address_tree, self._address_table):
             view.set_timed_gas(timed)
             view.set_structure(self._project.group_addresses)
