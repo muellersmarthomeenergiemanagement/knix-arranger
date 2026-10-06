@@ -796,9 +796,20 @@ class DocumentationService:
     # -- Revisionspaket (FA-2100) --
 
     def generate_revision_package(self, output_dir: str, revision: str = "",
-                                   language: str = "de"):
-        """Erzeugt ein komplettes Revisionspaket (FA-2101, FA-2105, FA-2106)."""
+                                   language: str = "de", parts=None,
+                                   revision_date: str = "", note: str = ""):
+        """Erzeugt ein komplettes Revisionspaket (FA-2101 bis FA-2106).
+
+        parts: Schlüssel aus revision_package.REVISION_PARTS (FA-2105);
+            None = alle. Bestandteile ohne Daten entfallen automatisch.
+        revision, revision_date, note: Revisionsstand (FA-2106), erscheinen
+            im Inhaltsverzeichnis.
+        Mit `revision` wird der Stand in project.revisions festgehalten."""
+        from .revision_package import (
+            ALL_PARTS, accepted_quotes, collect_datasheets, copy_datasheets,
+        )
         os.makedirs(output_dir, exist_ok=True)
+        wanted = ALL_PARTS if parts is None else frozenset(parts)
 
         project_name = self.project.name or "Projekt"
         prefix = project_name.replace(" ", "_")
@@ -807,118 +818,173 @@ class DocumentationService:
 
         generated_files = []
 
-        # 1. Projektzusammenfassung
+        def target(suffix: str) -> str:
+            return os.path.join(output_dir, f"{prefix}_{suffix}")
+
         from .report_service import ReportService
         report_svc = ReportService(self.project, company_profile=self._company_profile)
-        path = os.path.join(output_dir, f"{prefix}_Zusammenfassung.pdf")
-        report_svc.generate_project_summary(path)
-        generated_files.append(("Projektzusammenfassung", path))
+
+        # 1. Projektzusammenfassung
+        if "zusammenfassung" in wanted:
+            path = target("Zusammenfassung.pdf")
+            report_svc.generate_project_summary(path)
+            generated_files.append(("Projektzusammenfassung", path))
 
         # 2. GA-Übersicht
-        path = os.path.join(output_dir, f"{prefix}_GA_Uebersicht.pdf")
-        report_svc.generate_ga_report(path)
-        generated_files.append(("Gruppenadress-Übersicht", path))
+        if "ga_uebersicht" in wanted:
+            path = target("GA_Uebersicht.pdf")
+            report_svc.generate_ga_report(path)
+            generated_files.append(("Gruppenadress-Übersicht", path))
 
         # 3. Topologie-Bericht
-        path = os.path.join(output_dir, f"{prefix}_Topologie.pdf")
-        report_svc.generate_topology_report(path)
-        generated_files.append(("Topologie-Bericht", path))
+        if "topologie" in wanted:
+            path = target("Topologie.pdf")
+            report_svc.generate_topology_report(path)
+            generated_files.append(("Topologie-Bericht", path))
 
         # 4. Bedienelemente-Bericht
-        path = os.path.join(output_dir, f"{prefix}_Bedienelemente.pdf")
-        report_svc.generate_bedienelemente_report(path)
-        generated_files.append(("Bedienelemente und Sensoren", path))
+        if "bedienelemente" in wanted:
+            path = target("Bedienelemente.pdf")
+            report_svc.generate_bedienelemente_report(path)
+            generated_files.append(("Bedienelemente und Sensoren", path))
 
         # 4b. Aktoren und Gateways
-        path = os.path.join(output_dir, f"{prefix}_Aktoren_Gateways.pdf")
-        report_svc.generate_aktoren_gateway_report(path)
-        generated_files.append(("Aktoren und Gateways", path))
+        if "aktoren" in wanted:
+            path = target("Aktoren_Gateways.pdf")
+            report_svc.generate_aktoren_gateway_report(path)
+            generated_files.append(("Aktoren und Gateways", path))
 
         # 4c. Räume nach Gewerken
-        path = os.path.join(output_dir, f"{prefix}_Raeume_Gewerke.pdf")
-        report_svc.generate_room_gewerk_report(path)
-        generated_files.append(("Räume nach Gewerken", path))
+        if "raeume" in wanted:
+            path = target("Raeume_Gewerke.pdf")
+            report_svc.generate_room_gewerk_report(path)
+            generated_files.append(("Räume nach Gewerken", path))
 
         # 4d. Verknüpfungsmatrix / Belegungsplan (FA-2505) -- nur wenn Daten vorhanden
-        from .belegungsplan_service import BelegungsplanService
-        from .sensor_service import project_for_export
-        belegungsplan = BelegungsplanService().generate(project_for_export(self.project))
-        if belegungsplan.sensor_rows or belegungsplan.actor_rows:
-            from .belegungsplan_export_service import BelegungsplanExportService
-            path = os.path.join(output_dir, f"{prefix}_Verknuepfungsmatrix.pdf")
-            BelegungsplanExportService().export_pdf(
-                belegungsplan, path, self._company_profile, self.project.project_info
-            )
-            generated_files.append(("Belegungsplan (Verknüpfungsmatrix)", path))
+        if "belegungsplan" in wanted:
+            from .belegungsplan_service import BelegungsplanService
+            from .sensor_service import project_for_export
+            belegungsplan = BelegungsplanService().generate(project_for_export(self.project))
+            if belegungsplan.sensor_rows or belegungsplan.actor_rows:
+                from .belegungsplan_export_service import BelegungsplanExportService
+                path = target("Verknuepfungsmatrix.pdf")
+                BelegungsplanExportService().export_pdf(
+                    belegungsplan, path, self._company_profile, self.project.project_info
+                )
+                generated_files.append(("Belegungsplan (Verknüpfungsmatrix)", path))
 
         # 4e. Szenenreport (FA-1811) -- nur wenn Szenen definiert sind
-        if any(s.name for s in self.project.scenes):
-            path = os.path.join(output_dir, f"{prefix}_Szenenreport.pdf")
+        if "szenen" in wanted and any(s.name for s in self.project.scenes):
+            path = target("Szenenreport.pdf")
             report_svc.generate_szenen_report(path)
             generated_files.append(("Szenenreport", path))
 
         # 5. Validierungsbericht
-        path = os.path.join(output_dir, f"{prefix}_Validierung.pdf")
-        report_svc.generate_validation_report(path)
-        generated_files.append(("Validierungsbericht Gruppenadressen", path))
+        if "validierung" in wanted:
+            path = target("Validierung.pdf")
+            report_svc.generate_validation_report(path)
+            generated_files.append(("Validierungsbericht Gruppenadressen", path))
 
         # 6. Inbetriebnahme-Checklisten
-        checklists = self.create_checklists()
-        path = os.path.join(output_dir, f"{prefix}_Checklisten.pdf")
-        self.export_checklists_pdf(path, checklists)
-        generated_files.append(("Inbetriebnahme-Checklisten", path))
+        if "checklisten" in wanted:
+            checklists = self.create_checklists()
+            path = target("Checklisten.pdf")
+            self.export_checklists_pdf(path, checklists)
+            generated_files.append(("Inbetriebnahme-Checklisten", path))
 
         # 6b. Abnahmeprotokoll (Formular zum Unterschreiben)
-        path = os.path.join(output_dir, f"{prefix}_Abnahmeprotokoll.pdf")
-        self.export_acceptance_protocol(path, self.project.acceptance_protocol)
-        generated_files.append(("Abnahmeprotokoll", path))
+        if "abnahme" in wanted:
+            path = target("Abnahmeprotokoll.pdf")
+            self.export_acceptance_protocol(path, self.project.acceptance_protocol)
+            generated_files.append(("Abnahmeprotokoll", path))
 
         # 7. Bedienungsanleitung
-        path = os.path.join(output_dir, f"{prefix}_Bedienungsanleitung.pdf")
-        self.generate_user_manual(path, language=language)
-        generated_files.append(("Bedienungsanleitung", path))
+        if "anleitung" in wanted:
+            path = target("Bedienungsanleitung.pdf")
+            self.generate_user_manual(path, language=language)
+            generated_files.append(("Bedienungsanleitung", path))
 
         # 7b. Materialliste (FA-2102 Nr. 12, FA-2308) -- nur wenn erfasst
-        if self.project.material_list.entries:
+        if "materialliste" in wanted and self.project.material_list.entries:
             from .material_list_export_service import MaterialListExportService
-            path = os.path.join(output_dir, f"{prefix}_Materialliste.xlsx")
+            path = target("Materialliste.xlsx")
             MaterialListExportService().export_xlsx(
                 self.project.material_list, project_name, path)
             generated_files.append(("Materialliste", path))
 
         # 8. CSV-Export
-        from .csv_export_service import CsvExportService
-        csv_svc = CsvExportService()
-        path = os.path.join(output_dir, f"{prefix}_GA_Export.csv")
-        csv_svc.export_csv(
-            self.project.group_addresses, path, overwrite=True
-        )
-        generated_files.append(("GA-Export (CSV)", path))
+        if "ga_csv" in wanted:
+            from .csv_export_service import CsvExportService
+            path = target("GA_Export.csv")
+            CsvExportService().export_csv(
+                self.project.group_addresses, path, overwrite=True
+            )
+            generated_files.append(("GA-Export (CSV)", path))
 
         # 9. DALI-Geräteliste (FA-2805) – nur wenn DALI-Konfigurationen vorhanden
-        if any(gw.devices for gw in self.project.dali_configs.values()):
-            path = os.path.join(output_dir, f"{prefix}_DALI_Geraete.pdf")
+        if "dali" in wanted and any(gw.devices for gw in self.project.dali_configs.values()):
+            path = target("DALI_Geraete.pdf")
             self.generate_dali_device_list(path)
             generated_files.append(("DALI-Gerätekonfiguration", path))
 
         # 10. Zeitprogramme (FA-3307) – nur wenn Zeitprogramme vorhanden
-        if self.project.time_programs:
-            path = os.path.join(output_dir, f"{prefix}_Zeitprogramme.pdf")
+        if "zeitprogramme" in wanted and self.project.time_programs:
+            path = target("Zeitprogramme.pdf")
             self.generate_time_programs_doc(path)
             generated_files.append(("Zeitprogramme", path))
 
         # 10b. KNX Secure Archivbericht (FA-2706) – nur wenn aktiviert
-        if self.project.knx_secure.enabled:
-            path = os.path.join(output_dir, f"{prefix}_KNX_Secure.pdf")
+        if "secure" in wanted and self.project.knx_secure.enabled:
+            path = target("KNX_Secure.pdf")
             self.generate_knx_secure_report(path)
             generated_files.append(("KNX Secure Archivbericht", path))
 
+        # 10c. Kundenofferte (FA-2102 Nr. 13) – nur akzeptierte
+        if "offerte" in wanted:
+            from .quote_letter_service import write_quote_letter_pdf
+            quotes = accepted_quotes(self.project)
+            for i, quote in enumerate(quotes, 1):
+                suffix = f"_{i}" if len(quotes) > 1 else ""
+                path = target(f"Kundenofferte{suffix}.pdf")
+                write_quote_letter_pdf(self.project, quote, project_name, path)
+                generated_files.append(("Kundenofferte (akzeptiert)", path))
+
+        # 10d. Produktdatenblätter (FA-1204) als Anhang
+        datasheet_rows = []
+        if "datenblaetter" in wanted:
+            datasheets = collect_datasheets(self.project)
+            copied, missing = copy_datasheets(
+                datasheets, output_dir, self.project.folder_path or "")
+            for ds, path in copied:
+                datasheet_rows.append([", ".join(ds.products),
+                                       os.path.relpath(path, output_dir)])
+            for ds in datasheets:
+                if ds.is_url:
+                    datasheet_rows.append([", ".join(ds.products), ds.path])
+            for ds in missing:
+                datasheet_rows.append([", ".join(ds.products),
+                                       f"nicht gefunden: {ds.path}"])
+
         # 11. Inhaltsverzeichnis (FA-2103) mit offenen Punkten (FA-2104)
         from .revision_check import check_revision_completeness
-        index_path = self.create_revision_index(
+        self.create_revision_index(
             output_dir, revision, generated_files,
             findings=check_revision_completeness(self.project, self._company_profile),
+            revision_date=revision_date, note=note, datasheet_rows=datasheet_rows,
         )
+
+        # Revisionsstand festhalten (FA-2106); dieselbe Bezeichnung ersetzt
+        # einen früheren Stand, z.B. beim erneuten Erstellen von Rev. B
+        if revision:
+            from ..models.documentation import RevisionRecord
+            parts_done = list(dict.fromkeys(name for name, _ in generated_files))
+            if datasheet_rows:
+                parts_done.append("Produktdatenblätter")
+            self.project.revisions = [r for r in self.project.revisions
+                                      if r.number != revision]
+            self.project.revisions.append(RevisionRecord(
+                revision, revision_date or datetime.now().strftime("%d.%m.%Y"),
+                note, parts_done))
 
         logger.info(f"Revisionspaket erstellt in: {output_dir}")
         return output_dir
@@ -1160,7 +1226,9 @@ class DocumentationService:
 
     def create_revision_index(self, output_dir: str, revision: str,
                               generated_files: list[tuple[str, str]],
-                              findings: list | None = None) -> str:
+                              findings: list | None = None,
+                              revision_date: str = "", note: str = "",
+                              datasheet_rows: list | None = None) -> str:
         """Erzeugt ein Inhaltsverzeichnis für das Revisionspaket (FA-2103)."""
         project_name = self.project.name or "Projekt"
         prefix = project_name.replace(" ", "_")
@@ -1174,7 +1242,10 @@ class DocumentationService:
         pdf.add_heading("Revisionspaket - Inhaltsverzeichnis", level=1)
         pdf.add_paragraph(f"Projekt: {self.project.name}")
         if revision:
-            pdf.add_paragraph(f"Revision: {revision}")
+            date = revision_date or datetime.now().strftime("%d.%m.%Y")
+            pdf.add_paragraph(f"Revision: {revision} vom {date}")
+        if note:
+            pdf.add_paragraph(f"Anlass: {note}")
         pdf.add_paragraph(f"Erstellt: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
         pdf.add_separator()
 
@@ -1196,6 +1267,20 @@ class DocumentationService:
         pdf.add_table(headers, rows, col_widths=[0.07, 0.43, 0.10, 0.40],
                       align=["right", "left", "right", "left"])
         pdf.add_paragraph(f"Alle Dateinamen beginnen mit «{prefix}_».")
+
+        # Produktdatenblätter (FA-1204)
+        if datasheet_rows:
+            pdf.add_heading("Produktdatenblätter", level=2)
+            pdf.add_table(["Produkt", "Datei / Link"], datasheet_rows,
+                          col_widths=[0.40, 0.60])
+
+        # Frühere Revisionen (FA-2106)
+        earlier = [r for r in self.project.revisions if r.number != revision]
+        if earlier:
+            pdf.add_heading("Frühere Revisionen", level=2)
+            pdf.add_table(["Revision", "Datum", "Anlass"],
+                          [[r.number, r.date, r.note] for r in earlier],
+                          col_widths=[0.15, 0.20, 0.65])
 
         # Vollständigkeit (FA-2104)
         pdf.add_heading("Offene Punkte", level=2)

@@ -389,17 +389,35 @@ class ReportsDialog(QDialog):
             )
             return
         project = self._project
+        from .revision_package_dialog import RevisionPackageDialog
+        from ...services.revision_package import revision_folder_name
+        options = RevisionPackageDialog(project, self)
+        if options.exec() != QDialog.Accepted:
+            return
         if not self._confirm_revision_completeness():
             return
+        # Eigener Ordner je Revision (FA-2106), z.B. Revisionen/Rev_B
+        rev_path = os.path.join(dir_path, revision_folder_name(options.revision))
+        if os.path.isdir(rev_path) and os.listdir(rev_path):
+            reply = QMessageBox.question(
+                self, "Revision existiert bereits",
+                f"Revision {options.revision} wurde bereits erstellt.\n"
+                "Dateien im Ordner überschreiben?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
 
         def do():
             from ...services.documentation_service import DocumentationService
-            DocumentationService(project, company_profile=self._company_profile).generate_revision_package(dir_path)
+            DocumentationService(project, company_profile=self._company_profile).generate_revision_package(
+                rev_path, revision=options.revision, parts=options.parts,
+                revision_date=options.revision_date, note=options.note)
 
         def on_success(_result):
-            self._log_msg(f"Revisionspaket erstellt in: {dir_path}")
-            project.add_changelog_entry("Revision", f"Revisionspaket erstellt: {dir_path}")
-            os.startfile(dir_path)
+            self._log_msg(f"Revisionspaket {options.revision} erstellt in: {rev_path}")
+            project.add_changelog_entry(
+                "Revision", f"Revisionspaket {options.revision} erstellt: {rev_path}")
+            os.startfile(rev_path)
 
         run_export(self, "Revisionspaket wird erstellt…", do, on_success, self._worker_ref)
 

@@ -184,3 +184,21 @@ class AcceptanceProtocol:
             CommissioningChecklist.from_dict(c) for c in data.get("checklists", [])
         ]
         return ap
+
+
+@dataclass
+class RevisionRecord:
+    """Ein erstellter Stand der Revisionsunterlagen (FA-2106)."""
+    number: str = ""          # Revisionsbezeichnung, z.B. "A", "B"
+    date: str = ""            # Revisionsdatum, z.B. "06.10.2026"
+    note: str = ""            # Anlass, z.B. "Erstausgabe", "Erweiterung OG"
+    parts: list[str] = field(default_factory=list)  # Bezeichnungen der Bestandteile
+
+    def to_dict(self) -> dict:
+        return {"number": self.number, "date": self.date,
+                "note": self.note, "parts": list(self.parts)}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> RevisionRecord:
+        return cls(number=data.get("number", ""), date=data.get("date", ""),
+                   note=data.get("note", ""), parts=list(data.get("parts", [])))
