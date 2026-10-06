@@ -589,6 +589,9 @@ def build_document() -> Document:
             "Gewerk-Code: L (Licht), LD (Dimmbar), J (Jalousie), H (Heizung), "
             "KL (Klimaanlage), LDA (DALI), S (Steckdosen) usw.",
             "Anzahl: wie viele Instanzen dieses Gewerks im Raum? (z. B. J × 2 = 2 Storen)",
+            "Bezeichnung: Klartext je Element, bei mehreren mit «;» getrennt "
+            "(z. B. «Decke; Wand») – steht in jeder GA nach dem Raumnamen: "
+            "LDA_E01_01 E/A (Wohnen Decke)",
             "Vorlagen: Wohnzimmer, Schlafzimmer, Küche – fertige Gewerk-Pakete",
         ],
         berechnet=[
@@ -723,9 +726,12 @@ def build_document() -> Document:
             ("CSV",
              "ETS6-kompatibler Gruppenadress-Export. "
              "Direkt in ETS6 importierbar (Extras → Gruppenadressbericht → Import)."),
-            ("Revisionspaket (ZIP)",
-             "Vollständiges Dokumentationspaket: GA-Übersicht (XLSX), Topologie-Plan, "
-             "Belegungsplan, Kabellängen-Report, Datenbläter."),
+            ("Revisionspaket",
+             "Vollständiges Dokumentationspaket im Projektordner unter Revisionen/Rev_A, "
+             "Rev_B …: Berichte, GA-Export, Abnahmeprotokoll, Bedienungsanleitung, "
+             "Materialliste, Produktdatenblätter und akzeptierte Kundenofferte. "
+             "Revision, Datum, Anlass und Bestandteile wählbar; vorher zeigt KNiX, "
+             "was noch fehlt (z. B. Abnahmeentscheid, Datenblätter)."),
             ("Bauherr-Formular",
              "Tastenbelegungen als XLSX – wird vom Bauherrn unterschrieben."),
             ("Abnahmeprotokoll",
@@ -761,14 +767,18 @@ def build_document() -> Document:
              "Übersicht aller verfügbaren Gewerk-Codes mit Beschreibung. "
              "Zum Nachschlagen während der Gewerke-Zuweisung (Schritt 5)."),
             ("Validierung",
-             "Prüft das Projekt auf Fehler und Warnungen vor dem Export. "
-             "Empfohlen immer vor dem CSV-Export."),
+             "Prüft das Projekt auf Fehler und Warnungen vor dem Export – "
+             "Gruppenadressen, Topologie (Geräte je Linie, physikalische Adressen, "
+             "Spannungsversorgung) und Zeitprogramme. Empfohlen immer vor dem CSV-Export. "
+             "Bei geplanten Projekten ordnet Bearbeiten → «Adressen neu ordnen…» "
+             "die Gruppenadressen lückenlos neu (mit Vorschau)."),
             ("Szenen",
              "Szenen-Verwaltung ausserhalb des Wizards. "
              "Für Nachträge oder Korrekturen an Szenen."),
             ("Offertanfragen",
              "Lieferanten und Anfragen verwalten; Offertanfragen automatisch aus der "
-             "Materialliste erzeugen."),
+             "Materialliste erzeugen, als Excel oder PDF speichern oder «Per E-Mail…» "
+             "als Entwurf mit PDF-Anhang im Mailprogramm öffnen."),
             ("Kundenofferte",
              "Automatische Angebotskalkulation basierend auf Materialliste und den "
              "Stundensätzen aus dem Firmenprofil."),
@@ -801,8 +811,9 @@ def build_document() -> Document:
             ("KNX Secure",
              "Konfiguration der KNX-Secure-Schlüssel für gesicherte Linien und Geräte."),
             ("Zeitsteuerung",
-             "Wochenprogramme mit Astrofunktionen und Feiertagskalender. "
-             "Für zeitgesteuerte Schaltprogramme."),
+             "Wochenprogramme mit Astrofunktionen und Feiertagskalender, Wochenraster, "
+             "eigene Vorlagen und Datumsbereich je Schaltzeitpunkt. Zeitgesteuerte GAs "
+             "sind in den GA-Ansichten gekennzeichnet; Bericht «Zeitsteuerungsplan»."),
             ("Bauherren-Beratung",
              "Interaktive Tastenbelegung gemeinsam mit dem Bauherrn: Für jede Taste "
              "kann ein Wunsch ausgewählt und je Raum eine Anmerkung erfasst werden. "
@@ -817,7 +828,9 @@ def build_document() -> Document:
              "Direktzugriff auf den CSV-Export (auch ohne Wizard)."),
             ("Berichte",
              "Sammelstelle zum Erzeugen von Berichten und Dokumentation "
-             "(Revisionspaket, Abnahmeprotokoll u. a.)."),
+             "(Revisionspaket, Abnahmeprotokoll u. a.). «Anleitung anpassen…» "
+             "passt die Bedienungsanleitung je Projekt an: eigene Texte, Abschnitte, "
+             "Text je Raum und Foto je Taster."),
         ]
     )
     doc.add_paragraph()

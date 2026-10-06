@@ -2,6 +2,25 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.30",
+      "date": "2026-10-06",
+      "neu": [
+        "Bezeichnung je Gewerk-Element (Schritt 5, Spalte «Bezeichnung»): z.B. «Decke; Wand» bei LDA ×2. Der Text steht in jeder GA des Elements nach dem Raumnamen – LDA_E01_01 E/A (Wohnen Decke) – und erscheint in der Bauherrenberatung und bei den Bedienelementen statt «#2».",
+        "Bearbeiten → «Adressen neu ordnen…» für geplante Projekte: baut die Gruppenadressen der Stockwerke lückenlos neu auf (Räume in Gebäudereihenfolge, Blöcke mit Reserven, Rückmeldungen unter ihrem Befehl). Vorschau mit alter und neuer Adresse; Verweise von Tastern, Szenen und DALI werden nachgeführt. Bei Projekten aus der ETS gesperrt – dort gilt die ETS.",
+        "Revisionspaket: Revision (A, B, C …), Datum und Anlass, Bestandteile an- und abwählbar, ein Ordner je Revision. Produktdatenblätter und die akzeptierte Kundenofferte liegen bei, die Materialliste als Excel.",
+        "Vor dem Revisionspaket zeigt KNiX, was noch fehlt: Abnahmeentscheid, offene Mängel und Prüfpunkte, Geräte ohne Produkt, fehlende Datenblätter, Bedienelemente ohne Funktion. Die offenen Punkte stehen auch im Inhaltsverzeichnis.",
+        "Berichte → «Anleitung anpassen…»: eigene Texte für Einleitung, Bedientipps und Störungen, Abschnitte ausblenden, eigene Abschnitte, Zusatztext je Raum und ein Foto je Taster neben dem Tastenplan.",
+        "Offertanfrage als PDF und «Per E-Mail…»: öffnet einen Entwurf mit PDF-Anhang im Mailprogramm (Outlook öffnet ihn direkt zum Bearbeiten).",
+        "Zeitsteuerung: Wochenraster, Programme duplizieren, umbenennen, aktiv/inaktiv, eigene Vorlagen, Datumsbereich und GA-Filter je Schaltzeitpunkt, Astro-Vorschau «Heute: Sonnenuntergang 19:02 + 15 min = 19:17 Uhr». Neuer Bericht «Zeitsteuerungsplan» und ein Abschnitt «Automatische Zeitsteuerung» in der Bedienungsanleitung."
+      ],
+      "verbessert": [
+        "Validierung prüft die Topologie: Geräte je Linie, physikalische Adressen (passend zur Linie, doppelt, Teilnehmer 0), Linie ohne Spannungsversorgung und Kommunikationsobjekte mit nicht vorhandener GA.",
+        "Validierung prüft Zeitprogramme: Ziel-GA nicht mehr vorhanden oder Wert passt nicht zum Datenpunkttyp (z.B. 50 an eine 1-Bit-GA). Betroffene Schaltzeitpunkte sind rot bzw. gelb markiert.",
+        "GAs, die ein Zeitprogramm schaltet, sind in der GA-Tabelle (Spalte «Notizen») und im GA-Baum (Uhr-Symbol) gekennzeichnet.",
+        "Der Raumname steht jetzt in jeder GA-Bezeichnung, nicht nur in der ersten des Blocks. Geplante Projekte erhalten die neuen Bezeichnungen bei der nächsten Neuberechnung; die Adressen bleiben."
+      ]
+    },
+    {
       "version": "1.1.29",
       "date": "2026-10-02",
       "neu": [
