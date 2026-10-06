@@ -185,6 +185,13 @@ VALIDATION_RULES = {
         "Alle Dokumente verwenden die Korrektur; die ETS ist unverändert.",
         "Bei der nächsten Bearbeitung in der ETS nachführen.",
     ),
+    "FA-3306": (
+        "Zeitsteuerung",
+        "Ein Schaltzeitpunkt verweist auf eine GA, die es nicht mehr gibt "
+        "(Fehler), oder sein Wert passt nicht zum Datenpunkttyp der Ziel-GA "
+        "(Warnung), z.B. 50 an eine 1-Bit-GA.",
+        "In der Zeitsteuerung Ziel-GA oder Wert korrigieren.",
+    ),
     "FA-3308b": (
         "Astro-Gruppenadressen fehlen",
         "Zeitprogramme mit Astro-Schaltpunkten benötigen die Astro-GAs in HG 0 / MG 7.",

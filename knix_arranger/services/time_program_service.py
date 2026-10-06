@@ -166,10 +166,12 @@ def is_holiday(d: date, country: str = "CH") -> bool:
 def load_templates() -> list[dict]:
     """Lädt Zeitprogramm-Vorlagen aus config/time_program_templates.json."""
     filepath = os.path.join(_CONFIG_DIR, "time_program_templates.json")
-    if not os.path.exists(filepath):
-        return []
-    with open(filepath, "r", encoding="utf-8") as f:
-        return json.load(f).get("templates", [])
+    builtin = []
+    if os.path.exists(filepath):
+        with open(filepath, "r", encoding="utf-8") as f:
+            builtin = json.load(f).get("templates", [])
+    # Eigene Vorlagen (FA-3305c) nach den mitgelieferten
+    return builtin + _load_user_templates()
 
 
 def create_program_from_template(template_id: str) -> Optional[TimeProgram]:
@@ -189,6 +191,8 @@ def create_program_from_template(template_id: str) -> Optional[TimeProgram]:
                 astro_offset_min=sp_data.get("astro_offset_min", 0),
                 action_value=sp_data.get("action_value", "1"),
                 priority=sp_data.get("priority", "Normal"),
+                date_range_start=sp_data.get("date_range_start", ""),
+                date_range_end=sp_data.get("date_range_end", ""),
             )
             dp.switch_points.append(sp)
         tp.day_profiles.append(dp)
@@ -199,19 +203,129 @@ def create_program_from_template(template_id: str) -> Optional[TimeProgram]:
 
 class TimeProgramError:
     """Validierungsfehler in einem Zeitprogramm."""
-    def __init__(self, program_name: str, message: str, severity: str = "warning"):
+    def __init__(self, program_name: str, message: str, severity: str = "warning",
+                 sp_id: str = "", address: str = ""):
         self.program_name = program_name
         self.message = message
         self.severity = severity  # "warning" | "error"
+        self.sp_id = sp_id        # betroffener Schaltzeitpunkt (Einfärbung, FA-3306c)
+        self.address = address    # betroffene GA-Adresse, falls bekannt
 
     def __repr__(self):
         return f"TimeProgramError({self.program_name!r}, {self.message!r})"
 
 
+def _dpt_main(dpt: str) -> int | None:
+    """Hauptnummer eines DPT: "DPST-5-1", "DPT-9", "5.001" -> 5."""
+    import re
+    m = re.search(r"(\d+)", dpt or "")
+    return int(m.group(1)) if m else None
+
+
+def value_fits_dpt(value: str, dpt: str) -> bool:
+    """Passt der Aktionswert zum Datenpunkttyp der Ziel-GA (FA-3306b)?
+    Unbekannte Typen gelten als passend."""
+    main = _dpt_main(dpt)
+    text = (value or "").strip().lower().replace(",", ".")
+    if main == 1:
+        return text in ("0", "1", "ein", "aus", "an", "auf", "ab", "true", "false")
+    try:
+        number = float(text)
+    except ValueError:
+        return main not in (5, 6, 7, 8, 9, 12, 13, 14, 17, 18)
+    if main == 5:
+        upper = 100 if (dpt or "").replace(".", "-").endswith(("-1", "001")) else 255
+        return 0 <= number <= upper
+    if main in (17, 18):
+        return number == int(number) and 0 <= number <= 64
+    return True
+
+
+def missing_target_count(tp: TimeProgram) -> int:
+    """Schaltzeitpunkte ohne Ziel-GA (z.B. nach Laden einer Vorlage, FA-3305b)."""
+    return sum(1 for _, sp in tp.all_switch_points if not sp.target_ga_id)
+
+
+def timed_ga_ids(project) -> set[str]:
+    """GAs, die ein aktives Zeitprogramm schaltet (Kürzel "[T]", FA-3306d)."""
+    return {sp.target_ga_id for tp in project.time_programs if tp.active
+            for _, sp in tp.all_switch_points if sp.target_ga_id}
+
+
+def holiday_count(country: str, year: int) -> int:
+    """Anzahl Feiertage im Jahr (Anzeige beim Wochentag Feiertag, FA-3304c)."""
+    return len(load_holidays(country, year))
+
+
+def switch_point_time(sp: SwitchPoint, location: ProjectLocation,
+                      day: Optional[date] = None) -> Optional[str]:
+    """Schaltzeit HH:MM; bei Astro für den Tag `day` (Standard heute)."""
+    if sp.time_type != "ASTRO":
+        return sp.fixed_time
+    return calc_astro_time(sp.astro_event, day or date.today(), location,
+                           sp.astro_offset_min)
+
+
+def duplicate_program(project, tp: TimeProgram) -> TimeProgram:
+    """Kopie eines Zeitprogramms mit neuen IDs (FA-3302b)."""
+    data = tp.to_dict()
+    data.pop("id", None)
+    for dp in data["day_profiles"]:
+        for sp in dp["switch_points"]:
+            sp.pop("id", None)
+    copy_tp = TimeProgram.from_dict(data)
+    copy_tp.name = f"{tp.name} (Kopie)"
+    project.time_programs.append(copy_tp)
+    return copy_tp
+
+
+def _user_templates_path() -> str:
+    """Eigene Vorlagen im Benutzerprofil, nicht im (schreibgeschützten)
+    Programmordner -- wie die GA-Vorlagen-Bibliothek."""
+    appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+    return os.path.join(appdata, "KNiX Arranger", "time_program_templates.json")
+
+
+def _load_user_templates() -> list[dict]:
+    path = _user_templates_path()
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f).get("templates", [])
+    except (OSError, ValueError):
+        logger.warning("Eigene Zeitprogramm-Vorlagen nicht lesbar: %s", path)
+        return []
+
+
+def save_user_template(tp: TimeProgram, name: str) -> dict:
+    """Speichert ein Zeitprogramm als eigene Vorlage (FA-3305c), ohne Ziel-GAs
+    -- diese sind projektspezifisch. Gleicher Name ersetzt die Vorlage."""
+    template = {
+        "id": "user:" + name.strip().lower().replace(" ", "_"),
+        "name": name.strip(),
+        "user": True,
+        "day_profiles": [
+            {"weekday_mask": dp.weekday_mask, "switch_points": [
+                {k: v for k, v in sp.to_dict().items()
+                 if k not in ("id", "target_ga_id")}
+                for sp in dp.switch_points]}
+            for dp in tp.day_profiles],
+    }
+    templates = [t for t in _load_user_templates() if t.get("id") != template["id"]]
+    templates.append(template)
+    path = _user_templates_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"templates": templates}, f, ensure_ascii=False, indent=2)
+    return template
+
+
 def validate_time_program(tp: TimeProgram, project) -> list[TimeProgramError]:
     """Validiert ein Zeitprogramm und gibt eine Liste von Fehlern/Warnungen zurück."""
     errors = []
-    known_ga_ids = {ga.id for ga in project.group_addresses.all_addresses()}
+    ga_by_id = {ga.id: ga for ga in project.group_addresses.all_addresses()}
+    known_ga_ids = set(ga_by_id)
 
     for dp in tp.day_profiles:
         if dp.weekday_mask == 0:
@@ -222,13 +336,22 @@ def validate_time_program(tp: TimeProgram, project) -> list[TimeProgramError]:
         prev_time = None
         for sp in sorted(dp.switch_points,
                          key=lambda s: s.fixed_time if s.time_type == "FIXED" else "00:00"):
-            # GA-Referenz prüfen
+            # GA-Referenz prüfen (FA-3306a)
             if sp.target_ga_id and sp.target_ga_id not in known_ga_ids:
                 errors.append(TimeProgramError(
                     tp.name,
-                    f"Schaltzeitpunkt {sp.display_time}: Gruppenadresse '{sp.target_ga_id}' "
-                    f"nicht gefunden.",
-                    "error",
+                    f"Schaltzeitpunkt {sp.display_time}: Ziel-GA nicht gefunden "
+                    "(gelöscht oder neu erzeugt).",
+                    "error", sp_id=sp.id,
+                ))
+            # Wert passend zum Datenpunkttyp (FA-3306b)
+            ga = ga_by_id.get(sp.target_ga_id)
+            if ga is not None and not value_fits_dpt(sp.action_value, ga.datapoint_type):
+                errors.append(TimeProgramError(
+                    tp.name,
+                    f"Wert '{sp.action_value}' möglicherweise inkompatibel mit DPT "
+                    f"{ga.datapoint_type} der GA '{ga.address}'.",
+                    "warning", sp_id=sp.id, address=ga.address,
                 ))
             # Zeitformat prüfen
             if sp.time_type == "FIXED":
@@ -240,14 +363,14 @@ def validate_time_program(tp: TimeProgram, project) -> list[TimeProgramError]:
                     errors.append(TimeProgramError(
                         tp.name,
                         f"Ungültige Uhrzeit: '{sp.fixed_time}'.",
-                        "error",
+                        "error", sp_id=sp.id,
                     ))
             # Offset-Bereich
             if sp.time_type == "ASTRO" and not (-120 <= sp.astro_offset_min <= 120):
                 errors.append(TimeProgramError(
                     tp.name,
                     f"Astro-Offset {sp.astro_offset_min} min ist ausserhalb von ±120 min.",
-                    "warning",
+                    "warning", sp_id=sp.id,
                 ))
             # Datumsbereich
             if sp.date_range_start and sp.date_range_end:
@@ -258,11 +381,11 @@ def validate_time_program(tp: TimeProgram, project) -> list[TimeProgramError]:
                         errors.append(TimeProgramError(
                             tp.name,
                             f"Datumsbereich: Start {sp.date_range_start} liegt nach Ende {sp.date_range_end}.",
-                            "error",
+                            "error", sp_id=sp.id,
                         ))
                 except ValueError:
                     errors.append(TimeProgramError(
-                        tp.name, "Ungültiger Datumsbereich.", "error"
+                        tp.name, "Ungültiger Datumsbereich.", "error", sp_id=sp.id
                     ))
     return errors
 
@@ -362,6 +485,10 @@ class TimeProgramService:
     def get_program(self, project, program_id: str) -> Optional[TimeProgram]:
         return next((tp for tp in project.time_programs if tp.id == program_id), None)
 
+    @staticmethod
+    def duplicate_program(project, tp: TimeProgram) -> TimeProgram:
+        return duplicate_program(project, tp)
+
     # ── Vorlagen ──────────────────────────────────────────────────────────────
 
     @staticmethod
@@ -371,6 +498,10 @@ class TimeProgramService:
     @staticmethod
     def create_from_template(template_id: str) -> Optional[TimeProgram]:
         return create_program_from_template(template_id)
+
+    @staticmethod
+    def save_template(tp: TimeProgram, name: str) -> dict:
+        return save_user_template(tp, name)
 
     def add_from_template(self, project, template_id: str) -> Optional[TimeProgram]:
         tp = create_program_from_template(template_id)

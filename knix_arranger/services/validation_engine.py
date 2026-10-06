@@ -77,6 +77,7 @@ class ValidationEngine:
             issues.extend(self._check_astro_gas(structure, project))
             issues.extend(self._check_multi_ga_keys(project))
             issues.extend(self._check_ets_deviations(project))
+            issues.extend(self._check_time_programs(project))
             # FA-609, FA-611 bis FA-613: Topologie
             from .topology_validation import check_topology
             issues.extend(check_topology(project))
@@ -157,6 +158,19 @@ class ValidationEngine:
                          "verdict": f.verdict_label},
             ))
         return issues
+
+    def _check_time_programs(self, project) -> list[ValidationIssue]:
+        """FA-3306a/b: Zeitprogramme mit fehlender Ziel-GA (Fehler) oder einem
+        Wert, der nicht zum Datenpunkttyp passt (Warnung)."""
+        from .time_program_service import validate_all_programs
+        return [
+            ValidationIssue(
+                e.severity, "FA-3306", f"Zeitprogramm '{e.program_name}': {e.message}",
+                e.address or "Zeitsteuerung",
+                "In der Zeitsteuerung den Schaltzeitpunkt korrigieren",
+            )
+            for e in validate_all_programs(project)
+        ]
 
     def _check_astro_gas(self, structure: GroupAddressStructure,
                          project) -> list[ValidationIssue]:

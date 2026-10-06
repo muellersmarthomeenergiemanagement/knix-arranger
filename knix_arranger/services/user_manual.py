@@ -475,6 +475,7 @@ MANUAL_SECTIONS: dict[str, str] = {
     "haus": "Ihr Haus in Kürze",
     "tipps": "So bedienen Sie Ihre Taster",
     "zentral": "Zentrale Funktionen",
+    "zeitsteuerung": "Automatische Zeitsteuerung",
     "stoerungen": "Wenn etwas nicht funktioniert",
     "ansprechpartner": "Ihr Ansprechpartner",
     "szenen": "Szenen je Taster",
@@ -487,6 +488,47 @@ def photo_key(room_key: str, be) -> str:
     geplanten Projekten Raum + Nummer der Tastereinheit -- beides übersteht
     die Neuberechnung, bei der Bedienelemente neue IDs erhalten."""
     return be.participant_number or f"{room_key}|T{be.taster_index}"
+
+
+# ── Zeitsteuerung in Alltagssprache (FA-3307a) ────────────────────────────
+
+def _time_words(sp) -> str:
+    """"07:00 Uhr" bzw. "Sonnenuntergang + 15 min"."""
+    if sp.time_type != "ASTRO":
+        return f"{sp.fixed_time} Uhr"
+    event = "Sonnenaufgang" if sp.astro_event == "SUNRISE" else "Sonnenuntergang"
+    offset = sp.astro_offset_min
+    if not offset:
+        return event
+    return f"{event} {'+' if offset > 0 else '−'} {abs(offset)} min"
+
+
+def _action_words(sp, ga) -> str:
+    """Wert als Aktion: 1/0 bei Schalten als Ein/Aus, Storen Auf/Ab,
+    sonst Prozent bzw. der Wert."""
+    from .time_program_service import _dpt_main
+    value = (sp.action_value or "").strip()
+    dpt = (ga.datapoint_type if ga else "") or ""
+    sub = dpt.replace(".", "-").rsplit("-", 1)[-1] if "-" in dpt or "." in dpt else ""
+    main = _dpt_main(dpt)
+    if main == 1 and value in ("0", "1"):
+        if sub.lstrip("0") == "8":                               # Auf/Ab (DPT 1.008)
+            return "Ab" if value == "1" else "Auf"
+        return "Ein" if value == "1" else "Aus"
+    if main == 5 and sub.lstrip("0") == "1":                     # Prozent (DPT 5.001)
+        return f"{value} %"
+    return value
+
+
+def _period_words(sp) -> str:
+    def fmt(value: str) -> str:
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").strftime("%d.%m.")
+        except ValueError:
+            return value or "…"
+    if not (sp.date_range_start or sp.date_range_end):
+        return "ganzjährig"
+    return f"{fmt(sp.date_range_start)} – {fmt(sp.date_range_end)}"
 
 
 # ── Dokument ───────────────────────────────────────────────────────────────
@@ -800,6 +842,33 @@ class UserManualBuilder:
                 pdf.add_paragraph("\n".join(f"• {sp}" for sp in specials))
             pdf.add_separator()
 
+    def _time_programs(self, pdf) -> None:
+        """Automatische Zeitsteuerung (FA-3307a): je aktivem Zeitprogramm,
+        wann was geschieht -- in Alltagssprache, ohne GA-Nummern."""
+        programs = [tp for tp in getattr(self.project, "time_programs", [])
+                    if tp.active and tp.switch_point_count]
+        if not programs:
+            return
+        rooms = {r.id: r.name for r in self.project.all_rooms}
+        ga_by_id = {g.id: g for g in self.project.group_addresses.all_addresses()}
+        pdf.add_heading("Automatische Zeitsteuerung", level=3)
+        pdf.add_paragraph("Diese Funktionen laufen automatisch nach Uhrzeit oder "
+                          "Sonnenstand. Sie können jederzeit von Hand übersteuert werden.")
+        for tp in programs:
+            rows = []
+            for dp in tp.day_profiles:
+                days = ", ".join(dp.weekdays) or "–"
+                for sp in dp.switch_points:
+                    ga = ga_by_id.get(sp.target_ga_id)
+                    room = rooms.get(ga.room_id, "") if ga else ""
+                    what = object_label(ga, self.catalog, room) if ga else "–"
+                    where = f"{room} – {what}" if room and what and what != room else (what or room)
+                    rows.append([_time_words(sp), where or "–", _action_words(sp, ga),
+                                 days, _period_words(sp)])
+            pdf.add_note(f"{tp.name}:", "")
+            pdf.add_table(["Zeitpunkt", "Was", "Aktion", "Tage", "Zeitraum"], rows,
+                          col_widths=[0.20, 0.32, 0.12, 0.20, 0.16])
+
     # ── Anpassungen (FA-2005) ──
 
     def _shown(self, section: str) -> bool:
@@ -901,6 +970,8 @@ class UserManualBuilder:
                 seen.add((label, room))
                 rows.append([label, f"{room} – {where}"])
             pdf.add_table(["Funktion", "Wo"], rows, col_widths=[0.4, 0.6])
+        if self._shown("zeitsteuerung"):
+            self._time_programs(pdf)
         if self._shown("stoerungen"):
             pdf.add_heading("Wenn etwas nicht funktioniert", level=3)
             pdf.add_paragraph(self._text("stoerungen"))

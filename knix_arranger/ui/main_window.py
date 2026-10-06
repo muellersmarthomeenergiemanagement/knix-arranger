@@ -484,7 +484,12 @@ class MainWindow(QMainWindow):
             self._start_wizard()
             return
         if self._project:
-            if key == "overview":
+            if key in ("addresses", "addresses_table"):
+                # Zeitprogramme seither geändert: Kürzel [T] nachführen (FA-3306d)
+                from ..services.time_program_service import timed_ga_ids
+                if timed_ga_ids(self._project) != getattr(self._address_tree, "_timed_ids", set()):
+                    self._set_address_views()
+            elif key == "overview":
                 self._overview.update_from_project(self._project)
             elif key == "gewerke":
                 self._gewerk_view.set_project(self._project)
@@ -537,8 +542,7 @@ class MainWindow(QMainWindow):
         self._building_view.set_topology(self._project.topology)
         self._building_view.set_group_addresses(self._project.group_addresses)
         self._topology_view.set_project(self._project)
-        self._address_tree.set_structure(self._project.group_addresses)
-        self._address_table.set_structure(self._project.group_addresses)
+        self._set_address_views()
         self._gewerk_view.set_project(self._project)
         self._scene_view.set_project(self._project)
         self._quotation_view.set_project(self._project)
@@ -671,6 +675,15 @@ class MainWindow(QMainWindow):
         self._status_bar.set_status(
             f"Gewerk {code or 'wie im ETS-Namen'} für {len(addresses)} GA festgelegt.")
 
+    def _set_address_views(self):
+        """Beide GA-Ansichten neu laden, inkl. Kürzel [T] für GAs, die ein
+        aktives Zeitprogramm schaltet (FA-3306d)."""
+        from ..services.time_program_service import timed_ga_ids
+        timed = timed_ga_ids(self._project)
+        for view in (self._address_tree, self._address_table):
+            view.set_timed_gas(timed)
+            view.set_structure(self._project.group_addresses)
+
     def _renumber_addresses(self):
         """Gruppenadressen eines geplanten Projekts neu ordnen (FA-701 bis
         FA-706) mit Vorschau; bei Projekten aus der ETS gilt die ETS."""
@@ -712,8 +725,7 @@ class MainWindow(QMainWindow):
         # function_assignments aus aktueller GA-Struktur neu ableiten
         self._refresh_bedienelemente()
         # Beide Views zeigen dieselbe Struktur – beide neu laden
-        self._address_tree.set_structure(self._project.group_addresses)
-        self._address_table.set_structure(self._project.group_addresses)
+        self._set_address_views()
         ga_count = len(self._project.group_addresses.all_addresses())
         self._status_bar.set_ga_count(ga_count)
         # Gebäudeansicht: Bedienelement-Zeilen mit aktualisierten function_assignments neu bauen

@@ -106,6 +106,9 @@ class ReportsDialog(QDialog):
              self._gen_room_gewerk),
             ("Szenenreport", "Bedienung, Gewerke und Aktoren je Szene als PDF",
              self._gen_szenen),
+            ("Zeitsteuerungsplan (PDF)",
+             "Alle Wochenprogramme und Schaltzeitpunkte als druckbares Dokument",
+             self._gen_time_programs),
         ]
 
         for i, (title_text, desc, callback) in enumerate(buttons):
@@ -578,6 +581,23 @@ class ReportsDialog(QDialog):
             ReportService(project, company_profile=company).generate_szenen_report(path)
 
         self._run("Szenenreport wird erstellt…", do, f"Szenenreport erstellt: {path}")
+
+    def _gen_time_programs(self):
+        """Zeitsteuerungsplan (FA-3307c)."""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Zeitsteuerungsplan speichern",
+            self._default_export_path(f"{self._project.name}_Zeitsteuerungsplan.pdf"),
+            "PDF-Dateien (*.pdf)",
+        )
+        if not path:
+            return
+        project, company = self._project, self._company_profile
+
+        def do():
+            from ...services.documentation_service import DocumentationService
+            DocumentationService(project, company_profile=company).generate_time_programs_doc(path)
+
+        self._run("Zeitsteuerungsplan wird erstellt…", do, f"Zeitsteuerungsplan erstellt: {path}")
 
     def _gen_room_gewerk(self):
         path, _ = QFileDialog.getSaveFileName(

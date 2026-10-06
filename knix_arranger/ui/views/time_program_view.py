@@ -1,7 +1,7 @@
 """
 Zeitsteuerung-Ansicht (FA-3301–3308).
 
-Zeigt Wochenprogramme, Tagesprofile, Schaltzeitpunkte,
+Zeigt Wochenprogramme, Tagesprofile, Schaltzeitpunkte, Wochenraster,
 Astro-Vorschau und Standorteinstellungen.
 """
 from __future__ import annotations
@@ -9,33 +9,54 @@ from datetime import date
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QListWidget, QListWidgetItem, QTableWidget, QTableWidgetItem,
-    QTabWidget, QGroupBox, QComboBox, QCheckBox, QSpinBox,
-    QTimeEdit, QFormLayout, QSplitter, QHeaderView, QAbstractItemView,
+    QTableWidget, QTableWidgetItem,
+    QTabWidget, QComboBox, QCheckBox, QSpinBox,
+    QTimeEdit, QDateEdit, QFormLayout, QSplitter, QHeaderView, QAbstractItemView,
     QDialog, QDialogButtonBox, QDoubleSpinBox, QLineEdit, QMessageBox,
-    QScrollArea,
+    QInputDialog,
 )
-from PySide6.QtCore import Qt, QTime
+from PySide6.QtCore import Qt, QTime, QDate, QTimer
+from PySide6.QtGui import QBrush, QColor, QStandardItemModel
 
 from ...models.project import KnxProject
 from ...models.time_program import (
-    TimeProgram, DayProfile, SwitchPoint,
-    WEEKDAY_MON, WEEKDAY_TUE, WEEKDAY_WED, WEEKDAY_THU, WEEKDAY_FRI,
-    WEEKDAY_SAT, WEEKDAY_SUN, WEEKDAY_HOL,
-    WEEKDAY_SHORT, WEEKDAY_NAMES,
+    TimeProgram, DayProfile, SwitchPoint, WEEKDAY_NAMES, WEEKDAY_SHORT,
 )
-from ...services.time_program_service import TimeProgramService
+from ...services.time_program_service import (
+    TimeProgramService, holiday_count, missing_target_count, switch_point_time,
+)
 
 _COL_SP_TIME     = 0
 _COL_SP_DAYS     = 1
 _COL_SP_ACTION   = 2
 _COL_SP_GA       = 3
 _COL_SP_PRIO     = 4
-_SP_COLS = 5
+_COL_SP_RANGE    = 5
+_SP_COLS = 6
+
+_COL_PROG_NAME = 0
+_COL_PROG_SP   = 1
+
+# Einfärbung (FA-3306c) und Wochenraster-Farben je Gewerk-Kategorie (FA-3302c)
+_ERROR_BG   = "#FFCDD2"
+_WARNING_BG = "#FFF3C4"
+_CATEGORY_COLORS = {
+    "licht": "#FFF6CC", "licht_color": "#FCE4EC", "jalousie": "#DCEBFF",
+    "heizung": "#FFE0D6", "lueftung": "#E0F2F1", "energie": "#E3F5DC",
+}
+_OTHER_COLOR = "#EEEEEE"
+
+
+def _iso_to_qdate(text: str) -> QDate:
+    try:
+        d = date.fromisoformat(text)
+        return QDate(d.year, d.month, d.day)
+    except ValueError:
+        return QDate.currentDate()
 
 
 class _SwitchPointDialog(QDialog):
-    """Dialog zum Anlegen/Bearbeiten eines Schaltzeitpunkts."""
+    """Dialog zum Anlegen/Bearbeiten eines Schaltzeitpunkts (FA-3302e)."""
 
     def __init__(self, sp: SwitchPoint, project: KnxProject, parent=None):
         super().__init__(parent)
@@ -71,6 +92,7 @@ class _SwitchPointDialog(QDialog):
         idx = self._cb_astro.findData(sp.astro_event)
         if idx >= 0:
             self._cb_astro.setCurrentIndex(idx)
+        self._cb_astro.currentIndexChanged.connect(self._update_astro_preview)
         layout.addRow("Astro-Ereignis:", self._cb_astro)
 
         # Offset
@@ -78,10 +100,18 @@ class _SwitchPointDialog(QDialog):
         self._sb_offset.setRange(-120, 120)
         self._sb_offset.setSuffix(" min")
         self._sb_offset.setValue(sp.astro_offset_min)
+        self._sb_offset.valueChanged.connect(self._update_astro_preview)
         layout.addRow("Offset (Astro):", self._sb_offset)
+
+        # Astro-Vorschau für heute (FA-3303c)
+        self._astro_preview = QLabel()
+        self._astro_preview.setStyleSheet("color: #555; font-style: italic;")
+        layout.addRow("", self._astro_preview)
 
         # Aktionswert
         self._le_value = QLineEdit(sp.action_value)
+        self._le_value.setToolTip("z.B. 1/0 für Ein/Aus, 0–100 für Prozent, "
+                                  "Szenennummer 1–64")
         layout.addRow("Aktionswert:", self._le_value)
 
         # Priorität
@@ -90,16 +120,35 @@ class _SwitchPointDialog(QDialog):
         self._cb_prio.setCurrentText(sp.priority)
         layout.addRow("Priorität:", self._cb_prio)
 
-        # GA-Auswahl
+        # GA-Auswahl mit Filter, gruppiert nach HG/MG (FA-3302f)
+        self._le_filter = QLineEdit()
+        self._le_filter.setPlaceholderText("Filter: Adresse, Bezeichnung, Gewerk oder Raum …")
+        self._le_filter.textChanged.connect(self._fill_ga_combo)
+        layout.addRow("Gruppenadresse:", self._le_filter)
         self._cb_ga = QComboBox()
-        self._cb_ga.addItem("— keine —", "")
-        for ga in project.group_addresses.all_addresses():
-            label = f"{ga.main_group}/{ga.middle_group}/{ga.sub_group} {ga.designation}"
-            self._cb_ga.addItem(label, ga.id)
-        idx = self._cb_ga.findData(sp.target_ga_id)
-        if idx >= 0:
-            self._cb_ga.setCurrentIndex(idx)
-        layout.addRow("Gruppenadresse:", self._cb_ga)
+        layout.addRow("", self._cb_ga)
+        self._selected_ga = sp.target_ga_id
+        self._fill_ga_combo()
+
+        # Optionaler Datumsbereich (FA-3302e)
+        self._chk_range = QCheckBox("Nur im Zeitraum")
+        self._de_from = QDateEdit()
+        self._de_to = QDateEdit()
+        for edit, value in ((self._de_from, sp.date_range_start),
+                            (self._de_to, sp.date_range_end)):
+            edit.setDisplayFormat("dd.MM.yyyy")
+            edit.setCalendarPopup(True)
+            edit.setDate(_iso_to_qdate(value))
+        self._chk_range.setChecked(bool(sp.date_range_start or sp.date_range_end))
+        self._chk_range.toggled.connect(self._on_range_toggled)
+        range_row = QHBoxLayout()
+        range_row.addWidget(self._chk_range)
+        range_row.addWidget(QLabel("von"))
+        range_row.addWidget(self._de_from)
+        range_row.addWidget(QLabel("bis"))
+        range_row.addWidget(self._de_to)
+        layout.addRow("Datumsbereich:", range_row)
+        self._on_range_toggled(self._chk_range.isChecked())
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -110,11 +159,53 @@ class _SwitchPointDialog(QDialog):
 
         self._on_type_changed(sp.time_type)
 
+    def _fill_ga_combo(self, *_args):
+        current = self._cb_ga.currentData() if self._cb_ga.count() else self._selected_ga
+        needle = self._le_filter.text().strip().lower()
+        self._cb_ga.blockSignals(True)
+        self._cb_ga.clear()
+        self._cb_ga.addItem("— keine —", "")
+        model: QStandardItemModel = self._cb_ga.model()
+        for hg in sorted(self._project.group_addresses.main_groups, key=lambda h: h.number):
+            for mg in sorted(hg.middle_groups, key=lambda m: m.number):
+                gas = [ga for ga in sorted(mg.group_addresses, key=lambda g: g.sub_group)
+                       if not ga.is_placeholder and (not needle or needle in " ".join((
+                           ga.address, ga.designation, ga.gewerk_code, ga.room_number,
+                       )).lower())]
+                if not gas:
+                    continue
+                self._cb_ga.addItem(f"── HG {hg.number} {hg.name} / MG {mg.number} {mg.name} ──")
+                model.item(self._cb_ga.count() - 1).setEnabled(False)
+                for ga in gas:
+                    self._cb_ga.addItem(f"   {ga.address} {ga.designation}", ga.id)
+        idx = self._cb_ga.findData(current) if current else 0
+        self._cb_ga.setCurrentIndex(max(idx, 0))
+        self._cb_ga.blockSignals(False)
+
+    def _on_range_toggled(self, checked: bool):
+        self._de_from.setEnabled(checked)
+        self._de_to.setEnabled(checked)
+
     def _on_type_changed(self, t: str):
         fixed = t == "FIXED"
         self._te_time.setEnabled(fixed)
         self._cb_astro.setEnabled(not fixed)
         self._sb_offset.setEnabled(not fixed)
+        self._astro_preview.setVisible(not fixed)
+        self._update_astro_preview()
+
+    def _update_astro_preview(self, *_args):
+        event = self._cb_astro.currentData()
+        offset = self._sb_offset.value()
+        base = TimeProgramService.calc_astro(event, date.today(), self._project.location)
+        result = TimeProgramService.calc_astro(event, date.today(), self._project.location, offset)
+        name = "Sonnenaufgang" if event == "SUNRISE" else "Sonnenuntergang"
+        if base and result:
+            self._astro_preview.setText(
+                f"Heute: {name} {base} {'+' if offset >= 0 else '−'} {abs(offset)} min "
+                f"= {result} Uhr")
+        else:
+            self._astro_preview.setText("Heute: kein Sonnenauf-/-untergang berechenbar")
 
     def apply_to(self, sp: SwitchPoint):
         sp.time_type = self._cb_type.currentData()
@@ -125,6 +216,11 @@ class _SwitchPointDialog(QDialog):
         sp.action_value = self._le_value.text().strip() or "1"
         sp.priority = self._cb_prio.currentText()
         sp.target_ga_id = self._cb_ga.currentData() or ""
+        if self._chk_range.isChecked():
+            sp.date_range_start = self._de_from.date().toString("yyyy-MM-dd")
+            sp.date_range_end = self._de_to.date().toString("yyyy-MM-dd")
+        else:
+            sp.date_range_start = sp.date_range_end = ""
 
 
 class _LocationDialog(QDialog):
@@ -214,11 +310,17 @@ class TimeProgramView(QWidget):
         self._astro_label.setStyleSheet("color: #555; font-style: italic;")
         layout.addWidget(self._astro_label)
 
+        # ── Hinweisbalken: Probleme (FA-3306c), fehlende Ziel-GAs (FA-3305b) ──
+        self._banner = QLabel()
+        self._banner.setWordWrap(True)
+        self._banner.setVisible(False)
+        layout.addWidget(self._banner)
+
         # ── Hauptbereich: Program-Liste + Tabs ─────────────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(splitter, stretch=1)
 
-        # Linke Seite: Programmliste
+        # Linke Seite: Programmliste (FA-3302b, FA-3302g)
         left = QWidget()
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
@@ -227,37 +329,56 @@ class TimeProgramView(QWidget):
         lbl_prog.setStyleSheet("font-weight: bold;")
         ll.addWidget(lbl_prog)
 
-        self._prog_list = QListWidget()
-        self._prog_list.currentItemChanged.connect(self._on_program_selected)
-        ll.addWidget(self._prog_list)
+        self._prog_table = QTableWidget(0, 2)
+        self._prog_table.setHorizontalHeaderLabels(["Name", "Schaltpunkte"])
+        self._prog_table.verticalHeader().setVisible(False)
+        self._prog_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._prog_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._prog_table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
+        self._prog_table.horizontalHeader().setSectionResizeMode(
+            _COL_PROG_NAME, QHeaderView.ResizeMode.Stretch)
+        self._prog_table.horizontalHeader().setSectionResizeMode(
+            _COL_PROG_SP, QHeaderView.ResizeMode.ResizeToContents)
+        self._prog_table.setToolTip("Haken = aktiv. Doppelklick auf den Namen zum Umbenennen.")
+        self._prog_table.currentCellChanged.connect(self._on_program_selected)
+        self._prog_table.itemChanged.connect(self._on_program_item_changed)
+        ll.addWidget(self._prog_table)
 
         prog_btns = QHBoxLayout()
         btn_add_prog = QPushButton("+ Neu")
         btn_add_prog.clicked.connect(self._add_program)
-        btn_tmpl = QPushButton("Vorlage…")
-        btn_tmpl.clicked.connect(self._load_template)
+        btn_dup = QPushButton("Duplizieren")
+        btn_dup.clicked.connect(self._duplicate_program)
         btn_del_prog = QPushButton("Löschen")
         btn_del_prog.clicked.connect(self._delete_program)
         prog_btns.addWidget(btn_add_prog)
-        prog_btns.addWidget(btn_tmpl)
+        prog_btns.addWidget(btn_dup)
         prog_btns.addWidget(btn_del_prog)
         ll.addLayout(prog_btns)
+        tmpl_btns = QHBoxLayout()
+        btn_tmpl = QPushButton("Aus Vorlage erstellen…")
+        btn_tmpl.clicked.connect(self._load_template)
+        btn_save_tmpl = QPushButton("Als Vorlage speichern…")
+        btn_save_tmpl.setToolTip("Gewähltes Zeitprogramm ohne Ziel-GAs als eigene "
+                                 "Vorlage speichern (für alle Projekte)")
+        btn_save_tmpl.clicked.connect(self._save_template)
+        tmpl_btns.addWidget(btn_tmpl)
+        tmpl_btns.addWidget(btn_save_tmpl)
+        ll.addLayout(tmpl_btns)
 
         splitter.addWidget(left)
 
         # Rechte Seite: Tabs
         right = QTabWidget()
-
-        # Tab: Tagesprofile + Schaltzeitpunkte
         self._tab_sp = self._build_switchpoint_tab()
         right.addTab(self._tab_sp, "Schaltzeitpunkte")
-
-        # Tab: Wochentage (Bitmaske)
         self._tab_days = self._build_days_tab()
         right.addTab(self._tab_days, "Wochentage")
+        self._tab_week = self._build_week_tab()
+        right.addTab(self._tab_week, "Wochenraster")
 
         splitter.addWidget(right)
-        splitter.setSizes([240, 700])
+        splitter.setSizes([280, 700])
 
         self._refresh_astro()
         self._refresh_programs()
@@ -285,7 +406,7 @@ class TimeProgramView(QWidget):
         # Schaltzeitpunkt-Tabelle
         self._sp_table = QTableWidget(0, _SP_COLS)
         self._sp_table.setHorizontalHeaderLabels(
-            ["Zeit", "Wochentage", "Wert", "Gruppenadresse", "Priorität"]
+            ["Zeit", "Wochentage", "Wert", "Gruppenadresse", "Priorität", "Zeitraum"]
         )
         self._sp_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
@@ -329,6 +450,26 @@ class TimeProgramView(QWidget):
         vl.addStretch()
         return w
 
+    def _build_week_tab(self) -> QWidget:
+        """Wochenraster (FA-3302c): Stunden × Wochentage, Einträge nach Gewerk
+        der Ziel-GA eingefärbt; Astro-Zeiten für heute."""
+        w = QWidget()
+        vl = QVBoxLayout(w)
+        self._week_table = QTableWidget(24, len(WEEKDAY_SHORT))
+        self._week_table.setHorizontalHeaderLabels(WEEKDAY_SHORT)
+        self._week_table.setVerticalHeaderLabels([f"{h:02d}:00" for h in range(24)])
+        self._week_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._week_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._week_table.verticalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents)
+        vl.addWidget(self._week_table)
+        hint = QLabel("Farbe nach Gewerk der Ziel-GA: Licht gelb, Storen blau, "
+                      "Heizung rot, Lüftung türkis. Astro-Zeitpunkte mit der Zeit von heute.")
+        hint.setStyleSheet("color: #666;")
+        hint.setWordWrap(True)
+        vl.addWidget(hint)
+        return w
+
     # ── Refresh ───────────────────────────────────────────────────────────────
 
     def _refresh_astro(self):
@@ -342,18 +483,40 @@ class TimeProgramView(QWidget):
             f"Standort: {loc.latitude:.4f}°N / {loc.longitude:.4f}°O ({loc.country}) — "
             f"Heute: Sonnenaufgang {rise}, Sonnenuntergang {sset}"
         )
+        # Feiertag mit Anzahl im laufenden Jahr (FA-3304c)
+        if self._day_checks:
+            year = date.today().year
+            count = holiday_count(loc.country, year)
+            self._day_checks[-1].setText(f"{WEEKDAY_NAMES[-1]} ({count} Tage in {year})")
 
-    def _refresh_programs(self):
+    def _refresh_programs(self, select_id: str = ""):
         if self._project is None:
             return
-        self._prog_list.blockSignals(True)
-        self._prog_list.clear()
-        for tp in self._project.time_programs:
-            label = f"{'✓' if tp.active else '○'} {tp.name} ({tp.switch_point_count} SP)"
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, tp.id)
-            self._prog_list.addItem(item)
-        self._prog_list.blockSignals(False)
+        current_id = select_id or (self._current_tp.id if self._current_tp else "")
+        self._prog_table.blockSignals(True)
+        self._prog_table.setRowCount(len(self._project.time_programs))
+        select_row = -1
+        for row, tp in enumerate(self._project.time_programs):
+            name = QTableWidgetItem(tp.name)
+            name.setData(Qt.ItemDataRole.UserRole, tp.id)
+            name.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+                          | Qt.ItemFlag.ItemIsEditable | Qt.ItemFlag.ItemIsUserCheckable)
+            name.setCheckState(Qt.CheckState.Checked if tp.active else Qt.CheckState.Unchecked)
+            count = QTableWidgetItem(str(tp.switch_point_count))
+            count.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            count.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if not tp.active:
+                for item in (name, count):
+                    item.setForeground(QBrush(QColor("#9E9E9E")))
+                name.setToolTip("Inaktiv – Haken setzen zum Aktivieren")
+            self._prog_table.setItem(row, _COL_PROG_NAME, name)
+            self._prog_table.setItem(row, _COL_PROG_SP, count)
+            if tp.id == current_id:
+                select_row = row
+        self._prog_table.blockSignals(False)
+        if select_row >= 0:
+            self._prog_table.setCurrentCell(select_row, _COL_PROG_NAME)
+        self._refresh_validation()
 
     def _refresh_dp_combo(self):
         self._cb_dp.blockSignals(True)
@@ -369,10 +532,12 @@ class TimeProgramView(QWidget):
         else:
             self._current_dp = None
             self._refresh_sp_table()
+        self._refresh_week()
 
     def _refresh_sp_table(self):
         self._sp_table.setRowCount(0)
         if not self._current_dp:
+            self._refresh_validation()
             return
         days_str = ", ".join(self._current_dp.weekdays)
         # GA-Lookup-Dict einmalig aufbauen statt O(n) pro Schaltzeitpunkt
@@ -384,13 +549,20 @@ class TimeProgramView(QWidget):
             if sp.target_ga_id:
                 ga = ga_by_id.get(sp.target_ga_id)
                 ga_label = (f"{ga.main_group}/{ga.middle_group}/{ga.sub_group} "
-                            f"{ga.designation}") if ga else sp.target_ga_id
+                            f"{ga.designation}") if ga else "(GA nicht gefunden)"
+            period = ""
+            if sp.date_range_start or sp.date_range_end:
+                period = " – ".join(
+                    _iso_to_qdate(v).toString("dd.MM.yyyy") if v else "…"
+                    for v in (sp.date_range_start, sp.date_range_end))
             self._sp_table.setItem(row, _COL_SP_TIME, QTableWidgetItem(sp.display_time))
             self._sp_table.setItem(row, _COL_SP_DAYS, QTableWidgetItem(days_str))
             self._sp_table.setItem(row, _COL_SP_ACTION, QTableWidgetItem(sp.action_value))
             self._sp_table.setItem(row, _COL_SP_GA, QTableWidgetItem(ga_label))
             self._sp_table.setItem(row, _COL_SP_PRIO, QTableWidgetItem(sp.priority))
+            self._sp_table.setItem(row, _COL_SP_RANGE, QTableWidgetItem(period))
             self._sp_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, sp.id)
+        self._refresh_validation()
 
     def _refresh_day_checks(self):
         if not self._current_dp:
@@ -405,15 +577,98 @@ class TimeProgramView(QWidget):
             cb.setChecked(bool(mask & (1 << i)))
             cb.blockSignals(False)
 
+    def _refresh_week(self):
+        """Wochenraster des gewählten Programms neu aufbauen (FA-3302c)."""
+        self._week_table.clearContents()
+        if not self._current_tp:
+            return
+        ga_by_id = {g.id: g for g in self._project.group_addresses.all_addresses()}
+        catalog = self._project.gewerk_catalog
+        cells: dict[tuple[int, int], list[tuple[str, str]]] = {}
+        for dp in self._current_tp.day_profiles:
+            for sp in dp.switch_points:
+                when = switch_point_time(sp, self._project.location)
+                if not when:
+                    continue
+                hour = int(when.split(":")[0])
+                ga = ga_by_id.get(sp.target_ga_id)
+                gewerk = catalog.get(ga.gewerk_code) if ga and ga.gewerk_code else None
+                color = _CATEGORY_COLORS.get(gewerk.category if gewerk else "", _OTHER_COLOR)
+                target = ga.designation.split(" (")[0] if ga else "ohne GA"
+                text = f"{when} → {sp.action_value}  {target}"
+                for day in range(len(WEEKDAY_SHORT)):
+                    if dp.weekday_mask & (1 << day):
+                        cells.setdefault((hour, day), []).append((text, color))
+        for (hour, day), entries in cells.items():
+            entries.sort()
+            item = QTableWidgetItem("\n".join(text for text, _ in entries))
+            item.setBackground(QBrush(QColor(entries[0][1])))
+            item.setToolTip("\n".join(text for text, _ in entries))
+            self._week_table.setItem(hour, day, item)
+
+    def _refresh_validation(self):
+        """Schaltzeitpunkte mit Fehlern rot, mit Warnungen gelb; Hinweisbalken
+        mit der Gesamtzahl und fehlenden Ziel-GAs (FA-3306c, FA-3305b)."""
+        if self._project is None:
+            return
+        problems = self._service.validate_all(self._project)
+        by_sp: dict[str, str] = {}
+        for p in problems:
+            if p.sp_id and by_sp.get(p.sp_id) != "error":
+                by_sp[p.sp_id] = p.severity
+        for row in range(self._sp_table.rowCount()):
+            first = self._sp_table.item(row, 0)
+            level = by_sp.get(first.data(Qt.ItemDataRole.UserRole) if first else "")
+            color = _ERROR_BG if level == "error" else _WARNING_BG if level else None
+            tips = [p.message for p in problems
+                    if first and p.sp_id == first.data(Qt.ItemDataRole.UserRole)]
+            for col in range(self._sp_table.columnCount()):
+                item = self._sp_table.item(row, col)
+                if item:
+                    item.setBackground(QBrush(QColor(color)) if color else QBrush())
+                    item.setToolTip("\n".join(tips))
+
+        parts = []
+        n_err = sum(1 for p in problems if p.severity == "error")
+        n_warn = len(problems) - n_err
+        if problems:
+            parts.append(f"Zeitsteuerung: {n_err} Fehler, {n_warn} Warnung(en) – "
+                         "«Validieren» zeigt die Einzelheiten.")
+        missing = missing_target_count(self._current_tp) if self._current_tp else 0
+        if missing:
+            parts.append(f"{missing} Schaltzeitpunkt(e) haben noch keine Ziel-GA – bitte zuweisen.")
+        self._banner.setText("\n".join(parts))
+        bg = _ERROR_BG if n_err else _WARNING_BG
+        self._banner.setStyleSheet(f"background: {bg}; padding: 6px; border-radius: 3px;")
+        self._banner.setVisible(bool(parts))
+
     # ── Event-Handler ─────────────────────────────────────────────────────────
 
-    def _on_program_selected(self, current, _prev):
-        if current is None:
+    def _on_program_selected(self, row, _col=0, _prev_row=-1, _prev_col=-1):
+        item = self._prog_table.item(row, _COL_PROG_NAME) if row >= 0 else None
+        if item is None:
             self._current_tp = None
         else:
-            tp_id = current.data(Qt.ItemDataRole.UserRole)
+            tp_id = item.data(Qt.ItemDataRole.UserRole)
             self._current_tp = self._service.get_program(self._project, tp_id)
         self._refresh_dp_combo()
+        self._refresh_validation()
+
+    def _on_program_item_changed(self, item: QTableWidgetItem):
+        """Umbenennen per Doppelklick und aktiv/inaktiv per Haken (FA-3302g)."""
+        if item.column() != _COL_PROG_NAME:
+            return
+        tp = self._service.get_program(self._project, item.data(Qt.ItemDataRole.UserRole))
+        if tp is None:
+            return
+        name = item.text().strip()
+        active = item.checkState() == Qt.CheckState.Checked
+        if name and name != tp.name or active != tp.active:
+            tp.name = name or tp.name
+            tp.active = active
+            # Neu aufbauen erst nach diesem Signal: die Zeile, die es gerade
+            # sendet, würde sonst mitten im Aufruf gelöscht
+            QTimer.singleShot(0, lambda: self._refresh_programs(select_id=tp.id))
 
     def _on_dp_selected(self, idx: int):
         if self._current_tp and 0 <= idx < len(self._current_tp.day_profiles):
@@ -438,7 +693,13 @@ class TimeProgramView(QWidget):
     def _add_program(self):
         tp = self._service.add_program(self._project)
         self._service.add_day_profile(tp)
-        self._refresh_programs()
+        self._refresh_programs(select_id=tp.id)
+
+    def _duplicate_program(self):
+        if not self._current_tp:
+            return
+        tp = self._service.duplicate_program(self._project, self._current_tp)
+        self._refresh_programs(select_id=tp.id)
 
     def _load_template(self):
         templates = self._service.list_templates()
@@ -447,11 +708,12 @@ class TimeProgramView(QWidget):
             return
 
         dlg = QDialog(self)
-        dlg.setWindowTitle("Vorlage laden")
+        dlg.setWindowTitle("Aus Vorlage erstellen")
         vl = QVBoxLayout(dlg)
         cb = QComboBox()
         for t in templates:
-            cb.addItem(t.get("name", t["id"]), t["id"])
+            label = t.get("name", t["id"]) + (" (eigene)" if t.get("user") else "")
+            cb.addItem(label, t["id"])
         vl.addWidget(QLabel("Vorlage auswählen:"))
         vl.addWidget(cb)
         buttons = QDialogButtonBox(
@@ -465,14 +727,32 @@ class TimeProgramView(QWidget):
             tid = cb.currentData()
             tp = self._service.add_from_template(self._project, tid)
             if tp:
-                self._refresh_programs()
+                self._refresh_programs(select_id=tp.id)
+
+    def _save_template(self):
+        """Eigene Vorlage aus dem gewählten Programm (FA-3305c)."""
+        if not self._current_tp:
+            return
+        name, ok = QInputDialog.getText(
+            self, "Als Vorlage speichern",
+            "Name der Vorlage (gleicher Name ersetzt eine eigene Vorlage):",
+            text=self._current_tp.name)
+        if not ok or not name.strip():
+            return
+        try:
+            self._service.save_template(self._current_tp, name)
+        except OSError as exc:
+            QMessageBox.critical(self, "Vorlage nicht gespeichert", str(exc))
+            return
+        QMessageBox.information(
+            self, "Vorlage gespeichert",
+            f"Vorlage «{name.strip()}» gespeichert. Ziel-GAs werden beim Erstellen "
+            "aus der Vorlage leer gelassen.")
 
     def _delete_program(self):
-        item = self._prog_list.currentItem()
-        if not item:
+        if not self._current_tp:
             return
-        tp_id = item.data(Qt.ItemDataRole.UserRole)
-        self._service.remove_program(self._project, tp_id)
+        self._service.remove_program(self._project, self._current_tp.id)
         self._current_tp = None
         self._refresh_programs()
         self._refresh_dp_combo()
@@ -504,7 +784,7 @@ class TimeProgramView(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             dlg.apply_to(sp)
             self._current_dp.switch_points.append(sp)
-            self._refresh_sp_table()
+            self._after_switch_points_changed()
 
     def _edit_switch_point(self):
         row = self._sp_table.currentRow()
@@ -517,7 +797,7 @@ class TimeProgramView(QWidget):
         dlg = _SwitchPointDialog(sp, self._project, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             dlg.apply_to(sp)
-            self._refresh_sp_table()
+            self._after_switch_points_changed()
 
     def _delete_switch_point(self):
         row = self._sp_table.currentRow()
@@ -525,7 +805,12 @@ class TimeProgramView(QWidget):
             return
         sp_id = self._sp_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         self._service.remove_switch_point(self._current_dp, sp_id)
+        self._after_switch_points_changed()
+
+    def _after_switch_points_changed(self):
         self._refresh_sp_table()
+        self._refresh_week()
+        self._refresh_programs()   # Anzahl Schaltpunkte in der Liste
 
     # ── Standort & Astro ──────────────────────────────────────────────────────
 
@@ -534,6 +819,7 @@ class TimeProgramView(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             dlg.apply_to(self._project.location)
             self._refresh_astro()
+            self._refresh_week()
 
     def _ensure_astro_gas(self):
         n = self._service.ensure_astro_gas(self._project)
@@ -547,6 +833,7 @@ class TimeProgramView(QWidget):
 
     def _validate_all(self):
         errors = self._service.validate_all(self._project)
+        self._refresh_validation()
         if not errors:
             QMessageBox.information(self, "Validierung", "Keine Fehler gefunden.")
             return

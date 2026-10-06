@@ -37,6 +37,18 @@ STANDARD_CHECK_ITEMS = [
 ]
 
 
+
+def _period_text(sp) -> str:
+    """Datumsbereich eines Schaltzeitpunkts als TT.MM.JJJJ – TT.MM.JJJJ."""
+    def fmt(value: str) -> str:
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").strftime("%d.%m.%Y")
+        except ValueError:
+            return value or "…"
+    if not (sp.date_range_start or sp.date_range_end):
+        return "ganzjährig"
+    return f"{fmt(sp.date_range_start)} – {fmt(sp.date_range_end)}"
+
 class DocumentationService:
     """Erzeugt Dokumentation für KNX-Projekte."""
 
@@ -929,9 +941,9 @@ class DocumentationService:
 
         # 10. Zeitprogramme (FA-3307) – nur wenn Zeitprogramme vorhanden
         if "zeitprogramme" in wanted and self.project.time_programs:
-            path = target("Zeitprogramme.pdf")
+            path = target("Zeitsteuerungsplan.pdf")
             self.generate_time_programs_doc(path)
-            generated_files.append(("Zeitprogramme", path))
+            generated_files.append(("Zeitsteuerungsplan", path))
 
         # 10b. KNX Secure Archivbericht (FA-2706) – nur wenn aktiviert
         if "secure" in wanted and self.project.knx_secure.enabled:
@@ -1172,9 +1184,10 @@ class DocumentationService:
         logger.info(f"DALI-Geräteliste erstellt: {filepath}")
 
     def generate_time_programs_doc(self, filepath: str):
-        """Erzeugt die Zeitprogramm-Dokumentation für das Revisionspaket (FA-3307)."""
-        pdf = self._make_pdf("Zeitprogramme")
-        pdf.add_heading("Zeitprogramme / Wochenprogramme", level=1)
+        """Zeitsteuerungsplan: alle Wochenprogramme und Schaltzeitpunkte
+        (FA-3307b/c), auch im Revisionspaket."""
+        pdf = self._make_pdf("Zeitsteuerungsplan")
+        pdf.add_heading("Zeitsteuerungsplan", level=1)
         pdf.add_paragraph(f"Projekt: {self.project.name}")
         pdf.add_paragraph(f"Erstellt: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
 
@@ -1201,7 +1214,7 @@ class DocumentationService:
                     if not dp.switch_points:
                         pdf.add_paragraph("Keine Schaltzeitpunkte.")
                         continue
-                    headers = ["Zeit", "Art", "Wert", "GA", "Priorität"]
+                    headers = ["Zeit", "Art", "Wert", "GA", "Priorität", "Zeitraum"]
                     rows = []
                     for sp in sorted(dp.switch_points,
                                      key=lambda s: s.fixed_time if s.time_type == "FIXED" else ""):
@@ -1216,10 +1229,13 @@ class DocumentationService:
                                 f"{ga.designation}"
                             ) if ga else sp.target_ga_id
                         rows.append([
-                            sp.display_time, sp.time_type,
+                            sp.display_time,
+                            "Astro" if sp.time_type == "ASTRO" else "fest",
                             sp.action_value, ga_label, sp.priority,
+                            _period_text(sp),
                         ])
-                    pdf.add_table(headers, rows)
+                    pdf.add_table(headers, rows,
+                                  col_widths=[0.16, 0.08, 0.08, 0.40, 0.10, 0.18])
 
         pdf.save(filepath)
         logger.info(f"Zeitprogramme-Dokumentation erstellt: {filepath}")

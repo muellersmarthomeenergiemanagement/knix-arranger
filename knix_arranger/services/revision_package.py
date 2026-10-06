@@ -26,7 +26,7 @@ REVISION_PARTS: list[tuple[str, str]] = [
     ("materialliste", "Materialliste"),
     ("ga_csv", "GA-Export (CSV)"),
     ("dali", "DALI-Gerätekonfiguration"),
-    ("zeitprogramme", "Zeitprogramme"),
+    ("zeitprogramme", "Zeitsteuerungsplan"),
     ("secure", "KNX Secure Archivbericht"),
     ("datenblaetter", "Produktdatenblätter"),
     ("offerte", "Kundenofferte (akzeptiert)"),

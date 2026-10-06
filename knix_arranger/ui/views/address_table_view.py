@@ -24,7 +24,7 @@ class AddressTableView(QWidget):
 
     COLUMNS = [
         "Adresse", "Bezeichnung", "DPT", "Gewerk", "Raum",
-        "Nr.", "Funktion", "Zentral", "Sicherheit",
+        "Nr.", "Funktion", "Zentral", "Sicherheit", "Notizen",
     ]
 
     def __init__(self, parent=None):
@@ -89,6 +89,11 @@ class AddressTableView(QWidget):
         """Verbindet die View mit dem zentralen ProjectBus."""
         self._bus = bus
 
+    def set_timed_gas(self, ga_ids: set[str]) -> None:
+        """GAs, die ein aktives Zeitprogramm schaltet: Kürzel "[T]" in der
+        Spalte Notizen (FA-3306d). Wirkt beim nächsten set_structure."""
+        self._timed_ids = set(ga_ids)
+
     def set_structure(self, structure: GroupAddressStructure):
         self._structure = structure
         self._all_gas = structure.all_addresses()
@@ -111,10 +116,13 @@ class AddressTableView(QWidget):
                 ga.function_name,
                 ga.central,
                 ga.security,
+                "[T]" if ga.id in getattr(self, "_timed_ids", ()) else "",
             ]
             for col, text in enumerate(items):
                 item = QTableWidgetItem(text)
                 item.setData(Qt.UserRole, ga.id)
+                if text == "[T]" and col == len(items) - 1:
+                    item.setToolTip("Kürzel [T]: wird von einem aktiven Zeitprogramm geschaltet (FA-3306d)")
                 if ga.is_placeholder:
                     item.setForeground(Qt.gray)
                 self._table.setItem(row, col, item)
