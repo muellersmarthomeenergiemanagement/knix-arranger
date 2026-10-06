@@ -209,9 +209,11 @@ class TopologyEngine:
     def populate_devices(self, topology: Topology, all_rooms: list[Room],
                          catalog: GewerkCatalog,
                          small_project: bool = False,
-                         preserve_manual: bool = False):
+                         preserve_manual: bool = False,
+                         shared_gateways: dict[str, str] | None = None):
         """
         Fügt alle Linienteilnehmer gemaess KNX Projektrichtlinien 2024 ein.
+        shared_gateways: gemeinsame Gateways (KnxProject.shared_gateways()).
 
         Pro Bereich (Kap. 3.5.1):
         - Bereichskoppler (BK) an Adresse B.0.0
@@ -290,7 +292,7 @@ class TopologyEngine:
         sensor_service = SensorService()
 
         actor_results = actor_service.determine_actors_per_line(
-            topology, all_rooms, catalog
+            topology, all_rooms, catalog, shared=shared_gateways,
         )
         sensor_results = sensor_service.determine_sensors_per_line(
             topology, all_rooms, catalog

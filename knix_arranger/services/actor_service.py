@@ -59,11 +59,12 @@ class ActorService:
                 data = json.load(f)
             self.channel_options = data.get("actor_channels", {})
 
-    def determine_actors(self, rooms: list[Room],
-                         catalog: GewerkCatalog) -> list[ActorRequirement]:
+    def determine_actors(self, rooms: list[Room], catalog: GewerkCatalog,
+                         exclude_codes=frozenset()) -> list[ActorRequirement]:
         """
         Ermittelt benötigte Aktorentypen (FA-1301).
         Fasst Kanäle zusammen (FA-1302).
+        exclude_codes: Gewerke, die hier nicht zählen (gemeinsame Gateways).
         """
         # Sammle benötigte Kanäle pro Aktortyp
         type_channels: dict[str, int] = {}
@@ -71,6 +72,8 @@ class ActorService:
 
         for room in rooms:
             for assignment in room.gewerk_assignments:
+                if assignment.gewerk_code in exclude_codes:
+                    continue
                 actor_type = GEWERK_TO_ACTOR_TYPE.get(assignment.gewerk_code)
                 if not actor_type:
                     continue
@@ -121,7 +124,7 @@ class ActorService:
 
     def determine_actors_per_line(
         self, topology: Topology, all_rooms: list[Room],
-        catalog: GewerkCatalog,
+        catalog: GewerkCatalog, shared: dict[str, str] | None = None,
     ) -> list[LineActorResult]:
         """
         Ermittelt Aktoren pro Linie (liniengerecht).
@@ -129,37 +132,90 @@ class ActorService:
         Jede Linie bekommt eigene Aktoren für die ihr zugeordneten Räume.
         Linienkoppler filtern GAs, daher muessen Aktoren auf derselben Linie
         wie die gesteuerten Räume sitzen.
+
+        shared: Gateway-Gewerke mit einem gemeinsamen Gateway für das Projekt
+        (Gewerk -> Line.id, leer = automatisch, siehe KnxProject.shared_gateways).
+        Ihre Elemente aller Räume zählen zusammen auf einer Linie -- z.B. ein
+        Revox-Gateway für Studio und Wohnung, die Telegramme laufen über die
+        Koppler.
         """
+        shared = shared or {}
         # Room-ID -> Room Lookup erstellen
         room_by_id = {r.id: r for r in all_rooms}
+        lines = [(area, line) for area in topology.areas for line in area.lines]
 
-        results: list[LineActorResult] = []
-        for area in topology.areas:
-            for line in area.lines:
-                # Räume dieser Linie filtern
-                line_rooms = [
-                    room_by_id[rid]
-                    for rid in line.assigned_room_ids
-                    if rid in room_by_id
-                ]
-                if not line_rooms:
-                    continue
+        by_line: dict[str, LineActorResult] = {}
+        requirements_by_line: dict[str, list[ActorRequirement]] = {}
+        for area, line in lines:
+            # Räume dieser Linie filtern
+            line_rooms = [
+                room_by_id[rid]
+                for rid in line.assigned_room_ids
+                if rid in room_by_id
+            ]
+            if not line_rooms:
+                continue
+            requirements_by_line[line.id] = self.determine_actors(
+                line_rooms, catalog, exclude_codes=frozenset(shared))
+            by_line[line.id] = self._line_result(area, line)
 
-                # Bestehende Methoden wiederverwenden
-                requirements = self.determine_actors(line_rooms, catalog)
-                actors = self.suggest_actors(requirements)
+        # Gemeinsame Gateways: alle Elemente des Gewerks auf eine Linie
+        for code, line_id in shared.items():
+            rooms = [r for r in all_rooms
+                     if any(a.gewerk_code == code for a in r.gewerk_assignments)]
+            requirement = next(iter(self.determine_actors(rooms, catalog)), None) \
+                if rooms else None
+            if requirement is None:
+                continue
+            requirement.gewerk_codes = [code]
+            target = self.shared_gateway_line(topology, all_rooms, code, line_id)
+            if target is None:
+                continue
+            area, line = target
+            by_line.setdefault(line.id, self._line_result(area, line))
+            requirements_by_line.setdefault(line.id, []).append(requirement)
 
-                results.append(LineActorResult(
-                    line_name=line.name,
-                    coupler_address=line.coupler_address,
-                    area_number=area.area_number,
-                    line_number=line.line_number,
-                    device_count=line.device_count,
-                    requirements=requirements,
-                    actors=actors,
-                ))
-
+        results = []
+        for _area, line in lines:
+            if line.id not in by_line:
+                continue
+            result = by_line[line.id]
+            result.requirements = requirements_by_line.get(line.id, [])
+            result.actors = self.suggest_actors(result.requirements)
+            results.append(result)
         return results
+
+    @staticmethod
+    def _line_result(area, line) -> LineActorResult:
+        return LineActorResult(
+            line_name=line.name,
+            coupler_address=line.coupler_address,
+            area_number=area.area_number,
+            line_number=line.line_number,
+            device_count=line.device_count,
+        )
+
+    @staticmethod
+    def shared_gateway_line(topology: Topology, all_rooms: list[Room], code: str,
+                            line_id: str = ""):
+        """Linie des gemeinsamen Gateways: die gewählte; sonst die Linie mit dem
+        Raum der HV; sonst die erste Linie mit Räumen dieses Gewerks; sonst die
+        erste Linie mit Räumen. (Area, Line) oder None."""
+        lines = [(area, line) for area in topology.areas for line in area.lines]
+        if line_id:
+            chosen = next(((a, ln) for a, ln in lines if ln.id == line_id), None)
+            if chosen:
+                return chosen
+        hv_rooms = {r.id for r in all_rooms for vt in r.verteiler if vt.verteiler_type == "HV"}
+        code_rooms = {r.id for r in all_rooms
+                      if any(a.gewerk_code == code for a in r.gewerk_assignments)}
+        for wanted in (hv_rooms, code_rooms, None):
+            for area, line in lines:
+                if not line.assigned_room_ids:
+                    continue
+                if wanted is None or set(line.assigned_room_ids) & wanted:
+                    return area, line
+        return None
 
     def create_material_list(self, actors: list[Actor]) -> list[dict]:
         """Erstellt eine Materialliste der Aktoren (FA-1306)."""

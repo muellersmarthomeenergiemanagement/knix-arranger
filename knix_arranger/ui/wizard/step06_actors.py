@@ -6,7 +6,7 @@ import logging
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget,
     QTreeWidgetItem, QPushButton, QAbstractItemView, QGroupBox,
-    QMessageBox, QComboBox,
+    QMessageBox, QComboBox, QGridLayout,
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
@@ -75,6 +75,12 @@ class Step06Actors(QWidget):
         self._offer_ready_hint.setVisible(False)
         layout.addWidget(self._offer_ready_hint)
 
+        # Gateways: gemeinsam für das Projekt oder je Linie (FA-1307)
+        self._gateway_group = QGroupBox("Gateways")
+        self._gateway_grid = QGridLayout(self._gateway_group)
+        self._gateway_group.setVisible(False)
+        layout.addWidget(self._gateway_group)
+
         # Baum: Linien > Aktoren
         self._tree = QTreeWidget()
         self._tree.itemExpanded.connect(lambda _: fit_columns(self._tree))
@@ -130,11 +136,13 @@ class Step06Actors(QWidget):
             return
 
         self._no_topology_hint.setVisible(False)
+        self._build_gateway_choices()
 
         all_rooms = self._project.all_rooms
         try:
             line_results = service.determine_actors_per_line(
                 topology, all_rooms, catalog,
+                shared=self._project.shared_gateways(),
             )
         except Exception:
             logger.exception("Fehler bei Aktor-Ermittlung")
@@ -266,6 +274,7 @@ class Step06Actors(QWidget):
                 topology, all_rooms, catalog,
                 small_project=(topology.topology_mode == "TP-64"),
                 preserve_manual=True,
+                shared_gateways=self._project.shared_gateways(),
             )
             self._guard.mark_done(self._project, KEY_DEVICES)
         apply_device_locations(topology, all_rooms)
@@ -286,6 +295,80 @@ class Step06Actors(QWidget):
                 entry.get("order_number") or "–",
             ])
         fit_columns(self._mat_tree)
+
+    # ── Gateways: gemeinsam oder je Linie (FA-1307) ──
+
+    def _build_gateway_choices(self) -> None:
+        """Je Gateway-Gewerk im Projekt: gemeinsames Gateway für das Projekt
+        (z.B. Revox, das die Zonen selbst einteilt) oder je Linie, und die
+        Linie des gemeinsamen Gateways."""
+        from ...models.device import GEWERK_TO_ACTOR_TYPE, GATEWAY_ACTOR_TYPES
+        while self._gateway_grid.count():
+            widget = self._gateway_grid.takeAt(0).widget()
+            if widget is not None:
+                widget.deleteLater()
+        project = self._project
+        imported = project.topology.is_imported
+        rooms = project.all_rooms
+        codes = sorted({a.gewerk_code for r in rooms for a in r.gewerk_assignments
+                        if GEWERK_TO_ACTOR_TYPE.get(a.gewerk_code) in GATEWAY_ACTOR_TYPES})
+        self._gateway_group.setVisible(bool(codes) and not imported)
+        if not codes or imported:
+            return
+        lines = [(area, line) for area in project.topology.areas for line in area.lines
+                 if line.assigned_room_ids]
+        catalog = project.gewerk_catalog
+        for row, code in enumerate(codes):
+            gewerk = catalog.get(code)
+            n_rooms = sum(1 for r in rooms if any(a.gewerk_code == code
+                                                  for a in r.gewerk_assignments))
+            self._gateway_grid.addWidget(QLabel(
+                f"{code} – {gewerk.name if gewerk else code} ({n_rooms} Räume)"), row, 0)
+
+            scope = QComboBox()
+            scope.addItem("gemeinsam für das Projekt", "project")
+            scope.addItem("je Linie", "line")
+            shared = project.config.gateway_shared(code)
+            scope.setCurrentIndex(0 if shared else 1)
+            scope.setToolTip("Gemeinsam: ein Gateway für alle Räume dieses Gewerks, "
+                             "z.B. Revox teilt die Zonen selbst ein. Je Linie: ein "
+                             "Gateway auf jeder Linie mit Räumen dieses Gewerks.")
+            scope.currentIndexChanged.connect(
+                lambda _i, c=code, combo=scope: self._set_gateway_scope(c, combo.currentData()))
+            self._gateway_grid.addWidget(scope, row, 1)
+
+            line_combo = QComboBox()
+            auto = ActorService.shared_gateway_line(project.topology, rooms, code)
+            auto_text = (f"automatisch: Linie {auto[1].coupler_address} {auto[1].name}"
+                         if auto else "automatisch")
+            line_combo.addItem(auto_text, "")
+            for _area, line in lines:
+                line_combo.addItem(f"Linie {line.coupler_address} {line.name}", line.id)
+            line_combo.setCurrentIndex(max(0, line_combo.findData(
+                project.config.gateway_line.get(code, ""))))
+            line_combo.setEnabled(shared)
+            line_combo.setToolTip("Linie, auf der das gemeinsame Gateway sitzt "
+                                  "(automatisch: Linie mit der HV)")
+            line_combo.currentIndexChanged.connect(
+                lambda _i, c=code, combo=line_combo: self._set_gateway_line(c, combo.currentData()))
+            self._gateway_grid.addWidget(line_combo, row, 2)
+        self._gateway_grid.setColumnStretch(3, 1)
+
+    def _set_gateway_scope(self, code: str, scope: str) -> None:
+        from ...models.project import SHARED_GATEWAY_DEFAULTS
+        default = "project" if code in SHARED_GATEWAY_DEFAULTS else "line"
+        if scope == default:
+            self._project.config.gateway_scope.pop(code, None)
+        else:
+            self._project.config.gateway_scope[code] = scope
+        QTimer.singleShot(0, self._calculate)
+
+    def _set_gateway_line(self, code: str, line_id: str) -> None:
+        if line_id:
+            self._project.config.gateway_line[code] = line_id
+        else:
+            self._project.config.gateway_line.pop(code, None)
+        QTimer.singleShot(0, self._calculate)
 
     def _verteiler_combo(self, placement: VerteilerPlacement, current_id: str,
                          auto_text: str, on_change) -> QComboBox:

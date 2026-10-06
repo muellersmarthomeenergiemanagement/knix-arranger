@@ -427,6 +427,7 @@ class Step04Topology(QWidget):
                     self._project.gewerk_catalog,
                     small_project=(self._project.topology.topology_mode == "TP-64"),
                     preserve_manual=True,
+                    shared_gateways=self._project.shared_gateways(),
                 )
                 self._guard.mark_done(self._project, KEY_DEVICES)
             self._update_change_banner()
@@ -548,6 +549,7 @@ class Step04Topology(QWidget):
             self._project.all_rooms,
             self._project.gewerk_catalog,
             small_project=(self._project.topology.topology_mode == "TP-64"),
+            shared_gateways=self._project.shared_gateways(),
         )
 
         self._change_banner.hide()
@@ -1023,6 +1025,7 @@ class Step04Topology(QWidget):
                     self._project.gewerk_catalog,
                     small_project=(self._project.topology.topology_mode == "TP-64"),
                     preserve_manual=True,
+                    shared_gateways=self._project.shared_gateways(),
                 )
             self._display_topology()
             self._run_validation()

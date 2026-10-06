@@ -58,7 +58,8 @@ def _inputs(project, key: str) -> list:
     if key == KEY_FUNCTIONS:
         return [project.areal, project.group_addresses]
     if key == KEY_DEVICES:
-        return [project.areal, project.topology]
+        # config: gemeinsame Gateways (gateway_scope/gateway_line)
+        return [project.areal, project.topology, project.config]
     raise ValueError(f"Unbekannter Guard-Schlüssel: {key}")
 
 

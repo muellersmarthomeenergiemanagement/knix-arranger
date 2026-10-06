@@ -32,6 +32,12 @@ from .time_program import TimeProgram, ProjectLocation
 
 from ..utils.manufacturers import manufacturer_display_name
 
+# Gateway-Gewerke mit standardmässig einem gemeinsamen Gateway für das ganze
+# Projekt (Entscheid 2026-10-06): Multimedia (Revox teilt die Zonen selbst
+# ein), Wärmepumpe, Energie (PV, Speicher, Wallbox), Lüftung/Klima. DALI und
+# DMX bleiben je Linie -- der Bus ist an seine Leuchten gebunden.
+SHARED_GATEWAY_DEFAULTS = frozenset({"MM", "WP", "PV", "SP", "EV", "LU", "KL"})
+
 
 @dataclass
 class ProjectConfig:
@@ -40,6 +46,18 @@ class ProjectConfig:
     topology_mode: str = "TP-256" # "TP-64" oder "TP-256"
     backbone_type: str = "TP"     # "TP" oder "IP"
     preferred_manufacturers: list[str] = field(default_factory=list)
+    # Gateway-Gewerke (FA-1307): "project" = ein gemeinsames Gateway für das
+    # ganze Projekt (z.B. Revox teilt die Zonen selbst ein), "line" = je
+    # Linie. Nur Abweichungen von SHARED_GATEWAY_DEFAULTS stehen hier.
+    gateway_scope: dict[str, str] = field(default_factory=dict)
+    # Linie (Line.id) des gemeinsamen Gateways je Gewerk; leer = automatisch
+    gateway_line: dict[str, str] = field(default_factory=dict)
+
+    def gateway_shared(self, gewerk_code: str) -> bool:
+        scope = self.gateway_scope.get(gewerk_code)
+        if scope:
+            return scope == "project"
+        return gewerk_code in SHARED_GATEWAY_DEFAULTS
 
     def to_dict(self) -> dict:
         return {
@@ -47,6 +65,8 @@ class ProjectConfig:
             "topology_mode": self.topology_mode,
             "backbone_type": self.backbone_type,
             "preferred_manufacturers": self.preferred_manufacturers,
+            "gateway_scope": dict(self.gateway_scope),
+            "gateway_line": dict(self.gateway_line),
         }
 
     @classmethod
@@ -58,6 +78,8 @@ class ProjectConfig:
             preferred_manufacturers=list(dict.fromkeys(
                 manufacturer_display_name(m) for m in data.get("preferred_manufacturers", [])
             )),
+            gateway_scope=dict(data.get("gateway_scope", {})),
+            gateway_line=dict(data.get("gateway_line", {})),
         )
 
 
@@ -181,6 +203,14 @@ class KnxProject:
     @property
     def all_floors(self) -> list[Floor]:
         return self.areal.all_floors
+
+    def shared_gateways(self) -> dict[str, str]:
+        """Gateway-Gewerke mit gemeinsamem Gateway: Gewerk -> Linie (Line.id,
+        leer = automatisch). Für die Aktor-Ermittlung (FA-1307)."""
+        from .device import GEWERK_TO_ACTOR_TYPE, GATEWAY_ACTOR_TYPES
+        return {code: self.config.gateway_line.get(code, "")
+                for code, actor_type in GEWERK_TO_ACTOR_TYPE.items()
+                if actor_type in GATEWAY_ACTOR_TYPES and self.config.gateway_shared(code)}
 
     @property
     def all_rooms(self) -> list[Room]:

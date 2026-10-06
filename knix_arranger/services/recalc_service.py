@@ -54,6 +54,7 @@ class RecalcService:
                 topology, all_rooms, catalog,
                 small_project=(topology.topology_mode == "TP-64"),
                 preserve_manual=True,
+                shared_gateways=project.shared_gateways(),
             )
 
         actor_count = sum(
