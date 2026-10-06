@@ -389,6 +389,8 @@ class ReportsDialog(QDialog):
             )
             return
         project = self._project
+        if not self._confirm_revision_completeness():
+            return
 
         def do():
             from ...services.documentation_service import DocumentationService
@@ -400,6 +402,25 @@ class ReportsDialog(QDialog):
             os.startfile(dir_path)
 
         run_export(self, "Revisionspaket wird erstellt…", do, on_success, self._worker_ref)
+
+    def _confirm_revision_completeness(self) -> bool:
+        """Offene Punkte der Revisionsunterlagen anzeigen (FA-2104).
+        True = Paket erstellen."""
+        from ...services.revision_check import check_revision_completeness
+        findings = check_revision_completeness(self._project, self._company_profile)
+        if not findings:
+            return True
+        lines = "\n".join(f"• {f.part}: {f.message}" for f in findings)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Revisionsunterlagen unvollständig")
+        box.setText("Für vollständige Revisionsunterlagen fehlt noch:")
+        box.setInformativeText(
+            lines + "\n\nDie offenen Punkte werden im Inhaltsverzeichnis aufgeführt.")
+        create = box.addButton("Trotzdem erstellen", QMessageBox.AcceptRole)
+        box.addButton("Abbrechen", QMessageBox.RejectRole)
+        box.exec()
+        return box.clickedButton() is create
 
     def _gen_knx_secure_confidential(self):
         """Vertraulicher KNX-Secure-Bericht MIT echten FDSK-/Passwort-Werten.

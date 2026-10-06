@@ -878,6 +878,14 @@ class DocumentationService:
         self.generate_user_manual(path, language=language)
         generated_files.append(("Bedienungsanleitung", path))
 
+        # 7b. Materialliste (FA-2102 Nr. 12, FA-2308) -- nur wenn erfasst
+        if self.project.material_list.entries:
+            from .material_list_export_service import MaterialListExportService
+            path = os.path.join(output_dir, f"{prefix}_Materialliste.xlsx")
+            MaterialListExportService().export_xlsx(
+                self.project.material_list, project_name, path)
+            generated_files.append(("Materialliste", path))
+
         # 8. CSV-Export
         from .csv_export_service import CsvExportService
         csv_svc = CsvExportService()
@@ -905,9 +913,11 @@ class DocumentationService:
             self.generate_knx_secure_report(path)
             generated_files.append(("KNX Secure Archivbericht", path))
 
-        # 11. Inhaltsverzeichnis (FA-2103)
+        # 11. Inhaltsverzeichnis (FA-2103) mit offenen Punkten (FA-2104)
+        from .revision_check import check_revision_completeness
         index_path = self.create_revision_index(
-            output_dir, revision, generated_files
+            output_dir, revision, generated_files,
+            findings=check_revision_completeness(self.project, self._company_profile),
         )
 
         logger.info(f"Revisionspaket erstellt in: {output_dir}")
@@ -1149,7 +1159,8 @@ class DocumentationService:
         logger.info(f"Zeitprogramme-Dokumentation erstellt: {filepath}")
 
     def create_revision_index(self, output_dir: str, revision: str,
-                              generated_files: list[tuple[str, str]]) -> str:
+                              generated_files: list[tuple[str, str]],
+                              findings: list | None = None) -> str:
         """Erzeugt ein Inhaltsverzeichnis für das Revisionspaket (FA-2103)."""
         project_name = self.project.name or "Projekt"
         prefix = project_name.replace(" ", "_")
@@ -1185,6 +1196,15 @@ class DocumentationService:
         pdf.add_table(headers, rows, col_widths=[0.07, 0.43, 0.10, 0.40],
                       align=["right", "left", "right", "left"])
         pdf.add_paragraph(f"Alle Dateinamen beginnen mit «{prefix}_».")
+
+        # Vollständigkeit (FA-2104)
+        pdf.add_heading("Offene Punkte", level=2)
+        if findings:
+            pdf.add_table(["Bestandteil", "Offen"],
+                          [[f.part, f.message] for f in findings],
+                          col_widths=[0.28, 0.72])
+        else:
+            pdf.add_paragraph("Die Revisionsunterlagen sind vollständig.")
 
         pdf.save(index_path)
         logger.info(f"Inhaltsverzeichnis erstellt: {index_path}")
