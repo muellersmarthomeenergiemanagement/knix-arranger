@@ -249,6 +249,14 @@ class MainWindow(QMainWindow):
 
         edit_menu.addSeparator()
 
+        renumber_action = QAction("Adressen &neu ordnen...", self)
+        renumber_action.setToolTip(
+            "Gruppenadressen eines geplanten Projekts lückenlos neu aufbauen (FA-701)")
+        renumber_action.triggered.connect(self._renumber_addresses)
+        edit_menu.addAction(renumber_action)
+
+        edit_menu.addSeparator()
+
         settings_action = QAction("&Einstellungen...", self)
         settings_action.triggered.connect(self._show_settings)
         edit_menu.addAction(settings_action)
@@ -662,6 +670,34 @@ class MainWindow(QMainWindow):
         self._bus.emit_addresses_changed()
         self._status_bar.set_status(
             f"Gewerk {code or 'wie im ETS-Namen'} für {len(addresses)} GA festgelegt.")
+
+    def _renumber_addresses(self):
+        """Gruppenadressen eines geplanten Projekts neu ordnen (FA-701 bis
+        FA-706) mit Vorschau; bei Projekten aus der ETS gilt die ETS."""
+        from .dialogs.renumber_dialog import RenumberDialog
+        from ..services.renumber_service import (
+            can_renumber, plan_renumbering, apply_renumbering,
+        )
+        if not self._project:
+            self._status_bar.set_status("Kein Projekt geöffnet.")
+            return
+        if not can_renumber(self._project):
+            QMessageBox.information(
+                self, "Adressen neu ordnen",
+                "Dieses Projekt wurde aus der ETS importiert. Massgebend sind "
+                "die Adressen in der ETS – KNiX ordnet sie nicht neu.\n\n"
+                "Abweichungen von den Projektrichtlinien zeigt die Validierung.")
+            return
+        plan = plan_renumbering(self._project)
+        if RenumberDialog(plan, self).exec() != RenumberDialog.Accepted:
+            return
+        self._backup_project("vor_Neuordnen")
+        self._bus.begin_change("Adressen neu ordnen")
+        remapped = apply_renumbering(self._project, plan)
+        self._bus.emit_addresses_changed()
+        self._status_bar.set_status(
+            f"Adressen neu geordnet: {len(plan.changes)} verschoben/umbenannt"
+            + (f", {remapped} Verweis(e) nachgeführt." if remapped else "."))
 
     def _on_addresses_changed(self):
         """Reagiert auf GA-Änderungen (Umbenennen, DPT, etc.) aus beiden Address-Views.
