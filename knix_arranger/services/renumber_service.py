@@ -56,8 +56,23 @@ class RenumberPlan:
 
 
 def can_renumber(project) -> bool:
-    """Neu ordnen nur bei geplanten Projekten (bei importierten gilt die ETS)."""
-    return not project.topology.is_imported
+    """Neu ordnen nur bei geplanten Projekten, die noch nicht in die ETS
+    übertragen sind (bei importierten gilt die ETS)."""
+    return not project.addresses_fixed
+
+
+def mark_ets_transferred(project, transferred: bool) -> None:
+    """Projektstatus "in ETS übertragen" setzen bzw. zurücksetzen, mit
+    Eintrag im Änderungsprotokoll."""
+    from datetime import date
+    if transferred and not project.ets_transferred:
+        project.ets_transferred = date.today().isoformat()
+        project.add_changelog_entry(
+            "Projekt", "Gruppenadressen in die ETS übertragen – Adressen stehen fest.")
+    elif not transferred and project.ets_transferred:
+        project.ets_transferred = ""
+        project.add_changelog_entry(
+            "Projekt", "Status «in ETS übertragen» zurückgesetzt – wieder in Planung.")
 
 
 def _match_key(ga: GroupAddress) -> tuple:

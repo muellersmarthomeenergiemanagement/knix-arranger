@@ -695,11 +695,17 @@ class MainWindow(QMainWindow):
             self._status_bar.set_status("Kein Projekt geöffnet.")
             return
         if not can_renumber(self._project):
-            QMessageBox.information(
-                self, "Adressen neu ordnen",
-                "Dieses Projekt wurde aus der ETS importiert. Massgebend sind "
-                "die Adressen in der ETS – KNiX ordnet sie nicht neu.\n\n"
-                "Abweichungen von den Projektrichtlinien zeigt die Validierung.")
+            if self._project.topology.is_imported:
+                text = ("Dieses Projekt wurde aus der ETS importiert. Massgebend sind "
+                        "die Adressen in der ETS – KNiX ordnet sie nicht neu.\n\n"
+                        "Abweichungen von den Projektrichtlinien zeigt die Validierung.")
+            else:
+                text = ("Die Gruppenadressen sind in die ETS übertragen "
+                        f"({self._project.ets_transferred}) und stehen fest.\n\n"
+                        "Nur wenn in der ETS noch nichts verknüpft ist: Status unter "
+                        "Datei → Projekteigenschaften zurücksetzen, neu ordnen und "
+                        "erneut übertragen.")
+            QMessageBox.information(self, "Adressen neu ordnen", text)
             return
         plan = plan_renumbering(self._project)
         if RenumberDialog(plan, self).exec() != RenumberDialog.Accepted:
@@ -1866,6 +1872,10 @@ class MainWindow(QMainWindow):
                 self._status_bar.set_status(f"CSV exportiert: {dialog.filepath}")
             except Exception as e:
                 QMessageBox.critical(self, "Export-Fehler", str(e))
+                return
+            from .dialogs.project_properties_dialog import offer_ets_transferred
+            if offer_ets_transferred(self, self._project):
+                self._status_bar.set_status("Projekt als «in ETS übertragen» markiert.")
 
     def _validate(self):
         if not self._project:

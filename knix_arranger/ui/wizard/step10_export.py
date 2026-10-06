@@ -146,6 +146,9 @@ class Step10Export(QWidget):
         def on_success(ga_count: int):
             self._log.append(f"CSV exportiert: {ga_count} GAs → {path}")
             self._success.setText("CSV erfolgreich exportiert!")
+            from ..dialogs.project_properties_dialog import offer_ets_transferred
+            if offer_ets_transferred(self, project):
+                self._log.append("Projekt als «in ETS übertragen» markiert – Adressen stehen fest.")
 
         run_export(self, "Gruppenadressen werden exportiert…", do_export, on_success, self._worker_ref)
 

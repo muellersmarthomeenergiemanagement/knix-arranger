@@ -157,3 +157,13 @@ def test_view_configures_planned_project():
     view._groups_table.item(0, _CG_SCENE).setText("2/0/7")
     (gw,) = project.dali_configs.values()
     assert sorted(gw.groups, key=lambda g: g.number)[0].ga_scene == "2/0/7"
+
+
+def test_dali_list_in_revision_package_without_evgs(tmp_path):
+    from knix_arranger.services.documentation_service import DocumentationService
+    project = _project()
+    assert project.dali_configs == {}          # DALI-Ansicht nie geöffnet
+    DocumentationService(project).generate_revision_package(str(tmp_path), parts={"dali"})
+    assert (tmp_path / "DALI-Test_DALI_Geraete.pdf").exists()
+    (gw,) = project.dali_configs.values()
+    assert not gw.devices and len(gw.groups) == 3

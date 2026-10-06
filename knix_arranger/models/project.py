@@ -127,6 +127,10 @@ class KnxProject:
     # Stand der ETS-Arbeitsliste (services/ets_worklist): Runde, letzter Import,
     # Aufgaben mit erstem Auftreten und Erledigt-Datum
     ets_worklist: dict = field(default_factory=dict)
+    # Projektstatus: Datum (ISO), an dem die Gruppenadressen eines geplanten
+    # Projekts in die ETS übertragen wurden; leer = in Planung. Ab dann
+    # verschiebt KNiX keine Adressen mehr (kein "Adressen neu ordnen").
+    ets_transferred: str = ""
     areal: Areal = field(default_factory=Areal)
     topology: Topology = field(default_factory=Topology)
     group_addresses: GroupAddressStructure = field(default_factory=GroupAddressStructure)
@@ -204,6 +208,12 @@ class KnxProject:
     def all_floors(self) -> list[Floor]:
         return self.areal.all_floors
 
+    @property
+    def addresses_fixed(self) -> bool:
+        """Adressen stehen fest: aus der ETS importiert oder in die ETS
+        übertragen -- dann ordnet KNiX sie nicht mehr neu."""
+        return self.topology.is_imported or bool(self.ets_transferred)
+
     def shared_gateways(self) -> dict[str, str]:
         """Gateway-Gewerke mit gemeinsamem Gateway: Gewerk -> Linie (Line.id,
         leer = automatisch). Für die Aktor-Ermittlung (FA-1307)."""
@@ -250,6 +260,7 @@ class KnxProject:
             "client_profile": self.client_profile.to_dict(),
             "ets_corrections": self.ets_corrections.to_dict(),
             "ets_worklist": copy.deepcopy(self.ets_worklist),
+            "ets_transferred": self.ets_transferred,
             "areal": self.areal.to_dict(),
             "topology": self.topology.to_dict(),
             "group_addresses": self.group_addresses.to_dict(),
@@ -307,6 +318,7 @@ class KnxProject:
         project.client_profile = ClientProfile.from_dict(data.get("client_profile", {}))
         project.ets_corrections = EtsCorrections.from_dict(data.get("ets_corrections"))
         project.ets_worklist = copy.deepcopy(data.get("ets_worklist") or {})
+        project.ets_transferred = data.get("ets_transferred", "")
         project.revisions = [RevisionRecord.from_dict(r) for r in data.get("revisions", [])]
         project.manual_settings = UserManualSettings.from_dict(data.get("manual_settings"))
         project.areal = Areal.from_dict(data.get("areal", {}))

@@ -6,7 +6,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QLabel, QLineEdit, QComboBox, QPushButton, QRadioButton,
-    QButtonGroup,
+    QButtonGroup, QCheckBox, QMessageBox,
 )
 from PySide6.QtCore import Qt
 from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
@@ -70,6 +70,18 @@ class ProjectPropertiesDialog(QDialog):
         kind_lbl.setWordWrap(True)
         kind_lbl.setTextFormat(Qt.RichText)
         form.addRow("Projektart:", kind_lbl)
+
+        # Projektstatus (nur geplante Projekte): Adressen in die ETS übertragen
+        self._ets_check = None
+        if not project.topology.is_imported:
+            since = f" (seit {project.ets_transferred})" if project.ets_transferred else ""
+            self._ets_check = QCheckBox(f"Gruppenadressen in die ETS übertragen{since}")
+            self._ets_check.setChecked(bool(project.ets_transferred))
+            self._ets_check.setToolTip(
+                "Ab der Übertragung stehen die Adressen fest: «Adressen neu ordnen» "
+                "ist gesperrt. Zurücksetzen nur, solange in der ETS noch nichts "
+                "verknüpft ist.")
+            form.addRow("Status:", self._ets_check)
 
         general_group.setLayout(form)
         layout.addWidget(general_group)
@@ -180,6 +192,17 @@ class ProjectPropertiesDialog(QDialog):
         self._project.config.mg_variant = "B" if self._radio_b.isChecked() else "A"
         self._project.config.topology_mode = self._topo_combo.currentText()
         self._project.config.backbone_type = self._backbone_combo.currentText()
+        if self._ets_check is not None:
+            from ...services.renumber_service import mark_ets_transferred
+            if (not self._ets_check.isChecked() and self._project.ets_transferred
+                    and QMessageBox.question(
+                        self, "Status zurücksetzen",
+                        "Status «in ETS übertragen» zurücksetzen?\n\nNur sinnvoll, "
+                        "solange in der ETS noch keine Gruppenadressen verknüpft sind – "
+                        "danach dürfen sich die Adressen wieder verschieben.",
+                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes):
+                return
+            mark_ets_transferred(self._project, self._ets_check.isChecked())
         self.accept()
 
     def _update_client_summary(self) -> None:
@@ -197,3 +220,23 @@ class ProjectPropertiesDialog(QDialog):
         from .client_profile_dialog import edit_client_profile
         if edit_client_profile(self._project, self, self._bus):
             self._update_client_summary()
+
+
+def offer_ets_transferred(parent, project) -> bool:
+    """Nach dem GA-Export für die ETS: Projektstatus «in ETS übertragen»
+    anbieten (nur geplante Projekte, noch nicht übertragen). True, wenn
+    gesetzt."""
+    if project is None or project.addresses_fixed:
+        return False
+    answer = QMessageBox.question(
+        parent, "In die ETS übertragen?",
+        "Werden diese Gruppenadressen jetzt in die ETS importiert?\n\n"
+        "Dann das Projekt als «in ETS übertragen» markieren: KNiX verschiebt ab "
+        "jetzt keine Adressen mehr («Adressen neu ordnen» gesperrt). Zurücksetzen "
+        "unter Datei → Projekteigenschaften.",
+        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+    if answer != QMessageBox.Yes:
+        return False
+    from ...services.renumber_service import mark_ets_transferred
+    mark_ets_transferred(project, True)
+    return True

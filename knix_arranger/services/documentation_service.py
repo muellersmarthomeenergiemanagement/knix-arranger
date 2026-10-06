@@ -936,7 +936,14 @@ class DocumentationService:
             generated_files.append(("GA-Export (CSV)", path))
 
         # 9. DALI-Geräteliste (FA-2805) – nur wenn DALI-Konfigurationen vorhanden
-        if "dali" in wanted and any(gw.devices for gw in self.project.dali_configs.values()):
+        # mit EVGs oder Gruppen -- geplante Projekte haben Gruppen, aber meist
+        # keine EVGs (die erfasst der Inbetriebnehmer im Gateway). Gruppen
+        # einrichten wie beim Öffnen der DALI-Ansicht, falls nie geschehen.
+        if "dali" in wanted:
+            from .dali_service import DaliService
+            DaliService().configure_planned(self.project)
+        if "dali" in wanted and any(gw.devices or gw.groups
+                                    for gw in self.project.dali_configs.values()):
             path = target("DALI_Geraete.pdf")
             self.generate_dali_device_list(path)
             generated_files.append(("DALI-Gerätekonfiguration", path))
