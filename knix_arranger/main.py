@@ -6,7 +6,7 @@ import sys
 import os
 
 from . import __version__, APP_NAME, __copyright__
-from .utils.logging_setup import setup_logging, create_crash_report
+from .utils.logging_setup import setup_logging, create_crash_report, install_exception_hook
 
 
 def main() -> int:
@@ -25,6 +25,7 @@ def main() -> int:
         from .utils.dialog_focus_fixer import DialogFocusFixer
 
         app = QApplication(sys.argv)
+        install_exception_hook()
         app.setApplicationName(APP_NAME)
         app.setApplicationVersion(__version__)
         app.setOrganizationName("Michael Müller SmartHome&EnergieManagement")

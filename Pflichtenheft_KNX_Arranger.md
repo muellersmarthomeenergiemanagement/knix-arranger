@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.24
+**Version:** 3.25
 **Datum:** 06.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -39,6 +39,7 @@
 | 3.22 | 02.10.2026 | M. Mueller / Claude AI | Frei stehende Nebengebaeude im Wizard: Gebaeudeauswahl in Schritt 1-3 mit Anlegen, Umbenennen und Entfernen (FA-101a); Hauptgruppen im ganzen Areal eindeutig, Validierung warnt bei mehrfach vergebener HG (FA-411a). Raumnummern frei gestaltbar im Pruefrahmen A-Z, 0-9, - und . (BZ-03a), z.B. Zonen-Praefix SEG02 oder S-EG02; Schritt 3 warnt bei Raumnummern ausserhalb des Pruefrahmens und bei doppelten Nummern im Projekt und schlaegt fuer neue Raeume die Nummer im Schema der Zone vor (FA-102a). Bezeichnungspruefung (FA-610) bei geplanten Projekten gegen die Gebaeudestruktur: der Raumteil muss ein vorhandener Raum sein. "Speichern" bei umbenanntem oder verschobenem Projektordner fuehrt zu "Speichern unter" mit Ordnervorschlag. Variante B: Rueckmeldungen eingebetteter 10er-Bloecke (LDA, LC, LCT, LCW, DMX) in MG 6, jeweils unter der Untergruppe ihres Befehls; Rueckmeldebloecke werden deckungsgleich zum Befehlsblock platziert statt angehaengt (FA-608a); Validierung prueft Rueckmeldungen in MG 0/1 und abweichende Untergruppen (FA-608). Projektzusammenfassung: Gebaeudestruktur je Gebaeude mit Stockwerk, HG und Zonen; HG-Namen von Stockwerken in Nebengebaeuden mit Gebaeudename (z.B. "Einstellhalle Erdgeschoss"). Szenen: Auswahl "Gilt fuer" mit jeder Zone einmal (auch ueber mehrere Stockwerke), eine Szenen-GA je Zone; bestehende Szenen-GA in der Planung auf Wunsch fuer den neuen Geltungsbereich neu erzeugen (FA-1812a); umbenannte feste Zentraladressen behalten ihren Namen. Berichte gliedern Stockwerke von Nebengebaeuden mit Gebaeudename. Einbauort der Aktoren: Verteiler je Linie (automatisch: Verteiler der Linie, sonst HV) waehlbar in Schritt 8, abweichend je Aktortyp, auch in der Topologie-Ansicht (FA-1305a). Steigschema (FA-905a): Gebaeudeschnitt mit dem Verlauf der Linien als Ansicht und im Topologie-Bericht (Querformat-Seite) |
 | 3.23 | 06.10.2026 | M. Mueller / Claude AI | Klartext je Gewerk-Element (FA-403): Spalte "Bezeichnung" in Schritt 5, z.B. "Decke; Wand" bei LDA x2; steht in jeder GA des Elements nach dem Raumnamen (`LDA_E01_01 E/A (Wohnen Decke)`), auch ohne Klartext steht der Raumname nun in jeder GA statt nur in der ersten; Auswahllisten zeigen den Klartext statt der Elementnummer; Adressen neu ordnen fuer geplante Projekte mit Vorschau, Sicherung und Nachfuehrung der Verweise (FA-701 bis FA-706, UC-03); Vollstaendigkeitspruefung der Revisionsunterlagen mit Rueckfrage und offenen Punkten im Inhaltsverzeichnis, Materialliste im Revisionspaket (FA-2104, FA-2102); Topologie-Pruefungen in der Validierung: Geraeteanzahl je Linie, KO-Verknuepfungen, physikalische Adressen, Spannungsversorgung (FA-609, FA-611 bis FA-613); Revisionspaket: Bestandteile waehlbar (FA-2105), Revisionsbezeichnung, -datum und Anlass mit Ordner je Revision und Revisionsliste (FA-2106), Produktdatenblaetter als Anhang (FA-1204), akzeptierte Kundenofferte (FA-2102 Nr. 13); Bedienungsanleitung anpassen: eigene Texte, Abschnitte ein-/ausblenden, eigene Abschnitte, Text je Raum, Foto je Taster (FA-2005); Offertanfrage als PDF und E-Mail-Entwurf mit PDF-Anhang (FA-1614); Zeitsteuerung vervollstaendigt: Duplizieren, Umbenennen, aktiv/inaktiv, eigene Vorlagen, Wochenraster, Datumsbereich, GA-Filter, Astro-Vorschau, Feiertagsanzahl, DPT-Pruefung und Einfaerbung, Kennzeichnung zeitgesteuerter GAs (Programmname bzw. Uhr-Symbol statt [T]), Zeitsteuerungsplan und Abschnitt in der Bedienungsanleitung (FA-3302 bis FA-3307) |
 | 3.24 | 06.10.2026 | M. Mueller / Claude AI | Sammel-Offertanfrage an mehrere Lieferanten (FA-1615); Offerten erfassen mit Rabatt und Lieferfrist, Status "Erhalten" automatisch, Versanddatum (FA-1621, FA-1622); Preisvergleich mit Hervorhebung des guenstigsten Anbieters und PDF (FA-1623, FA-1624); Zuschlag mit Nettopreisen und Ablehnung der uebrigen Anfragen der Sammelanfrage (FA-1625); Bedienungsanleitung in Deutsch, Franzoesisch, Italienisch und Englisch (FA-2006); Nachkalkulation aller Projekte mit Marge, Abweichungen, Verlauf und Vorschlaegen fuer die Richtwerte (FA-2205, FA-2206); Bezeichnung je Gewerk-Element: Tooltip mit Zuordnung, Warnung bei mehr Texten als Elementen, breitere Spalte, Anleitung in Hilfe und Handbuch (FA-403); DALI in geplanten Projekten: Gruppen je LDA-Element mit allen GAs, Namen aus der Bezeichnung, keine Gruppen-GAs als Broadcast (FA-2803); Gateways gemeinsam fuer das Projekt oder je Linie, waehlbar je Gewerk in Schritt 8 (FA-1307); Projektstatus "in ETS uebertragen" (FA-617a); DALI-Geraeteliste im Revisionspaket auch ohne EVGs (FA-2805) |
+| 3.25 | 06.10.2026 | M. Mueller / Claude AI | Zeilenpruefung der NFA: unerwartete Fehler im Betrieb werden abgefangen, protokolliert und gemeldet, Crash-Report mit RAM, Bildschirm und letzter Aktion (NFA-041a, NFA-143a); Menue "Hilfe > Logdateien oeffnen" (NFA-146); Einstellungen ohne wirkungslose Projektstandards, Update-Pruefung wirksam (NFA-114a); Copyright in den PDF-Eigenschaften (NFA-082a); Stand und Abgrenzungen festgehalten: Performance gemessen (NFA-023a), Konfigurationsdateien (NFA-053a), Lizenzserver, Code-Signatur, Integritaetspruefung und Datenschutz zurueckgestellt bis Verkaufsstart (NFA-060a), Bildschirm/RAM (NFA-103a), Oberflaeche nur Deutsch (NFA-156a) |
 
 ---
 
@@ -1680,6 +1681,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | NFA-021 | Der Import einer CSV-Datei mit bis zu 5.000 Gruppenadressen muss in unter 5 Sekunden abgeschlossen sein. |
 | NFA-022 | Die Validierung einer CSV-Datei mit bis zu 5.000 Gruppenadressen muss in unter 10 Sekunden abgeschlossen sein. |
 | NFA-023 | Die Generierung eines vollstaendigen Gruppenadress-Satzes (bis 5.000 GA) muss in unter 15 Sekunden abgeschlossen sein. |
+| NFA-023a | Stand 06.10.2026, gemessen mit 5.000 Gruppenadressen: CSV-Import 0,04 s, Validierung 0,01 s, CSV-Export 0,01 s. |
 
 ### 4.3 Benutzbarkeit (NFA-030)
 
@@ -1695,6 +1697,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | ID | Anforderung |
 |----|-------------|
 | NFA-041 | Das System darf bei fehlerhaften Eingaben nicht abstuerzen, sondern muss aussagekraeftige Fehlermeldungen anzeigen. |
+| NFA-041a | Umsetzung: Ein unerwarteter Fehler im laufenden Betrieb (Knopf, Ansicht, Timer) wird abgefangen: Eintrag in der Logdatei, Crash-Report (NFA-143) und Meldung "Unerwarteter Fehler" mit dem Pfad des Berichts; das Programm bleibt offen, damit gespeichert werden kann. Fehler in Hintergrund-Threads werden nur protokolliert. |
 | NFA-042 | Vor jeder Reorganisation, jedem Import und jedem Neuaufbau aus der ETS muss automatisch ein Backup der gespeicherten Projektdatei erstellt werden, im Unterordner "Sicherungen" des Projekts mit Zeitstempel und Anlass im Dateinamen; die letzten 10 Sicherungen bleiben erhalten. |
 | NFA-043 | Das System muss Rueckgaengig und Wiederholen fuer Aenderungen bereitstellen, sichtbar in einer Werkzeugleiste in jeder Ansicht (zusaetzlich Menue Bearbeiten und Strg+Z/Strg+Y). Jede Bearbeitung in der Bauherren-Beratung setzt einen Rueckgaengig-Punkt. |
 | NFA-044 | Projektdaten muessen in einem eigenen Projektformat gespeichert und wieder geladen werden koennen. |
@@ -1708,6 +1711,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | NFA-051 | Die Gewerke-Tabelle, Adressblock-Schemata und Validierungsregeln muessen ueber externe Konfigurationsdateien anpassbar sein. |
 | NFA-052 | Neue Gewerke, Funktionsbezeichnungen und DPT-Zuordnungen muessen ohne Codeaenderung hinzugefuegt werden koennen. |
 | NFA-053 | Die Topologie-Regeln (max. Teilnehmer, Empfehlungswerte) muessen konfigurierbar sein (Umschaltung TP-64/TP-256, Anpassung Planungswerte). |
+| NFA-053a | Stand: Extern gepflegt werden Gewerke-Katalog mit Funktionen (gewerke_catalog.json), DPT-Vorschlaege (dpt_mapping.json), Aktor-Zuordnung, Gebaeude-, Szenen- und Zeitprogramm-Vorlagen, Feiertage und Produktkatalog. Adressblock-Schema, Validierungsregeln und die Planungswerte 85/100 Teilnehmer je Linie (KNX Swiss) stehen im Programm; TP-64/TP-256 ist je Projekt in den Projekteigenschaften waehlbar. Die frueher mitgelieferten, nie gelesenen Dateien topology_rules.json, default_settings.json, address_blocks.json, ga_rules.json und sensor_mapping.json entfallen. |
 
 ### 4.6 Lizenzierung und Softwareschutz (NFA-060)
 
@@ -1715,6 +1719,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 
 | ID | Anforderung |
 |----|-------------|
+| NFA-060a | Stand 06.10.2026 (derzeit kein Verkauf): Umgesetzt sind die signierte Offline-Lizenz (NFA-098a-c), Test- und Jahreslizenz mit Ablaufdatum, Sperre ohne gueltige Lizenz und der Lizenz-Dialog. Zurueckgestellt bis Verkaufsstart: Online-Aktivierung und Lizenzserver (NFA-064, NFA-091 bis NFA-097), Code-Signatur (NFA-073, NFA-132), Integritaetspruefung beim Start (NFA-074), Datenschutz der Lizenzverwaltung und Datenschutzerklaerung (NFA-121 bis NFA-123, NFA-125). Die Hardware-Bindung (NFA-063) entfaellt bewusst. |
 | NFA-061 | Die Software muss durch ein Lizenzsystem geschuetzt sein. Ohne gueltige Lizenz darf die Software nicht nutzbar sein. |
 | NFA-062 | Das Lizenzsystem muss Lizenzschluessel im Format XXXX-XXXX-XXXX-XXXX unterstuetzen. Jeder Schluessel ist eindeutig einem Kunden zugeordnet. |
 | NFA-063 | Die Lizenz muss an die Hardware des Zielsystems gebunden werden (Hardware-Bindung), um die Weitergabe und unberechtigte Nutzung auf anderen Rechnern zu verhindern. Bindungsmerkmale: CPU-ID, MAC-Adresse oder Festplatten-Seriennummer. |
@@ -1739,6 +1744,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 |----|-------------|
 | NFA-081 | Beim Erststart bzw. bei der Installation muss dem Benutzer ein Endbenutzer-Lizenzvertrag (EULA) angezeigt werden, der akzeptiert werden muss, bevor die Software genutzt werden kann. |
 | NFA-082 | Die Software muss in der GUI (About-Dialog), im Splash-Screen und in allen generierten Berichten/Exporten einen Copyright-Hinweis anzeigen: "(c) Michael Mueller SmartHome&EnergieManagement. Alle Rechte vorbehalten." |
+| NFA-082a | Umsetzung: Copyright im Info-Dialog, im Willkommensbildschirm (anstelle eines Splash-Screens, der Start ist kurz), im EULA-Dialog und in den Dokumenteigenschaften (Produzent) jedes PDF-Berichts. Auf den Berichtsseiten selbst steht er nicht: Sie gehoeren dem Integrator bzw. Bauherrn; die Fusszeile nennt den Lizenznehmer (NFA-098b). |
 | NFA-083 | Die EULA muss als externe Textdatei mitgeliefert werden und ohne Codeaenderung aktualisierbar sein. |
 
 #### 4.6.4 Lizenzserver und Verwaltungsinfrastruktur
@@ -1807,6 +1813,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 |----|-------------|
 | NFA-102 | Die Software muss bei Unterschreitung der minimalen Bildschirmaufloesung eine Warnung anzeigen, aber weiterhin bedienbar bleiben (scrollbare Inhalte). |
 | NFA-103 | Die Software muss bei Unterschreitung der minimalen RAM-Anforderung eine Warnung im Systemlog ausgeben. |
+| NFA-103a | Umsetzung: Statt einer Warnung bleiben alle Inhalte bei kleiner Aufloesung bedienbar (Assistent-Schritte in Bildlaufbereichen, Fenster ab 1100 x 680). Eine RAM-Warnung entfaellt; Arbeitsspeicher und Bildschirm stehen im Crash-Report (NFA-143a). |
 
 ### 4.8 Update-Mechanismus (NFA-110)
 
@@ -1816,6 +1823,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | NFA-112 | Die Update-Pruefung muss den Benutzer ueber neue Versionen informieren: Versionsnummer, Aenderungen (Changelog), Download-Link. Die Pruefung darf den Programmstart nicht blockieren. |
 | NFA-113 | Der Benutzer muss Updates manuell herunterladen und installieren koennen (kein erzwungenes Auto-Update). |
 | NFA-114 | Der Benutzer muss die automatische Update-Pruefung in den Einstellungen deaktivieren koennen. |
+| NFA-114a | Umsetzung: Einstellungen > Allgemein > "Automatisch beim Start pruefen" und gleichlautend im Update-Dialog; beide wirken auf dieselbe Einstellung. MG-Variante und Topologie-Modus werden je Projekt in den Projekteigenschaften gewaehlt, nicht in den Einstellungen. |
 | NFA-115 | Das System muss eine manuelle Update-Pruefung ueber das Menue (z.B. "Hilfe > Nach Updates suchen") ermoeglichen. |
 | NFA-116 | Fuer zukuenftige Versionen soll ein In-App-Update-Mechanismus vorgesehen werden: Download im Hintergrund, automatische Installation beim naechsten Programmstart. **(W)** |
 
@@ -1861,9 +1869,10 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | NFA-141 | Die Software muss ein Logfile fuehren, das alle relevanten Aktionen und Fehler protokolliert. Die Logdatei wird im Benutzerverzeichnis gespeichert (`%APPDATA%\KNiX Arranger\logs\`). |
 | NFA-142 | Das Logging muss konfigurierbare Log-Level unterstuetzen: DEBUG, INFO, WARNING, ERROR, CRITICAL. Im Normalbetrieb ist das Level INFO aktiv. |
 | NFA-143 | Bei einem unerwarteten Fehler (Crash) muss die Software einen Crash-Report erstellen, der folgende Informationen enthaelt: Fehlermeldung, Stack-Trace, Systemumgebung (OS-Version, RAM, Bildschirmaufloesung), Softwareversion, letzte Benutzeraktion. |
+| NFA-143a | Umsetzung: Crash-Report als `crash_report_JJJJMMTT_hhmmss.txt` im Log-Ordner, bei Fehlern beim Start und im laufenden Betrieb (NFA-041a); letzte Benutzeraktion = zuletzt gewaehlter Menuepunkt, geoeffnete Ansicht oder Assistent-Schritt. Keine Uebermittlung an den Hersteller. |
 | NFA-144 | Der Crash-Report muss lokal als Datei gespeichert werden. Eine optionale Uebermittlung an den Hersteller darf nur nach ausdruecklicher Zustimmung des Benutzers erfolgen. |
 | NFA-145 | Logdateien muessen automatisch rotiert werden (z.B. max. 10 MB pro Datei, max. 5 Dateien), um den Speicherverbrauch zu begrenzen. |
-| NFA-146 | Der Benutzer muss ueber das Menue (z.B. "Hilfe > Logdateien oeffnen") direkten Zugang zu den Logdateien fuer Support-Zwecke erhalten. |
+| NFA-146 | Der Benutzer muss ueber das Menue (z.B. "Hilfe > Logdateien oeffnen") direkten Zugang zu den Logdateien fuer Support-Zwecke erhalten. Umsetzung: "Hilfe > Logdateien oeffnen..." oeffnet den Ordner mit Logdateien und Crash-Reports. |
 
 ### 4.12 Internationalisierung (NFA-150)
 
@@ -1875,6 +1884,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | NFA-154 | Folgende Sprachen sind fuer zukuenftige Versionen vorgesehen: Franzoesisch **(S)**, Englisch **(S)**, Italienisch **(C)**. |
 | NFA-155 | Fachbegriffe (KNX-Terminologie wie Hauptgruppe, Mittelgruppe, Gewerk etc.) muessen in einer separaten Fachbegriff-Datei gepflegt werden, damit sie konsistent uebersetzt werden. |
 | NFA-156 | Datum-, Zahlen- und Waehrungsformate muessen gemaess der gewaehlten Sprachregion (Locale) formatiert werden (z.B. Deutsch-CH: dd.MM.yyyy, Franzoesisch: dd/MM/yyyy). |
+| NFA-156a | Stand 06.10.2026: Die Benutzeroberflaeche gibt es nur auf Deutsch (Formate Deutsch-CH); die Sprachdateien de/en/fr.json sind vorbereitet, aber noch nicht angebunden. Mehrsprachig ist die Bedienungsanleitung fuer den Bauherrn: Deutsch, Franzoesisch, Italienisch, Englisch mit Datumsformat der Sprache (FA-2006). Die Uebersetzung der Oberflaeche ist fuer eine spaetere Version vorgesehen. |
 
 ---
 

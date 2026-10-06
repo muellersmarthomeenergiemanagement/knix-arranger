@@ -101,14 +101,15 @@ def licensee_note() -> str:
 
 
 def _set_creator(doc) -> None:
-    from .. import __version__
+    from .. import __version__, __copyright__
     creator = f"KNiX Arranger {__version__}"
     note = licensee_note()
     if note:
         creator += f" – {note}"
     metadata = dict(doc.metadata or {})
     metadata["creator"] = creator
-    metadata["producer"] = creator
+    # Copyright-Hinweis in jedem Bericht (NFA-082), unsichtbar für den Bauherrn
+    metadata["producer"] = f"{creator} – {__copyright__}. Alle Rechte vorbehalten."
     doc.set_metadata(metadata)
 
 

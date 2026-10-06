@@ -20,8 +20,9 @@ class SettingsDialog(QDialog):
     """Einstellungen und Firmenprofil (FA-851–857)."""
 
     def __init__(self, profile: CompanyProfile | None = None, parent=None,
-                 workspace_root_path: str = ""):
+                 workspace_root_path: str = "", auto_update_check: bool = True):
         super().__init__(parent)
+        self._auto_update = auto_update_check
         self.setWindowTitle("Einstellungen")
         self.setMinimumSize(640, 560)
 
@@ -53,26 +54,10 @@ class SettingsDialog(QDialog):
     # ─── Tab: Allgemein ───────────────────────────────────────────────────────
 
     def _create_general_tab(self) -> QWidget:
+        # MG-Variante und Topologie-Modus gelten je Projekt (Projekteigenschaften),
+        # die Oberfläche gibt es nur auf Deutsch (NFA-151).
         tab = QWidget()
         layout = QVBoxLayout(tab)
-
-        proj_group = QGroupBox("Projektstandards")
-        proj_form = QFormLayout()
-
-        self._variant_combo = QComboBox()
-        self._variant_combo.addItems(["Variante A", "Variante B"])
-        proj_form.addRow("MG-Variante:", self._variant_combo)
-
-        self._topology_combo = QComboBox()
-        self._topology_combo.addItems(["TP-256", "TP-64"])
-        proj_form.addRow("Topologie-Modus:", self._topology_combo)
-
-        self._language_combo = QComboBox()
-        self._language_combo.addItems(["Deutsch", "Französisch", "Englisch"])
-        proj_form.addRow("Sprache:", self._language_combo)
-
-        proj_group.setLayout(proj_form)
-        layout.addWidget(proj_group)
 
         workspace_group = QGroupBox("Arbeitsverzeichnis")
         workspace_layout = QHBoxLayout()
@@ -88,7 +73,7 @@ class SettingsDialog(QDialog):
         update_group = QGroupBox("Updates")
         update_form = QFormLayout()
         self._auto_update_check = QCheckBox("Automatisch beim Start prüfen")
-        self._auto_update_check.setChecked(True)
+        self._auto_update_check.setChecked(self._auto_update)
         update_form.addRow("Update-Prüfung:", self._auto_update_check)
         update_group.setLayout(update_form)
         layout.addWidget(update_group)
@@ -325,6 +310,11 @@ class SettingsDialog(QDialog):
     @property
     def workspace_root_path(self) -> str:
         return self._workspace_root_path
+
+    @property
+    def auto_update_check(self) -> bool:
+        """Beim Programmstart nach Updates suchen (NFA-114)."""
+        return self._auto_update_check.isChecked()
 
     # ─── Logo ─────────────────────────────────────────────────────────────────
 

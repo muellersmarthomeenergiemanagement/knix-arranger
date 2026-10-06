@@ -48,7 +48,7 @@ class AboutDialog(QDialog):
             layout.addWidget(licensee)
 
         # Copyright
-        copyright_label = QLabel(__copyright__)
+        copyright_label = QLabel(f"{__copyright__}.\nAlle Rechte vorbehalten.")
         copyright_label.setAlignment(Qt.AlignCenter)
         copyright_label.setWordWrap(True)
         layout.addWidget(copyright_label)

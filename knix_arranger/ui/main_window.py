@@ -78,6 +78,7 @@ from ..services.undo_manager import UndoManager, ObjectStateCommand
 from ..services.project_bus import ProjectBus
 from ..services.recalc_service import RecalcService
 from .. import APP_NAME, __version__
+from ..utils.logging_setup import get_log_dir, set_last_action
 
 logger = logging.getLogger("knix_arranger.main_window")
 
@@ -301,6 +302,11 @@ class MainWindow(QMainWindow):
         update_action.triggered.connect(self._check_updates_manual)
         help_menu.addAction(update_action)
 
+        logs_action = QAction("&Logdateien öffnen…", self)
+        logs_action.setToolTip("Ordner mit Logdateien und Fehlerberichten für den Support")
+        logs_action.triggered.connect(self._open_log_folder)
+        help_menu.addAction(logs_action)
+
         help_menu.addSeparator()
 
         license_action = QAction("&Lizenz...", self)
@@ -318,6 +324,16 @@ class MainWindow(QMainWindow):
         uninstall_action = QAction("&Deinstallieren...", self)
         uninstall_action.triggered.connect(self._uninstall_app)
         help_menu.addAction(uninstall_action)
+
+        # Letzte Menüaktion für den Fehlerbericht (NFA-143)
+        menubar.triggered.connect(
+            lambda action: set_last_action(f"Menü «{action.text().replace('&', '')}»"))
+
+    def _open_log_folder(self):
+        """Öffnet den Ordner mit Logdateien und Fehlerberichten (NFA-146)."""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl.fromLocalFile(get_log_dir()))
 
     def _create_ui(self):
         """Erstellt die Benutzeroberfläche."""
@@ -462,6 +478,7 @@ class MainWindow(QMainWindow):
 
     def _navigate(self, key: str):
         """Navigiert zu einer Ansicht."""
+        set_last_action(f"Ansicht «{key}»")
         if key == "new_project":
             self._new_project()
             return
@@ -1994,10 +2011,12 @@ class MainWindow(QMainWindow):
     def _show_settings(self):
         profile = self._app.project_service.load_company_profile()
         workspace = self._load_app_setting("workspace_root_path", "")
-        dialog = SettingsDialog(profile=profile, parent=self, workspace_root_path=workspace)
+        dialog = SettingsDialog(profile=profile, parent=self, workspace_root_path=workspace,
+                                auto_update_check=self._load_app_setting("auto_update_check", True))
         if dialog.exec():
             updated = dialog.get_profile()
             self._app.project_service.save_company_profile(updated)
+            self._save_app_setting("auto_update_check", dialog.auto_update_check)
             new_workspace = dialog.workspace_root_path
             if new_workspace != workspace:
                 os.makedirs(new_workspace, exist_ok=True)

@@ -242,6 +242,8 @@ class WizardController(QDialog):
 
         self._current_step = index
         self._stack.setCurrentIndex(index)
+        from ...utils.logging_setup import set_last_action
+        set_last_action(f"Assistent Schritt {index + 1}")
 
         step = self._steps[index]
         if hasattr(step, "on_enter"):
