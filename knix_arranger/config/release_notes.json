@@ -2,6 +2,19 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.2.0",
+      "date": "2026-10-07",
+      "neu": [
+        "Gebäudestruktur: Räume auf eine andere Wohnung/Zone oder ein anderes Stockwerk ziehen. Die Gruppenadressen folgen bei der Neuberechnung dem Stockwerk; die Raumnummer bleibt und ist bei Bedarf anzupassen.",
+        "Topologie: Gerät auf eine andere Linie ziehen. Bei geplanten Projekten wechselt der Raum des Tasters oder Sensors die Linie, seine Geräte und Aktorkanäle folgen. Importierte und manuell hinzugefügte Geräte wandern selbst und behalten ihre Teilnehmernummer, wenn sie auf der Ziellinie frei ist. Programmierte Geräte bleiben.",
+        "Gewerke-Übersicht: Gewerk-Katalog rechts – ein Gewerk auf einen Raum ziehen legt es an bzw. zählt ein Element dazu; eine Zeile auf einen anderen Raum ziehen verschiebt das Gewerk. Tasten, die es bedienen, bleiben verknüpft.",
+        "Gruppenadressen-Baum (geplante Projekte): GA auf eine andere GA ziehen tauscht die Adressen, auf eine Mittelgruppe ziehen verschiebt sie ans Ende. Taster, Szenen und DALI werden nachgeführt, die Neuberechnung behält die Position. HG 0 bleibt fest, Rückmeldungen in MG 6/7 (Variante B) wandern mit ihrem Befehl."
+      ],
+      "behoben": [
+        "Topologie «Auf andere Linie verschieben…»: das Gerät behielt die alte physikalische Adresse, und bei geplanten Projekten machte die nächste Neuberechnung die Verschiebung rückgängig."
+      ]
+    },
+    {
       "version": "1.1.32",
       "date": "2026-10-07",
       "neu": [
