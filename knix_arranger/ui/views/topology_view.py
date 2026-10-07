@@ -25,8 +25,12 @@ from ...services.belegungsplan_service import (
 )
 from ...services.multi_ga_check import ga_address_of, ko_for_ga, unlink_ga
 from ...services.verteiler_service import VerteilerPlacement, verteiler_label
+from ...services.structure_move import (
+    can_move_device, move_device, move_kind, move_room_to_line,
+)
 from ..column_utils import fit_columns
 from ..styles import COLOR_WARNING
+from ..widgets.drag_drop import DragDropTree
 
 # Farben für Infrastruktur-Knoten
 _COLOR_COUPLER     = QColor("#1565C0")  # Dunkelblau: Koppler
@@ -86,7 +90,8 @@ class TopologyView(QWidget):
         toolbar.addWidget(self._btn_expand_all)
         toolbar.addWidget(self._btn_collapse_all)
         toolbar.addStretch()
-        hint = QLabel("Doppelklick: Einbauort bearbeiten  ·  Rechtsklick: weitere Optionen")
+        hint = QLabel("Doppelklick: Einbauort bearbeiten  ·  Rechtsklick: weitere Optionen"
+                      "  ·  Gerät auf eine Linie ziehen: verschieben")
         hint.setStyleSheet("color: #666666; font-style: italic;")
         toolbar.addWidget(hint)
         layout.addLayout(toolbar)
@@ -96,7 +101,13 @@ class TopologyView(QWidget):
         self._update_legend()
         layout.addWidget(self._legend)
 
-        self._tree = QTreeWidget()
+        # Geräte auf eine andere Linie ziehen (FA-1015 b)
+        self._tree = DragDropTree()
+        self._tree.setSelectionMode(QTreeWidget.ExtendedSelection)
+        self._tree.drag_data = self._drag_data
+        self._tree.target_data = self._drop_line
+        self._tree.can_drop = self._can_drop
+        self._tree.on_drop = self._apply_line_move
         self._tree.itemExpanded.connect(lambda _: fit_columns(self._tree))
         self._tree.setHeaderLabels([
             "Element", "Adresse", "Geräte", "Einbauort", "Details",
@@ -934,12 +945,20 @@ class TopologyView(QWidget):
             return
         if not self._topology:
             return
+        if not move_kind(self._topology, device):
+            QMessageBox.information(
+                self, "Verschieben nicht möglich",
+                "Die Aktoren eines geplanten Projekts ergeben sich aus den Räumen "
+                "der Linie. Einen Raum hängen Sie um, indem Sie einen seiner "
+                "Taster oder Sensoren auf die andere Linie ziehen.",
+            )
+            return
 
-        # Alle Linien außer der aktuellen als Auswahl aufbauen
+        # Alle möglichen Ziellinien als Auswahl aufbauen
         choices: list[tuple[str, Line]] = []
         for area in self._topology.areas:
             for line in area.lines:
-                if line is from_line:
+                if line is from_line or not can_move_device(self._topology, device, line):
                     continue
                 label = f"Bereich {area.area_number} / Linie {line.line_number} – {line.name}"
                 choices.append((label, line))
@@ -955,22 +974,77 @@ class TopologyView(QWidget):
         )
         if not ok:
             return
+        self._apply_line_move([device], choices[labels.index(label)][1])
 
-        target_line = choices[labels.index(label)][1]
+    # ── Ziehen und Ablegen (FA-1015 b) ──
 
-        if self._bus:
-            self._bus.begin_change(
-                f"»{device.product or device.device_type}« nach "
-                f"Linie {target_line.line_number} – {target_line.name} verschieben"
+    @staticmethod
+    def _drag_data(item: QTreeWidgetItem):
+        data = item.data(0, _ROLE_DATA)
+        if not data or data[0] != "device" or data[2] is None:
+            return None
+        return data[3]
+
+    @staticmethod
+    def _drop_line(item: QTreeWidgetItem):
+        """Ziellinie unter der Maus: die Linie selbst oder die eines ihrer
+        Geräte bzw. Unterknoten."""
+        while item is not None:
+            data = item.data(0, _ROLE_DATA)
+            if data and data[0] == "line":
+                return data[2]
+            if data and data[0] == "device" and data[2] is not None:
+                return data[2]
+            item = item.parent()
+        return None
+
+    def _can_drop(self, devices: list, line: Line) -> bool:
+        return self._topology is not None and any(
+            can_move_device(self._topology, d, line) for d in devices)
+
+    def _room_label(self, room_id: str) -> str:
+        rooms = self._areal.all_rooms if self._areal else []
+        room = next((r for r in rooms if r.id == room_id), None)
+        return f"{room.number} {room.name}".strip() if room else "?"
+
+    def _apply_line_move(self, devices: list, line: Line) -> None:
+        """Geräte auf eine Linie: importierte und manuell hinzugefügte wandern
+        selbst, bei geplanten wechselt der Raum des Geräts die Linie."""
+        if not self._topology:
+            return
+        movable = [d for d in devices if can_move_device(self._topology, d, line)]
+        own = [d for d in movable if move_kind(self._topology, d) == "device"]
+        room_ids = list(dict.fromkeys(
+            d.room_id for d in movable if move_kind(self._topology, d) == "room"))
+        if not own and not room_ids:
+            return
+        line_text = f"Linie {line.line_number} – {line.name}"
+        if room_ids:
+            rooms = ", ".join(f"»{self._room_label(rid)}«" for rid in room_ids)
+            answer = QMessageBox.question(
+                self, "Raum auf andere Linie",
+                f"Die Geräte ergeben sich aus der Zuordnung der Räume zu den Linien.\n\n"
+                f"Raum {rooms} auf {line_text} umhängen? Seine Taster, Sensoren "
+                f"und Aktorkanäle wechseln bei der Neuberechnung mit.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
             )
-
-        # Gerät aus Quelllinie entfernen und in Ziellinie einfügen
-        if device in from_line.devices:
-            from_line.devices.remove(device)
-        target_line.devices.append(device)
-
+            if answer != QMessageBox.Yes:
+                return
+        if self._bus:
+            what = (f"»{own[0].product or own[0].device_type}«"
+                    if len(own) == 1 and not room_ids
+                    else f"{len(own) + len(room_ids)} Elemente")
+            self._bus.begin_change(f"{what} nach {line_text} verschieben")
+        for device in own:
+            move_device(self._topology, device, line)
+        for room_id in room_ids:
+            move_room_to_line(self._topology, room_id, line)
         self._refresh()
-        self._emit_changed()
+        if room_ids and self._bus:
+            # Geräte und Adressen aus der neuen Zuordnung ableiten
+            self._bus.emit_building_changed()
+        else:
+            self._emit_changed()
 
     def _emit_changed(self):
         self.topology_changed.emit()

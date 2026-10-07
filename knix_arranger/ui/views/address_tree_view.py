@@ -13,7 +13,12 @@ from ..dialogs.ga_edit_dialog import GaEditDialog
 from ..styles import GEWERK_COLORS
 from ...models.group_address import GroupAddressStructure, GroupAddress
 from ..column_utils import fit_columns
+from ..widgets.drag_drop import DragDropTree
 from ...services.ets_corrections import gewerk_display
+from ...services.ga_move import (
+    can_move_to_middle_group, can_reorder, can_swap, is_draggable,
+    move_to_middle_group, swap_addresses,
+)
 from ...services.time_program_service import timed_label
 
 
@@ -25,8 +30,10 @@ class AddressTreeView(QWidget):
     # Gewerk für die markierten GAs festlegen (Korrekturschicht, MainWindow)
     gewerk_change_requested = Signal(list)
 
-    # Qt.UserRole für Adress-String, UserRole+1 für GA-Objekt
+    # Qt.UserRole für Adress-String, UserRole+1 für GA-Objekt,
+    # UserRole+2 für (HG, MG) eines Mittelgruppen-Knotens
     GA_OBJECT_ROLE = Qt.UserRole + 1
+    MG_ROLE = Qt.UserRole + 2
 
     # Gewerk-Codes je Filterkategorie
     _CATEGORY_CODES: dict[str, set[str]] = {
@@ -42,6 +49,7 @@ class AddressTreeView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._structure: GroupAddressStructure | None = None
+        self._project = None   # für Umsortieren per Ziehen (FA-1015 d)
         self._active_category: str = ""
         self._bus = None
 
@@ -64,6 +72,7 @@ class AddressTreeView(QWidget):
         toolbar.addStretch()
         hint = QLabel("Doppelklick oder Rechtsklick auf eine GA zum Bearbeiten")
         hint.setStyleSheet("color: #666666; font-style: italic;")
+        self._hint = hint
         toolbar.addWidget(hint)
         layout.addLayout(toolbar)
 
@@ -80,8 +89,13 @@ class AddressTreeView(QWidget):
         self._search_bar.filter_changed.connect(self._on_category_changed)
         layout.addWidget(self._search_bar)
 
-        # Baum
-        self._tree = QTreeWidget()
+        # Baum; in geplanten Projekten GAs per Ziehen tauschen oder in eine
+        # andere Mittelgruppe verschieben (FA-1015 d)
+        self._tree = DragDropTree()
+        self._tree.drag_data = self._drag_data
+        self._tree.target_data = self._drop_target
+        self._tree.can_drop = self._can_drop
+        self._tree.on_drop = self._on_drop
         self._tree.itemExpanded.connect(
             lambda _: fit_columns(self._tree, stretch_to_fit=False)
         )
@@ -126,6 +140,57 @@ class AddressTreeView(QWidget):
         self._structure = structure
         self._refresh_tree()
 
+    def set_project(self, project) -> None:
+        """Projekt für das Umsortieren per Ziehen (nur geplante Projekte)."""
+        self._project = project
+        reorder = project is not None and can_reorder(project)
+        self._hint.setText(
+            "Doppelklick oder Rechtsklick auf eine GA zum Bearbeiten"
+            + ("  ·  Ziehen auf eine GA: tauschen, auf eine Mittelgruppe: verschieben"
+               if reorder else ""))
+
+    # ── Ziehen und Ablegen (FA-1015 d) ──
+
+    def _drag_data(self, item: QTreeWidgetItem):
+        ga = item.data(0, self.GA_OBJECT_ROLE)
+        if (not isinstance(ga, GroupAddress) or self._project is None
+                or not can_reorder(self._project) or not is_draggable(ga)):
+            return None
+        return ga
+
+    def _drop_target(self, item: QTreeWidgetItem):
+        ga = item.data(0, self.GA_OBJECT_ROLE)
+        if isinstance(ga, GroupAddress):
+            return ("ga", ga)
+        mg = item.data(0, self.MG_ROLE)
+        return ("mg", mg) if mg else None
+
+    @staticmethod
+    def _can_drop(gas: list, target) -> bool:
+        kind, value = target
+        if kind == "ga":
+            return len(gas) == 1 and can_swap(gas[0], value)
+        return can_move_to_middle_group(gas, *value)
+
+    def _on_drop(self, gas: list, target) -> None:
+        if self._project is None or not self._can_drop(gas, target):
+            return
+        kind, value = target
+        if self._bus:
+            if kind == "ga":
+                self._bus.begin_change(f"GA {gas[0].address} und {value.address} tauschen")
+            else:
+                self._bus.begin_change(
+                    f"{len(gas)} GA nach Mittelgruppe {value[0]}/{value[1]} verschieben")
+        if kind == "ga":
+            changed = swap_addresses(self._project, gas[0], value)
+        else:
+            changed = move_to_middle_group(self._project, gas, *value)
+        if not changed:
+            return
+        self._refresh_tree()
+        self.ga_modified.emit()
+
     def _refresh_tree(self):
         self._tree.clear()
         if not self._structure:
@@ -145,6 +210,7 @@ class AddressTreeView(QWidget):
                 )
                 mg_item.setExpanded(True)
                 mg_item.setData(0, Qt.UserRole, None)
+                mg_item.setData(0, self.MG_ROLE, (hg.number, mg.number))
 
                 for ga in sorted(mg.group_addresses, key=lambda g: g.sub_group):
                     if ga.is_placeholder:

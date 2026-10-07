@@ -699,6 +699,7 @@ class MainWindow(QMainWindow):
         aktives Zeitprogramm schaltet (FA-3306d)."""
         from ..services.time_program_service import timed_ga_programs
         timed = timed_ga_programs(self._project)
+        self._address_tree.set_project(self._project)
         for view in (self._address_tree, self._address_table):
             view.set_timed_gas(timed)
             view.set_structure(self._project.group_addresses)

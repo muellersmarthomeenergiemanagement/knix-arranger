@@ -7,16 +7,20 @@ den Wizard Gewerke hinzufügen, entfernen und die Anzahl anpassen.
 """
 from __future__ import annotations
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QLabel,
+    QWidget, QVBoxLayout, QTableWidgetItem, QLabel, QListWidgetItem,
     QAbstractItemView, QComboBox, QHBoxLayout, QPushButton, QSpinBox,
-    QGroupBox,
+    QGroupBox, QSplitter,
 )
 from PySide6.QtCore import Qt, Signal
 
 from ...models.building import Areal, GewerkAssignment
 from ...models.gewerk import GewerkCatalog
+from ...services.structure_move import (
+    MAX_GEWERK_COUNT, add_gewerk, can_move_gewerk, move_gewerk,
+)
 from ..column_utils import fit_columns
 from ..dialogs.custom_gewerk_dialog import CustomGewerkDialog
+from ..widgets.drag_drop import DragDropTable, DragSourceList
 
 # Spalten-Indizes
 _COL_FLOOR   = 0
@@ -83,8 +87,13 @@ class GewerkView(QWidget):
         self._info.setObjectName("subtitle")
         layout.addWidget(self._info)
 
-        # Tabelle
-        self._table = QTableWidget()
+        # Tabelle; Gewerke aus dem Katalog auf einen Raum ziehen oder eine
+        # Zuweisung in einen anderen Raum ziehen (FA-1015 c)
+        self._table = DragDropTable()
+        self._table.drag_data = self._drag_data
+        self._table.target_data = self._row_room
+        self._table.can_drop = self._can_drop
+        self._table.on_drop = self._on_drop
         self._table.setColumnCount(_NUM_COLS)
         self._table.setHorizontalHeaderLabels([
             "Stockwerk", "Wohnung/Zone", "Raum", "Raumnr.",
@@ -98,7 +107,28 @@ class GewerkView(QWidget):
         # Zeile gestreckt) und quetscht die uebrigen Spaltenkoepfe unlesbar
         # schmal. Stattdessen inhaltsbasierte Breite aus
         # fit_columns(..., stretch_to_fit=False), siehe address_table_view.py.
-        layout.addWidget(self._table)
+
+        catalog_box = QWidget()
+        catalog_layout = QVBoxLayout(catalog_box)
+        catalog_layout.setContentsMargins(0, 0, 0, 0)
+        catalog_label = QLabel("Gewerk-Katalog")
+        catalog_label.setObjectName("heading")
+        catalog_layout.addWidget(catalog_label)
+        catalog_hint = QLabel("Auf einen Raum ziehen. Eine Zeile der Tabelle "
+                              "auf einen anderen Raum ziehen verschiebt das Gewerk.")
+        catalog_hint.setObjectName("hint")
+        catalog_hint.setWordWrap(True)
+        catalog_layout.addWidget(catalog_hint)
+        self._catalog_list = DragSourceList()
+        self._catalog_list.drag_data = lambda item: ("code", item.data(Qt.UserRole))
+        catalog_layout.addWidget(self._catalog_list)
+
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(self._table)
+        splitter.addWidget(catalog_box)
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 1)
+        layout.addWidget(splitter)
 
         # ── Gewerk hinzufügen ──
         add_group = QGroupBox("Gewerk zu selektiertem Raum hinzufügen")
@@ -131,9 +161,13 @@ class GewerkView(QWidget):
 
     def _refresh_gewerk_combo(self):
         self._gewerk_combo.clear()
+        self._catalog_list.clear()
         for code in self._project.gewerk_catalog.all_codes():
             g = self._project.gewerk_catalog.get(code)
             self._gewerk_combo.addItem(f"{code} – {g.name}", code)
+            item = QListWidgetItem(f"{code} – {g.name}")
+            item.setData(Qt.UserRole, code)
+            self._catalog_list.addItem(item)
 
     def set_data(self, areal: Areal, catalog: GewerkCatalog):
         """Aktualisiert Daten (backward-kompatibel mit _update_views)."""
@@ -264,6 +298,55 @@ class GewerkView(QWidget):
         self._info.setText(
             f"{assignments} Gewerk-Zuweisungen | {total_ga} Gruppenadressen total"
         )
+
+    # ── Ziehen und Ablegen (FA-1015 c) ──
+
+    def _row_data(self, item) -> tuple | None:
+        """(floor, apt, room) der Tabellenzeile eines Eintrags."""
+        cell = self._table.item(item.row(), _COL_FLOOR)
+        return cell.data(Qt.UserRole) if cell else None
+
+    def _row_room(self, item):
+        data = self._row_data(item)
+        return data[2] if data else None
+
+    def _drag_data(self, item):
+        data = self._row_data(item)
+        code_item = self._table.item(item.row(), _COL_GCODE)
+        if not data or not code_item or not code_item.text():
+            return None
+        room = data[2]
+        assignment = next((g for g in room.gewerk_assignments
+                           if g.gewerk_code == code_item.text()), None)
+        return ("assignment", room, assignment) if assignment else None
+
+    @staticmethod
+    def _drop_allowed(entry, room) -> bool:
+        if entry[0] == "code":
+            existing = next((g for g in room.gewerk_assignments
+                             if g.gewerk_code == entry[1]), None)
+            return existing is None or existing.count < MAX_GEWERK_COUNT
+        _kind, source, assignment = entry
+        return can_move_gewerk(source, assignment, room)
+
+    def _can_drop(self, payload: list, room) -> bool:
+        return any(self._drop_allowed(entry, room) for entry in payload)
+
+    def _on_drop(self, payload: list, room) -> None:
+        entries = [e for e in payload if self._drop_allowed(e, room)]
+        if not entries:
+            return
+        if self._bus:
+            codes = ", ".join(e[1] if e[0] == "code" else e[2].gewerk_code for e in entries)
+            verb = "hinzufügen" if entries[0][0] == "code" else "verschieben"
+            self._bus.begin_change(f"Gewerk {codes} nach »{room.name}« {verb}")
+        for entry in entries:
+            if entry[0] == "code":
+                add_gewerk(room, entry[1])
+            else:
+                move_gewerk(self._areal, entry[1], entry[2], room)
+        self._refresh_table()
+        self._emit_changed()
 
     # ── Mutations ──
 

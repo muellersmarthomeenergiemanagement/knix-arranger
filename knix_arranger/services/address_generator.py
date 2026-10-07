@@ -422,6 +422,7 @@ class AddressGenerator:
             """Aktualisiert einen unveränderten Block inhaltlich, ohne
             Position/id zu ändern – auch wenn er über mehrere MGs verteilt ist."""
             block_len = schema.block_size
+            old_gas = _in_slot_order(old_gas, schema, assignment.count)
             for idx, element_nr in enumerate(range(1, assignment.count + 1)):
                 chunk = old_gas[idx * block_len:(idx + 1) * block_len]
                 self._update_block_in_place(
@@ -435,8 +436,8 @@ class AddressGenerator:
                     get_or_create_mg(num).group_addresses.extend(gas)
                     claimed.add(num)
 
-        def aligned_feedback_subs(mg_num, assignment_id, fb_schema, count
-                                  ) -> list[int] | None:
+        def aligned_feedback_subs(mg_num, assignment_id, fb_schema, fwd_schema,
+                                  count) -> list[int] | None:
             """Untergruppen der Rückmeldungen = Untergruppen ihrer Befehle im
             Vorwärtsblock (GA-07). None, wenn der Vorwärtsblock nicht als
             durchgehender Block in seiner Heimat-MG liegt (Überlauf, manuell
@@ -448,7 +449,7 @@ class AddressGenerator:
             )
             if not forward or len(forward) != fb_schema.block_size * count:
                 return None
-            return [ga.sub_group for ga in forward]
+            return [ga.sub_group for ga in _in_slot_order(forward, fwd_schema, count)]
 
         def place_aligned_feedback(fb_mg_num, targets, old_gas, gewerk, assignment,
                                    fb_schema, id_key, room, room_number_ga,
@@ -569,8 +570,11 @@ class AddressGenerator:
                     fb_id_key = f"{assignment.id}:fb"
                     total_len = fb_schema.block_size * assignment.count
                     old_gas = old_by_assignment.pop(fb_id_key, None)
+                    fwd_schema = self._get_block_schema(
+                        gewerk, assignment=assignment, is_feedback=False,
+                    )
                     targets = aligned_feedback_subs(
-                        mg_num, assignment.id, fb_schema, assignment.count,
+                        mg_num, assignment.id, fb_schema, fwd_schema, assignment.count,
                     )
 
                     if targets is not None:
@@ -894,6 +898,35 @@ class RegenerationResult:
         if not self.changed:
             return "Gruppenadressen unverändert"
         return f"Gruppenadressen aktualisiert: +{len(self.added)} / −{len(self.removed)}"
+
+
+def _in_slot_order(gas: list[GroupAddress], schema: AddressBlockSchema,
+                   count: int) -> list[GroupAddress]:
+    """Bisherige GAs eines Blocks in Schema-Reihenfolge (Element, Eintrag).
+
+    Zugeordnet wird über Element und Funktion, damit von Hand getauschte oder
+    verschobene GAs (FA-1015 d) ihre Funktion behalten; Reserven und nicht
+    zuordenbare GAs füllen die übrigen Plätze in der bisherigen Reihenfolge.
+    Ohne Verschiebung ist das Ergebnis die Adressreihenfolge."""
+    if len(gas) != schema.block_size * count or len(schema.entries) != schema.block_size:
+        return gas
+    pool: dict[tuple[int, str], list[GroupAddress]] = {}
+    for ga in gas:
+        if not ga.is_placeholder and ga.function_name:
+            pool.setdefault((ga.element_number, ga.function_name), []).append(ga)
+    entries = sorted(schema.entries, key=lambda e: e.offset)
+    slots: list[GroupAddress | None] = []
+    for element_nr in range(1, count + 1):
+        for entry in entries:
+            found = None
+            if entry.function and not entry.is_reserve:
+                candidates = pool.get((element_nr, entry.function))
+                if candidates:
+                    found = candidates.pop(0)
+            slots.append(found)
+    used = {id(ga) for ga in slots if ga is not None}
+    rest = iter([ga for ga in gas if id(ga) not in used])
+    return [ga if ga is not None else next(rest) for ga in slots]
 
 
 def insert_ga(structure: GroupAddressStructure, ga: GroupAddress) -> None:

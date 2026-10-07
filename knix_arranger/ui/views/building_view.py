@@ -14,7 +14,9 @@ from ...services.building_service import BuildingService
 from ...services.belegungsplan_service import (
     build_ga_by_designation, group_cos_for_display, resolve_ga_display,
 )
+from ...services.structure_move import move_room, room_target_on_floor, can_move_room
 from ..column_utils import fit_columns
+from ..widgets.drag_drop import DragDropTree
 
 _DEVICE_TYPE_LABELS: dict[str, str] = {
     "actor":         "Aktor",
@@ -84,8 +86,14 @@ class BuildingView(QWidget):
         toolbar2.addWidget(self._btn_delete)
         layout.addLayout(toolbar2)
 
-        # Baum
-        self._tree = QTreeWidget()
+        # Baum; Räume lassen sich auf eine Wohnung/Zone oder ein Stockwerk
+        # ziehen (FA-1015 a)
+        self._tree = DragDropTree()
+        self._tree.setSelectionMode(QTreeWidget.ExtendedSelection)
+        self._tree.drag_data = self._drag_data
+        self._tree.can_drop = self._can_drop
+        self._tree.on_drop = self._on_drop
+        self._tree.setToolTip("Räume lassen sich auf eine Wohnung/Zone oder ein Stockwerk ziehen.")
         self._tree.itemExpanded.connect(lambda _: fit_columns(self._tree))
         self._tree.setHeaderLabels(["Element", "Typ", "Adresse", "Details"])
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -426,6 +434,45 @@ class BuildingView(QWidget):
         if item:
             return item.data(0, Qt.UserRole)
         return None
+
+    # ------------------------------------------------------------------
+    # Ziehen und Ablegen (FA-1015 a)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _drag_data(item: QTreeWidgetItem):
+        data = item.data(0, Qt.UserRole)
+        return data[1] if data and data[0] == "room" else None
+
+    def _drop_apartment(self, room: Room, target) -> Apartment | None:
+        kind, obj = target
+        if kind == "apartment":
+            return obj
+        if kind == "floor":
+            return room_target_on_floor(self._areal, room, obj)
+        return None
+
+    def _can_drop(self, rooms: list, target) -> bool:
+        if not self._areal or not target:
+            return False
+        return any(
+            can_move_room(self._areal, room, self._drop_apartment(room, target))
+            for room in rooms
+        )
+
+    def _on_drop(self, rooms: list, target) -> None:
+        moves = [(room, self._drop_apartment(room, target)) for room in rooms]
+        moves = [(r, a) for r, a in moves if can_move_room(self._areal, r, a)]
+        if not moves:
+            return
+        bus = getattr(self, "_bus", None)
+        if bus:
+            names = ", ".join(f"»{r.name}«" for r, _ in moves)
+            bus.begin_change(f"{names} nach »{moves[0][1].name}« verschieben")
+        for room, apt in moves:
+            move_room(self._areal, room, apt)
+        self._refresh_tree()
+        self.structure_changed.emit()
 
     # ------------------------------------------------------------------
     # Hinzufügen
