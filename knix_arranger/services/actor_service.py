@@ -60,11 +60,13 @@ class ActorService:
             self.channel_options = data.get("actor_channels", {})
 
     def determine_actors(self, rooms: list[Room], catalog: GewerkCatalog,
-                         exclude_codes=frozenset()) -> list[ActorRequirement]:
+                         exclude_codes=frozenset(),
+                         only_codes=None) -> list[ActorRequirement]:
         """
         Ermittelt benötigte Aktorentypen (FA-1301).
         Fasst Kanäle zusammen (FA-1302).
         exclude_codes: Gewerke, die hier nicht zählen (gemeinsame Gateways).
+        only_codes: nur diese Gewerke zählen (ein gemeinsames Gateway).
         """
         # Sammle benötigte Kanäle pro Aktortyp
         type_channels: dict[str, int] = {}
@@ -73,6 +75,8 @@ class ActorService:
         for room in rooms:
             for assignment in room.gewerk_assignments:
                 if assignment.gewerk_code in exclude_codes:
+                    continue
+                if only_codes is not None and assignment.gewerk_code not in only_codes:
                     continue
                 actor_type = GEWERK_TO_ACTOR_TYPE.get(assignment.gewerk_code)
                 if not actor_type:
@@ -163,11 +167,12 @@ class ActorService:
         for code, line_id in shared.items():
             rooms = [r for r in all_rooms
                      if any(a.gewerk_code == code for a in r.gewerk_assignments)]
-            requirement = next(iter(self.determine_actors(rooms, catalog)), None) \
-                if rooms else None
+            # Nur dieses Gewerk -- sonst käme die erste Anforderung irgendeines
+            # Gewerks der Räume heraus (z.B. Schaltaktor fürs Licht statt MM)
+            requirement = next(iter(self.determine_actors(
+                rooms, catalog, only_codes={code})), None) if rooms else None
             if requirement is None:
                 continue
-            requirement.gewerk_codes = [code]
             target = self.shared_gateway_line(topology, all_rooms, code, line_id)
             if target is None:
                 continue

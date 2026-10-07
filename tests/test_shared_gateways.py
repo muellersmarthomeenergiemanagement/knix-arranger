@@ -89,6 +89,23 @@ def test_chosen_line_and_fallback_without_hv():
     assert line.name == "Studio"
 
 
+def test_shared_gateway_only_counts_its_gewerk():
+    """Steht ein anderes Gewerk vor MM im Raum (z.B. Licht), wurde dessen
+    Anforderung als MM-Gateway übernommen: Schaltaktor statt Gateway
+    (Projekt_23 Chalet Franziska)."""
+    project = _project()
+    for room in project.all_rooms:
+        if any(a.gewerk_code == "MM" for a in room.gewerk_assignments):
+            room.gewerk_assignments.insert(0, GewerkAssignment(gewerk_code="L", count=3))
+    gateways = _gateways(project)
+    assert gateways["Wohnung"] == ["DALI-Gateway 16-fach", "KNX-Schnittstelle 2-fach"]
+    actors = {line.name: sorted(d.product for d in line.devices if d.device_type == "actor")
+              for area in project.topology.areas for line in area.lines}
+    # Licht nur einmal je Linie, nicht zusätzlich als "MM"-Schaltaktor
+    assert actors["Wohnung"] == ["Schaltaktor 4-fach"]
+    assert actors["Studio"] == ["Schaltaktor 4-fach"]
+
+
 def test_step_shows_choice_and_changes_recalculate():
     from PySide6.QtWidgets import QApplication, QComboBox
     app = QApplication.instance() or QApplication([])
