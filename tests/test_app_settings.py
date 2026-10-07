@@ -18,7 +18,9 @@ def test_settings_in_knix_arranger_folder(monkeypatch, tmp_path):
     assert app_settings.get_setting("log_level") == "DEBUG"
 
 
-def test_old_folder_is_moved(monkeypatch, tmp_path):
+def test_old_folder_is_copied_and_kept(monkeypatch, tmp_path):
+    """Kopieren statt verschieben: das installierte 1.1.31 liest nur den
+    alten Ordner und fand sonst das Arbeitsverzeichnis nicht mehr."""
     _use_appdata(monkeypatch, tmp_path)
     old = tmp_path / "KNiXArranger" / "app_settings.json"
     old.parent.mkdir()
@@ -26,7 +28,7 @@ def test_old_folder_is_moved(monkeypatch, tmp_path):
 
     assert app_settings.get_setting("workspace_root_path") == "C:/KNX"
     assert (tmp_path / "KNiX Arranger" / "app_settings.json").exists()
-    assert not old.parent.exists()
+    assert json.loads(old.read_text(encoding="utf-8")) == {"workspace_root_path": "C:/KNX"}
 
 
 def test_new_file_wins_over_old(monkeypatch, tmp_path):

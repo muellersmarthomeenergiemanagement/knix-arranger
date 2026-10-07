@@ -4,7 +4,9 @@ Programmeinstellungen (app_settings.json) im Benutzerverzeichnis (NFA-134).
 Ablage: %APPDATA%/KNiX Arranger/app_settings.json, im selben Ordner wie
 Lizenz, Firmenprofil und Logdateien. Bis Version 1.1.31 lag die Datei in
 %APPDATA%/KNiXArranger (ohne Leerzeichen); sie wird beim ersten Zugriff
-in den neuen Ordner verschoben.
+in den neuen Ordner kopiert. Die alte bleibt liegen: eine ältere Version
+(z.B. nach einem Zurückgehen) liest nur dort -- verschoben fand sie das
+Arbeitsverzeichnis nicht mehr.
 """
 from __future__ import annotations
 
@@ -26,20 +28,16 @@ def _base_dir() -> Path:
 
 
 def settings_path() -> Path:
-    """Pfad der Einstellungsdatei; verschiebt eine Datei aus dem alten Ordner."""
+    """Pfad der Einstellungsdatei; übernimmt eine Datei aus dem alten Ordner."""
     path = _base_dir() / "KNiX Arranger" / _FILE_NAME
     old = _base_dir() / "KNiXArranger" / _FILE_NAME
     if not path.exists() and old.exists():
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(old), str(path))
-            try:
-                old.parent.rmdir()  # nur wenn leer
-            except OSError:
-                pass
-            logger.info("Einstellungen verschoben nach %s", path)
+            shutil.copy2(str(old), str(path))
+            logger.info("Einstellungen übernommen nach %s", path)
         except OSError as exc:
-            logger.warning("Einstellungen nicht verschoben: %s", exc)
+            logger.warning("Einstellungen nicht übernommen: %s", exc)
             return old
     return path
 
