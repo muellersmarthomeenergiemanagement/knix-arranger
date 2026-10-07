@@ -18,6 +18,9 @@ from knix_arranger.services.dpt_suggestion import dpt_number
     ("Taste 2, rechts (langer Tastendruck)", (2, "rechts", "lang", False)),
     ("Taste 4", (4, "", "", False)),
     ("Taste 4, Signal-LED", (4, "", "", True)),
+    # Einzeltaster ohne Nummer (Projekt_23, Raum Technik): Taste 1
+    ("Taste", (1, "", "", False)),
+    ("Taste (langer Tastendruck)", (1, "", "lang", False)),
 ])
 def test_parse_button(channel, expected):
     key, is_led = parse_button(channel)
@@ -27,6 +30,18 @@ def test_parse_button(channel, expected):
 def test_kein_tastenbezug():
     assert parse_button("Nachtabsenkung LED's") is None
     assert parse_button("Raumtemperatur") is None
+    assert parse_button("Status") is None
+    assert parse_button("Tastereinheit") is None
+
+
+def test_einzeltaster_bekommt_tastenplan():
+    rows = group_assignments(
+        [_fa("Taste", "L_CUG02_01 E/A (Wohnung / Technik)"),
+         _fa("Status", "L_CUG02_01 RM (Wohnung / Technik)")],
+        lambda t: None,
+    )
+    assert [r.key.label() if r.key else r.name for r in rows] == ["1", "Status"]
+    assert [e["number"] for e in button_plan(rows, KnxProject().gewerk_catalog)] == [1]
 
 
 def _fa(channel, ga):

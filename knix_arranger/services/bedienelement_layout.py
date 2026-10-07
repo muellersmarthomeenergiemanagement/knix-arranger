@@ -17,8 +17,10 @@ from dataclasses import dataclass, field
 
 from .gewerk_service import GewerkService
 
+# Einzeltaster heissen nur "Taste" (sensor_service) -- das ist Taste 1,
+# wie im Belegungsplan (belegungsplan_service._split_taste)
 _BUTTON_RE = re.compile(
-    r"^Taste\s*(\d+)"
+    r"^Taste(?:\s*(\d+))?"
     r"(?:\s*,\s*(links|rechts))?"
     r"(?:\s*\((langer Tastendruck)\))?"
     r"(?:\s*,\s*(.+?))?\s*$",
@@ -70,7 +72,7 @@ def parse_button(channel: str) -> tuple[ButtonKey, bool] | None:
     variant = "lang" if long_press else ""
     if "doppel" in extra.lower():
         variant = "Doppelklick"
-    return ButtonKey(int(number), (side or "").lower(), variant), is_led
+    return ButtonKey(int(number or 1), (side or "").lower(), variant), is_led
 
 
 def group_assignments(assignments, resolve) -> list[ButtonRow]:
