@@ -2,6 +2,29 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.1.32",
+      "date": "2026-10-07",
+      "neu": [
+        "Bauherrenberatung: Funktionen aus der Liste links auf eine Taste ziehen, auch aus einem anderen Raum – z.B. Licht Technik auf den Taster in der Waschküche. Am Griff ≡ eine Taste auf eine andere ziehen: frei = verschieben, belegt = tauschen; langer Tastendruck und eigene Bezeichnung wandern mit.",
+        "Bauherrenberatung: alle Räume als Baum (Gebäude, Stockwerk, Wohnung, Raum). «+ Bedienelement / Sensor» setzt eine Tastereinheit, einen Raumthermostat, Präsenz- oder Bewegungsmelder in den Raum; «Taster entfernen» direkt beim Taster.",
+        "Validierung: Hinweis auf Licht, Steckdosen und Beschattung, die weder Taste noch Melder, Szene oder Zeitsteuerung bedient. In der Bauherrenberatung sind sie orange markiert, «Nur ohne Bedienung» filtert sie.",
+        "Ohne gültige Lizenz startet KNiX im Lesemodus: Projekte lassen sich ansehen, Speichern und Exporte sind gesperrt, bis eine Lizenz eingespielt ist.",
+        "Hilfe → «Logdateien öffnen…» für den Support; Einstellungen → Allgemein → Protokollstufe."
+      ],
+      "verbessert": [
+        "Spannungsversorgungen: eigene SV für die Bereichslinie (0.0.-); die SV auf 1.0.- usw. heisst richtig «Hauptlinie» und wird auch bei einem Bereich mit mehreren Linien angelegt. Bestehende Projekte werden bei der nächsten Neuberechnung angepasst, zugewiesene Produkte bleiben.",
+        "Topologie-Diagramm (Ansicht und Bericht): Hauptlinie als Busleitung mit den Linien als Abzweige, jede SV an der Linie, die sie speist.",
+        "Präsenz- und Bewegungsmelder: Kanäle statt Tasten, verknüpft wird nur der Schaltbefehl (kein Dimmen, keine Rückmeldung).",
+        "Ein unerwarteter Fehler beendet das Programm nicht mehr: Meldung mit Crash-Report, das Projekt lässt sich weiter speichern.",
+        "Installer: warnt bei einer Bildschirmauflösung unter 1366 × 768."
+      ],
+      "behoben": [
+        "Gemeinsames Gateway (z.B. Multimedia): Stand im Raum ein anderes Gewerk davor, entstand ein Schaltaktor statt des Gateways, das Gateway fehlte in der Topologie.",
+        "Einzeltaster (eine Taste): im Bericht Bedienelemente kein Tastenplan, die Taste stand unter «Weitere» – ebenso in Checkliste, Bedienungsanleitung und Bauherr-Formular.",
+        "Inbetriebnahme-Checkliste: Spaltenbreiten passen sich dem Inhalt an."
+      ]
+    },
+    {
       "version": "1.1.31",
       "date": "2026-10-06",
       "neu": [
