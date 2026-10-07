@@ -19,6 +19,11 @@ logger = logging.getLogger("knix_arranger.sensor_service")
 # sondern einmalig pro Projekt (→ determine_system_sensors).
 SYSTEM_SENSOR_GEWERKE: frozenset[str] = frozenset({"W"})
 
+# Melder, die selbst schalten: Kanäle statt Tasten, nur der Befehl (Schalten
+# bzw. Fahren) -- kein langer Druck, kein Dimmen, keine Rückmeldung
+PRESENCE_SENSOR_TYPES: frozenset[str] = frozenset({"Präsenzmelder", "Bewegungsmelder"})
+PRESENCE_BEDIENART = "Schaltet bei Anwesenheit"
+
 # Primaere GA-Funktionen die einem Sensor automatisch zugeordnet werden.
 # Format: list[(Button-Label, GA-Funktionsname, Beschreibung, Aktionstyp, Bedienart)]
 # Aktionstyp: "kurz" = kurz druecken, "lang" = lang druecken,
@@ -463,7 +468,7 @@ class SensorService:
                 # function_assignments aus funktionen ableiten
                 be.function_assignments = []
                 be.function_assignments, added = self._expand_funktionen(
-                    be.funktionen, room, ga_lookup,
+                    be.funktionen, room, ga_lookup, be.element_type,
                 )
                 total += added
 
@@ -474,7 +479,7 @@ class SensorService:
             for mbe in manual_bes:
                 if mbe.id not in consumed_manual_ids:
                     mbe.function_assignments, added = self._expand_funktionen(
-                        mbe.funktionen, room, ga_lookup,
+                        mbe.funktionen, room, ga_lookup, mbe.element_type,
                     )
                     total += added
                     room.bedienelemente.append(mbe)
@@ -554,6 +559,7 @@ class SensorService:
         funktionen: list[SensorFunktion],
         room,
         ga_lookup: dict,
+        element_type: str = "",
     ) -> tuple[list[FunctionAssignment], int]:
         """Expandiert Sensorfunktionen zu FunctionAssignment-Einträgen.
 
@@ -637,10 +643,17 @@ class SensorService:
 
             # Globaler Zähler: jede SensorFunktion bekommt eine eindeutige Kanalnummer.
             global_channel += 1
-            base_by_id[sf.id] = f"Taste {global_channel}" if use_numbers else "Taste"
-
             primary_fns = GEWERK_PRIMARY_FUNCTIONS.get(sf.gewerk_code, [])
             feedback_fns = GEWERK_FEEDBACK_FUNCTIONS.get(sf.gewerk_code, [])
+            word = "Taste"
+            if element_type in PRESENCE_SENSOR_TYPES:
+                # Präsenz-/Bewegungsmelder: Kanal statt Taste (in der
+                # Topologie hiess der Melder sonst "Taste 1 ... kurz")
+                word = "Kanal"
+                primary_fns = [("Kanal", fn, desc, "", PRESENCE_BEDIENART)
+                               for _label, fn, desc, _action, _art in primary_fns[:1]]
+                feedback_fns = []
+            base_by_id[sf.id] = f"{word} {global_channel}" if use_numbers else word
 
             for btn_label, fn_name, desc, action_type, bedienart in primary_fns:
                 key = (sf.gewerk_code, src_room_id, sf.element_number, fn_name)

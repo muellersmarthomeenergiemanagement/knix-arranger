@@ -64,8 +64,10 @@ def test_diagramm_knoten():
     assert diagram["backbone"] == ""                        # leerer Bereich 0 zaehlt nicht
     assert [a["title"] for a in diagram["areas"]] == ["Bereich 1"]
     l1, l2 = diagram["areas"][0]["nodes"]
-    assert l1["lines"] == ["SV 1.1.-", "1 Aktor", "1 Sensor"]
-    assert l2["lines"] == ["Koppler 1.2.0", "1 Aktor"]
+    assert l1["lines"] == ["1 Aktor", "1 Sensor"]
+    assert l1["power"] == ["1.1.-"]                         # SV sitzt in ihrer Linie
+    assert l2["lines"] == ["Koppler 1.2.0", "1 Aktor"] and l2["power"] == []
+    assert diagram["areas"][0]["main_line"] == "Hauptlinie 1.0"   # zwei Linien
 
 
 def test_diagramm_app_zeigt_leere_linien():

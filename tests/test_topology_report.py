@@ -70,7 +70,7 @@ def test_bericht_abschnitte(tmp_path):
     assert "2 / 256 Geräte" in text
     assert "Leer" not in text                       # Linien ohne Geraete entfallen
     assert "Topologie-Diagramm" in text
-    assert "KNX Backbone" not in text               # nur bei mehreren Bereichen
+    assert "Bereichslinie (" not in text            # nur bei mehreren Bereichen
 
 
 def test_ohne_einbauort_zaehlt_der_raum():
@@ -111,7 +111,7 @@ def test_diagramm_mehrere_bereiche(tmp_path):
     doc = fitz.open(path)
     text = doc[0].get_text()
     doc.close()
-    assert "KNX Backbone (IP)" in text
+    assert "Bereichslinie (IP)" in text
     assert "Bereichskoppler" in text                # 1.0.0 als Geraet vorhanden
     assert "2 Aktoren" in text and "1 Sensor" in text
     assert "SV 1.1.-" in text

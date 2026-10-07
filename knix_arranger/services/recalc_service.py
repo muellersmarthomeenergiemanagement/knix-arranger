@@ -55,6 +55,7 @@ class RecalcService:
                 small_project=(topology.topology_mode == "TP-64"),
                 preserve_manual=True,
                 shared_gateways=project.shared_gateways(),
+                backbone_type=project.config.backbone_type,
             )
 
         actor_count = sum(

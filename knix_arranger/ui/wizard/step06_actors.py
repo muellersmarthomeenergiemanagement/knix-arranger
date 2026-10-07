@@ -275,6 +275,7 @@ class Step06Actors(QWidget):
                 small_project=(topology.topology_mode == "TP-64"),
                 preserve_manual=True,
                 shared_gateways=self._project.shared_gateways(),
+                backbone_type=self._project.config.backbone_type,
             )
             self._guard.mark_done(self._project, KEY_DEVICES)
         apply_device_locations(topology, all_rooms)

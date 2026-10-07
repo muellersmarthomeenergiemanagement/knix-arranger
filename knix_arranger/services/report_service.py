@@ -1006,7 +1006,8 @@ class ReportService:
         # ── Topologie-Diagramm (dieselben Knoten wie die Ansicht) ───────────
         diagram = build_topology_diagram(self.project, include_empty_lines=False)
         pdf.add_heading("Topologie-Diagramm", level=2)
-        pdf.add_topology_diagram(diagram["areas"], diagram["backbone"])
+        pdf.add_topology_diagram(diagram["areas"], diagram["backbone"],
+                                 diagram["backbone_power"])
 
         # ── Steigschema: Verlauf der Linien im Gebäudeschnitt (Querformat) ──
         riser = build_riser_diagram(self.project)

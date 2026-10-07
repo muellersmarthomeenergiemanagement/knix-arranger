@@ -308,12 +308,19 @@ class MaterialListView(QWidget):
         from collections import OrderedDict
         groups: OrderedDict = OrderedDict()
 
+        # Speisegerät der Bereichslinie 0.0 (nicht in line.devices)
+        if topology.backbone_power_supply is not None:
+            dev = topology.backbone_power_supply
+            key = (("Netzteil", dev.product, dev.manufacturer, dev.order_number, "")
+                   if dev.order_number else ("Netzteil", dev.product, "", "", "backbone"))
+            groups.setdefault(key, []).append((dev, "0.0  Bereichslinie", "backbone"))
+
         for area in topology.areas:
-            # Speisegerät Bereichslinie gesondert erfassen (nicht in line.devices)
+            # Speisegerät Hauptlinie gesondert erfassen (nicht in line.devices)
             if area.backbone_power_supply is not None:
                 dev = area.backbone_power_supply
                 category = "Netzteil"
-                area_label = f"{area.coupler_address}  Bereichslinie {area.name}".strip()
+                area_label = f"{area.area_number}.0  Hauptlinie {area.name}".strip()
                 if dev.order_number:
                     key = (category, dev.product,
                            dev.manufacturer, dev.order_number, "")

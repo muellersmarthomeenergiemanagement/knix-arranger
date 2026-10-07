@@ -326,7 +326,7 @@ class Step04Topology(QWidget):
         area_form.addRow("Bereichsnr.:", self._area_number)
         self._area_backbone = QComboBox()
         self._area_backbone.addItems(["TP", "IP"])
-        area_form.addRow("Backbone:", self._area_backbone)
+        area_form.addRow("Medium Hauptlinie:", self._area_backbone)
         self._btn_apply_area = QPushButton("Übernehmen")
         self._btn_apply_area.clicked.connect(self._apply_area_changes)
         area_form.addRow("", self._btn_apply_area)
@@ -428,6 +428,7 @@ class Step04Topology(QWidget):
                     small_project=(self._project.topology.topology_mode == "TP-64"),
                     preserve_manual=True,
                     shared_gateways=self._project.shared_gateways(),
+                    backbone_type=self._project.config.backbone_type,
                 )
                 self._guard.mark_done(self._project, KEY_DEVICES)
             self._update_change_banner()
@@ -550,6 +551,7 @@ class Step04Topology(QWidget):
             self._project.gewerk_catalog,
             small_project=(self._project.topology.topology_mode == "TP-64"),
             shared_gateways=self._project.shared_gateways(),
+            backbone_type=self._project.config.backbone_type,
         )
 
         self._change_banner.hide()
@@ -657,13 +659,24 @@ class Step04Topology(QWidget):
         # und -Bericht).
         planning = not self._project.topology.is_imported
 
+        # Speisegerät der Bereichslinie 0.0 (mehrere Bereiche, TP-Backbone)
+        backbone_sv = self._project.topology.backbone_power_supply
+        if backbone_sv is not None:
+            bb_item = QTreeWidgetItem(self._tree, [
+                "Speisegerät Bereichslinie (SV)", "0.0.-", "",
+                backbone_sv.installation_location,
+                "Spannungsversorgung der Bereichslinie 0.0",
+            ])
+            bb_item.setData(0, self.DEVICE_ROLE, backbone_sv)
+            self._colorize(bb_item, _COLOR_POWER)
+
         for area in self._project.topology.areas:
             area_item = QTreeWidgetItem(self._tree, [
                 f"Bereich {area.area_number} - {area.name}",
                 area.coupler_address,
                 str(sum(l.device_count for l in area.lines)),
                 "",
-                f"{len(area.lines)} Linien, Backbone: {area.backbone_type}",
+                f"{len(area.lines)} Linien, Hauptlinie: {area.backbone_type}",
             ])
             area_item.setData(0, self.AREA_ROLE, area)
             # Expand-Zustand wird von _restore_tree_state gesetzt
@@ -673,7 +686,7 @@ class Step04Topology(QWidget):
             bk_device = area_coupler(area) if multi_area else None
             if multi_area and (planning or bk_device is not None):
                 bk_location = bk_device.installation_location if bk_device else ""
-                bk_status = "Verbindet Bereichslinie mit Backbone"
+                bk_status = "Verbindet Hauptlinie mit Bereichslinie"
                 if bk_device and bk_device.manufacturer:
                     bk_status = f"Zugewiesen: {bk_device.manufacturer}"
                     if bk_device.order_number:
@@ -686,16 +699,16 @@ class Step04Topology(QWidget):
                 ])
                 self._colorize(bk_item, _COLOR_COUPLER)
 
-            # FA-1007: Speisegerät Bereichslinie (B.A.0.-) — nur bei mehreren Bereichen
+            # FA-1007: Speisegerät der Hauptlinie (B.0.-)
             if area.backbone_power_supply is not None:
                 sv_dev = area.backbone_power_supply
-                sv_status = "Spannungsversorgung der Bereichslinie"
+                sv_status = "Spannungsversorgung der Hauptlinie"
                 if sv_dev.manufacturer:
                     sv_status = f"Zugewiesen: {sv_dev.manufacturer}"
                     if sv_dev.order_number:
                         sv_status += f" {sv_dev.order_number}"
                 sv_area_item = QTreeWidgetItem(area_item, [
-                    "Speisegerät Bereichslinie (SV)",
+                    "Speisegerät Hauptlinie (SV)",
                     f"{area.area_number}.0.-",
                     "", sv_dev.installation_location,
                     sv_status,
@@ -723,7 +736,7 @@ class Step04Topology(QWidget):
                 lk_device = line_coupler(area, line)
                 if lk_device is not None or (planning and line.coupler_address):
                     lk_location = lk_device.installation_location if lk_device else ""
-                    lk_status = "Verbindet Linie mit Bereichslinie"
+                    lk_status = "Verbindet Linie mit Hauptlinie"
                     if lk_device and lk_device.manufacturer:
                         lk_status = f"Zugewiesen: {lk_device.manufacturer}"
                         if lk_device.order_number:
@@ -1026,6 +1039,7 @@ class Step04Topology(QWidget):
                     small_project=(self._project.topology.topology_mode == "TP-64"),
                     preserve_manual=True,
                     shared_gateways=self._project.shared_gateways(),
+                    backbone_type=self._project.config.backbone_type,
                 )
             self._display_topology()
             self._run_validation()

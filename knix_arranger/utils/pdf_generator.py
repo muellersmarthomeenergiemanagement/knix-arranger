@@ -232,17 +232,17 @@ class PdfGenerator:
         Hochformat-Seite."""
         self._blocks.append({"type": "riser_diagram", "title": title, "diagram": diagram})
 
-    def add_topology_diagram(self, areas: list[dict], backbone: str = "") -> None:
+    def add_topology_diagram(self, areas: list[dict], backbone: str = "",
+                             backbone_power: dict | None = None) -> None:
         """Topologie-Diagramm wie in der Ansicht "Topologie-Diagramm": je
-        Bereich eine Spalte mit Kopf, darunter die Kette aus Knoten
-        (Bereichskoppler, Speisegerät, Linien), verbunden durch Leitungen.
-        Mehrere Bereiche hängen an einem Backbone (Beschriftung backbone).
-
-        areas: [{"title": str, "nodes": [{"kind": "coupler"|"power"|"line",
-        "title": str, "lines": [str], "status": "OK"|"Warnung"|"Fehler"}]}]
+        Bereich eine Spalte mit Kopf und Bereichskoppler, darunter die
+        Hauptlinie als Busleitung mit ihrer SV und den Linien als Abzweige;
+        die SV einer Linie als grünes Band in der Linie. Mehrere Bereiche
+        hängen an der Bereichslinie (Beschriftung backbone) mit ihrer SV
+        (backbone_power). Daten aus build_topology_diagram.
         """
         self._blocks.append({"type": "topology_diagram", "areas": areas,
-                             "backbone": backbone})
+                             "backbone": backbone, "backbone_power": backbone_power})
 
     def add_link(self, text: str, url: str):
         """Fügt einen klickbaren Hyperlink ein (blau, unterstrichen)."""
@@ -317,10 +317,14 @@ class PdfGenerator:
             elif btype == "topology_diagram":
                 if block["backbone"]:
                     lines.append(block["backbone"])
+                if block.get("backbone_power"):
+                    sv = block["backbone_power"]
+                    lines.append(f"  {sv['title']}: {', '.join(sv['lines'])}")
                 for area in block["areas"]:
                     lines.append(f"[{area['title']}]")
                     for node in area["nodes"]:
-                        lines.append(f"  {node['title']}: {', '.join(node['lines'])}")
+                        extra = [f"SV {a}" for a in node.get("power", [])]
+                        lines.append(f"  {node['title']}: {', '.join(node['lines'] + extra)}")
                     lines.append("")
             elif btype == "table":
                 hdrs = block["headers"]
@@ -677,28 +681,45 @@ class PdfGenerator:
         top = self.MARGIN + self.HEADER_H + 10
         bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
         areas, backbone = block["areas"], block["backbone"]
+        backbone_power = block.get("backbone_power")
         per_row = max(1, min(len(areas), 4))
         gap = 18.0
         box_w = min(170.0, (self.content_width - gap * (per_row - 1)) / per_row)
+        indent = 12.0                    # Abzweige von der Hauptlinie
+        node_w = box_w - indent
         pad, fs_title, fs_sub = 6.0, 8.5, 7.5
-        head_h, node_gap = 24.0, 12.0
-        backbone_h = 30.0 if backbone else 0.0
+        head_h, node_gap, band_h = 24.0, 12.0, 13.0
+        main_label_h = 11.0
         sub_color = (0.88, 0.91, 0.95)
 
-        def node_lines(node):
-            title = self._wrap_cell(node["title"], box_w - 2 * pad, fs_title)[:2]
+        def node_lines(node, w):
+            title = self._wrap_cell(node["title"], w - 2 * pad, fs_title)[:2]
             sub = [t for line in node["lines"]
-                   for t in self._wrap_cell(line, box_w - 2 * pad, fs_sub)]
+                   for t in self._wrap_cell(line, w - 2 * pad, fs_sub)]
             return title, sub
 
-        def node_h(node):
-            title, sub = node_lines(node)
-            return pad + len(title) * (fs_title + 2.5) + len(sub) * (fs_sub + 2.5) + pad - 2
+        def node_h(node, w):
+            title, sub = node_lines(node, w)
+            h = pad + len(title) * (fs_title + 2.5) + len(sub) * (fs_sub + 2.5) + pad - 2
+            return h + (band_h if node.get("power") else 0)
+
+        def split(area):
+            nodes = list(area["nodes"])
+            bk = nodes.pop(0) if nodes and nodes[0]["kind"] == "coupler" else None
+            return bk, nodes
+
+        def column_h(area):
+            bk, nodes = split(area)
+            h = head_h + (node_gap + node_h(bk, box_w) if bk else 0)
+            if area.get("main_line"):
+                h += main_label_h
+            return h + sum(node_gap + node_h(n, node_w) for n in nodes)
 
         for start in range(0, len(areas), per_row):
             row = areas[start:start + per_row]
-            col_h = [head_h + sum(node_gap + node_h(n) for n in a["nodes"]) for a in row]
-            row_h = backbone_h + max(col_h)
+            sv_h = node_h(backbone_power, box_w) if (backbone_power and start == 0) else 0.0
+            backbone_h = (sv_h + 26.0 if sv_h else 30.0) if backbone else 0.0
+            row_h = backbone_h + max(column_h(a) for a in row)
             if y + min(row_h, bottom - top) > bottom:
                 page, y = self._new_page(doc)
                 y = self._draw_continuation_title(page, y)
@@ -718,12 +739,42 @@ class PdfGenerator:
                                fitz.Point(x0 + s * x2, y + s * y2),
                                color=color, width=width * s)
 
+            def box(node, bx, by, w):
+                """Knoten zeichnen, Höhe zurück; SV einer Linie als Band."""
+                h = node_h(node, w)
+                kind = node["kind"]
+                fill = colors.get(node.get("status")) if kind == "line" else None
+                page.draw_rect(rect(bx, by, w, h), color=None, fill=fill or colors[kind])
+                ty = by + pad + fs_title - 1
+                title, sub = node_lines(node, w)
+                for t in title:
+                    text(bx + pad, ty, t, fs_title, bold=True)
+                    ty += fs_title + 2.5
+                for t in sub:
+                    text(bx + pad, ty, t, fs_sub, color=sub_color)
+                    ty += fs_sub + 2.5
+                if node.get("power"):
+                    band_y = by + h - band_h
+                    page.draw_rect(rect(bx + 3, band_y, w - 6, band_h - 3), color=None,
+                                   fill=colors["power"])
+                    text(bx + pad, band_y + fs_sub, "SV " + ", ".join(node["power"]),
+                         fs_sub, bold=True)
+                return h
+
+            centers = [col * (box_w + gap) + box_w / 2 for col in range(len(row))]
+            wire_y = backbone_h - 12
             if backbone:
-                cx_first = box_w / 2
-                cx_last = (len(row) - 1) * (box_w + gap) + box_w / 2
-                text(cx_first, 10, backbone, fs_title, bold=True, color=colors["backbone"])
-                wire(cx_first - 6 if len(row) == 1 else cx_first, 18,
-                     cx_last + 6 if len(row) == 1 else cx_last, 18,
+                label_x = centers[0] - box_w / 2
+                if sv_h:
+                    box(backbone_power, 0, 0, box_w)
+                    wire(box_w / 2, sv_h, box_w / 2, wire_y)
+                    label_x = box_w + 8
+                    text(label_x, wire_y - 4, backbone, fs_title, bold=True,
+                         color=colors["backbone"])
+                else:
+                    text(label_x, 10, backbone, fs_title, bold=True, color=colors["backbone"])
+                wire(min(centers) - (6 if len(row) == 1 else 0), wire_y,
+                     max(centers) + (6 if len(row) == 1 else 0), wire_y,
                      color=colors["backbone"], width=2.5)
 
             for col, area in enumerate(row):
@@ -731,40 +782,50 @@ class PdfGenerator:
                 cx = bx + box_w / 2
                 by = backbone_h
                 if backbone:
-                    wire(cx, 18, cx, by)
+                    wire(cx, wire_y, cx, by)
                 page.draw_rect(rect(bx, by, box_w, head_h), color=None, fill=colors["area"])
                 title = self._wrap_cell(area["title"], box_w - 2 * pad, fs_title + 0.5)[0]
                 text(bx + pad, by + head_h / 2 + 3.5, title, fs_title + 0.5, bold=True)
                 by += head_h
-                for node in area["nodes"]:
-                    h = node_h(node)
+                bk, nodes = split(area)
+                if bk:
                     wire(cx, by, cx, by + node_gap)
-                    by += node_gap
-                    kind = node["kind"]
-                    fill = colors.get(node.get("status")) if kind == "line" else None
-                    page.draw_rect(rect(bx, by, box_w, h), color=None,
-                                   fill=fill or colors[kind])
-                    ty = by + pad + fs_title - 1
-                    title, sub = node_lines(node)
-                    for t in title:
-                        text(bx + pad, ty, t, fs_title, bold=True)
-                        ty += fs_title + 2.5
-                    for t in sub:
-                        text(bx + pad, ty, t, fs_sub, color=sub_color)
-                        ty += fs_sub + 2.5
-                    by += h
+                    by += node_gap + box(bk, bx, by + node_gap, box_w)
+                if area.get("main_line"):
+                    # Hauptlinie: Busleitung links, Abzweige nach rechts
+                    bus_x = bx + indent / 2
+                    bus_top = by
+                    text(bus_x + 3, by + main_label_h - 2, area["main_line"], fs_sub,
+                         color=colors["backbone"])
+                    by += main_label_h
+                    last = bus_top
+                    for node in nodes:
+                        by += node_gap
+                        h = box(node, bx + indent, by, node_w)
+                        stub = by + min(h / 2, 12)
+                        wire(bus_x, stub, bx + indent, stub)
+                        last = stub
+                        by += h
+                    wire(bus_x, bus_top, bus_x, last, color=colors["backbone"], width=2.0)
+                else:
+                    for node in nodes:
+                        wire(cx, by, cx, by + node_gap)
+                        by += node_gap
+                        by += box(node, bx + indent, by, node_w)
             y += s * row_h + 14
 
         # Legende (nur vorkommende Farben)
         kinds = {n["kind"] for a in areas for n in a["nodes"]}
+        if backbone_power or any(n.get("power") for a in areas for n in a["nodes"]):
+            kinds.add("power")
         statuses = {n.get("status") for a in areas for n in a["nodes"]}
         legend = [("area", "Bereich / Koppler"), ("power", "Speisegerät"), ("line", "Linie")]
         legend = [(k, t) for k, t in legend if k == "area" or k in kinds]
         legend += [(k, t) for k, t in (("Warnung", "Leitungslänge nahe Grenzwert"),
                                        ("Fehler", "Leitungslänge überschritten"))
                    if k in statuses]
-        if backbone:
-            legend.append(("backbone", "Backbone"))
+        if backbone or any(a.get("main_line") for a in areas):
+            legend.append(("backbone", "Bereichs- / Hauptlinie"))
         if y + 12 > bottom:
             page, y = self._new_page(doc)
         x = float(self.MARGIN)

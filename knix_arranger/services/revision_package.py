@@ -86,12 +86,13 @@ def collect_datasheets(project) -> list[Datasheet]:
             if product and product not in ds.products:
                 ds.products.append(product)
 
-    for area in project.topology.areas:
-        devices = [d for line in area.lines for d in line.devices]
-        if area.backbone_power_supply is not None:
-            devices.append(area.backbone_power_supply)
-        for d in devices:
-            add(d.datasheets, d.product_name or d.product or d.order_number)
+    topology = project.topology
+    # Speisegeräte von Haupt- und Bereichslinie stehen nicht in line.devices
+    devices = [d for area in topology.areas for line in area.lines for d in line.devices]
+    devices += [sv for sv in [a.backbone_power_supply for a in topology.areas]
+                + [topology.backbone_power_supply] if sv is not None]
+    for d in devices:
+        add(d.datasheets, d.product_name or d.product or d.order_number)
     for room in project.all_rooms:
         for be in room.bedienelemente:
             if not be.suppressed:

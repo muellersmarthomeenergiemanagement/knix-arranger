@@ -16,13 +16,13 @@ from __future__ import annotations
 import math
 import re
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QScrollArea, QFrame, QComboBox, QLineEdit,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QFrame, QComboBox, QLineEdit,
     QSplitter, QSizePolicy, QGridLayout, QTextEdit, QSpinBox,
-    QPushButton, QDialog, QMessageBox, QApplication,
+    QPushButton, QDialog, QMessageBox, QApplication, QMenu, QTreeWidget,
+    QTreeWidgetItem,
 )
 from PySide6.QtCore import Qt, Signal, QTimer, QMimeData
-from PySide6.QtGui import QDrag
+from PySide6.QtGui import QBrush, QColor, QDrag
 import json
 
 from ...models.project import KnxProject
@@ -30,9 +30,9 @@ from ...models.building import (
     Room, Bedienelement, SensorFunktion, SensorFunktionGa, is_long_press, long_press_of,
 )
 from ...services.bauherr_form_service import (
-    _DROPDOWN_OPTIONS, BauherrFormService, _form_elements,
+    _DROPDOWN_OPTIONS, BauherrFormService,
 )
-from ...services.sensor_service import GEWERK_PRIMARY_FUNCTIONS
+from ...services.sensor_service import GEWERK_PRIMARY_FUNCTIONS, PRESENCE_SENSOR_TYPES
 from ...services.scene_addressing import (
     scene_group_key, scene_channel_designation, build_scope_label_lookup,
     scene_target_designation, is_callable_scene,
@@ -69,6 +69,26 @@ _TASTE_POSITION_RE = re.compile(
     r"^taste\s*(\d+)\s*,\s*(links|rechts)\b", re.IGNORECASE
 )
 _SIDE_TO_COL = {"links": 0, "rechts": 1}
+
+# Melder, die selbst schalten (Licht bei Anwesenheit): erscheinen in der
+# Bauherrenberatung mit Kanälen statt Tasten, damit man Leuchten verknüpft
+LINKABLE_SENSOR_TYPES = PRESENCE_SENSOR_TYPES
+
+# Hinzufügbar in der Bauherrenberatung: (Typ, Kanäle)
+ADDABLE_ELEMENTS = (
+    ("Tastereinheit", 4),
+    ("Raumthermostat", 1),
+    ("Präsenzmelder", 1),
+    ("Bewegungsmelder", 1),
+)
+
+
+def _view_elements(room: Room, imported: bool) -> list[Bedienelement]:
+    """Bedienelemente der Bauherrenberatung: was der Bauherr bedient, dazu
+    Präsenz- und Bewegungsmelder, auf die man Leuchten legt."""
+    return [be for be in room.bedienelemente if be.is_shown(imported)
+            and (be.is_operable or be.element_type in LINKABLE_SENSOR_TYPES)]
+
 
 # Gezogene Taste der Bauherrenberatung (verschieben/tauschen, FA-1015 e)
 SLOT_MIME = "application/x-knix-button"
@@ -236,7 +256,9 @@ class _SlotWidget(QWidget):
         # Bezeichnung für den Bauherrn (Bedienungsanleitung): Platzhalter =
         # automatische Bezeichnung, eigener Text überschreibt sie
         self._label_edit = None
-        key = self._button_key() if (sf is not None and long_of is None) else None
+        self._is_sensor = be.element_type in LINKABLE_SENSOR_TYPES
+        key = (self._button_key() if (sf is not None and long_of is None
+                                      and not self._is_sensor) else None)
         if key is not None:
             from ...services.user_manual import button_label_key
             self._label_key = button_label_key(be, key)
@@ -291,7 +313,7 @@ class _SlotWidget(QWidget):
         # Langer Tastendruck dieser Taste: eigene Zeile "lang" oder "+ lang".
         # Gewerke wie Dimmer oder Jalousie belegen "lang" selbst (Dimmen,
         # Fahren) -- dort kein zweiter langer Tastendruck.
-        if long_of is None and sf is not None:
+        if long_of is None and sf is not None and not self._is_sensor:
             long_sf = long_press_of(be.funktionen, sf)
             gewerk_long = ""
             if sf.gewerk_code and not sf.ga_designation:
@@ -964,7 +986,8 @@ class _TasterWidget(QFrame):
         # Schritt 9. Importierte Geräte gibt es in der Anlage, nicht hier.
         self._room = room
         if not service.project.topology.is_imported:
-            btn_remove = QPushButton("Taster entfernen")
+            btn_remove = QPushButton("Taster entfernen" if be.element_type == "Tastereinheit"
+                                     else f"{be.element_type or 'Gerät'} entfernen")
             btn_remove.setFixedHeight(20)
             btn_remove.setCursor(Qt.PointingHandCursor)
             # Wie "entfernen" an der Taste, hell auf dem dunklen Kopf
@@ -998,7 +1021,8 @@ class _TasterWidget(QFrame):
         # nicht stillschweigend eine schon zugewiesene Funktion verwirft --
         # eine einzelne Taste wirklich entfernen geht ueber den ✕-Button am
         # Slot (echtes Loeschen aus be.funktionen), nicht ueber dieses Feld.
-        if be.element_type == "Tastereinheit":
+        is_sensor = be.element_type in LINKABLE_SENSOR_TYPES
+        if be.element_type == "Tastereinheit" or is_sensor:
             count_bar = QWidget()
             count_bar.setStyleSheet(
                 "QWidget { background-color: #ECEFF1; border: none; }"
@@ -1007,7 +1031,7 @@ class _TasterWidget(QFrame):
             count_layout.setContentsMargins(6, 2, 6, 2)
             count_layout.setSpacing(4)
 
-            count_lbl = QLabel("Anzahl Tasten:")
+            count_lbl = QLabel("Anzahl Kanäle:" if is_sensor else "Anzahl Tasten:")
             count_lbl.setStyleSheet(
                 "color: #546E7A; font-size: 12px; border: none;"
             )
@@ -1054,7 +1078,7 @@ class _TasterWidget(QFrame):
                 slot_label = f"{grid_row + 1} {side}"
             else:
                 seq_num += 1
-                slot_label = f"T{seq_num}"
+                slot_label = f"{'K' if is_sensor else 'T'}{seq_num}"
 
             slot = _SlotWidget(be, sf, service, slot_label=slot_label, room=room,
                                begin_change=begin_change,
@@ -1151,7 +1175,8 @@ class _TasterWidget(QFrame):
 class BauherrFormView(QWidget):
     """
     Interaktive Bauherren-Beratungsansicht.
-    Links: Raumliste. Rechts: Taster-Widgets des gewählten Raums.
+    Links: alle Räume als Baum (Gebäude › Stockwerk › Wohnung/Zone › Raum)
+    und die Funktionsliste. Rechts: Bedienelemente des gewählten Raums.
     """
 
     project_changed = Signal()
@@ -1193,10 +1218,12 @@ class BauherrFormView(QWidget):
         rooms_layout = QVBoxLayout(rooms_box)
         rooms_layout.setContentsMargins(0, 0, 0, 0)
         rooms_layout.addWidget(QLabel("Räume:"))
-        self._room_list = QListWidget()
-        self._room_list.setMinimumWidth(160)
-        self._room_list.currentItemChanged.connect(self._on_room_selected)
-        rooms_layout.addWidget(self._room_list)
+        # Alle Räume des Hauses; grau = noch kein Bedienelement
+        self._room_tree = QTreeWidget()
+        self._room_tree.setHeaderHidden(True)
+        self._room_tree.setMinimumWidth(160)
+        self._room_tree.currentItemChanged.connect(self._on_room_selected)
+        rooms_layout.addWidget(self._room_tree)
         left_split.addWidget(rooms_box)
 
         # Funktionen zum Ziehen auf eine Taste (FA-1015 e)
@@ -1224,6 +1251,25 @@ class BauherrFormView(QWidget):
         )
         self._room_title.setFixedHeight(32)
         right_layout.addWidget(self._room_title)
+
+        add_bar = QHBoxLayout()
+        add_bar.setContentsMargins(12, 6, 12, 0)
+        self._btn_add_element = QPushButton("+ Bedienelement / Sensor")
+        self._btn_add_element.setObjectName("secondary")
+        self._btn_add_element.setToolTip(
+            "Tastereinheit, Raumthermostat, Präsenz- oder Bewegungsmelder in "
+            "diesen Raum setzen und danach Funktionen darauf legen")
+        add_menu = QMenu(self._btn_add_element)
+        for element_type, channels in ADDABLE_ELEMENTS:
+            add_menu.addAction(element_type).triggered.connect(
+                lambda _c=False, t=element_type, n=channels: self._add_element(t, n))
+        self._btn_add_element.setMenu(add_menu)
+        add_bar.addWidget(self._btn_add_element)
+        self._empty_hint = QLabel("Noch kein Bedienelement in diesem Raum.")
+        self._empty_hint.setObjectName("hint")
+        add_bar.addWidget(self._empty_hint)
+        add_bar.addStretch()
+        right_layout.addLayout(add_bar)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -1284,11 +1330,11 @@ class BauherrFormView(QWidget):
         (Doppelklick in der Verknüpfungsmatrix). False, wenn es hier nicht
         vorkommt (z.B. Sensor -- die Bauherrenberatung zeigt nur, was der
         Bauherr bedient)."""
-        for i in range(self._room_list.count()):
-            room = self._room_list.item(i).data(Qt.UserRole)
+        for item in self._room_items():
+            room = item.data(0, Qt.UserRole)
             if not any(be.id == be_id for be in room.bedienelemente):
                 continue
-            self._room_list.setCurrentRow(i)
+            self._room_tree.setCurrentItem(item)
             for j in range(self._content_layout.count()):
                 widget = self._content_layout.itemAt(j).widget()
                 if isinstance(widget, _TasterWidget) and widget.be_id == be_id:
@@ -1314,39 +1360,119 @@ class BauherrFormView(QWidget):
 
     def refresh(self):
         if self._project:
-            self._refresh_room_list()
+            self._refresh_room_list(
+                keep_id=self._current_room.id if self._current_room else None)
 
     def reload(self, project: KnxProject):
         """Neu aufbauen und im selben Raum bleiben (nach Rückgängig/
         Wiederholen -- die Raum-Objekte sind dann andere, die IDs gleich)."""
         room_id = self._current_room.id if self._current_room else None
-        self.set_project(project)
-        for i in range(self._room_list.count()):
-            if self._room_list.item(i).data(Qt.UserRole).id == room_id:
-                self._room_list.setCurrentRow(i)
-                break
+        self._project = project
+        self._service = BauherrFormService(project)
+        self._refresh_room_list(keep_id=room_id)
+        self._palette.set_project(project)
 
-    def _refresh_room_list(self):
-        self._room_list.clear()
+    # ── Raumbaum ───────────────────────────────────────────────────────────
+
+    def _room_items(self) -> list[QTreeWidgetItem]:
+        """Alle Raum-Einträge des Baums in Anzeigereihenfolge."""
+        items = []
+
+        def walk(item):
+            if isinstance(item.data(0, Qt.UserRole), Room):
+                items.append(item)
+            for i in range(item.childCount()):
+                walk(item.child(i))
+
+        for i in range(self._room_tree.topLevelItemCount()):
+            walk(self._room_tree.topLevelItem(i))
+        return items
+
+    def _select_room_row(self, index: int) -> None:
+        """index-ter Raum im Baum (für Tests und Navigation)."""
+        items = self._room_items()
+        if 0 <= index < len(items):
+            self._room_tree.setCurrentItem(items[index])
+
+    def _select_room(self, room_id: str) -> bool:
+        for item in self._room_items():
+            if item.data(0, Qt.UserRole).id == room_id:
+                self._room_tree.setCurrentItem(item)
+                return True
+        return False
+
+    def _room_label(self, room: Room) -> tuple[str, bool]:
+        count = len(_view_elements(room, self._project.topology.is_imported))
+        text = f"{room.number}  {room.name}".strip()
+        return (f"{text}  ({count})" if count else text), count > 0
+
+    def _refresh_room_list(self, keep_id: str | None = None):
+        """Alle Räume als Baum: Gebäude (nur bei mehreren) › Stockwerk ›
+        Wohnung/Zone › Raum. Ausgewählt bleibt keep_id, sonst der erste Raum
+        mit Bedienelement."""
+        self._room_tree.blockSignals(True)
+        self._room_tree.clear()
+        self._room_tree.blockSignals(False)
         if not self._project:
             return
-        floors = BauherrFormService(self._project)._floor_by_room()
-        for room in self._project.all_rooms:
-            if not _form_elements(room, self._project.topology.is_imported):
-                continue
-            number = " ".join(p for p in (floors.get(room.id, ""), room.number) if p)
-            item = QListWidgetItem(f"{number}  {room.name}")
-            item.setData(Qt.UserRole, room)
-            self._room_list.addItem(item)
-        if self._room_list.count():
-            self._room_list.setCurrentRow(0)
+        buildings = self._project.areal.buildings
+        muted = QBrush(QColor("#90A4AE"))
+        for building in buildings:
+            parent = None
+            if len(buildings) > 1:
+                parent = QTreeWidgetItem([building.name or "Gebäude"])
+                self._room_tree.addTopLevelItem(parent)
+            for wing in building.wings:
+                for floor in wing.floors:
+                    floor_item = QTreeWidgetItem([" ".join(
+                        p for p in (floor.short_code, floor.name) if p) or "Stockwerk"])
+                    for apartment in floor.apartments:
+                        if not apartment.rooms:
+                            continue
+                        apt_item = QTreeWidgetItem([apartment.name or "Wohnung"])
+                        for room in apartment.rooms:
+                            text, has_elements = self._room_label(room)
+                            room_item = QTreeWidgetItem([text])
+                            room_item.setData(0, Qt.UserRole, room)
+                            if not has_elements:
+                                room_item.setForeground(0, muted)
+                            apt_item.addChild(room_item)
+                        floor_item.addChild(apt_item)
+                    if not floor_item.childCount():
+                        continue
+                    if parent is not None:
+                        parent.addChild(floor_item)
+                    else:
+                        self._room_tree.addTopLevelItem(floor_item)
+        self._room_tree.expandAll()
+        if keep_id and self._select_room(keep_id):
+            return
+        items = self._room_items()
+        first = next((i for i in items if self._room_label(i.data(0, Qt.UserRole))[1]),
+                     items[0] if items else None)
+        if first is not None:
+            self._room_tree.setCurrentItem(first)
 
     # ── Raum-Auswahl ───────────────────────────────────────────────────────
 
-    def _on_room_selected(self, current: QListWidgetItem, _previous):
-        if current is None:
+    def _on_room_selected(self, current: QTreeWidgetItem, _previous):
+        room = current.data(0, Qt.UserRole) if current is not None else None
+        if isinstance(room, Room):
+            self._load_room(room)
+
+    def _add_element(self, element_type: str, channels: int):
+        """Bedienelement oder Melder in den gewählten Raum setzen -- wie in
+        Schritt 9 (manuell angelegt, bleibt bei der Neuberechnung)."""
+        room = self._current_room
+        if room is None or self._project is None or self._project.topology.is_imported:
             return
-        self._load_room(current.data(Qt.UserRole))
+        used = {i for a in room.gewerk_assignments for i in a.taster_indices}
+        used |= {be.taster_index for be in room.bedienelemente if not be.is_auto}
+        self._begin_change(f"Bauherrenberatung: {element_type} hinzugefügt")
+        room.bedienelemente.append(Bedienelement(
+            element_type=element_type, channels=channels, is_auto=False,
+            taster_index=max(used, default=0) + 1))
+        self._on_structure_changed()
 
     def _load_room(self, room: Room):
         self._current_room = room
@@ -1369,7 +1495,10 @@ class BauherrFormView(QWidget):
             self._service.manual_builder = UserManualBuilder(self._project, snapshot=False)
         except Exception:
             self._service.manual_builder = None
-        for be in _form_elements(room, self._project.topology.is_imported):
+        elements = _view_elements(room, self._project.topology.is_imported)
+        self._empty_hint.setVisible(not elements)
+        self._btn_add_element.setEnabled(not self._project.topology.is_imported)
+        for be in elements:
             taster = _TasterWidget(be, self._service, room=room,
                                    begin_change=self._begin_change)
             taster.changed.connect(self.project_changed)
@@ -1387,14 +1516,9 @@ class BauherrFormView(QWidget):
         neu aufbauen, damit das Grid mit der neuen Slot-Zahl neu entsteht
         (_TasterWidget legt die Slots nur einmal bei der Konstruktion an)."""
         room = self._current_room
-        if room is not None and not _form_elements(room, self._project.topology.is_imported):
-            # Letzter Taster entfernt: Raum fällt aus der Liste
-            row = max(0, self._room_list.currentRow())
-            self._refresh_room_list()
-            if self._room_list.count():
-                self._room_list.setCurrentRow(min(row, self._room_list.count() - 1))
-        elif room is not None:
-            self._load_room(room)
+        if room is not None:
+            # Anzahl im Raumbaum nachführen; lädt den Raum neu
+            self._refresh_room_list(keep_id=room.id)
         self._palette.refresh()
         self.project_changed.emit()
 

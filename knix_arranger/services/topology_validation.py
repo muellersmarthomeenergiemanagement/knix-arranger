@@ -126,6 +126,24 @@ def _check_power_supplies(topology) -> list[ValidationIssue]:
                 f"{_line_label(area, line)}: keine Spannungsversorgung",
                 f"{area.area_number}.{line.line_number}",
                 "Spannungsversorgung (mit Drossel) in der Linie vorsehen bzw. erfassen"))
+    if topology.is_imported:
+        return issues   # Haupt-/Bereichslinie stehen dort als Linie 0 (oben)
+    # Geplant: Hauptlinie je Bereich und Bereichslinie 0.0 brauchen ebenfalls
+    # eine eigene Spannungsversorgung, sofern sie TP sind
+    from .topology_engine import has_main_line
+    if (len(topology.areas) > 1 and topology.backbone_type != "IP"
+            and topology.backbone_power_supply is None):
+        issues.append(ValidationIssue(
+            level, "FA-613", "Bereichslinie 0.0: keine Spannungsversorgung", "0.0",
+            "Spannungsversorgung (mit Drossel) für die Bereichslinie vorsehen"))
+    for area in topology.areas:
+        if (has_main_line(topology, area) and area.backbone_type != "IP"
+                and area.backbone_power_supply is None):
+            issues.append(ValidationIssue(
+                level, "FA-613",
+                f"Hauptlinie {area.area_number}.0: keine Spannungsversorgung",
+                f"{area.area_number}.0",
+                "Spannungsversorgung (mit Drossel) für die Hauptlinie vorsehen"))
     return issues
 
 

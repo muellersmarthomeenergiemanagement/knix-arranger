@@ -210,10 +210,13 @@ class TopologyEngine:
                          catalog: GewerkCatalog,
                          small_project: bool = False,
                          preserve_manual: bool = False,
-                         shared_gateways: dict[str, str] | None = None):
+                         shared_gateways: dict[str, str] | None = None,
+                         backbone_type: str | None = None):
         """
         Fügt alle Linienteilnehmer gemaess KNX Projektrichtlinien 2024 ein.
         shared_gateways: gemeinsame Gateways (KnxProject.shared_gateways()).
+        backbone_type: Medium der Bereichslinie aus den Projekteigenschaften
+        ("TP"/"IP"); bestimmt, ob sie eine Spannungsversorgung braucht.
 
         Pro Bereich (Kap. 3.5.1):
         - Bereichskoppler (BK) an Adresse B.0.0
@@ -309,17 +312,11 @@ class TopologyEngine:
         # Einbauort aus den Verteilern (Schritt 4): je Linie, je Aktortyp
         placement = VerteilerPlacement(all_rooms)
 
+        if backbone_type:
+            topology.backbone_type = backbone_type
+        apply_line_power_supplies(topology)
+
         for area in topology.areas:
-            # Speisegerät Bereichslinie (T-06) – nur bei mehreren Bereichen
-            if multi_area:
-                if area.backbone_power_supply is None:
-                    area.backbone_power_supply = Device(
-                        device_type="power_supply",
-                        product="KNX-Spannungsversorgung Bereichslinie 640mA",
-                        installation_location="HV",
-                    )
-            else:
-                area.backbone_power_supply = None
 
             for idx, line in enumerate(area.lines):
                 line.devices.clear()
@@ -635,7 +632,7 @@ class TopologyEngine:
         max_sensor_addr = 40 if small_project else 199
 
         for area in topology.areas:
-            # Speisegerät Bereichslinie: Adresse B.0.-
+            # Speisegerät Hauptlinie: Adresse B.0.-
             if area.backbone_power_supply is not None:
                 area.backbone_power_supply.physical_address = (
                     f"{area.area_number}.0.-"
@@ -994,3 +991,47 @@ class TopologyEngine:
                                     "target_line": target_line,
                                 })
         return warnings
+
+
+# ── Spannungsversorgungen von Haupt- und Bereichslinie (T-06) ─────────────────
+
+MAIN_LINE_SV_PRODUCT = "KNX-Spannungsversorgung Hauptlinie 640mA"
+BACKBONE_SV_PRODUCT = "KNX-Spannungsversorgung Bereichslinie 640mA"
+
+
+def has_main_line(topology, area) -> bool:
+    """Der Bereich hat eine Hauptlinie B.0, sobald ein Bereichskoppler oder
+    mehrere Linienkoppler daran hängen."""
+    return len(topology.areas) > 1 or len(area.lines) > 1
+
+
+def apply_line_power_supplies(topology) -> None:
+    """Jede TP-Linie braucht eine eigene Spannungsversorgung (KNX):
+    - Bereichslinie 0.0: eine, bei mehreren Bereichen mit TP-Backbone,
+    - Hauptlinie B.0: eine je Bereich mit Hauptlinie, wenn sie TP ist,
+    - Linien B.L: je eine (in populate_devices).
+    Vorhandene Geräte bleiben samt zugewiesenem Produkt erhalten; die bis
+    1.1.31 als "Bereichslinie" angelegte SV der Hauptlinie wird umbenannt."""
+    multi_area = len(topology.areas) > 1
+    if multi_area and topology.backbone_type != "IP":
+        if topology.backbone_power_supply is None:
+            topology.backbone_power_supply = Device(
+                device_type="power_supply", product=BACKBONE_SV_PRODUCT,
+                installation_location="HV")
+        topology.backbone_power_supply.physical_address = "0.0.-"
+    else:
+        topology.backbone_power_supply = None
+
+    for area in topology.areas:
+        if has_main_line(topology, area) and area.backbone_type != "IP":
+            sv = area.backbone_power_supply
+            if sv is None:
+                sv = area.backbone_power_supply = Device(
+                    device_type="power_supply", product=MAIN_LINE_SV_PRODUCT,
+                    installation_location="HV")
+            elif sv.product == BACKBONE_SV_PRODUCT:
+                sv.product = MAIN_LINE_SV_PRODUCT
+            sv.physical_address = f"{area.area_number}.0.-"
+        else:
+            area.backbone_power_supply = None
+

@@ -40,13 +40,24 @@ def area_title(area) -> str:
     return title
 
 
+def _power_lines(sv, address: str) -> list[str]:
+    """Adresse, dazu das zugewiesene Produkt (Hersteller, Bestellnummer)."""
+    product = " ".join(p for p in (sv.manufacturer, sv.order_number or sv.product_name) if p)
+    return [address] + ([product] if sv.manufacturer else [])
+
+
 def build_topology_diagram(project, include_empty_lines: bool = True) -> dict:
-    """Liefert {"backbone": str, "areas": [{"title": str, "nodes": [...]}]}.
+    """Liefert {"backbone": str, "backbone_power": Knoten|None,
+    "areas": [{"title": str, "main_line": str, "nodes": [...]}]}.
     include_empty_lines=False (Bericht) lässt Linien und Bereiche ohne Geräte weg.
 
     Knoten: {"kind": "coupler"|"power"|"line", "title": str, "lines": [str],
-    "status": "OK"|"Warnung"|"Fehler", "messages": [str]}. Der Backbone
-    (z.B. "KNX Backbone (IP)") ist nur bei mehreren Bereichen gesetzt.
+    "status": "OK"|"Warnung"|"Fehler", "messages": [str]}; Linien zusätzlich
+    "power": [Adressen ihrer SV]. Die SVs sitzen dort, wo sie speisen:
+    backbone_power an der Bereichslinie (nur bei mehreren Bereichen gesetzt,
+    wie backbone, z.B. "Bereichslinie (TP)"), der "power"-Knoten eines
+    Bereichs an seiner Hauptlinie (main_line, z.B. "Hauptlinie 1.0", leer
+    ohne Hauptlinie), "power" einer Linie in der Linie.
     """
     from .cable_length_service import CableLengthService
     validations = {v.line_id: v for v in CableLengthService().validate_project(project)}
@@ -66,11 +77,12 @@ def build_topology_diagram(project, include_empty_lines: bool = True) -> dict:
             nodes.append({"kind": "coupler", "title": "Bereichskoppler",
                           "lines": [p for p in (bk.physical_address,
                                                 bk.product_name or bk.product) if p]})
-        sv = area.backbone_power_supply if multi_area else None
+        # Speisegerät der Hauptlinie B.0 (auch bei einem Bereich mit
+        # mehreren Linien)
+        sv = area.backbone_power_supply
         if sv is not None:
-            nodes.append({"kind": "power",
-                          "title": sv.product_name or sv.product or "Spannungsversorgung",
-                          "lines": [p for p in (f"{area.area_number}.0.-", sv.manufacturer) if p]})
+            nodes.append({"kind": "power", "title": "SV Hauptlinie",
+                          "lines": _power_lines(sv, f"{area.area_number}.0.-")})
         for line in sorted(area.lines, key=lambda l: l.line_number):
             if not line.devices and not include_empty_lines:
                 continue
@@ -78,8 +90,7 @@ def build_topology_diagram(project, include_empty_lines: bool = True) -> dict:
             coupler = line_coupler(area, line)
             if coupler is not None:
                 info.append(f"Koppler {coupler.physical_address}")
-            info += [f"SV {power_supply_address(area, line, d)}"
-                     for d in line_power_supplies(line)]
+            power = [power_supply_address(area, line, d) for d in line_power_supplies(line)]
             counts = Counter(device_type_label(d) for d in line.devices
                              if d is not coupler and d is not bk)
             info += [f"{n} {t if n == 1 else TOPOLOGY_TYPE_PLURAL[t]}"
@@ -90,12 +101,22 @@ def build_topology_diagram(project, include_empty_lines: bool = True) -> dict:
             if status != "OK":
                 info.append(f"Leitungslänge: {status}")
             nodes.append({"kind": "line", "title": line_title(area, line), "lines": info,
-                          "status": status,
+                          "power": power, "status": status,
                           "messages": list(validation.messages) if validation else []})
-        result.append({"title": area_title(area), "nodes": nodes})
+        lines = [n for n in nodes if n["kind"] == "line"]
+        has_main = bk is not None or sv is not None or len(lines) > 1
+        result.append({"title": area_title(area), "nodes": nodes,
+                       "main_line": f"Hauptlinie {area.area_number}.0" if has_main else ""})
 
-    backbone = ""
+    backbone, backbone_power = "", None
     if multi_area:
-        media = sorted({a.backbone_type for a in (with_devices or areas) if a.backbone_type})
-        backbone = "KNX Backbone" + (f" ({', '.join(media)})" if media else "")
-    return {"backbone": backbone, "areas": result}
+        # Über IP-Hauptlinien geht auch die Bereichslinie über IP
+        used = with_devices or areas
+        ip = (project.topology.backbone_type == "IP"
+              or any(a.backbone_type == "IP" for a in used))
+        backbone = f"Bereichslinie ({'IP' if ip else 'TP'})"
+        sv = project.topology.backbone_power_supply
+        if sv is not None:
+            backbone_power = {"kind": "power", "title": "SV Bereichslinie",
+                              "lines": _power_lines(sv, "0.0.-")}
+    return {"backbone": backbone, "backbone_power": backbone_power, "areas": result}

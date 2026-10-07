@@ -62,9 +62,7 @@ def _project():
 def _view(project, room):
     view = BauherrFormView()
     view.set_project(project)
-    for i in range(view._room_list.count()):
-        if view._room_list.item(i).data(Qt.UserRole) is room:
-            view._room_list.setCurrentRow(i)
+    view._select_room(room.id)
     return view
 
 
@@ -170,7 +168,7 @@ def test_key_does_not_accept_itself():
     assert slot._slot_payload(_slot_mime(be, be.funktionen[0])) is None
 
 
-def test_remove_last_taster_drops_room_from_list(monkeypatch):
+def test_remove_last_taster_room_stays_in_tree(monkeypatch):
     from PySide6.QtWidgets import QMessageBox
     from knix_arranger.ui.views.bauherr_form_view import _TasterWidget
     project, wasch, technik = _project_two_keys()
@@ -182,5 +180,28 @@ def test_remove_last_taster_drops_room_from_list(monkeypatch):
     taster._on_remove_taster()
 
     assert technik.bedienelemente[0].suppressed
-    rooms = [view._room_list.item(i).data(Qt.UserRole) for i in range(view._room_list.count())]
-    assert technik not in rooms and wasch in rooms
+    # Raum bleibt im Baum (ohne Anzahl, grau) und bleibt gewählt
+    labels = {i.data(0, Qt.UserRole).name: i.text(0) for i in view._room_items()}
+    assert labels == {"Waschküche": "CUG01  Waschküche  (1)", "Technik": "CUG02  Technik"}
+    assert view._current_room is technik
+    assert not view._empty_hint.isHidden()
+
+
+def test_all_rooms_in_tree_and_add_motion_sensor():
+    project, wasch, technik = _project()
+    view = _view(project, technik)
+    tree = view._room_tree
+    floor = tree.topLevelItem(0)
+    assert floor.text(0) == "UG Untergeschoss"
+    assert floor.child(0).text(0) == "Wohnung"
+    assert [i.data(0, Qt.UserRole) for i in view._room_items()] == [wasch, technik]
+
+    view._add_element("Bewegungsmelder", 1)
+    added = technik.bedienelemente[-1]
+    assert (added.element_type, added.channels, added.is_auto) == ("Bewegungsmelder", 1, False)
+
+    # Melder erscheint mit Kanal K1; Licht darauf ziehen
+    slot = next(s for s in view.findChildren(_SlotWidget) if s._be is added)
+    assert slot._is_sensor
+    assert slot.apply_dropped_function({"code": "L", "element": 1, "room_id": technik.id})
+    assert [(sf.gewerk_code, sf.element_number) for sf in added.funktionen] == [("L", 1)]

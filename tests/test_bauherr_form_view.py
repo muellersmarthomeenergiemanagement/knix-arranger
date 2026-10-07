@@ -92,7 +92,7 @@ class TestChannelsSpinBoxVisible:
         project, be = _make_project_with_taster(channels=2, n_funktionen=2)
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         assert hasattr(taster, "_channels_spin")
@@ -116,7 +116,7 @@ class TestChannelsSpinBoxVisible:
 
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         assert not hasattr(taster, "_channels_spin")
@@ -127,7 +127,7 @@ class TestChannelsAdjustment:
         project, be = _make_project_with_taster(channels=2, n_funktionen=2)
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         total_before, empty_before = _grid_slot_count(taster)
@@ -146,7 +146,7 @@ class TestChannelsAdjustment:
         be.is_auto = True
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         taster._channels_spin.setValue(3)
@@ -159,7 +159,7 @@ class TestChannelsAdjustment:
         project, be = _make_project_with_taster(channels=4, n_funktionen=3)
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         assert taster._channels_spin.minimum() == 3
@@ -254,7 +254,7 @@ class TestGewerkAndSceneSelection:
         )
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         slot = _first_empty_slot(_find_taster(view))
         gewerk_items = [
@@ -276,7 +276,7 @@ class TestGewerkAndSceneSelection:
         be.is_auto = True
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         slot = _first_empty_slot(_find_taster(view))
         _select_by_kind(slot._combo, "gewerk")
@@ -297,7 +297,7 @@ class TestGewerkAndSceneSelection:
         ])
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         slot = _first_empty_slot(_find_taster(view))
         texts = [slot._combo.itemText(i) for i in range(slot._combo.count())]
@@ -317,7 +317,7 @@ class TestGewerkAndSceneSelection:
         )
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         slot = _first_empty_slot(_find_taster(view))
         _select_by_kind(slot._combo, "scene")
@@ -330,7 +330,7 @@ class TestGewerkAndSceneSelection:
         project, room, be = _make_project_with_room(scenes=[scene])
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         slot = _first_empty_slot(_find_taster(view))
         _select_by_kind(slot._combo, "scene")
@@ -349,7 +349,7 @@ class TestGewerkAndSceneSelection:
         project, room, be = _make_project_with_room()
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         slot = _first_empty_slot(_find_taster(view))
         _select_by_kind(slot._combo, "wish")
@@ -367,7 +367,7 @@ class TestGewerkAndSceneSelection:
         )
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         slot = _first_empty_slot(_find_taster(view))
         _select_by_kind(slot._combo, "gewerk")
@@ -396,7 +396,7 @@ class TestAllSlotsEditable:
         be.funktionen = [SensorFunktion(gewerk_code="L", element_number=1)]
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         grid = taster.findChild(QGridLayout)
@@ -417,7 +417,7 @@ class TestAllSlotsEditable:
         be.funktionen = [SensorFunktion(gewerk_code="L", element_number=1)]
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         grid = taster.findChild(QGridLayout)
@@ -442,7 +442,7 @@ class TestAllSlotsEditable:
         )]
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         grid = taster.findChild(QGridLayout)
@@ -456,7 +456,7 @@ class TestAllSlotsEditable:
         be.funktionen = [SensorFunktion(label="Licht Ein/Aus")]
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         grid = taster.findChild(QGridLayout)
@@ -474,7 +474,7 @@ class TestAllSlotsEditable:
         )]
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         grid = taster.findChild(QGridLayout)
@@ -513,7 +513,7 @@ class TestAllSlotsEditable:
 
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         grid = taster.findChild(QGridLayout)
@@ -548,7 +548,7 @@ class TestFremdsteuerungExcludedFromSlots:
         ]
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         grid = taster.findChild(QGridLayout)
@@ -563,7 +563,7 @@ class TestFremdsteuerungExcludedFromSlots:
         ]
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         assert taster._channels_spin.minimum() == 1  # nur 1 echte Funktion, nicht 2
@@ -579,7 +579,7 @@ class TestSlotDeletion:
         project, room, be = _make_project_with_room()
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         slot = _first_empty_slot(_find_taster(view))
         assert slot._btn_delete.isHidden() is True
@@ -592,7 +592,7 @@ class TestSlotDeletion:
         be.funktionen = [SensorFunktion(gewerk_code="L", element_number=1)]
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         grid = taster.findChild(QGridLayout)
@@ -613,7 +613,7 @@ class TestSlotDeletion:
         be.funktionen = [SensorFunktion(gewerk_code="L", element_number=1)]
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         grid = taster.findChild(QGridLayout)
@@ -643,7 +643,7 @@ class TestGewerkLabelShowsAllFunctions:
         )
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         slot = _first_empty_slot(_find_taster(view))
         texts = [slot._combo.itemText(i) for i in range(slot._combo.count())]
@@ -666,7 +666,7 @@ class TestComboSectionHeaders:
         )
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         slot = _first_empty_slot(_find_taster(view))
         combo = slot._combo
@@ -699,7 +699,7 @@ class TestExtraGasOnDirectGaSlot:
         )]
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
         return view, be
 
     def test_add_ga_button_visible_only_for_direct_ga_slot(self):
@@ -716,7 +716,7 @@ class TestExtraGasOnDirectGaSlot:
         be.funktionen = [SensorFunktion(gewerk_code="L", element_number=1)]
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         grid = taster.findChild(QGridLayout)
@@ -815,7 +815,7 @@ class TestGewerkPickWithoutTaggedAddresses:
         project, room, be = self._project()
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         slot = _first_empty_slot(_find_taster(view))
         picked = GroupAddress(main_group=1, middle_group=0, sub_group=5,
@@ -854,7 +854,7 @@ class TestGewerkPickWithoutTaggedAddresses:
         project, room, be = self._project()
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         slot = _first_empty_slot(_find_taster(view))
         prev_index = slot._combo.currentIndex()
@@ -958,7 +958,7 @@ class TestGridPositionInTasterWidget:
         project, be = self._project_with_positioned_taster()
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         grid = taster.findChild(QGridLayout)
@@ -977,7 +977,7 @@ class TestGridPositionInTasterWidget:
         project, be = _make_project_with_taster(channels=2, n_funktionen=2)
         view = BauherrFormView()
         view.set_project(project)
-        view._room_list.setCurrentRow(0)
+        view._select_room_row(0)
 
         taster = _find_taster(view)
         from PySide6.QtWidgets import QGridLayout

@@ -204,12 +204,15 @@ class DatasheetView(QWidget):
         # Lookup-Tabellen: Gerät nach ID und physikalischer Adresse
         _id_to_dev: dict = {}
         _addr_to_dev: dict = {}
-        for area in self._project.topology.areas:
-            if area.backbone_power_supply is not None:
-                dev = area.backbone_power_supply
+        topology = self._project.topology
+        # Speisegeräte von Haupt- und Bereichslinie (nicht in line.devices)
+        for dev in [a.backbone_power_supply for a in topology.areas] + [
+                topology.backbone_power_supply]:
+            if dev is not None:
                 _id_to_dev[dev.id] = dev
                 if dev.physical_address:
                     _addr_to_dev[dev.physical_address] = dev
+        for area in topology.areas:
             for line in area.lines:
                 for device in line.devices:
                     _id_to_dev[device.id] = device

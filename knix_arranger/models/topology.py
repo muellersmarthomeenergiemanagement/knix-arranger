@@ -305,8 +305,15 @@ class Area:
     coupler_address: str = ""     # Bereichskoppler B.0.0
     backbone_type: str = "TP"     # "TP" oder "IP"
     lines: list[Line] = field(default_factory=list)
-    # Speisegerät für die Bereichslinie (T-06) – nur bei mehreren Bereichen
+    # Speisegerät der Hauptlinie B.0 (Adresse B.0.-), T-06 -- sobald der
+    # Bereich eine Hauptlinie hat (mehrere Bereiche oder mehrere Linien) und
+    # sie TP ist. Der Feldname stammt aus der Zeit, als sie fälschlich
+    # "Bereichslinie" hiess; gespeichert wird weiter unter diesem Namen.
     backbone_power_supply: Optional[Device] = field(default=None)
+
+    @property
+    def main_line_power_supply(self) -> Optional[Device]:
+        return self.backbone_power_supply
 
     def to_dict(self) -> dict:
         return {
@@ -435,6 +442,9 @@ class Topology:
     # True, wenn die Topologie aus einer ETS-Datei importiert wurde.
     # Verhindert versehentliches Überschreiben durch den Wizard (FA-ImportGuard).
     is_imported: bool = False
+    # Speisegerät der Bereichslinie 0.0 (Adresse 0.0.-), T-06 -- nur bei
+    # mehreren Bereichen mit TP-Backbone
+    backbone_power_supply: Optional[Device] = None
 
     # Konstanten (T-01 bis T-11)
     MAX_DEVICES_TP256: int = 256
@@ -456,6 +466,10 @@ class Topology:
             "topology_mode": self.topology_mode,
             "backbone_type": self.backbone_type,
             "is_imported": self.is_imported,
+            "backbone_power_supply": (
+                self.backbone_power_supply.to_dict()
+                if self.backbone_power_supply else None
+            ),
         }
 
     @classmethod
@@ -466,6 +480,8 @@ class Topology:
             is_imported=data.get("is_imported", False),
         )
         t.areas = [Area.from_dict(a) for a in data.get("areas", [])]
+        bps = data.get("backbone_power_supply")
+        t.backbone_power_supply = Device.from_dict(bps) if bps else None
         _fix_imported_power_supplies(t.areas)
         _fix_imported_presence_detectors(t.areas)
         return t

@@ -194,7 +194,9 @@ class TopologyView(QWidget):
         for ai in range(root.childCount()):
             area_item = root.child(ai)
             d = area_item.data(0, _ROLE_DATA)
-            if d and area_item.isExpanded():
+            if not d or d[0] != "area":
+                continue   # z.B. Speisegerät der Bereichslinie
+            if area_item.isExpanded():
                 expanded_areas.add(d[1].id)
             for li in range(area_item.childCount()):
                 line_item = area_item.child(li)
@@ -215,7 +217,7 @@ class TopologyView(QWidget):
         for ai in range(root.childCount()):
             area_item = root.child(ai)
             d = area_item.data(0, _ROLE_DATA)
-            if not d:
+            if not d or d[0] != "area":
                 continue
             area_id = d[1].id
             # Bereiche: aufgeklappt wenn vorher aufgeklappt ODER noch kein State gespeichert
@@ -270,6 +272,18 @@ class TopologyView(QWidget):
             if self._ga_structure else {}
         )
 
+        # Speisegerät der Bereichslinie 0.0 (mehrere Bereiche, TP-Backbone)
+        backbone_sv = self._topology.backbone_power_supply
+        if backbone_sv is not None:
+            parts = [p for p in (backbone_sv.manufacturer, backbone_sv.order_number) if p]
+            bb_item = QTreeWidgetItem(self._tree, [
+                "Speisegerät Bereichslinie (SV)", "0.0.-", "",
+                backbone_sv.installation_location,
+                " | ".join(parts) if parts else "Spannungsversorgung der Bereichslinie 0.0",
+            ])
+            bb_item.setData(0, _ROLE_DATA, ("device", None, None, backbone_sv))
+            self._colorize(bb_item, _COLOR_POWER)
+
         for area in self._topology.areas:
             area_devices = sum(l.device_count for l in area.lines)
             area_item = QTreeWidgetItem(self._tree, [
@@ -277,7 +291,7 @@ class TopologyView(QWidget):
                 str(area.area_number),
                 str(area_devices),
                 "",
-                f"{len(area.lines)} Linien, Backbone: {area.backbone_type}",
+                f"{len(area.lines)} Linien, Hauptlinie: {area.backbone_type}",
             ])
             area_item.setData(0, _ROLE_DATA, ("area", area))
             # Expand-Zustand wird in _restore_tree_state gesetzt
@@ -294,12 +308,12 @@ class TopologyView(QWidget):
                     bk_device.physical_address,
                     "", bk_device.installation_location,
                     " | ".join(bk_detail_parts) if bk_detail_parts
-                    else "Verbindet Bereichslinie mit Backbone",
+                    else "Verbindet Hauptlinie mit Bereichslinie",
                 ])
                 bk_item.setData(0, _ROLE_DATA, ("device", area, bk_line, bk_device))
                 self._colorize(bk_item, _COLOR_COUPLER)
 
-            # FA-1007: Speisegerät Bereichslinie
+            # FA-1007: Speisegerät der Hauptlinie B.0
             if area.backbone_power_supply is not None:
                 sv_dev = area.backbone_power_supply
                 sv_detail_parts = []
@@ -308,11 +322,11 @@ class TopologyView(QWidget):
                 if sv_dev.order_number:
                     sv_detail_parts.append(sv_dev.order_number)
                 sv_area_item = QTreeWidgetItem(area_item, [
-                    "Speisegerät Bereichslinie (SV)",
+                    "Speisegerät Hauptlinie (SV)",
                     f"{area.area_number}.0.-",
                     "", sv_dev.installation_location,
                     " | ".join(sv_detail_parts) if sv_detail_parts
-                    else "Spannungsversorgung der Bereichslinie",
+                    else "Spannungsversorgung der Hauptlinie",
                 ])
                 sv_area_item.setData(0, _ROLE_DATA, ("device", area, None, sv_dev))
                 self._colorize(sv_area_item, _COLOR_POWER)
@@ -349,7 +363,7 @@ class TopologyView(QWidget):
                         lk_device.physical_address,
                         "", lk_device.installation_location,
                         " | ".join(lk_detail_parts) if lk_detail_parts
-                        else "Verbindet Linie mit Bereichslinie",
+                        else "Verbindet Linie mit Hauptlinie",
                     ])
                     lk_item.setData(0, _ROLE_DATA, ("device", area, line, lk_device))
                     self._colorize(lk_item, _COLOR_COUPLER)
