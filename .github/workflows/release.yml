@@ -5,8 +5,35 @@ on:
     tags:
       - 'v*.*.*'
 
+# Doppelt zugestellte Tag-Pushes (v1.1.32: drei Läufe für denselben Tag)
+# laufen nacheinander statt parallel; der spätere findet das fertige
+# Release und überspringt den Build (Job "check").
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.release.outputs.exists }}
+    steps:
+      - name: Check for existing release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" \
+               --repo muellersmarthomeenergiemanagement/knix-arranger-releases > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Release ${{ github.ref_name }} existiert bereits – Build übersprungen"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: check
+    if: needs.check.outputs.exists != 'true'
     runs-on: windows-latest
 
     steps:
