@@ -78,6 +78,7 @@ class ValidationEngine:
             issues.extend(self._check_multi_ga_keys(project))
             issues.extend(self._check_ets_deviations(project))
             issues.extend(self._check_time_programs(project))
+            issues.extend(self._check_unoperated(project))
             # FA-609, FA-611 bis FA-613: Topologie
             from .topology_validation import check_topology
             issues.extend(check_topology(project))
@@ -156,6 +157,26 @@ class ValidationEngine:
                 designation=f.extra_designation,
                 details={"ko": f.ko_text, "sent": f.sent_ga, "reason": f.reason,
                          "verdict": f.verdict_label},
+            ))
+        return issues
+
+    def _check_unoperated(self, project) -> list[ValidationIssue]:
+        """FA-619: schaltbare Elemente ohne Taste, Präsenzmelder, Szene oder
+        Zeitsteuerung (nur geplante Projekte)."""
+        from .operation_check import unoperated_elements
+        catalog = self.catalog or project.gewerk_catalog
+        issues = []
+        for u in unoperated_elements(project):
+            gewerk = catalog.get(u.gewerk_code) if catalog else None
+            name = gewerk.name if gewerk else u.gewerk_code
+            issues.append(ValidationIssue(
+                "info", "FA-619",
+                f"{name} {u.ga.designation} wird von keiner Taste bedient",
+                u.ga.address,
+                "In der Bauherrenberatung einer Taste zuweisen, auch einer Taste "
+                "in einem anderen Raum, oder so belassen, wenn es anders bedient wird",
+                designation=u.ga.designation,
+                details={"gewerk": name},
             ))
         return issues
 

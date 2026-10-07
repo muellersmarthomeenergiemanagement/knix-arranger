@@ -185,6 +185,17 @@ VALIDATION_RULES = {
         "Alle Dokumente verwenden die Korrektur; die ETS ist unverändert.",
         "Bei der nächsten Bearbeitung in der ETS nachführen.",
     ),
+    "FA-619": (
+        "Element ohne Bedienung",
+        "Licht, Steckdose oder Beschattung eines geplanten Projekts, das keine "
+        "Taste, kein Präsenzmelder, keine Szene und keine Zeitsteuerung "
+        "anspricht. Zentrale Funktionen (HG 0) zählen nicht. Häufig ist die "
+        "Bedienung an einer Taste in einem anderen Raum vorgesehen, aber noch "
+        "nicht zugewiesen.",
+        "In der Bauherrenberatung einer Taste zuweisen (auch aus einem anderen "
+        "Raum). Wird das Element anders bedient (z.B. Visualisierung, Logik), "
+        "kann der Hinweis bleiben.",
+    ),
     "FA-3306": (
         "Zeitsteuerung",
         "Ein Schaltzeitpunkt verweist auf eine GA, die es nicht mehr gibt "
