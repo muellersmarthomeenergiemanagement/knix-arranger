@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.27
+**Version:** 3.28
 **Datum:** 07.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -42,6 +42,7 @@
 | 3.25 | 06.10.2026 | M. Mueller / Claude AI | Zeilenpruefung der NFA: unerwartete Fehler im Betrieb werden abgefangen, protokolliert und gemeldet, Crash-Report mit RAM, Bildschirm und letzter Aktion (NFA-041a, NFA-143a); Menue "Hilfe > Logdateien oeffnen" (NFA-146); Einstellungen ohne wirkungslose Projektstandards, Update-Pruefung wirksam (NFA-114a); Copyright in den PDF-Eigenschaften (NFA-082a); Stand und Abgrenzungen festgehalten: Performance gemessen (NFA-023a), Konfigurationsdateien (NFA-053a), Lizenzserver, Code-Signatur, Integritaetspruefung und Datenschutz zurueckgestellt bis Verkaufsstart (NFA-060a), Bildschirm/RAM (NFA-103a), Oberflaeche nur Deutsch (NFA-156a) |
 | 3.26 | 07.10.2026 | M. Mueller / Claude AI | Zeilenpruefung der NFA abgeschlossen: Protokollstufe in den Einstellungen (NFA-142a); Programmeinstellungen im Benutzerordner "KNiX Arranger" wie alle Benutzerdaten (NFA-134a); Installer mit Herausgeber und Pruefung der Bildschirmaufloesung (NFA-132, NFA-133a); Inbetriebnahme-Checkliste passt die Spalten an (NFA-034a); ohne gueltige Lizenz Lesemodus statt Programmende (NFA-066a); Stand festgehalten zu Lizenzschluessel, Schutz, EULA, Datenuebermittlung und Installergroesse (NFA-062a, NFA-072a, NFA-081a, NFA-124a, NFA-135a) |
 | 3.27 | 07.10.2026 | M. Mueller / Claude AI | Validierung: Hinweis auf schaltbare Elemente ohne Bedienung (FA-619); gemeinsames Gateway ermittelt nur sein eigenes Gewerk (FA-1307); Einzeltaster "Taste" ohne Nummer gilt in Berichten, Checkliste und Bedienungsanleitung als Taste 1 |
+| 3.28 | 07.10.2026 | M. Mueller / Claude AI | Bauherrenberatung: Funktionen aus einer Liste auf eine Taste ziehen, auch aus einem anderen Raum, mit Markierung der Elemente ohne Bedienung; Tasten verschieben und tauschen; Taster direkt entfernen (FA-1015a) |
 
 ---
 
@@ -737,6 +738,7 @@ Nach einem Import (KNXPROJ oder XLSX-Reports) soll das Projekt im Wizard weiterg
 | FA-1013 | Wo die Komplexitaet der Daten hoch ist, muessen grafische Darstellungen verwendet werden, insbesondere: Gebaeudestrukturen (grafische Stockwerk-/Raum-Uebersicht), Topologie-Prinzipschema (Bereiche, Linien, Koppler als Diagramm), Gewerke-Verteilung pro Raum/Stockwerk. |
 | FA-1014 | Die GUI muss intuitiv bedienbar sein: klare Navigation, konsistente Bedienelemente, kontextsensitive Tooltips und Hilfetexte, logischer Arbeitsfluss ohne Handbuch-Studium. |
 | FA-1015 | Die GUI muss Drag-and-Drop-Funktionalitaet unterstuetzen, um haeufige Aktionen zu beschleunigen, insbesondere: Raeume in Stockwerke verschieben (Gebaeudestruktur), Geraete zwischen Linien verschieben (Topologie), Gewerke per Drag-and-Drop auf Raeume zuweisen, Gruppenadressen per Drag-and-Drop reorganisieren/umsortieren. |
+| FA-1015a | Zusaetzlich (e): In der Bauherrenberatung lassen sich Gewerk-Elemente aus einer Funktionsliste (gegliedert nach Raum) auf eine Taste ziehen, auch aus einem anderen Raum, z.B. Licht Technik auf den Taster in der Waschkueche. Das Ablegen wirkt wie die Auswahl in der Liste der Taste (Rueckgaengig-Punkt, Neuberechnung). Elemente ohne Bedienung (FA-619) sind in der Liste orange markiert, "Nur ohne Bedienung" blendet die uebrigen aus. Eine belegte Taste laesst sich am Griff auf eine andere Taste desselben Raums ziehen: auf eine freie verschieben (bei geplanten Projekten ans Ende der Tastereinheit), auf eine belegte tauschen; langer Tastendruck und eigene Bezeichnung fuer die Bedienungsanleitung wandern mit, Positionen importierter Tasten ("Taste 2, links") bleiben. "Taster entfernen" entfernt ein Bedienelement direkt in der Bauherrenberatung wie in Schritt 9 (nur geplante Projekte); ein Raum ohne Bedienelement faellt aus der Raumliste. Stand 07.10.2026: (e) umgesetzt, (a) bis (d) offen. |
 | FA-1016 | Beim Oeffnen eines Wizard-Schritts muessen bereits vorhandene Projektdaten automatisch geladen und angezeigt werden. Berechnungsschritte (Aktoren, Sensoren, Gruppenadressen) muessen bei vorhandenen Eingabedaten automatisch ausgefuehrt werden. |
 
 #### 3.11.2 Ansichten und Navigation

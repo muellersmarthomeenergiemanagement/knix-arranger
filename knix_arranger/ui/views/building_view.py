@@ -608,17 +608,9 @@ class BuildingView(QWidget):
 
     def _remove_from_structure(self, kind: str, obj):
         if kind == "bedienelement":
+            from ...services.button_move import remove_bedienelement
             be, room = obj
-            if be.is_auto:
-                be.is_auto = False
-                be.suppressed = True
-                be.funktionen = []
-                be.function_assignments = []
-            else:
-                try:
-                    room.bedienelemente.remove(be)
-                except ValueError:
-                    pass
+            remove_bedienelement(room, be)
             return
         if not self._areal:
             return

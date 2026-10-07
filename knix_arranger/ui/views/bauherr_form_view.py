@@ -19,9 +19,11 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget,
     QListWidgetItem, QScrollArea, QFrame, QComboBox, QLineEdit,
     QSplitter, QSizePolicy, QGridLayout, QTextEdit, QSpinBox,
-    QPushButton, QDialog, QMessageBox,
+    QPushButton, QDialog, QMessageBox, QApplication,
 )
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer, QMimeData
+from PySide6.QtGui import QDrag
+import json
 
 from ...models.project import KnxProject
 from ...models.building import (
@@ -41,6 +43,7 @@ from ...services.multi_ga_check import (
     ko_for_ga, unlink_ga,
 )
 from ..styles import COLOR_ERROR, COLOR_INFO, COLOR_WARNING, KNX_BLUE, KNX_DARK_GREEN
+from ..widgets.function_palette import FunctionPalette, function_from_mime
 from .topology_view import confirm_unlink
 
 # ── Farben (identisch zum Excel-Formular) ────────────────────────────────────
@@ -66,6 +69,9 @@ _TASTE_POSITION_RE = re.compile(
     r"^taste\s*(\d+)\s*,\s*(links|rechts)\b", re.IGNORECASE
 )
 _SIDE_TO_COL = {"links": 0, "rechts": 1}
+
+# Gezogene Taste der Bauherrenberatung (verschieben/tauschen, FA-1015 e)
+SLOT_MIME = "application/x-knix-button"
 
 # Rolle einer Zusatz-GA an der Taste (SensorFunktionGa.role) für die Chips
 _EXTRA_ROLE_LABELS = {
@@ -150,8 +156,13 @@ class _SlotWidget(QWidget):
     def __init__(self, be: Bedienelement, sf: SensorFunktion | None,
                  service: BauherrFormService, slot_label: str,
                  room: Room, parent=None, begin_change=None,
-                 long_of: SensorFunktion | None = None):
+                 long_of: SensorFunktion | None = None,
+                 grid_pos: tuple[int, int] | None = None):
         super().__init__(parent)
+        # Zelle im Raster (Reihe, Spalte) -- Position beim Verschieben in
+        # importierte Tastereinheiten ("Taste 3, links")
+        self._grid_pos = grid_pos
+        self._press_pos = None
         self._be      = be
         self._sf      = sf
         self._service = service
@@ -160,6 +171,10 @@ class _SlotWidget(QWidget):
         self._begin   = begin_change or (lambda _description: None)
         # Gesetzt = dieser Slot ist der lange Tastendruck der Taste long_of
         self._long_of = long_of
+        # Funktion aus der Funktionsliste hierher ziehen (FA-1015 e)
+        self.setAcceptDrops(True)
+        self.setObjectName("bauherrSlot")
+        self.setAttribute(Qt.WA_StyledBackground, True)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 3, 4, 3)
@@ -176,6 +191,15 @@ class _SlotWidget(QWidget):
         )
         num_lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         head_row.addWidget(num_lbl)
+        # Griff zum Verschieben/Tauschen (FA-1015 e) -- gezogen wird der
+        # ganze Slot, der Griff macht es nur sichtbar
+        self._grip = QLabel("≡")
+        self._grip.setToolTip("Ziehen, um die Taste zu verschieben (freie Taste) "
+                              "oder mit einer anderen zu tauschen (belegte Taste)")
+        self._grip.setCursor(Qt.OpenHandCursor)
+        self._grip.setStyleSheet("color: #78909C; font-size: 14px; padding: 0 2px;")
+        self._grip.setVisible(sf is not None and long_of is None)
+        head_row.addWidget(self._grip)
         head_row.addStretch()
 
         # Deutlich sichtbarer Hintergrund statt transparent -- ein 16px
@@ -306,6 +330,108 @@ class _SlotWidget(QWidget):
             "QWidget { border: 1px solid #CFD8DC; border-radius: 3px; "
             "background-color: #FAFAFA; }"
         )
+
+    # ── Ziehen und Ablegen (FA-1015 e) ───────────────────────────────────────
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self._sf is not None and self._long_of is None:
+            self._press_pos = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (self._press_pos is None or not event.buttons() & Qt.LeftButton
+                or (event.position().toPoint() - self._press_pos).manhattanLength()
+                < QApplication.startDragDistance()):
+            return super().mouseMoveEvent(event)
+        self._press_pos = None
+        mime = QMimeData()
+        mime.setData(SLOT_MIME, json.dumps(
+            {"be_id": self._be.id, "sf_id": self._sf.id}).encode("utf-8"))
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.setPixmap(self.grab().scaledToWidth(220, Qt.SmoothTransformation))
+        if drag.exec(Qt.MoveAction) == Qt.MoveAction:
+            # Erst jetzt neu aufbauen: während des Ziehens läuft dieser Slot
+            # noch (deleteLater aus der Drag-Schleife wäre zu früh)
+            self.removed.emit()
+
+    def mouseReleaseEvent(self, event):
+        self._press_pos = None
+        super().mouseReleaseEvent(event)
+
+    def _slot_payload(self, mime) -> dict | None:
+        """Gezogene Taste {"be_id", "sf_id"}, wenn sie hier abgelegt werden darf."""
+        if self._long_of is not None or not mime.hasFormat(SLOT_MIME):
+            return None
+        try:
+            data = json.loads(bytes(mime.data(SLOT_MIME)).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return None
+        if self._sf is not None and data.get("sf_id") == self._sf.id:
+            return None
+        return data
+
+    def dragEnterEvent(self, event):
+        if (function_from_mime(event.mimeData()) is not None
+                or self._slot_payload(event.mimeData()) is not None):
+            self.setStyleSheet("#bauherrSlot { border: 2px dashed #1565C0; "
+                               "border-radius: 3px; background: #E3F2FD; }")
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self.setStyleSheet("")
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        self.setStyleSheet("")
+        payload = self._slot_payload(event.mimeData())
+        if payload is not None:
+            if self.apply_dropped_slot(payload):
+                event.setDropAction(Qt.MoveAction)
+                event.accept()
+            else:
+                event.ignore()
+            return
+        data = function_from_mime(event.mimeData())
+        if data is not None and self.apply_dropped_function(data):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def apply_dropped_slot(self, payload: dict) -> bool:
+        """Gezogene Taste hierher: auf eine freie Taste verschieben, mit einer
+        belegten tauschen (nur innerhalb des Raums). Den Raster baut die
+        Quelle nach dem Ziehen neu auf (removed)."""
+        from ...services.button_move import has_position, move_button
+        src_be = next((b for b in self._room.bedienelemente
+                       if b.id == payload.get("be_id")), None)
+        sf = next((f for f in src_be.funktionen if f.id == payload.get("sf_id")),
+                  None) if src_be else None
+        if sf is None or sf is self._sf:
+            return False
+        target_label = ""
+        if self._sf is None and self._grid_pos is not None and any(
+                has_position(f.label) for f in self._be.funktionen):
+            row, col = self._grid_pos
+            target_label = f"Taste {row + 1}, {'links' if col == 0 else 'rechts'}"
+        self._begin("Bauherrenberatung: Taste getauscht" if self._sf is not None
+                    else "Bauherrenberatung: Taste verschoben")
+        move_button(src_be, sf, self._be, target=self._sf, target_label=target_label,
+                    labels=self._project_labels())
+        return True
+
+    def apply_dropped_function(self, data: dict) -> bool:
+        """Übernimmt eine gezogene Funktion wie eine Auswahl in der Liste der
+        Taste -- mit Rückgängig-Punkt und Neuberechnung (_on_changed)."""
+        target = ("gewerk", data.get("code"), data.get("element"), data.get("room_id"))
+        for i in range(self._combo.count()):
+            if self._combo.itemData(i) == target:
+                if i != self._combo.currentIndex():
+                    self._combo.setCurrentIndex(i)
+                return True
+        return False
 
     def _populate_combo(self):
         """Befuellt den Combo mit den tatsaechlich geplanten Gewerken aller
@@ -828,7 +954,31 @@ class _TasterWidget(QFrame):
             f"background-color: {_C_HEADER}; color: {_FONT_HEADER}; "
             f"font-size: 12px; font-weight: bold; border: none;"
         )
-        layout.addWidget(hdr)
+        hdr_bar = QWidget()
+        hdr_bar.setStyleSheet(f"QWidget {{ background-color: {_C_HEADER}; border: none; }}")
+        hdr_layout = QHBoxLayout(hdr_bar)
+        hdr_layout.setContentsMargins(0, 0, 4, 0)
+        hdr_layout.addWidget(hdr, 1)
+        # Taster, den es in Wirklichkeit nicht gibt (z.B. Licht Technik wird
+        # in der Waschküche geschaltet), direkt hier entfernen -- wie in
+        # Schritt 9. Importierte Geräte gibt es in der Anlage, nicht hier.
+        self._room = room
+        if not service.project.topology.is_imported:
+            btn_remove = QPushButton("Taster entfernen")
+            btn_remove.setFixedHeight(20)
+            btn_remove.setCursor(Qt.PointingHandCursor)
+            # Wie "entfernen" an der Taste, hell auf dem dunklen Kopf
+            btn_remove.setStyleSheet(
+                "QPushButton { color: #B71C1C; font-size: 12px; font-weight: bold; "
+                "border: 1px solid #EF9A9A; border-radius: 2px; "
+                "background: #FFEBEE; padding: 1px 8px; } "
+                "QPushButton:hover { background: #FFCDD2; border-color: #B71C1C; }")
+            btn_remove.setToolTip("Dieses Bedienelement aus dem Raum entfernen "
+                                  "(Rückgängig möglich). Seine Funktionen vorher "
+                                  "auf einen anderen Taster ziehen.")
+            btn_remove.clicked.connect(self._on_remove_taster)
+            hdr_layout.addWidget(btn_remove)
+        layout.addWidget(hdr_bar)
 
         # Geräteinterne Funktionen ohne physische Taste (z.B. Nachtabsenkung
         # LED, role="fremdsteuerung" -- FA-1410d) sind kein bedienbarer
@@ -907,7 +1057,8 @@ class _TasterWidget(QFrame):
                 slot_label = f"T{seq_num}"
 
             slot = _SlotWidget(be, sf, service, slot_label=slot_label, room=room,
-                               begin_change=begin_change)
+                               begin_change=begin_change,
+                               grid_pos=(grid_row, grid_col))
             slot.changed.connect(self.changed)
             slot.label_changed.connect(self.notes_changed)
             slot.removed.connect(self.structure_changed)
@@ -965,6 +1116,24 @@ class _TasterWidget(QFrame):
         self._be.bauherr_annotation = text
         self.notes_changed.emit()
 
+    def _on_remove_taster(self):
+        from ...services.button_move import remove_bedienelement
+        assigned = sum(1 for sf in self._be.funktionen if not sf.press_of
+                       and (sf.gewerk_code or sf.ga_designation or sf.label))
+        name = " ".join(p for p in (self._be.element_type or "Bedienelement",
+                                    self._be.participant_number) if p)
+        text = f"{name} entfernen?"
+        if assigned:
+            text += (f"\n\nSeine {assigned} belegte(n) Taste(n) gehen mit. Funktionen, die "
+                     "weiterhin bedient werden sollen, vorher auf einen anderen Taster ziehen.")
+        if QMessageBox.question(self, "Taster entfernen", text,
+                                QMessageBox.Yes | QMessageBox.No,
+                                QMessageBox.No) != QMessageBox.Yes:
+            return
+        self._begin("Bauherrenberatung: Taster entfernt")
+        remove_bedienelement(self._room, self._be)
+        self.structure_changed.emit()
+
     def _on_channels_changed(self, value: int):
         if value == self._be.channels:
             return
@@ -1002,8 +1171,11 @@ class BauherrFormView(QWidget):
 
         hint = QLabel(
             "Jede Taste ist direkt umstellbar: Gewerk (mit Raumangabe), "
-            "Szene oder freier Wunsch auswählen.  "
-            "Gelb = noch offen.  Grün = bereits ein Wert gewählt."
+            "Szene oder freier Wunsch auswählen, oder eine Funktion aus der Liste "
+            "links auf die Taste ziehen, auch aus einem anderen Raum.  Am Griff ≡ "
+            "eine Taste auf eine andere ziehen: frei = verschieben, belegt = tauschen.  "
+            "Gelb = noch offen.  Grün = bereits ein Wert gewählt.  "
+            "Orange in der Liste = noch ohne Bedienung."
         )
         hint.setObjectName("subtitle")
         hint.setWordWrap(True)
@@ -1016,12 +1188,28 @@ class BauherrFormView(QWidget):
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(4, 4, 4, 4)
-        left_layout.addWidget(QLabel("Räume:"))
+        left_split = QSplitter(Qt.Vertical)
+        rooms_box = QWidget()
+        rooms_layout = QVBoxLayout(rooms_box)
+        rooms_layout.setContentsMargins(0, 0, 0, 0)
+        rooms_layout.addWidget(QLabel("Räume:"))
         self._room_list = QListWidget()
         self._room_list.setMinimumWidth(160)
-        self._room_list.setMaximumWidth(220)
         self._room_list.currentItemChanged.connect(self._on_room_selected)
-        left_layout.addWidget(self._room_list)
+        rooms_layout.addWidget(self._room_list)
+        left_split.addWidget(rooms_box)
+
+        # Funktionen zum Ziehen auf eine Taste (FA-1015 e)
+        functions_box = QWidget()
+        functions_layout = QVBoxLayout(functions_box)
+        functions_layout.setContentsMargins(0, 0, 0, 0)
+        functions_layout.addWidget(QLabel("Funktionen – auf eine Taste ziehen:"))
+        self._palette = FunctionPalette()
+        functions_layout.addWidget(self._palette, 1)
+        left_split.addWidget(functions_box)
+        left_split.setSizes([200, 400])
+        left.setMaximumWidth(340)
+        left_layout.addWidget(left_split)
         splitter.addWidget(left)
 
         # ── Rechte Seite ───────────────────────────────────────────────────
@@ -1078,7 +1266,7 @@ class BauherrFormView(QWidget):
         right_layout.addWidget(notes_frame)
 
         splitter.addWidget(right)
-        splitter.setSizes([180, 700])
+        splitter.setSizes([260, 700])
 
         self._current_room: Room | None = None
         self._bus = None
@@ -1122,6 +1310,7 @@ class BauherrFormView(QWidget):
         self._project = project
         self._service = BauherrFormService(project)
         self._refresh_room_list()
+        self._palette.set_project(project)
 
     def refresh(self):
         if self._project:
@@ -1184,6 +1373,9 @@ class BauherrFormView(QWidget):
             taster = _TasterWidget(be, self._service, room=room,
                                    begin_change=self._begin_change)
             taster.changed.connect(self.project_changed)
+            # Markierung "ohne Bedienung" nachführen -- verzögert, ein Ablegen
+            # läuft noch im Drag der Funktionsliste
+            taster.changed.connect(lambda: QTimer.singleShot(0, self._palette.refresh))
             taster.notes_changed.connect(self.notes_changed)
             taster.structure_changed.connect(self._on_structure_changed)
             self._content_layout.insertWidget(
@@ -1194,8 +1386,16 @@ class BauherrFormView(QWidget):
         """Tastenanzahl eines Bedienelements wurde geaendert -- Raum komplett
         neu aufbauen, damit das Grid mit der neuen Slot-Zahl neu entsteht
         (_TasterWidget legt die Slots nur einmal bei der Konstruktion an)."""
-        if self._current_room is not None:
-            self._load_room(self._current_room)
+        room = self._current_room
+        if room is not None and not _form_elements(room, self._project.topology.is_imported):
+            # Letzter Taster entfernt: Raum fällt aus der Liste
+            row = max(0, self._room_list.currentRow())
+            self._refresh_room_list()
+            if self._room_list.count():
+                self._room_list.setCurrentRow(min(row, self._room_list.count() - 1))
+        elif room is not None:
+            self._load_room(room)
+        self._palette.refresh()
         self.project_changed.emit()
 
     def _on_room_notes_changed(self):
