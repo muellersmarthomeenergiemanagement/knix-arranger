@@ -12,6 +12,7 @@ from ...models.project import KnxProject
 from ...services.csv_export_service import CsvExportService
 from ..styles import KNX_GREEN, KNX_PRIMARY
 from ..export_worker import run_export
+from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
 
 class Step10Export(QWidget):
@@ -128,7 +129,7 @@ class Step10Export(QWidget):
         return ""
 
     def _export_csv(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "CSV exportieren",
             os.path.join(self._default_dir(), f"{self._project.name or 'export'}.csv"),
             "CSV-Dateien (*.csv)",
@@ -153,7 +154,7 @@ class Step10Export(QWidget):
         run_export(self, "Gruppenadressen werden exportiert…", do_export, on_success, self._worker_ref)
 
     def _export_belegungsplan(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "ETS-Belegungsplan exportieren",
             os.path.join(self._default_dir(), f"{self._project.name or 'Belegungsplan'}_ETS.xlsx"),
             "Excel-Dateien (*.xlsx)",
@@ -179,7 +180,7 @@ class Step10Export(QWidget):
         run_export(self, "ETS-Belegungsplan wird erstellt…", do_export, on_success, self._worker_ref)
 
     def _save_project(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Projekt speichern",
             os.path.join(self._default_dir(""), f"{self._project.name or 'projekt'}.knxarr"),
             "KNiX Arranger (*.knxarr)",

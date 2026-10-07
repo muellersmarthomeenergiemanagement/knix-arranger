@@ -55,6 +55,7 @@ from .dialogs.update_dialog import UpdateDialog
 from .dialogs.onboarding_tour_dialog import OnboardingTourDialog
 from .dialogs.knxproj_password_dialog import KnxprojPasswordDialog
 from .export_worker import run_import
+from . import license_gate
 
 from ..models.project import KnxProject
 from ..services.building_service import BuildingService
@@ -114,7 +115,8 @@ class MainWindow(QMainWindow):
         self._autosave_timer.setInterval(30_000)
         self._autosave_timer.timeout.connect(self._autosave)
 
-        self.setWindowTitle(f"{APP_NAME} v{__version__}")
+        self._update_window_title()
+        license_gate.add_listener(self._on_read_only_changed)
         self.setMinimumSize(1100, 680)
         self.showMaximized()
         self.setStyleSheet(get_main_stylesheet())
@@ -822,6 +824,8 @@ class MainWindow(QMainWindow):
         """Automatisch speichern nach 30 Sekunden Inaktivität."""
         if not self._project or not self._project._file_path:
             return
+        if license_gate.is_read_only():  # NFA-066: kein Speichern
+            return
         try:
             self._project.save(self._project._file_path)
             self._mark_saved()
@@ -859,11 +863,19 @@ class MainWindow(QMainWindow):
         self._autosave_timer.stop() if not dirty else None
         self._update_window_title()
 
+    def _on_read_only_changed(self, read_only: bool):
+        """Lesemodus beendet (Lizenz eingespielt) oder begonnen (NFA-066)."""
+        self._update_window_title()
+        if not read_only:
+            self._status_bar.set_status("Lizenz gültig – Speichern und Exporte wieder möglich.")
+
     def _update_window_title(self):
         """Aktualisiert den Fenstertitel mit Projektname und Dirty-Indikator."""
         name = self._project.name if self._project else ""
         prefix = "● " if self._dirty else ""
         suffix = f" – {name}" if name else ""
+        if license_gate.is_read_only():
+            suffix += " – Lesemodus (keine gültige Lizenz)"
         self.setWindowTitle(f"{prefix}{APP_NAME} v{__version__}{suffix}")
 
     # -- Projekt-Aktionen --
@@ -871,6 +883,8 @@ class MainWindow(QMainWindow):
     def _new_project(self):
         from ..services.project_service import ProjectService
 
+        if not license_gate.save_allowed(self):  # NFA-066
+            return
         # Neue Projekte werden verbindlich im Workspace abgelegt (FA-1601):
         # {Workspace}/{Projektname}/{Projektname}.knxarr + Revisionen/ + Berichte/
         workspace = self._ensure_workspace()
@@ -1004,6 +1018,8 @@ class MainWindow(QMainWindow):
         if not self._project:
             self._status_bar.set_status("Kein Projekt zum Speichern.")
             return False
+        if not license_gate.save_allowed(self):  # NFA-066
+            return False
         if not self._project._file_path:
             return self._save_project_as()
         folder = os.path.dirname(self._project._file_path)
@@ -1024,7 +1040,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _save_project_as(self) -> bool:
-        if not self._project:
+        if not self._project or not license_gate.save_allowed(self):
             return False
         from ..services.project_service import ProjectService
         project_service = ProjectService()
@@ -1665,6 +1681,8 @@ class MainWindow(QMainWindow):
         .knxproj für Partnerprogramme, ohne Schlüssel und Passwörter."""
         from ..services.project_xml_export import strip_secrets
 
+        if not license_gate.export_allowed(self):  # NFA-066
+            return
         start_dir = ""
         if self._project and self._project._file_path:
             project_dir = os.path.dirname(self._project._file_path)
@@ -1876,6 +1894,8 @@ class MainWindow(QMainWindow):
             self._status_bar.set_status("Kein Projekt zum Exportieren.")
             return
 
+        if not license_gate.export_allowed(self):  # NFA-066
+            return
         ga_count = len(self._project.group_addresses.all_addresses())
         dialog = ExportDialog(ga_count, self)
         if dialog.exec():
@@ -2012,11 +2032,15 @@ class MainWindow(QMainWindow):
         profile = self._app.project_service.load_company_profile()
         workspace = self._load_app_setting("workspace_root_path", "")
         dialog = SettingsDialog(profile=profile, parent=self, workspace_root_path=workspace,
-                                auto_update_check=self._load_app_setting("auto_update_check", True))
+                                auto_update_check=self._load_app_setting("auto_update_check", True),
+                                log_level=self._load_app_setting("log_level", "INFO"))
         if dialog.exec():
             updated = dialog.get_profile()
             self._app.project_service.save_company_profile(updated)
             self._save_app_setting("auto_update_check", dialog.auto_update_check)
+            self._save_app_setting("log_level", dialog.log_level)
+            from ..utils.logging_setup import set_log_level
+            set_log_level(dialog.log_level)
             new_workspace = dialog.workspace_root_path
             if new_workspace != workspace:
                 os.makedirs(new_workspace, exist_ok=True)
@@ -2144,32 +2168,13 @@ class MainWindow(QMainWindow):
 
     # ── App-Settings (einfaches JSON, plattformunabhaengig) ───────────────────
 
-    def _app_settings_path(self):
-        from pathlib import Path
-        import os
-        if os.name == "nt":
-            base = Path(os.environ.get("APPDATA", Path.home()))
-        else:
-            base = Path.home() / ".config"
-        return base / "KNiXArranger" / "app_settings.json"
-
     def _load_app_settings(self) -> dict:
-        path = self._app_settings_path()
-        if path.exists():
-            try:
-                import json
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-        return {}
+        from ..utils.app_settings import load_settings
+        return load_settings()
 
     def _save_app_settings(self, settings: dict):
-        path = self._app_settings_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        import json
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=2, ensure_ascii=False)
+        from ..utils.app_settings import save_settings
+        save_settings(settings)
 
     def _load_app_setting(self, key: str, default=None):
         return self._load_app_settings().get(key, default)
@@ -2292,6 +2297,8 @@ class MainWindow(QMainWindow):
     def _show_license(self):
         dialog = LicenseDialog(self)
         dialog.exec()
+        if license_gate.is_read_only() and self._app.license_service.check_license().is_valid:
+            license_gate.set_read_only(False)
 
     def _show_about(self):
         dialog = AboutDialog(self)

@@ -18,6 +18,7 @@ from PySide6.QtGui import (
     QPixmap, QImage,
 )
 from ...services.riser_diagram import Dot, Label, Path, Rect, build_riser_diagram
+from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
 _FONT_PX = 100.0   # Schrift in dieser Pixelgrösse setzen und auf die Punktgrösse skalieren
 
@@ -223,7 +224,7 @@ class RiserDiagramView(QWidget):
     def _export_png(self) -> None:
         if self._project is None:
             return
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Steigschema als PNG", "Steigschema.png", "PNG (*.png)")
         if not path:
             return
@@ -241,7 +242,7 @@ class RiserDiagramView(QWidget):
     def _export_pdf(self) -> None:
         if self._project is None:
             return
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Steigschema als PDF", "Steigschema.pdf", "PDF (*.pdf)")
         if not path:
             return

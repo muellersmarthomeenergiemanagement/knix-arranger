@@ -22,6 +22,8 @@ from ...models.documentation import (
     RESULT_OK, RESULT_DEFECT, RESULT_NA, RESULT_OPEN, RESULT_CHOICES,
 )
 from ...services.documentation_service import DocumentationService
+from ..column_utils import fit_columns
+from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
 # Ergebnis-Anzeige
 _RESULT_DISPLAY = {
@@ -443,6 +445,7 @@ class CommissioningView(QWidget):
             notes_cell.setData(Qt.UserRole, item.id)
             self._table.setItem(row, _COL_NOTES, notes_cell)
 
+        fit_columns(self._table)  # NFA-034: Breite nach Inhalt
         self._table.resizeRowsToContents()
         self._populating = False
 
@@ -646,7 +649,7 @@ class CommissioningView(QWidget):
             + unknown)
 
     def _export_excel(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Checkliste exportieren",
             f"{self._project.name}_Checklisten.xlsx",
             "Excel-Dateien (*.xlsx)",

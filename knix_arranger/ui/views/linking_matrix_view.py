@@ -22,6 +22,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 
 from ..styles import COLOR_WARNING
+from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
 logger = logging.getLogger("knix_arranger.linking_matrix_view")
 
@@ -477,7 +478,7 @@ class LinkingMatrixView(QWidget):
         """FA-2505: Exportiert Belegungsplan als PDF."""
         if not self._belegungsplan:
             return
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Belegungsplan als PDF exportieren",
             f"{self._project.name or 'Belegungsplan'}_Belegungsplan.pdf",
             "PDF-Dateien (*.pdf)",
@@ -498,7 +499,7 @@ class LinkingMatrixView(QWidget):
     def _export_xlsx(self):
         if not self._belegungsplan:
             return
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Verknüpfungsmatrix exportieren",
             # Umlautfreie Vorgabe fuer den Dateinamen (Windows-Kompatibilitaet),
             # siehe gleiche Konvention in documentation_service.py.

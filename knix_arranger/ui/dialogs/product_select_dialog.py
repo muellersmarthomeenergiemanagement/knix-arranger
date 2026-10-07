@@ -30,21 +30,8 @@ def _default_products_folder() -> str:
     """Liefert den Standardordner für gesammelte KNXPROD-Dateien
     (<Arbeitsverzeichnis>/Produkte KNX, siehe WorkspaceSetupDialog), falls
     ein Arbeitsverzeichnis konfiguriert ist und der Ordner existiert."""
-    from pathlib import Path
-    import json
-    if os.name == "nt":
-        base = Path(os.environ.get("APPDATA", Path.home()))
-    else:
-        base = Path.home() / ".config"
-    settings_path = base / "KNiXArranger" / "app_settings.json"
-    if not settings_path.exists():
-        return ""
-    try:
-        with open(settings_path, "r", encoding="utf-8") as f:
-            settings = json.load(f)
-    except Exception:
-        return ""
-    workspace_root = settings.get("workspace_root_path", "")
+    from ...utils.app_settings import get_setting
+    workspace_root = get_setting("workspace_root_path", "")
     if not workspace_root:
         return ""
     candidate = os.path.join(workspace_root, "Produkte KNX")

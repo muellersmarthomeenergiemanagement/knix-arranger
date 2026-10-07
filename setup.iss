@@ -9,7 +9,7 @@
 
 #define AppName      "KNiX Arranger"
 #define AppVersion   "1.1.31"   ; <- hier bei jedem Release anpassen
-#define AppPublisher "Mueller SmartHome & EnergieManagement"
+#define AppPublisher "Michael Mueller SmartHome&EnergieManagement"   ; NFA-132
 #define AppURL       "https://www.muellersmarthomeenergiemanagement.ch"
 #define AppExeName   "KNiX_Arranger.exe"
 #define AppId        "{{A3F2B1C4-7E9D-4F2A-B8C1-D3E5F6A7B890}"
@@ -85,6 +85,25 @@ Filename: "{app}\{#AppExeName}"; Description: "{#AppName} starten"; Flags: nowai
 // Ueberinstallieren keine Dateien entfernt, die im neuen Paket fehlen
 // (z.B. ausgeschlossene Abhaengigkeiten) - solche Altlasten wuerden sonst
 // liegen bleiben und koennten weiterhin importiert/geladen werden.
+// NFA-133: Windows-Version prueft MinVersion; hier die Bildschirmaufloesung.
+// Nur Warnung -- KNiX bleibt auch kleiner bedienbar (Bildlaufbereiche).
+function GetSystemMetrics(nIndex: Integer): Integer;
+  external 'GetSystemMetrics@user32.dll stdcall';
+
+function InitializeSetup(): Boolean;
+var
+  W, H: Integer;
+begin
+  Result := True;
+  W := GetSystemMetrics(0);
+  H := GetSystemMetrics(1);
+  if ((W < 1366) or (H < 768)) and not WizardSilent() then
+    Result := MsgBox('Die Bildschirmaufloesung betraegt ' + IntToStr(W) + ' x ' + IntToStr(H) +
+      ' Pixel. Empfohlen sind mindestens 1366 x 768 Pixel; kleinere Bildschirme ' +
+      'erfordern mehr Scrollen.' + #13#10#13#10 + 'Trotzdem installieren?',
+      mbConfirmation, MB_YESNO) = IDYES;
+end;
+
 function GetUninstallString(): String;
 var
   sUnInstPath: String;

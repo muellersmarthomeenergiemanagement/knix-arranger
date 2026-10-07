@@ -63,16 +63,9 @@ class ProjectResult:
 def default_project_files() -> list[str]:
     """Projekte im Arbeitsverzeichnis (App-Einstellung workspace_root_path)
     und die zuletzt geöffneten."""
-    import json
     from .project_service import ProjectService
-    base = os.environ.get("APPDATA", os.path.expanduser("~")) if os.name == "nt" \
-        else os.path.join(os.path.expanduser("~"), ".config")
-    workspace = ""
-    try:
-        with open(os.path.join(base, "KNiXArranger", "app_settings.json"), encoding="utf-8") as f:
-            workspace = json.load(f).get("workspace_root_path", "")
-    except (OSError, ValueError):
-        pass
+    from ..utils.app_settings import get_setting
+    workspace = get_setting("workspace_root_path", "")
     try:
         recent = ProjectService().get_recent_projects()
     except (OSError, ValueError):

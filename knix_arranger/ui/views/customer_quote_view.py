@@ -15,6 +15,7 @@ from ...models.project import KnxProject
 from ...models.quotation import CustomerQuote, QuotationItem, round_rappen
 from ...services.material_list_export_service import MaterialListExportService
 from ..column_utils import fit_columns
+from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
 
 def address_block(text: str) -> str:
@@ -1159,7 +1160,7 @@ class CustomerQuoteView(QWidget):
             .replace(" ", "_").replace("/", "-")
         )
 
-        filepath, _ = QFileDialog.getSaveFileName(
+        filepath, _ = license_gate.get_save_file_name(
             self,
             "Offerte exportieren",
             default_name,
@@ -1297,7 +1298,7 @@ class CustomerQuoteView(QWidget):
             .replace(" ", "_").replace("/", "-")
         )
 
-        filepath, _ = QFileDialog.getSaveFileName(
+        filepath, _ = license_gate.get_save_file_name(
             self,
             "Offert-Brief exportieren",
             default_name,

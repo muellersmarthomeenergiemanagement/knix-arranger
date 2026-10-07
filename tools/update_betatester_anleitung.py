@@ -950,7 +950,9 @@ def build_document() -> Document:
              "einfügen…» ein."),
             ("«Lizenz ungültig» Fehlermeldung",
              "Prüfen Sie das Ablaufdatum der Datei (steht im Dateinamen). "
-             "Melden Sie sich bei uns für eine Verlängerung."),
+             "Melden Sie sich bei uns für eine Verlängerung. Bis dahin läuft "
+             "KNiX im Lesemodus: Projekte lassen sich ansehen, Speichern und "
+             "Exporte sind gesperrt."),
             ("Export schlägt fehl / leere Datei",
              "Stellen Sie sicher, dass das Projekt validiert wurde (Ctrl+V) und "
              "keine Fehler vorhanden sind. Prüfen Sie den Zielordner auf Schreibrechte."),

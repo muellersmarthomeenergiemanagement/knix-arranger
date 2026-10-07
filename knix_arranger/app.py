@@ -25,7 +25,7 @@ class KnixApplication:
         # 1. EULA prüfen (NFA-081) — beim Erststart anzeigen
         self._check_eula()
 
-        # 2. Lizenz prüfen (NFA-066) — ungültige Lizenz blockiert den Start
+        # 2. Lizenz prüfen (NFA-066) — ohne gültige Lizenz Lesemodus
         self._check_license()
 
         # 3. GUI erstellen
@@ -57,8 +57,8 @@ class KnixApplication:
         """
         Prüft die gespeicherte Lizenz (NFA-066).
         Ist keine gültige Lizenz vorhanden, wird der Lizenzdialog geöffnet.
-        Schliesst der Benutzer den Dialog ohne gültige Lizenz, beendet sich
-        die Anwendung.
+        Schliesst der Benutzer den Dialog ohne gültige Lizenz, startet KNiX
+        im Lesemodus: Projekte ansehen ja, Speichern und Exporte nein.
         """
         info = self.license_service.check_license()
 
@@ -68,8 +68,15 @@ class KnixApplication:
             LicenseDialog().exec()
             info = self.license_service.check_license()
             if not info.is_valid:
-                logger.info("Keine gültige Lizenz – Anwendung wird beendet.")
-                sys.exit(0)
+                logger.info("Keine gültige Lizenz – Start im Lesemodus.")
+                from .ui import license_gate
+                license_gate.set_read_only(True)
+                self._pending_license_warning = (
+                    f"{info.message or 'Keine gültige Lizenz.'}\n\n"
+                    "KNiX Arranger läuft im Lesemodus: Projekte lassen sich öffnen "
+                    "und ansehen, Speichern und Exporte sind gesperrt. Eine Lizenz "
+                    "spielen Sie unter Hilfe > Lizenz… ein.")
+                return
 
         logger.info(f"Lizenz: {info.message}")
 

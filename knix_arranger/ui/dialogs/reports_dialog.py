@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from ..styles import KNX_GREEN, KNX_DARK_GREEN
 from ..export_worker import run_export
+from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
 
 def export_worklist(parent, project, default_path: str, company_profile, worker_ref,
@@ -19,8 +20,7 @@ def export_worklist(parent, project, default_path: str, company_profile, worker_
     """ETS-Arbeitsliste als PDF oder Excel (FA-618) -- aus dem Berichte-Dialog
     und der Validierung. Gibt True zurück, wenn dabei der Ausgangsstand für
     den Vergleich beim nächsten Re-Import gemerkt wurde (Projekt geändert)."""
-    from PySide6.QtWidgets import QFileDialog
-    path, chosen = QFileDialog.getSaveFileName(
+    path, chosen = license_gate.get_save_file_name(
         parent, "ETS-Arbeitsliste speichern", default_path,
         "PDF-Dateien (*.pdf);;Excel-Dateien (*.xlsx)",
     )
@@ -227,7 +227,7 @@ class ReportsDialog(QDialog):
     # ── Berichte ──────────────────────────────────────────────────────
 
     def _gen_validation(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Validierungsbericht Gruppenadressen speichern",
             self._default_export_path(f"{self._project.name}_Validierung.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
@@ -248,7 +248,7 @@ class ReportsDialog(QDialog):
         run_export(self, "Validierungsbericht wird erstellt…", do, on_success, self._worker_ref)
 
     def _gen_ga_report(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "GA-Übersicht speichern",
             self._default_export_path(f"{self._project.name}_GA_Übersicht.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
@@ -264,7 +264,7 @@ class ReportsDialog(QDialog):
         self._run("GA-Übersicht wird erstellt…", do, f"GA-Übersicht erstellt: {path}")
 
     def _gen_summary(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Projektzusammenfassung speichern",
             self._default_export_path(f"{self._project.name}_Zusammenfassung.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
@@ -280,7 +280,7 @@ class ReportsDialog(QDialog):
         self._run("Projektzusammenfassung wird erstellt…", do, f"Projektzusammenfassung erstellt: {path}")
 
     def _gen_topology(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Topologie-Bericht speichern",
             self._default_export_path(f"{self._project.name}_Topologie.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
@@ -305,7 +305,7 @@ class ReportsDialog(QDialog):
             self.project_changed = True
 
     def _gen_checklists_pdf(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Checklisten speichern",
             self._default_export_path(f"{self._project.name}_Checklisten.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
@@ -321,7 +321,7 @@ class ReportsDialog(QDialog):
         self._run("Checklisten werden erstellt…", do, f"Checklisten erstellt: {path}")
 
     def _gen_checklists_excel(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Checklisten speichern",
             self._default_export_path(f"{self._project.name}_Checklisten.xlsx"),
             "Excel-Dateien (*.xlsx)",
@@ -337,7 +337,7 @@ class ReportsDialog(QDialog):
         self._run("Checklisten (Excel) werden erstellt…", do, f"Checklisten Excel erstellt: {path}")
 
     def _gen_acceptance(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Abnahmeprotokoll speichern",
             self._default_export_path(f"{self._project.name}_Abnahme.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
@@ -353,7 +353,7 @@ class ReportsDialog(QDialog):
         self._run("Abnahmeprotokoll wird erstellt…", do, f"Abnahmeprotokoll erstellt: {path}")
 
     def _gen_manual(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Bedienungsanleitung speichern",
             self._default_export_path(f"{self._project.name}_Bedienungsanleitung.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
@@ -377,7 +377,7 @@ class ReportsDialog(QDialog):
             self._log_msg("Anpassungen der Bedienungsanleitung übernommen.")
 
     def _gen_bauherr_form(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Bauherr-Formular speichern",
             self._default_export_path(f"{self._project.name}_Funktionsdefinition.xlsx"),
             "Excel-Dateien (*.xlsx)",
@@ -393,6 +393,8 @@ class ReportsDialog(QDialog):
         self._run("Bauherr-Formular wird erstellt…", do, f"Bauherr-Formular erstellt: {path}")
 
     def _gen_revision(self):
+        if not license_gate.export_allowed(self):  # NFA-066
+            return
         dir_path = self._export_dir("Revisionen")
         if not dir_path:
             QMessageBox.information(
@@ -515,7 +517,7 @@ class ReportsDialog(QDialog):
             )
             return
 
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Vertraulichen KNX-Secure-Bericht speichern",
             self._default_export_path(f"{self._project.name}_KNX_Secure_VERTRAULICH.pdf"),
             "PDF-Dateien (*.pdf)",
@@ -534,7 +536,7 @@ class ReportsDialog(QDialog):
                   f"Vertraulicher KNX-Secure-Bericht erstellt: {path}")
 
     def _gen_bedienelemente(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Bericht Bedienelemente und Sensoren speichern",
             self._default_export_path(f"{self._project.name}_Bedienelemente.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
@@ -550,7 +552,7 @@ class ReportsDialog(QDialog):
         self._run("Bedienelemente-Bericht wird erstellt…", do, f"Bedienelemente-Bericht erstellt: {path}")
 
     def _gen_aktoren_gateways(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Aktoren-und-Gateways-Bericht speichern",
             self._default_export_path(f"{self._project.name}_Aktoren_Gateways.pdf"),
             "PDF-Dateien (*.pdf)",
@@ -567,7 +569,7 @@ class ReportsDialog(QDialog):
                   f"Aktoren-und-Gateways-Bericht erstellt: {path}")
 
     def _gen_szenen(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Szenenreport speichern",
             self._default_export_path(f"{self._project.name}_Szenenreport.pdf"),
             "PDF-Dateien (*.pdf)",
@@ -584,7 +586,7 @@ class ReportsDialog(QDialog):
 
     def _gen_time_programs(self):
         """Zeitsteuerungsplan (FA-3307c)."""
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Zeitsteuerungsplan speichern",
             self._default_export_path(f"{self._project.name}_Zeitsteuerungsplan.pdf"),
             "PDF-Dateien (*.pdf)",
@@ -600,7 +602,7 @@ class ReportsDialog(QDialog):
         self._run("Zeitsteuerungsplan wird erstellt…", do, f"Zeitsteuerungsplan erstellt: {path}")
 
     def _gen_room_gewerk(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Räume-nach-Gewerken-Bericht speichern",
             self._default_export_path(f"{self._project.name}_Raeume_Gewerke.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",

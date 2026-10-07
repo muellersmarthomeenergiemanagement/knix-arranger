@@ -18,6 +18,7 @@ from ...services.belegungsplan_service import (
     _split_button_channel, build_ga_by_designation, resolve_ga_display,
 )
 from ..column_utils import fit_columns
+from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
 
 class TopologyReportView(QWidget):
@@ -686,7 +687,7 @@ class TopologyReportView(QWidget):
     def _export_belegungsplan(self):
         if not self._project:
             return
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "ETS-Belegungsplan exportieren",
             f"{self._project.name or 'Belegungsplan'}_ETS.xlsx",
             "Excel-Dateien (*.xlsx)",

@@ -11,7 +11,8 @@ from .utils.logging_setup import setup_logging, create_crash_report, install_exc
 
 def main() -> int:
     """Startet die KNiX Arranger Anwendung."""
-    logger = setup_logging("INFO")
+    from .utils.app_settings import get_setting
+    logger = setup_logging(get_setting("log_level", "INFO"))  # NFA-142
     logger.info(f"{APP_NAME} v{__version__} wird gestartet...")
 
     if "--selftest" in sys.argv[1:]:

@@ -18,6 +18,7 @@ from PySide6.QtGui import QDesktopServices, QColor
 from ...models.project import KnxProject
 from ...utils.manufacturers import canonical_manufacturer
 from ..column_utils import fit_columns
+from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
 
 @dataclass
@@ -357,7 +358,7 @@ class DatasheetView(QWidget):
 
         default_folder = self._datasheets_folder() or os.getcwd()
         os.makedirs(default_folder, exist_ok=True)
-        folder = QFileDialog.getExistingDirectory(
+        folder = license_gate.get_existing_directory(
             self, "Zielordner für Datenblätter wählen", default_folder,
         )
         if not folder:

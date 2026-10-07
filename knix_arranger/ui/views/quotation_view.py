@@ -17,6 +17,7 @@ from ...models.project import KnxProject
 from ...models.quotation import Supplier, QuotationRequest, QuotationItem
 from ...services.quotation_compare import chf
 from ..column_utils import fit_columns
+from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
 # Spalten der Positionstabelle (Offerte des Lieferanten, FA-1622)
 _COL_PRICE    = 5
@@ -99,7 +100,7 @@ class _ComparisonDialog(QDialog):
         start = os.path.join(folder, "Berichte", "Offertanfragen") if folder else ""
         if start:
             os.makedirs(start, exist_ok=True)
-        filepath, _ = QFileDialog.getSaveFileName(
+        filepath, _ = license_gate.get_save_file_name(
             self, "Preisvergleich als PDF speichern",
             os.path.join(start, f"Preisvergleich_{self._project.name}.pdf".replace(" ", "_")),
             "PDF-Datei (*.pdf)")
@@ -983,7 +984,7 @@ class QuotationView(QWidget):
         supplier = self._supplier(qr.supplier_id)
         folder = self._requests_folder()
         os.makedirs(folder, exist_ok=True)
-        filepath, _ = QFileDialog.getSaveFileName(
+        filepath, _ = license_gate.get_save_file_name(
             self, "Offertanfrage als PDF speichern",
             os.path.join(folder, request_filename(qr, supplier, "pdf")),
             "PDF-Datei (*.pdf)",
@@ -999,7 +1000,7 @@ class QuotationView(QWidget):
     def _email_request(self) -> None:
         from ...services.quotation_request_service import write_request_email
         qr = self._selected_request_or_hint()
-        if not qr:
+        if not qr or not license_gate.export_allowed(self):  # NFA-066
             return
         supplier = self._supplier(qr.supplier_id)
         if not supplier or not supplier.email:
@@ -1048,7 +1049,7 @@ class QuotationView(QWidget):
             .replace(" ", "_").replace("/", "-")
         )
 
-        filepath, _ = QFileDialog.getSaveFileName(
+        filepath, _ = license_gate.get_save_file_name(
             self,
             "Offertanfrage exportieren",
             default_name,

@@ -54,6 +54,15 @@ def setup_logging(level: str = "INFO") -> logging.Logger:
     return logger
 
 
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
+def set_log_level(level: str) -> None:
+    """Ändert die Protokollstufe im laufenden Betrieb (NFA-142)."""
+    logging.getLogger("knix_arranger").setLevel(
+        getattr(logging, str(level).upper(), logging.INFO))
+
+
 _last_action = ""
 
 

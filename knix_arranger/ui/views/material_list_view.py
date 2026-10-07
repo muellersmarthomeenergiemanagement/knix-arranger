@@ -26,6 +26,7 @@ from ...services.material_list_export_service import MaterialListExportService
 from ...services.device_gewerk_service import describe_device_gewerke
 from ..icons import icon
 from ..styles import KNX_BLUE
+from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
 logger = logging.getLogger("knix_arranger.material_list_view")
 
@@ -453,7 +454,7 @@ class MaterialListView(QWidget):
         )
         default_filename = f"Materialliste_{project_name}.xlsx".replace(" ", "_")
 
-        filepath, _ = QFileDialog.getSaveFileName(
+        filepath, _ = license_gate.get_save_file_name(
             self,
             "Materialliste exportieren",
             default_filename,

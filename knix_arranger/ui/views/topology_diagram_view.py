@@ -17,6 +17,7 @@ from PySide6.QtGui import (
 from ...models.project import KnxProject
 from ...services.topology_diagram import build_topology_diagram
 from ..styles import COLOR_WARNING, COLOR_ERROR
+from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
 # ── Farben (KNX-Designbasis, FA-1012) ────────────────────────────────────────
 _C_BACKBONE    = QColor("#1A237E")   # Dunkelblau: Backbone
@@ -271,7 +272,7 @@ class TopologyDiagramView(QWidget):
     def _export_png(self):
         if not self._project:
             return
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Topologie-Diagramm exportieren", "Topologie.png",
             "PNG-Bilder (*.png);;Alle Dateien (*.*)",
         )
@@ -290,7 +291,7 @@ class TopologyDiagramView(QWidget):
     def _export_pdf(self):
         if not self._project:
             return
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "Topologie-Diagramm als PDF exportieren", "Topologie.pdf",
             "PDF-Dokumente (*.pdf);;Alle Dateien (*.*)",
         )

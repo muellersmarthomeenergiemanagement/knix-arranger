@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QPushButton, QFileDialog, QGroupBox, QCheckBox,
 )
 from PySide6.QtCore import Qt
+from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
 
 class ExportDialog(QDialog):
@@ -64,7 +65,7 @@ class ExportDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def _browse(self):
-        path, _ = QFileDialog.getSaveFileName(
+        path, _ = license_gate.get_save_file_name(
             self, "CSV-Datei speichern", "",
             "CSV-Dateien (*.csv);;Alle Dateien (*.*)",
         )

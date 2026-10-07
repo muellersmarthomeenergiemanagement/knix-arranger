@@ -20,9 +20,11 @@ class SettingsDialog(QDialog):
     """Einstellungen und Firmenprofil (FA-851–857)."""
 
     def __init__(self, profile: CompanyProfile | None = None, parent=None,
-                 workspace_root_path: str = "", auto_update_check: bool = True):
+                 workspace_root_path: str = "", auto_update_check: bool = True,
+                 log_level: str = "INFO"):
         super().__init__(parent)
         self._auto_update = auto_update_check
+        self._log_level = log_level
         self.setWindowTitle("Einstellungen")
         self.setMinimumSize(640, 560)
 
@@ -77,6 +79,24 @@ class SettingsDialog(QDialog):
         update_form.addRow("Update-Prüfung:", self._auto_update_check)
         update_group.setLayout(update_form)
         layout.addWidget(update_group)
+
+        # NFA-142: Protokollstufe der Logdatei, Normalbetrieb INFO
+        log_group = QGroupBox("Protokoll")
+        log_form = QFormLayout()
+        self._log_level_combo = QComboBox()
+        for level, text in (
+            ("DEBUG", "DEBUG – alles, für die Fehlersuche"),
+            ("INFO", "INFO – Normalbetrieb"),
+            ("WARNING", "WARNING – nur Warnungen und Fehler"),
+            ("ERROR", "ERROR – nur Fehler"),
+            ("CRITICAL", "CRITICAL – nur schwere Fehler"),
+        ):
+            self._log_level_combo.addItem(text, level)
+        idx = self._log_level_combo.findData(str(self._log_level).upper())
+        self._log_level_combo.setCurrentIndex(idx if idx >= 0 else 1)
+        log_form.addRow("Protokollstufe:", self._log_level_combo)
+        log_group.setLayout(log_form)
+        layout.addWidget(log_group)
 
         layout.addStretch()
         return tab
@@ -315,6 +335,11 @@ class SettingsDialog(QDialog):
     def auto_update_check(self) -> bool:
         """Beim Programmstart nach Updates suchen (NFA-114)."""
         return self._auto_update_check.isChecked()
+
+    @property
+    def log_level(self) -> str:
+        """Protokollstufe der Logdatei (NFA-142)."""
+        return self._log_level_combo.currentData()
 
     # ─── Logo ─────────────────────────────────────────────────────────────────
 

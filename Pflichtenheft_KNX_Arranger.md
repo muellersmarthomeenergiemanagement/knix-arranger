@@ -1,7 +1,7 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.25
-**Datum:** 06.10.2026
+**Version:** 3.26
+**Datum:** 07.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
 **Status:** Entwurf
@@ -40,6 +40,7 @@
 | 3.23 | 06.10.2026 | M. Mueller / Claude AI | Klartext je Gewerk-Element (FA-403): Spalte "Bezeichnung" in Schritt 5, z.B. "Decke; Wand" bei LDA x2; steht in jeder GA des Elements nach dem Raumnamen (`LDA_E01_01 E/A (Wohnen Decke)`), auch ohne Klartext steht der Raumname nun in jeder GA statt nur in der ersten; Auswahllisten zeigen den Klartext statt der Elementnummer; Adressen neu ordnen fuer geplante Projekte mit Vorschau, Sicherung und Nachfuehrung der Verweise (FA-701 bis FA-706, UC-03); Vollstaendigkeitspruefung der Revisionsunterlagen mit Rueckfrage und offenen Punkten im Inhaltsverzeichnis, Materialliste im Revisionspaket (FA-2104, FA-2102); Topologie-Pruefungen in der Validierung: Geraeteanzahl je Linie, KO-Verknuepfungen, physikalische Adressen, Spannungsversorgung (FA-609, FA-611 bis FA-613); Revisionspaket: Bestandteile waehlbar (FA-2105), Revisionsbezeichnung, -datum und Anlass mit Ordner je Revision und Revisionsliste (FA-2106), Produktdatenblaetter als Anhang (FA-1204), akzeptierte Kundenofferte (FA-2102 Nr. 13); Bedienungsanleitung anpassen: eigene Texte, Abschnitte ein-/ausblenden, eigene Abschnitte, Text je Raum, Foto je Taster (FA-2005); Offertanfrage als PDF und E-Mail-Entwurf mit PDF-Anhang (FA-1614); Zeitsteuerung vervollstaendigt: Duplizieren, Umbenennen, aktiv/inaktiv, eigene Vorlagen, Wochenraster, Datumsbereich, GA-Filter, Astro-Vorschau, Feiertagsanzahl, DPT-Pruefung und Einfaerbung, Kennzeichnung zeitgesteuerter GAs (Programmname bzw. Uhr-Symbol statt [T]), Zeitsteuerungsplan und Abschnitt in der Bedienungsanleitung (FA-3302 bis FA-3307) |
 | 3.24 | 06.10.2026 | M. Mueller / Claude AI | Sammel-Offertanfrage an mehrere Lieferanten (FA-1615); Offerten erfassen mit Rabatt und Lieferfrist, Status "Erhalten" automatisch, Versanddatum (FA-1621, FA-1622); Preisvergleich mit Hervorhebung des guenstigsten Anbieters und PDF (FA-1623, FA-1624); Zuschlag mit Nettopreisen und Ablehnung der uebrigen Anfragen der Sammelanfrage (FA-1625); Bedienungsanleitung in Deutsch, Franzoesisch, Italienisch und Englisch (FA-2006); Nachkalkulation aller Projekte mit Marge, Abweichungen, Verlauf und Vorschlaegen fuer die Richtwerte (FA-2205, FA-2206); Bezeichnung je Gewerk-Element: Tooltip mit Zuordnung, Warnung bei mehr Texten als Elementen, breitere Spalte, Anleitung in Hilfe und Handbuch (FA-403); DALI in geplanten Projekten: Gruppen je LDA-Element mit allen GAs, Namen aus der Bezeichnung, keine Gruppen-GAs als Broadcast (FA-2803); Gateways gemeinsam fuer das Projekt oder je Linie, waehlbar je Gewerk in Schritt 8 (FA-1307); Projektstatus "in ETS uebertragen" (FA-617a); DALI-Geraeteliste im Revisionspaket auch ohne EVGs (FA-2805) |
 | 3.25 | 06.10.2026 | M. Mueller / Claude AI | Zeilenpruefung der NFA: unerwartete Fehler im Betrieb werden abgefangen, protokolliert und gemeldet, Crash-Report mit RAM, Bildschirm und letzter Aktion (NFA-041a, NFA-143a); Menue "Hilfe > Logdateien oeffnen" (NFA-146); Einstellungen ohne wirkungslose Projektstandards, Update-Pruefung wirksam (NFA-114a); Copyright in den PDF-Eigenschaften (NFA-082a); Stand und Abgrenzungen festgehalten: Performance gemessen (NFA-023a), Konfigurationsdateien (NFA-053a), Lizenzserver, Code-Signatur, Integritaetspruefung und Datenschutz zurueckgestellt bis Verkaufsstart (NFA-060a), Bildschirm/RAM (NFA-103a), Oberflaeche nur Deutsch (NFA-156a) |
+| 3.26 | 07.10.2026 | M. Mueller / Claude AI | Zeilenpruefung der NFA abgeschlossen: Protokollstufe in den Einstellungen (NFA-142a); Programmeinstellungen im Benutzerordner "KNiX Arranger" wie alle Benutzerdaten (NFA-134a); Installer mit Herausgeber und Pruefung der Bildschirmaufloesung (NFA-132, NFA-133a); Inbetriebnahme-Checkliste passt die Spalten an (NFA-034a); ohne gueltige Lizenz Lesemodus statt Programmende (NFA-066a); Stand festgehalten zu Lizenzschluessel, Schutz, EULA, Datenuebermittlung und Installergroesse (NFA-062a, NFA-072a, NFA-081a, NFA-124a, NFA-135a) |
 
 ---
 
@@ -1691,6 +1692,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | NFA-032 | Die Software muss ohne Schulung von einem KNX-Systemintegrator bedienbar sein. |
 | NFA-033 | Der Wizard fuer ein neues Projekt muss in 13 strukturierten Schritten (gemaess FA-1002) zu einem vollstaendigen Projektexport fuehren. Jeder Schritt muss einzeln abschliessbar und navigierbar sein (Vor/Zurueck). |
 | NFA-034 | Alle Tabellen- und Baumansichten muessen ihre Spaltenbreiten automatisch an den laengsten Inhalt anpassen. Dies gilt fuer saemtliche Ansichten: Topologie, Gruppenadressen (Baum und Tabelle), Gebaeudestruktur, Gewerke-Uebersicht, Validierung sowie alle Wizard-Schritte mit Tabellen oder Baeumen. |
+| NFA-034a | Umsetzung: Spalten passen sich beim Fuellen an den Inhalt an (auch Inbetriebnahme-Checkliste); passen nicht alle in die Breite, werden sie bis zur Breite des Spaltenkopfs gestaucht, danach scrollt die Tabelle. Auswahldialoge (GA, KO, Produkt) dehnen die Bezeichnungsspalte. |
 
 ### 4.4 Zuverlaessigkeit (NFA-040)
 
@@ -1722,10 +1724,12 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | NFA-060a | Stand 06.10.2026 (derzeit kein Verkauf): Umgesetzt sind die signierte Offline-Lizenz (NFA-098a-c), Test- und Jahreslizenz mit Ablaufdatum, Sperre ohne gueltige Lizenz und der Lizenz-Dialog. Zurueckgestellt bis Verkaufsstart: Online-Aktivierung und Lizenzserver (NFA-064, NFA-091 bis NFA-097), Code-Signatur (NFA-073, NFA-132), Integritaetspruefung beim Start (NFA-074), Datenschutz der Lizenzverwaltung und Datenschutzerklaerung (NFA-121 bis NFA-123, NFA-125). Die Hardware-Bindung (NFA-063) entfaellt bewusst. |
 | NFA-061 | Die Software muss durch ein Lizenzsystem geschuetzt sein. Ohne gueltige Lizenz darf die Software nicht nutzbar sein. |
 | NFA-062 | Das Lizenzsystem muss Lizenzschluessel im Format XXXX-XXXX-XXXX-XXXX unterstuetzen. Jeder Schluessel ist eindeutig einem Kunden zugeordnet. |
+| NFA-062a | Umsetzung: Der Lizenzschluessel hat das Praefix "KNIX1-" und enthaelt die signierte Lizenz (NFA-098a); das kurze Format XXXX-XXXX-XXXX-XXXX setzt einen Lizenzserver voraus und ist mit diesem zurueckgestellt (NFA-060a). |
 | NFA-063 | Die Lizenz muss an die Hardware des Zielsystems gebunden werden (Hardware-Bindung), um die Weitergabe und unberechtigte Nutzung auf anderen Rechnern zu verhindern. Bindungsmerkmale: CPU-ID, MAC-Adresse oder Festplatten-Seriennummer. |
 | NFA-064 | Das System muss eine einmalige Online-Aktivierung ueber einen Lizenzserver unterstuetzen. Die Aktivierung verifiziert den Lizenzschluessel und registriert die Hardware-Kennung. |
 | NFA-065 | Das System muss verschiedene Lizenzmodelle unterstuetzen: a) Einzelplatzlizenz (1 Rechner), b) zeitlich begrenzte Lizenz (Jahreslizenz mit Ablaufdatum), c) Testlizenz (zeitlich begrenzt, voller Funktionsumfang). |
 | NFA-066 | Bei abgelaufener oder ungueltiger Lizenz muss das System eine klare Meldung anzeigen und den Zugang zum Funktionsumfang sperren. Bereits erstellte Projektdaten muessen weiterhin lesbar bleiben (Exportfunktion gesperrt). |
+| NFA-066a | Umsetzung: Ohne gueltige Lizenz erscheint beim Start der Lizenzdialog; wird er ohne Lizenz geschlossen, startet KNiX im Lesemodus (Hinweis beim Start, "Lesemodus" im Fenstertitel). Projekte lassen sich oeffnen, ansehen und probehalber bearbeiten; Speichern (auch automatisch), neue Projekte und alle Exporte (Berichte, Revisionspaket, CSV, XML, PDF, Excel, Bilder, Datenblaetter, E-Mail-Entwuerfe) sind gesperrt. Jede gesperrte Aktion zeigt einen Hinweis mit Knopf "Lizenz..."; eine dort eingespielte Lizenz beendet den Lesemodus sofort. |
 | NFA-067 | Das System muss eine Lizenzverwaltungsoberflaeche bieten: Lizenzstatus anzeigen (gueltig bis, Lizenztyp, gebundene Hardware), Lizenzschluessel eingeben/aendern, Online-Aktivierung/Deaktivierung durchfuehren. |
 
 #### 4.6.2 Code-Schutz und Integritaet
@@ -1735,6 +1739,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | NFA-071 | Die Auslieferung muss als nativ kompilierte Anwendung erfolgen (bevorzugt Nuitka statt PyInstaller), um Reverse Engineering wesentlich zu erschweren. |
 | NFA-071a | Umsetzung: build.py baut mit Nuitka (--standalone) ein Bundle ohne .py/.pyc-Dateien des Programms; der Build bricht ab, wenn Quellcode im Bundle gefunden wird. Einzig die Fremdbibliothek PyMuPDF bleibt Bytecode (ihre generierte MuPDF-Anbindung sprengt den C-Compiler). Der Release-Workflow cached die Nuitka-Compiler-Ergebnisse und prueft das Bundle vor dem Installer mit `KNiX_Arranger.exe --selftest` (ohne Fenster und Lizenz: Datendateien, Firmenschrift, Qt-Uebersetzung, PDF-Erzeugung, Kryptografie, Excel; Exit-Code 0/1, Details im Log). |
 | NFA-072 | Sicherheitskritische Module (Lizenzpruefung, Aktivierungslogik) muessen zusaetzlich geschuetzt werden (z.B. Cython-Kompilierung zu C-Extensions oder PyArmor-Verschluesselung). |
+| NFA-072a | Umsetzung: Nuitka uebersetzt alle Programmmodule einschliesslich Lizenzpruefung in C (NFA-071a); eine zusaetzliche Verschluesselung (Cython/PyArmor) entfaellt. |
 | NFA-073 | Die ausfuehrbare Datei (.exe) muss mit einem Code-Signing-Zertifikat signiert werden, um die Authentizitaet sicherzustellen und Windows-SmartScreen-Warnungen zu vermeiden. |
 | NFA-074 | Das System muss beim Start eine Integritaetspruefung der eigenen Programmdateien durchfuehren (Checksummen/Hashes). Bei erkannter Manipulation muss der Start verweigert und eine Warnung angezeigt werden. |
 
@@ -1743,6 +1748,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | ID | Anforderung |
 |----|-------------|
 | NFA-081 | Beim Erststart bzw. bei der Installation muss dem Benutzer ein Endbenutzer-Lizenzvertrag (EULA) angezeigt werden, der akzeptiert werden muss, bevor die Software genutzt werden kann. |
+| NFA-081a | Umsetzung: Die EULA wird beim ersten Programmstart angezeigt und muss akzeptiert werden (gilt auch nach einer Silent-Installation); der Installer zeigt sie nicht. |
 | NFA-082 | Die Software muss in der GUI (About-Dialog), im Splash-Screen und in allen generierten Berichten/Exporten einen Copyright-Hinweis anzeigen: "(c) Michael Mueller SmartHome&EnergieManagement. Alle Rechte vorbehalten." |
 | NFA-082a | Umsetzung: Copyright im Info-Dialog, im Willkommensbildschirm (anstelle eines Splash-Screens, der Start ist kurz), im EULA-Dialog und in den Dokumenteigenschaften (Produzent) jedes PDF-Berichts. Auf den Berichtsseiten selbst steht er nicht: Sie gehoeren dem Integrator bzw. Bauherrn; die Fusszeile nennt den Lizenznehmer (NFA-098b). |
 | NFA-083 | Die EULA muss als externe Textdatei mitgeliefert werden und ohne Codeaenderung aktualisierbar sein. |
@@ -1835,6 +1841,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | NFA-122 | Personenbezogene Kundendaten in der Lizenzdatenbank (Name, E-Mail, Adresse, IP-Adresse) muessen verschluesselt gespeichert werden (Encryption at Rest). |
 | NFA-123 | Es muss ein Loeschkonzept definiert werden: Kundendaten muessen auf Anfrage geloescht werden koennen (Recht auf Loeschung). Lizenzdaten, die fuer die Rechtsdurchsetzung erforderlich sind, duerfen gemaess gesetzlicher Aufbewahrungsfristen aufbewahrt werden. |
 | NFA-124 | Die Software selbst (Desktop-Client) darf keine personenbezogenen Daten an den Hersteller uebermitteln, ausser: a) Lizenzschluessel und Hardware-ID fuer die Aktivierung, b) Versionsnummer fuer die Update-Pruefung. |
+| NFA-124a | Umsetzung: Die Update-Pruefung uebermittelt nur die Versionsnummer (im User-Agent), der Online-Produktkatalog und die Datenblaetter werden nur abgerufen. Crash-Reports bleiben lokal (NFA-143a). |
 | NFA-125 | Eine Datenschutzerklaerung muss dem Benutzer zugaenglich gemacht werden (im Installer, in der GUI und auf der Produkt-Webseite). |
 
 ### 4.10 Installation und Verteilung (NFA-130)
@@ -1859,8 +1866,11 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 |----|-------------|
 | NFA-132 | Der Installer muss die Programmversion, das Code-Signing-Zertifikat und den Herausgeber "Michael Mueller SmartHome&EnergieManagement" anzeigen. |
 | NFA-133 | Der Installer muss die Systemvoraussetzungen pruefen (Windows-Version, Bildschirmaufloesung) und bei Nichterfuellung eine Warnung anzeigen. |
+| NFA-133a | Umsetzung: Windows 10 oder neuer (64 Bit) ist Voraussetzung (MinVersion); bei einer Aufloesung unter 1366 x 768 fragt der Installer, ob trotzdem installiert werden soll (nicht bei /SILENT). Herausgeber im Installer und in "Programme und Features": "Michael Mueller SmartHome&EnergieManagement" (NFA-132; Code-Signatur zurueckgestellt, NFA-060a). |
 | NFA-134 | Benutzerspezifische Daten (Firmenprofil, Projektdateien, Konfiguration, Lizenz) muessen im Benutzerverzeichnis gespeichert werden (`%APPDATA%\KNiX Arranger\`) und bei einer Deinstallation optional beibehalten werden koennen. |
+| NFA-134a | Umsetzung: Alle Benutzerdaten liegen in `%APPDATA%\KNiX Arranger\`, auch die Programmeinstellungen (app_settings.json; bis 1.1.31 in `%APPDATA%\KNiXArranger\`, wird beim ersten Start verschoben). Projekte liegen im gewaehlten Arbeitsverzeichnis. Die Deinstallation entfernt nur das Programm, Benutzerdaten bleiben immer erhalten. |
 | NFA-135 | Die Installationsdatei (.exe) muss als einzelner Download bereitgestellt werden (Groesse < 100 MB). |
+| NFA-135a | Stand 07.10.2026: Installer 1.1.31 rund 61 MB. |
 
 ### 4.11 Logging und Fehlerprotokollierung (NFA-140)
 
@@ -1868,6 +1878,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 |----|-------------|
 | NFA-141 | Die Software muss ein Logfile fuehren, das alle relevanten Aktionen und Fehler protokolliert. Die Logdatei wird im Benutzerverzeichnis gespeichert (`%APPDATA%\KNiX Arranger\logs\`). |
 | NFA-142 | Das Logging muss konfigurierbare Log-Level unterstuetzen: DEBUG, INFO, WARNING, ERROR, CRITICAL. Im Normalbetrieb ist das Level INFO aktiv. |
+| NFA-142a | Umsetzung: Einstellungen > Allgemein > Protokollstufe (Standard INFO), wirkt sofort und beim naechsten Start. |
 | NFA-143 | Bei einem unerwarteten Fehler (Crash) muss die Software einen Crash-Report erstellen, der folgende Informationen enthaelt: Fehlermeldung, Stack-Trace, Systemumgebung (OS-Version, RAM, Bildschirmaufloesung), Softwareversion, letzte Benutzeraktion. |
 | NFA-143a | Umsetzung: Crash-Report als `crash_report_JJJJMMTT_hhmmss.txt` im Log-Ordner, bei Fehlern beim Start und im laufenden Betrieb (NFA-041a); letzte Benutzeraktion = zuletzt gewaehlter Menuepunkt, geoeffnete Ansicht oder Assistent-Schritt. Keine Uebermittlung an den Hersteller. |
 | NFA-144 | Der Crash-Report muss lokal als Datei gespeichert werden. Eine optionale Uebermittlung an den Hersteller darf nur nach ausdruecklicher Zustimmung des Benutzers erfolgen. |
