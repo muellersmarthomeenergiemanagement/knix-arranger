@@ -52,6 +52,9 @@ class ProjectConfig:
     gateway_scope: dict[str, str] = field(default_factory=dict)
     # Linie (Line.id) des gemeinsamen Gateways je Gewerk; leer = automatisch
     gateway_line: dict[str, str] = field(default_factory=dict)
+    # Szenennummern je Ebene (FA-1814): "room"/"apartment"/"central" ->
+    # [erste, letzte]; leer = Vorgabe aus services.scene_numbering
+    scene_number_ranges: dict[str, list[int]] = field(default_factory=dict)
 
     def gateway_shared(self, gewerk_code: str) -> bool:
         scope = self.gateway_scope.get(gewerk_code)
@@ -67,6 +70,7 @@ class ProjectConfig:
             "preferred_manufacturers": self.preferred_manufacturers,
             "gateway_scope": dict(self.gateway_scope),
             "gateway_line": dict(self.gateway_line),
+            "scene_number_ranges": {k: list(v) for k, v in self.scene_number_ranges.items()},
         }
 
     @classmethod
@@ -80,6 +84,8 @@ class ProjectConfig:
             )),
             gateway_scope=dict(data.get("gateway_scope", {})),
             gateway_line=dict(data.get("gateway_line", {})),
+            scene_number_ranges={k: list(v) for k, v in
+                                 data.get("scene_number_ranges", {}).items()},
         )
 
 

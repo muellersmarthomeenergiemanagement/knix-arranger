@@ -26,6 +26,7 @@ from ...services.scene_detection_service import detect_scenes
 from ...services.scene_value_linking import (
     link_scene_values, link_scene_triggers, link_scene_names,
 )
+from ...services.scene_numbering import suggest_scene_number
 from ...services.scene_addressing import (
     build_scope_label_lookup, group_named_scenes, is_bound_scene, scene_group_key,
     canonical_zone_id, normalize_scene_scopes, zone_choices,
@@ -212,7 +213,9 @@ class SceneView(QWidget):
             "KNX-Konvention (DPT 17/18): Szene 1 = Bus-Wert 0, Szene 2 = "
             "Bus-Wert 1, ... Szene 64 = Bus-Wert 63. Welcher Aktor bei welcher "
             "Nummer was tut, wird in dessen eigenen ETS-Parametern "
-            "konfiguriert, nicht hier."
+            "konfiguriert, nicht hier.\n\nEin Aktor unterscheidet nicht, über "
+            "welche Szenen-Adresse eine Nummer kommt: Nummernbereiche je Ebene "
+            "unter Projekteigenschaften → Szenennummern."
         )
         detail_form.addRow("Szenen-Nr. (1-64):", self._scene_number)
 
@@ -638,7 +641,8 @@ class SceneView(QWidget):
         used = {s.scene_number for s in self._project.scenes
                 if not s.is_detected and not s.source_ga_addresses
                 and scene_group_key(s) == scene_group_key(probe)}
-        number = next((n for n in range(1, 65) if n not in used), None)
+        # Nächste freie Nummer im Bereich der Ebene (FA-1814)
+        number = suggest_scene_number(self._project, scope, used)
         if number is None:
             QMessageBox.information(
                 self, "Hinweis",
@@ -684,7 +688,7 @@ class SceneView(QWidget):
                 and scene_group_key(s) == scene_group_key(source)
             ]
         used = {s.scene_number for s in same_channel}
-        next_num = next((n for n in range(1, 65) if n not in used), None)
+        next_num = suggest_scene_number(self._project, source.scope, used)
         if next_num is None:
             QMessageBox.information(
                 self, "Hinweis",

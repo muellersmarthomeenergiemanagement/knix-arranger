@@ -80,6 +80,7 @@ class ValidationEngine:
             issues.extend(self._check_ets_deviations(project))
             issues.extend(self._check_time_programs(project))
             issues.extend(self._check_unoperated(project))
+            issues.extend(self._check_scene_numbers(project))
             # FA-609, FA-611 bis FA-613: Topologie
             from .topology_validation import check_topology
             issues.extend(check_topology(project))
@@ -193,6 +194,30 @@ class ValidationEngine:
                 designation=u.ga.designation,
                 details={"gewerk": name},
             ))
+        return issues
+
+    @staticmethod
+    def _check_scene_numbers(project) -> list[ValidationIssue]:
+        """FA-1813: Ein Aktor unterscheidet nicht, über welche Szenen-GA eine
+        Nummer kommt. Gleiche Nummer auf derselben GA, oder auf verschiedenen
+        GAs mit gemeinsamen Aktoren, löst die falsche Szene aus."""
+        from .scene_numbering import number_conflicts
+        issues = []
+        for c in number_conflicts(project):
+            if c.same_channel:
+                message = (f"Szene {c.number} zweimal auf {c.first_channel}: "
+                           f"«{c.first.name}» und «{c.second.name}»")
+                suggestion = "Einer der Szenen eine freie Nummer geben"
+            else:
+                shown = ", ".join(c.shared[:3]) + (" …" if len(c.shared) > 3 else "")
+                message = (f"Szene {c.number}: «{c.first.name}» ({c.first_channel}) und "
+                           f"«{c.second.name}» ({c.second_channel}) erreichen dieselben "
+                           f"Aktoren: {shown}")
+                suggestion = ("Nummern so wählen, dass sie sich am Aktor nicht "
+                              "überschneiden (Nummernbereich je Ebene)")
+            issues.append(ValidationIssue(
+                "warning", "FA-1813", message, "", suggestion,
+                details={"number": c.number}))
         return issues
 
     def _check_time_programs(self, project) -> list[ValidationIssue]:

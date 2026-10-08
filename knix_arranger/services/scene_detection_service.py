@@ -97,6 +97,12 @@ def detect_scenes(project: KnxProject) -> list[Scene]:
     detected: list[Scene] = []
 
     all_gas = project.group_addresses.all_addresses()
+    if not project.topology.is_imported:
+        # Geplante Projekte: Szenen-Eingänge der Gewerk-Blöcke (z.B. "LDA_E01_01
+        # SZENE" einer DALI-Gruppe) sind keine eigenen Szenen (Projekt_23:
+        # 34 Einträge ohne Nummer überluden Szenen-Verwaltung und -report)
+        processed |= {ga.address for ga in all_gas
+                      if ga.gewerk_code and ga.function_name == "SZENE"}
     reserved = _reserved_designations(project)
 
     detected.extend(_detect_by_dpt(all_gas, processed, reserved))

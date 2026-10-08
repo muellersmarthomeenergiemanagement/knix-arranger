@@ -209,6 +209,16 @@ VALIDATION_RULES = {
         "mehr gefunden oder Szenennummer mehrfach vergeben.",
         "Anzahl des Gewerks prüfen bzw. Hinweis der Generierung befolgen.",
     ),
+    "FA-1813": (
+        "Szenennummer am Aktor mehrfach belegt",
+        "Eine Szenen-GA überträgt nur die Nummer 1–64; was sie bewirkt, steht im "
+        "Aktor. Hängen mehrere Szenen-GAs am selben Aktor (z.B. Raum- und "
+        "Zentralszene), ist Szene 5 für ihn immer dieselbe Szene, egal über welche "
+        "GA sie kommt. Gleiche Nummern auf derselben GA oder auf GAs mit "
+        "gemeinsamen Aktoren lösen die falsche Szene aus.",
+        "Nummern je Ebene trennen (Projekteigenschaften → Szenennummern: Raum, "
+        "Zone/Wohnung, Zentral) bzw. einer der Szenen eine freie Nummer geben.",
+    ),
     "FA-3306": (
         "Zeitsteuerung",
         "Ein Schaltzeitpunkt verweist auf eine GA, die es nicht mehr gibt "
@@ -1907,6 +1917,35 @@ class ReportService:
                     else:
                         pdf.add_note("Betroffene Gewerke (bestätigt durch Aktor-Verknüpfung):",
                                      "noch keine Aktoren verknüpft")
+
+        # ── Szenen je Aktor (FA-1815) ────────────────────────────────────────
+        from .scene_numbering import scenes_by_actor
+        per_actor = scenes_by_actor(self.project)
+        if per_actor:
+            pdf.add_page_break()
+            pdf.add_heading("Szenen je Aktor", level=2)
+            pdf.add_note(
+                "Parametrierung:",
+                "Ein Aktor unterscheidet nicht, über welche Szenen-Adresse eine Nummer "
+                "kommt. Je Aktor die Szenennummern, die bei ihm ankommen – so in der "
+                "ETS parametrieren. «doppelt» = dieselbe Nummer von verschiedenen "
+                "Szenen: der Aktor kann sie nicht unterscheiden.")
+            rows, groups = [], []
+            for index, pa in enumerate(sorted(per_actor, key=physical_address_key)):
+                label, items = per_actor[pa]
+                numbers = [a.number for a in items]
+                for i, item in enumerate(items):
+                    rows.append([
+                        label if i == 0 else "",
+                        str(item.number),
+                        _clean(item.scene.name),
+                        _clean(item.channel),
+                        "doppelt" if numbers.count(item.number) > 1 else "",
+                    ])
+                    groups.append(index)
+            pdf.add_table(["Aktor", "Nr.", "Szene", "Szenen-Adresse", "Prüfen"], rows,
+                          col_widths=[0.23, 0.05, 0.22, 0.42, 0.08],
+                          align=["left", "right", "left", "left", "left"], groups=groups)
 
         # ── Szenen der Visualisierung ────────────────────────────────────────
         if overview.visu:

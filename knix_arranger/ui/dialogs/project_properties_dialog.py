@@ -6,11 +6,12 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QLabel, QLineEdit, QComboBox, QPushButton, QRadioButton,
-    QButtonGroup, QCheckBox, QMessageBox,
+    QButtonGroup, QCheckBox, QMessageBox, QSpinBox,
 )
 from PySide6.QtCore import Qt
 from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 from ...models.project import KnxProject
+from ...services.scene_numbering import scene_range_problem
 
 
 class ProjectPropertiesDialog(QDialog):
@@ -69,6 +70,9 @@ class ProjectPropertiesDialog(QDialog):
         kind_lbl = QLabel(kind)
         kind_lbl.setWordWrap(True)
         kind_lbl.setTextFormat(Qt.RichText)
+        # Umbrechender Text im Formular: ohne Mindestbreite rechnet Qt die
+        # Höhe für eine zu schmale Spalte, der Text wurde abgeschnitten
+        kind_lbl.setMinimumWidth(380)
         form.addRow("Projektart:", kind_lbl)
 
         # Projektstatus (nur geplante Projekte): Adressen in die ETS übertragen
@@ -158,6 +162,33 @@ class ProjectPropertiesDialog(QDialog):
         config_group.setLayout(config_layout)
         layout.addWidget(config_group)
 
+        # ── Szenennummern je Ebene (FA-1814) ──
+        from ...services.scene_numbering import LEVEL_LABELS, scene_ranges
+        scene_group = QGroupBox("Szenennummern")
+        scene_form = QFormLayout()
+        scene_form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        hint = QLabel("Getrennte Bereiche je Ebene: ein Aktor unterscheidet nicht, "
+                      "über welche Szenen-Adresse eine Nummer kommt.")
+        hint.setWordWrap(True)
+        hint.setObjectName("hint")
+        scene_form.addRow(hint)
+        self._scene_ranges: dict[str, tuple[QSpinBox, QSpinBox]] = {}
+        for level, (first, last) in scene_ranges(project).items():
+            row = QHBoxLayout()
+            spin_from, spin_to = QSpinBox(), QSpinBox()
+            for spin, value in ((spin_from, first), (spin_to, last)):
+                spin.setRange(1, 64)
+                spin.setValue(value)
+                spin.setFixedWidth(80)
+            row.addWidget(spin_from)
+            row.addWidget(QLabel("bis"))
+            row.addWidget(spin_to)
+            row.addStretch()
+            scene_form.addRow(f"{LEVEL_LABELS[level]}:", row)
+            self._scene_ranges[level] = (spin_from, spin_to)
+        scene_group.setLayout(scene_form)
+        layout.addWidget(scene_group)
+
         layout.addStretch()
 
         # ── Buttons ──
@@ -179,11 +210,18 @@ class ProjectPropertiesDialog(QDialog):
         btn_row.addWidget(btn_ok)
 
         layout.addLayout(btn_row)
+        # Mit der Gruppe Szenennummern ist der Inhalt höher als die Mindestgrösse
+        self.resize(max(self.width(), 520), self.sizeHint().height())
 
     # ------------------------------------------------------------------
 
     def _apply(self):
         """Schreibt alle Änderungen ins Projekt-Objekt."""
+        ranges = {level: (a.value(), b.value()) for level, (a, b) in self._scene_ranges.items()}
+        problem = scene_range_problem(ranges)
+        if problem:
+            QMessageBox.warning(self, "Szenennummern", problem)
+            return
         name = self._name_edit.text().strip()
         if name:
             self._project.name = name
@@ -192,6 +230,10 @@ class ProjectPropertiesDialog(QDialog):
         self._project.config.mg_variant = "B" if self._radio_b.isChecked() else "A"
         self._project.config.topology_mode = self._topo_combo.currentText()
         self._project.config.backbone_type = self._backbone_combo.currentText()
+        from ...services.scene_numbering import DEFAULT_RANGES
+        # Nur Abweichungen von der Vorgabe speichern
+        self._project.config.scene_number_ranges = {
+            level: list(r) for level, r in ranges.items() if r != DEFAULT_RANGES[level]}
         if self._ets_check is not None:
             from ...services.renumber_service import mark_ets_transferred
             if (not self._ets_check.isChecked() and self._project.ets_transferred
