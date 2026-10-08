@@ -2,6 +2,20 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.2.3",
+      "date": "2026-10-08",
+      "neu": [
+        "Gruppenadressen-Baum: markierte GAs löschen (Rechtsklick «Löschen…» oder Taste Entf). GAs aus einem Gewerk werden zur Reserve «--» – die Funktion bleibt für das Element weggelassen, die übrigen Adressen verschieben sich nicht; «Funktion wieder einschalten» macht das rückgängig. Manuelle und importierte GAs werden samt ihren Verknüpfungen entfernt."
+      ],
+      "verbessert": [
+        "DALI: ein Gateway bedient eine DALI-Linie mit höchstens 16 Gruppen; mehr DALI-Leuchten auf einer Linie ergeben ein weiteres Gateway. Die DALI-Gruppen folgen der Zuteilung im Belegungsplan, Belegungsplan, Raumbuch und DALI-Konfiguration zeigen dieselbe Gruppennummer («Gr. n»)."
+      ],
+      "behoben": [
+        "DALI: Bei mehr als 16 DALI-Elementen auf einem Gateway fehlte für die übrigen die DALI-Gruppe.",
+        "DALI: Nach einer Neuberechnung blieben alte Gateway-Konfigurationen liegen; beim Öffnen konnten dabei erfasste EVGs verloren gehen. Die Konfiguration findet ihr Gateway jetzt über die physikalische Adresse wieder."
+      ]
+    },
+    {
       "version": "1.2.2",
       "date": "2026-10-08",
       "neu": [
