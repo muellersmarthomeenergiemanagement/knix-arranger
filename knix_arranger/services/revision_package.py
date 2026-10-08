@@ -16,7 +16,7 @@ REVISION_PARTS: list[tuple[str, str]] = [
     ("topologie", "Topologie-Bericht"),
     ("bedienelemente", "Bedienelemente und Sensoren"),
     ("aktoren", "Aktoren und Gateways"),
-    ("raeume", "Räume nach Gewerken"),
+    ("raeume", "Raumbuch KNX"),
     ("belegungsplan", "Belegungsplan (Verknüpfungsmatrix)"),
     ("szenen", "Szenenreport"),
     ("validierung", "Validierungsbericht Gruppenadressen"),

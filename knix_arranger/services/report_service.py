@@ -58,6 +58,11 @@ GEWERK_CATEGORY_LABELS = {
 }
 
 
+# Matrix im "Raumbuch KNX": bis so viele Gewerk-Codes als
+# eigene Spalte, darüber nach Kategorien zusammengefasst
+_MATRIX_MAX_CODES = 16
+
+
 def _gewerk_category_sort_key(category: str) -> int:
     try:
         return GEWERK_CATEGORY_ORDER.index(category)
@@ -706,23 +711,33 @@ class ReportService:
         return groups, missing
 
     def generate_room_gewerk_report(self, filepath: str):
-        """Erzeugt den Bericht "Räume nach Gewerken" als PDF.
+        """Erzeugt das "Raumbuch KNX" als PDF im Querformat.
 
-        Übersicht mit den Gewerken je Raum und Seitenzahlen, danach je
-        Stockwerk (neue Seite) und Raum eine Tabelle mit einer Zeile je
-        Element (Gewerk + Nr.) und allen Gruppenadressen. Zuordnung siehe
+        Übersicht als Matrix Räume × Gewerke (Anzahl Elemente, KNX-Geräte,
+        GAs, Seite), danach je Stockwerk (neue Seite) ein Raumblatt: je
+        Element Gewerk, Nr., Bezeichnung, bedienende Taste bzw. Sensor,
+        schaltender Aktorkanal und die Gruppenadressen als Bereiche, dazu
+        die KNX-Geräte im Raum (siehe room_sheet). Zuordnung der GAs siehe
         _room_gewerk_groups. PDF-Lesezeichen: Stockwerk → Raum.
         """
-        title = "Räume nach Gewerken"
+        from .room_sheet import build_room_sheets, ga_ranges
+
+        title = "Raumbuch KNX"
+        subtitle = "Gewerke, Bedienung, Aktoren und Geräte je Raum"
         pdf = self._make_pdf(title)
-        pdf.add_heading(title, level=1)
+        pdf.landscape = True
+        pdf.subtitle = subtitle
+        pdf.add_heading(f"{title} – {subtitle}", level=1)
         pdf.add_paragraph(
             f"Projekt: {self.project.name} | "
             f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
         )
         pdf.add_separator()
 
+        catalog = self.project.gewerk_catalog
         groups, missing = self._room_gewerk_groups()
+        sheets = {s.room.id: s for s in build_room_sheets(
+            self.project, groups, catalog, BelegungsplanService().generate(self.project))}
         floor_by_room: dict[str, str] = {}
         zone_by_room: dict[str, str] = {}
         for building in self.project.areal.buildings:
@@ -738,53 +753,63 @@ class ReportService:
             parts = [zone_by_room.get(room.id, ""), f"{room.number} {room.name}".strip()]
             return " · ".join(_clean_location(p) for p in parts if p)
 
-        def sort_key(item):
-            (category, label, element, _short), _gas = item
-            return (category == "zentral", _gewerk_category_sort_key(category), label, element)
-
-        entries = [(room, sorted(groups[room.id].items(), key=sort_key))
-                   for room in sorted_rooms(self.project.areal) if groups.get(room.id)]
+        entries = [sheets[room.id] for room in sorted_rooms(self.project.areal)
+                   if room.id in sheets]
         if not entries and not missing:
-            pdf.add_paragraph("Keine Räume mit zugeordneten Gruppenadressen gefunden.")
+            pdf.add_paragraph("Keine Räume mit Gewerken, Gruppenadressen oder Geräten gefunden.")
             pdf.save(filepath)
-            logger.info(f"Räume-nach-Gewerken-Bericht erstellt: {filepath}")
+            logger.info(f"Raumbuch KNX erstellt: {filepath}")
             return
 
-        def element_label(label, element, labels_with_elements) -> str:
-            return f"{label} {element}" if element and label in labels_with_elements else label
-
-        def ga_text(ga) -> str:
-            text = _ga_line(ga)
-            desc = " ".join((ga.description or "").split())
-            if desc and desc.lower() not in (ga.designation or "").lower():
-                text += f" – {desc}"
-            return text
-
-        def summary(items) -> str:
-            """'J 3 · H 1 · Allgemein · Zentral' – Gewerk-Code mit Anzahl
-            Elemente; Mittelgruppen und Zentral ohne Anzahl."""
-            counts: dict[str, int] = {}
-            for (_category, _label, _element, short), _gas in items:
-                counts[short] = counts.get(short, 0) + 1
-            codes = {short for (_c, _l, _e, short), _g in items
-                     if self.project.gewerk_catalog.get(short)}
-            return " · ".join(f"{k} {n}" if k in codes else k for k, n in counts.items())
-
-        # ── Übersicht ────────────────────────────────────────────────────────
+        # ── Übersicht: Matrix Räume × Gewerke ────────────────────────────────
         pdf.add_heading("Übersicht", level=2)
-        n_gas = sum(len(g) for _room, items in entries for _k, g in items)
-        pdf.add_paragraph(f"{len(entries)} Räume mit {n_gas} Gruppenadressen.")
-        overview = []
-        for room, items in entries:
-            overview.append([
-                " · ".join(p for p in (floor_by_room.get(room.id, ""), room_label(room)) if p),
-                summary(items),
-                str(sum(len(g) for _k, g in items)),
-                PageRef(f"room-{room.id}"),
-            ])
-        pdf.add_table(["Stockwerk · Raum", "Gewerke (Anzahl Elemente)", "GAs", "Seite"],
-                      overview, col_widths=[0.36, 0.44, 0.10, 0.10],
-                      align=["left", "left", "right", "right"])
+        n_elements = sum(s.element_count for s in entries)
+        n_devices = sum(len(s.devices) for s in entries)
+        n_gas = sum(s.ga_count for s in entries)
+        pdf.add_paragraph(
+            f"{len(entries)} Räume · {n_elements} Elemente · "
+            f"{n_devices} KNX-Geräte in den Räumen · {n_gas} Gruppenadressen.")
+
+        codes = {e.gewerk_code: e.category for s in entries for e in s.elements
+                 if e.gewerk_code}
+        by_code = len(codes) <= _MATRIX_MAX_CODES
+        if by_code:
+            columns = sorted(codes, key=lambda c: (_gewerk_category_sort_key(codes[c]), c))
+            headers = list(columns)
+        else:
+            columns = sorted(set(codes.values()), key=_gewerk_category_sort_key)
+            headers = [GEWERK_CATEGORY_LABELS.get(c, c) for c in columns]
+
+        def column_of(element) -> str:
+            return element.gewerk_code if by_code else element.category
+
+        totals: Counter = Counter()
+        matrix = []
+        for sheet in entries:
+            counts = Counter(column_of(e) for e in sheet.elements if e.gewerk_code)
+            totals.update(counts)
+            matrix.append(
+                [" · ".join(p for p in (floor_by_room.get(sheet.room.id, ""),
+                                        room_label(sheet.room)) if p)]
+                + [str(counts[c]) if counts[c] else "" for c in columns]
+                + [str(len(sheet.devices)) if sheet.devices else "",
+                   str(sheet.ga_count), PageRef(f"room-{sheet.room.id}")])
+        matrix.append(["Total"] + [str(totals[c]) if totals[c] else "" for c in columns]
+                      + [str(n_devices), str(n_gas), ""])
+        room_w = 0.30
+        tail = [0.06, 0.06, 0.05]
+        col_w = (1.0 - room_w - sum(tail)) / max(len(columns), 1)
+        pdf.add_table(["Stockwerk · Raum"] + headers + ["Geräte", "GAs", "Seite"], matrix,
+                      col_widths=[room_w] + [col_w] * len(columns) + tail,
+                      align=["left"] + ["right"] * (len(columns) + 3))
+        if by_code and columns:
+            pdf.add_note("Gewerke:", " · ".join(
+                f"{c} = {catalog.get(c).name}" for c in columns if catalog.get(c)))
+        pdf.add_note(
+            "Raumblatt:",
+            "Bedient von = Taste bzw. Sensor, der das Element anspricht; Ausgang = "
+            "Aktor mit Kanal (K) bzw. DALI-Gruppe (Gr.), Einbauort im Kopf des Raums. "
+            "Gruppenadressen als Bereiche, kleine Lücken sind Reserven des Blocks.")
         pdf.add_note(
             "Zuordnung:",
             "Raum aus der Planung oder aus der Bezeichnung (Gewerk.Stockwerk.Raum."
@@ -792,36 +817,61 @@ class ReportService:
             "in HG 0, die im Raum bedient werden.")
         pdf.add_note("Hinweis:", "Das PDF enthält Lesezeichen nach Stockwerk und Raum.")
 
-        # ── Stockwerk → Raum ─────────────────────────────────────────────────
+        # ── Stockwerk → Raumblatt ────────────────────────────────────────────
         current_floor = None
-        for room, items in entries:
+        for sheet in entries:
+            room = sheet.room
             floor = floor_by_room.get(room.id, "") or "Ohne Stockwerk"
             if floor != current_floor:
                 pdf.add_page_break()
                 pdf.add_heading(floor, level=2)
                 current_floor = floor
-            n_lines = sum(len(g) for _k, g in items)
-            pdf.add_conditional_break(min_height=min(60 + n_lines * 11, 300))
+            n_lines = sum(max(len(e.operated_by), len(e.outputs), 1) for e in sheet.elements)
+            pdf.add_conditional_break(
+                min_height=min(90 + n_lines * 13 + len(sheet.devices) * 14, 400))
             pdf.add_anchor(f"room-{room.id}")
-            n_elements = sum(1 for (c, _l, _e, _s), _g in items if c != "zentral")
-            pdf.add_heading(
-                f"{room_label(room)}  ({n_elements} "
-                f"{'Element' if n_elements == 1 else 'Elemente'}, "
-                f"{sum(len(g) for _k, g in items)} GAs)", level=3)
-            # Element-Nr. nur anzeigen, wo ein Gewerk mehrere Elemente hat
-            elements_by_label: dict[str, set] = defaultdict(set)
-            for (_c, label, element, _s), _g in items:
-                elements_by_label[label].add(element)
-            labels_with_elements = {l for l, e in elements_by_label.items() if len(e) > 1}
-            rows = []
-            for (category, label, element, _short), gas in items:
-                gas = sorted(gas, key=lambda g: group_address_key(g.address))
-                rows.append([
-                    element_label(label, element, labels_with_elements),
-                    "\n".join(ga_text(g) for g in gas),
-                ])
-            pdf.add_table(["Gewerk / Element", "Gruppenadressen"], rows,
-                          col_widths=[0.26, 0.74])
+            pdf.add_heading(room_label(room), level=3)
+            n_dev = len(sheet.devices)
+            facts = [
+                f"{sheet.element_count} {'Element' if sheet.element_count == 1 else 'Elemente'}",
+                f"{n_dev} KNX-{'Gerät' if n_dev == 1 else 'Geräte'} im Raum",
+                f"{sheet.ga_count} GAs",
+            ]
+            if sheet.distributions:
+                facts.append("Aktoren in " + ", ".join(sheet.distributions))
+            pdf.add_paragraph(" · ".join(facts))
+
+            if sheet.elements:
+                rows, row_groups = [], []
+                previous = None
+                for element in sheet.elements:
+                    name = "Zentral (HG 0)" if element.central else element.gewerk_name
+                    if name != previous:
+                        row_groups.append(len(set(row_groups)))
+                    else:
+                        row_groups.append(row_groups[-1])
+                    if element.operated_by:
+                        operated = "\n".join(element.operated_by)
+                    else:
+                        operated = "ohne Bedienung" if element.unoperated else "–"
+                    rows.append([
+                        name if name != previous else "",
+                        f"{element.number:02d}" if element.number else "",
+                        element.label or "–",
+                        operated,
+                        "\n".join(element.outputs) or "–",
+                        element.ga_ranges,
+                    ])
+                    previous = name
+                pdf.add_table(
+                    ["Gewerk", "Nr.", "Bezeichnung", "Bedient von", "Ausgang", "Gruppenadressen"],
+                    rows, col_widths=[0.16, 0.04, 0.16, 0.17, 0.24, 0.23], groups=row_groups)
+            if sheet.devices:
+                pdf.add_table(
+                    ["KNX-Gerät im Raum", "Adresse", "Produkt", "Belegung"],
+                    [[d.kind, d.physical_address, d.product, d.usage] for d in sheet.devices],
+                    # bündig mit Gewerk+Nr. | Bezeichnung | Bedient von+Ausgang | GAs
+                    col_widths=[0.20, 0.16, 0.41, 0.23])
 
         # ── Räume, die in der Gebäudestruktur fehlen ─────────────────────────
         if missing:
@@ -833,13 +883,13 @@ class ReportService:
                 "der Gebäudestruktur. Raum in Schritt 2 ergänzen oder Bezeichnung prüfen.")
             rows = []
             for key in sorted(missing, key=_natural_key):
-                gas = sorted(missing[key], key=lambda g: group_address_key(g.address))
-                rows.append([key, "\n".join(ga_text(g) for g in gas)])
-            pdf.add_table(["Stockwerk / Raum", "Gruppenadressen"], rows,
-                          col_widths=[0.18, 0.82])
+                gas = missing[key]
+                rows.append([key, str(len(gas)), ga_ranges([g.address for g in gas])])
+            pdf.add_table(["Stockwerk / Raum", "GAs", "Gruppenadressen"], rows,
+                          col_widths=[0.18, 0.07, 0.75], align=["left", "right", "left"])
 
         pdf.save(filepath)
-        logger.info(f"Räume-nach-Gewerken-Bericht erstellt: {filepath}")
+        logger.info(f"Raumbuch KNX erstellt: {filepath}")
 
     def generate_project_summary(self, filepath: str):
         """Erzeugt eine Projektzusammenfassung als PDF/Text."""

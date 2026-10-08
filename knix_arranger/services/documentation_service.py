@@ -868,11 +868,11 @@ class DocumentationService:
             report_svc.generate_aktoren_gateway_report(path)
             generated_files.append(("Aktoren und Gateways", path))
 
-        # 4c. Räume nach Gewerken
+        # 4c. Raumbuch KNX
         if "raeume" in wanted:
-            path = target("Raeume_Gewerke.pdf")
+            path = target("Raumbuch_KNX.pdf")
             report_svc.generate_room_gewerk_report(path)
-            generated_files.append(("Räume nach Gewerken", path))
+            generated_files.append(("Raumbuch KNX", path))
 
         # 4d. Verknüpfungsmatrix / Belegungsplan (FA-2505) -- nur wenn Daten vorhanden
         if "belegungsplan" in wanted:

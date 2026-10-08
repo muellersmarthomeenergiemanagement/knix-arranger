@@ -107,6 +107,10 @@ class PdfGenerator:
 
         self._blocks: list[dict] = []
         self._client_profile = None   # ClientProfile für Deckblatt
+        # Inhaltsseiten im Querformat (Deckblatt bleibt Hochformat)
+        self.landscape = False
+        # Untertitel im Titelband des Deckblatts (optional)
+        self.subtitle = ""
         # Beschriftungen von Kopf und Fuss; die Bedienungsanleitung setzt sie
         # in der Sprache des Bauherrn (FA-2006)
         self.labels = {"customer": "Kunde", "object": "Objekt", "date": "Datum",
@@ -121,8 +125,11 @@ class PdfGenerator:
 
     @property
     def content_width(self) -> float:
-        """Nutzbare Breite zwischen den Seitenrändern in Punkten."""
-        return float(self.PAGE_W - 2 * self.MARGIN)
+        """Nutzbare Breite zwischen den Seitenrändern in Punkten. Beim
+        Aufbauen der Blöcke (vor dem Rendern) gilt bereits das Querformat."""
+        cls = self.__class__
+        page_w = self.__dict__.get("PAGE_W", cls.PAGE_H if self.landscape else cls.PAGE_W)
+        return float(page_w - 2 * self.MARGIN)
 
     # ── Font-Hilfsmethoden ────────────────────────────────────────────────────
 
@@ -363,6 +370,8 @@ class PdfGenerator:
         if self._client_profile is not None:
             self._draw_cover_page(doc)
 
+        if self.landscape:
+            self.PAGE_W, self.PAGE_H = self.__class__.PAGE_H, self.__class__.PAGE_W
         page, y = self._new_page(doc)
         bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
 
@@ -1408,15 +1417,21 @@ class PdfGenerator:
 
         # ── Titelband ────────────────────────────────────────────────────────
         band_top    = photo_bottom + 12
-        band_bottom = band_top + 62
+        extra       = 16 if self.subtitle else 0   # Platz für den Untertitel
+        band_bottom = band_top + 62 + extra
         page.draw_rect(fitz.Rect(0, band_top, W, band_bottom),
                        color=None, fill=(0.14, 0.20, 0.35))
 
         title_text = self.title or "Bericht"
         tw = self._tw(title_text, 20, bold=True)
         self._txt(page,
-                  fitz.Point((W - tw) / 2, band_top + 40),
+                  fitz.Point((W - tw) / 2, band_top + 40 - extra / 2),
                   title_text, 20, bold=True, color=(1.0, 1.0, 1.0))
+        if self.subtitle:
+            tws = self._tw(self.subtitle, 11)
+            self._txt(page,
+                      fitz.Point((W - tws) / 2, band_top + 52),
+                      self.subtitle, 11, color=(1.0, 1.0, 1.0))
 
         proj_sub = self.project_name
         if self.project_number:
@@ -1424,7 +1439,7 @@ class PdfGenerator:
         if proj_sub:
             tw2 = self._tw(proj_sub, 9)
             self._txt(page,
-                      fitz.Point((W - tw2) / 2, band_top + 54),
+                      fitz.Point((W - tw2) / 2, band_top + 54 + extra),
                       proj_sub, 9, color=(0.75, 0.82, 0.92))
 
         # ── Infospalten (Kunde links / Projekt rechts) ───────────────────────

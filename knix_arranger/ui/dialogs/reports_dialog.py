@@ -102,7 +102,7 @@ class ReportsDialog(QDialog):
              self._gen_bedienelemente),
             ("Aktoren und Gateways", "Nach Einbauort: Geräte mit Kanälen und GA-Zuordnung",
              self._gen_aktoren_gateways),
-            ("Räume nach Gewerken", "Gewerke und GAs je Raum als PDF",
+            ("Raumbuch KNX", "Gewerke, Bedienung, Aktoren und Geräte je Raum (Querformat)",
              self._gen_room_gewerk),
             ("Szenenreport", "Bedienung, Gewerke und Aktoren je Szene als PDF",
              self._gen_szenen),
@@ -603,8 +603,8 @@ class ReportsDialog(QDialog):
 
     def _gen_room_gewerk(self):
         path, _ = license_gate.get_save_file_name(
-            self, "Räume-nach-Gewerken-Bericht speichern",
-            self._default_export_path(f"{self._project.name}_Raeume_Gewerke.pdf"),
+            self, "Raumbuch KNX speichern",
+            self._default_export_path(f"{self._project.name}_Raumbuch_KNX.pdf"),
             "PDF-Dateien (*.pdf);;Text-Dateien (*.txt)",
         )
         if not path:
@@ -615,4 +615,4 @@ class ReportsDialog(QDialog):
             from ...services.report_service import ReportService
             ReportService(project, company_profile=company).generate_room_gewerk_report(path)
 
-        self._run("Räume-nach-Gewerken-Bericht wird erstellt…", do, f"Räume-nach-Gewerken-Bericht erstellt: {path}")
+        self._run("Raumbuch KNX wird erstellt…", do, f"Raumbuch KNX erstellt: {path}")
