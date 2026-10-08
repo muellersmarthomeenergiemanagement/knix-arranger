@@ -324,6 +324,10 @@ class GewerkAssignment:
     # Wird in jeder GA-Bezeichnung des Elements an den Raumnamen angehängt:
     # "LDA_E01_01 E/A (Wohnen Decke)".
     element_labels: list[str] = field(default_factory=list)
+    # Weggelassene Funktionen je Element (GA in der Baumansicht gelöscht):
+    # Element-Nr. -> ["SPERREN", ...]. Die Generierung legt dort eine Reserve
+    # an, die Adressen des Blocks verschieben sich nicht.
+    omitted_functions: dict[int, list[str]] = field(default_factory=dict)
 
     def element_label(self, element_nr: int) -> str:
         """Klartext eines Elements (1-basiert), leer wenn keiner erfasst ist."""
@@ -367,6 +371,9 @@ class GewerkAssignment:
                 str(nr): links for nr, links in self.linked_ga_ids_by_element.items() if links
             },
             "element_labels": self.element_labels,
+            "omitted_functions": {
+                str(nr): list(fns) for nr, fns in self.omitted_functions.items() if fns
+            },
         }
 
     @classmethod
@@ -393,6 +400,9 @@ class GewerkAssignment:
             int(nr): links for nr, links in data.get("linked_ga_ids_by_element", {}).items()
         }
         obj.element_labels = list(data.get("element_labels", []))
+        obj.omitted_functions = {
+            int(nr): list(fns) for nr, fns in data.get("omitted_functions", {}).items()
+        }
         return obj
 
 

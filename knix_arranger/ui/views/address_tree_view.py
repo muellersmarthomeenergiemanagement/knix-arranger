@@ -4,9 +4,9 @@ GA-Baumansicht: HG > MG > UG mit Farbmarkierung (FA-821)
 from __future__ import annotations
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QLabel, QMenu, QPushButton, QAbstractItemView,
+    QLabel, QMenu, QPushButton, QAbstractItemView, QMessageBox,
 )
-from PySide6.QtGui import QColor, QBrush
+from PySide6.QtGui import QColor, QBrush, QKeySequence, QShortcut
 from PySide6.QtCore import Signal, Qt
 from ..widgets.search_filter_bar import SearchFilterBar
 from ..dialogs.ga_edit_dialog import GaEditDialog
@@ -20,6 +20,9 @@ from ...services.ga_move import (
     move_to_middle_group, swap_addresses,
 )
 from ...services.time_program_service import timed_label
+from ...services.ga_delete import (
+    DELETABLE, GENERATED, classify, delete_gas, omitted_function_of, restore_function,
+)
 
 
 class AddressTreeView(QWidget):
@@ -107,6 +110,10 @@ class AddressTreeView(QWidget):
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
+        # Entf: markierte GAs löschen
+        delete_shortcut = QShortcut(QKeySequence.Delete, self._tree)
+        delete_shortcut.setContext(Qt.WidgetShortcut)
+        delete_shortcut.activated.connect(self._delete_selected)
         layout.addWidget(self._tree)
 
     def showEvent(self, event):
@@ -145,7 +152,7 @@ class AddressTreeView(QWidget):
         self._project = project
         reorder = project is not None and can_reorder(project)
         self._hint.setText(
-            "Doppelklick oder Rechtsklick auf eine GA zum Bearbeiten"
+            "Doppelklick oder Rechtsklick auf eine GA zum Bearbeiten  ·  Entf: markierte löschen"
             + ("  ·  Ziehen auf eine GA: tauschen, auf eine Mittelgruppe: verschieben"
                if reorder else ""))
 
@@ -302,11 +309,23 @@ class AddressTreeView(QWidget):
             gewerk_action = menu.addAction(
                 f"Gewerk zuordnen… ({len(selected)} GA)" if len(selected) > 1
                 else "Gewerk zuordnen…")
+            restore_action = None
+            function = omitted_function_of(ga)
+            if function and self._project is not None:
+                restore_action = menu.addAction(f"Funktion «{function}» wieder einschalten")
+            menu.addSeparator()
+            delete_action = menu.addAction(
+                f"Löschen… ({len(selected)} GA)" if len(selected) > 1 else "Löschen…")
+            delete_action.setEnabled(self._project is not None)
             action = menu.exec(global_pos)
             if action == edit_action:
                 self._edit_ga(ga)
             elif action == gewerk_action:
                 self.gewerk_change_requested.emit(selected)
+            elif restore_action is not None and action == restore_action:
+                self._restore_function(ga, function)
+            elif action == delete_action:
+                self._delete_selected(fallback=ga)
         else:
             # HG- oder MG-Knoten: Auf-/Zuklappen anbieten
             expand_act  = menu.addAction("Aufklappen")
@@ -317,6 +336,66 @@ class AddressTreeView(QWidget):
                 fit_columns(self._tree, stretch_to_fit=False)
             elif action == collapse_act:
                 item.setExpanded(False)
+
+    def _selected_gas(self) -> list[GroupAddress]:
+        return [i.data(0, self.GA_OBJECT_ROLE) for i in self._tree.selectedItems()
+                if isinstance(i.data(0, self.GA_OBJECT_ROLE), GroupAddress)]
+
+    def _delete_selected(self, fallback: GroupAddress | None = None) -> None:
+        """Markierte GAs löschen: generierte werden zur Reserve (Funktion
+        weggelassen), manuelle und importierte entfernt – mit Rückfrage."""
+        if self._project is None:
+            return
+        gas = self._selected_gas()
+        if fallback is not None and fallback not in gas:
+            gas = [fallback]
+        if not gas:
+            return
+        kinds = [classify(self._project, ga) for ga in gas]
+        n_generated = sum(1 for kind, _r in kinds if kind == GENERATED)
+        n_deleted = sum(1 for kind, _r in kinds if kind == DELETABLE)
+        kept = [(ga, reason) for ga, (kind, reason) in zip(gas, kinds)
+                if kind not in (GENERATED, DELETABLE)]
+        if not n_generated and not n_deleted:
+            QMessageBox.information(
+                self, "Löschen",
+                "Nichts zu löschen:\n\n" + "\n".join(
+                    f"{ga.address}: {reason}" for ga, reason in kept[:10]))
+            return
+        lines = []
+        if n_deleted:
+            text = (f"{n_deleted} GA werden entfernt, ebenso ihre Verknüpfungen "
+                    f"(Tasten, Szenen, DALI, Zeitprogramme, Kommunikationsobjekte).")
+            if self._project.topology.is_imported:
+                text += " Die ETS bleibt massgebend: ein erneuter Import bringt sie zurück."
+            lines.append(text)
+        if n_generated:
+            lines.append(f"{n_generated} GA entstehen aus einem Gewerk: ihre Funktion wird "
+                         f"für das Element weggelassen, die Adresse bleibt als Reserve «--» "
+                         f"frei, die übrigen Adressen verschieben sich nicht.")
+        if kept:
+            lines.append(f"{len(kept)} GA bleiben ({kept[0][1]}).")
+        first = gas[0]
+        title = (f"GA {first.address} »{first.designation}« löschen?" if len(gas) == 1
+                 else f"{len(gas)} GA löschen?")
+        if QMessageBox.question(
+                self, "GA löschen", title + "\n\n" + "\n\n".join(lines),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        if self._bus:
+            self._bus.begin_change(title.rstrip("?"))
+        delete_gas(self._project, gas)
+        self._structure = self._project.group_addresses
+        self._refresh_tree()
+        self.ga_modified.emit()
+
+    def _restore_function(self, ga: GroupAddress, function: str) -> None:
+        if self._bus:
+            self._bus.begin_change(f"Funktion {function} auf {ga.address} wieder einschalten")
+        if restore_function(self._project, ga):
+            self._structure = self._project.group_addresses
+            self._refresh_tree()
+            self.ga_modified.emit()
 
     def _edit_ga(self, ga: GroupAddress):
         """Oeffnet den GA-Bearbeitungsdialog."""

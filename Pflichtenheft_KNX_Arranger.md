@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.37
+**Version:** 3.38
 **Datum:** 08.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -52,6 +52,7 @@
 | 3.35 | 08.10.2026 | M. Mueller / Claude AI | Bericht "Raeume nach Gewerken" neu als "Raumbuch KNX" mit Untertitel: Querformat, Uebersicht als Matrix Raeume x Gewerke, Raumblatt mit Bezeichnung, bedienender Taste, Aktorkanal und GA-Bereichen sowie den KNX-Geraeten im Raum (FA-908) |
 | 3.36 | 08.10.2026 | M. Mueller / Claude AI | Szenennummern: Pruefung gleicher Nummern am selben Aktor ueber verschiedene Szenen-GAs (FA-1813), Nummernbereiche je Ebene mit Vorschlag beim Anlegen (FA-1814), Szenenreport mit Szenen je Aktor (FA-1815) |
 | 3.37 | 08.10.2026 | M. Mueller / Claude AI | DALI: Gateway mit hoechstens 16 Gruppen, Gruppen nach Zuteilung im Belegungsplan (Gruppe = Kanal - 1), Anzeige "Gr. n" in Belegungsplan und Raumbuch, Konfiguration ueber die Gateway-Adresse zugeordnet, keine verwaisten Konfigurationen (FA-2805a) |
+| 3.38 | 08.10.2026 | M. Mueller / Claude AI | GAs in der Baumansicht loeschen: generierte als weggelassene Funktion (Reserve, Adressen bleiben), manuelle und importierte mit Verweisen (FA-1003a) |
 
 ---
 
@@ -779,6 +780,7 @@ Nach einem Import (KNXPROJ oder XLSX-Reports) soll das Projekt im Wizard weiterg
 | 12 | Funktionsdefinition (Bauherr-Formular) | Die Funktionen der Sensoren werden durch den Anwender bzw. den Bauherrn genau definiert: Welcher Taster steuert welches Licht, welche Jalousie etc. Dafuer wird ein Formular generiert, das an den Bauherrn/Auftraggeber gesendet und nach Ausfuellung wieder eingelesen werden kann, oder die Zuordnung erfolgt live in der Bauherren-Beratungsansicht (FA-1508 bis FA-1511). |
 | 13 | Export | Die Gruppenadress-Struktur wird als ETS6-kompatible CSV-Datei exportiert. Zusaetzlich wird eine vollstaendige Projektdokumentation generiert. |
 | FA-1003 | Die GUI muss eine Baumansicht der Gruppenadress-Hierarchie darstellen (Hauptgruppe > Mittelgruppe > Untergruppe). |
+| FA-1003a | In der Baumansicht lassen sich markierte GAs loeschen (Kontextmenue "Loeschen...", Taste Entf, mit Rueckfrage und Rueckgaengig-Punkt). Generierte GAs eines geplanten Projekts: die Funktion wird fuer das Gewerk-Element weggelassen (GewerkAssignment.omitted_functions) und die Adresse wird zur Reserve "--" mit der Beschreibung "Weggelassen: <Funktion>"; die uebrigen Adressen des Blocks verschieben sich nicht, auch nicht bei spaeteren Neuberechnungen. "Funktion ... wieder einschalten" im Kontextmenue der Reserve macht das rueckgaengig. Manuelle und importierte GAs werden entfernt, ebenso ihre Verweise (Tastenbelegung, Szenen-Aktionen und -Adressen, DALI-Gruppen, Zeitprogramme, KO-Verknuepfungen, Korrekturen, Kanal-Verknuepfungen); bei importierten Projekten bleibt die ETS massgebend. Reserven und zentrale Adressen eines geplanten Projekts (entstehen bei jeder Neuberechnung) sind nicht loeschbar. |
 | FA-1004 | Die GUI muss eine tabellarische Ansicht aller Gruppenadressen mit allen Feldern anbieten. |
 | FA-1005 | Fehlerhafte oder inkonsistente Eintraege muessen farblich hervorgehoben werden (Rot: Fehler, Gelb: Warnung). |
 | FA-1006 | Die GUI muss eine Such- und Filterfunktion bereitstellen (nach Adresse, Name, Gewerk, Funktionsbereich, Stockwerk, Raum). |

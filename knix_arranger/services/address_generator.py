@@ -42,6 +42,10 @@ logger = logging.getLogger("knix_arranger.address_generator")
 
 # Feste Zentraladressen in HG 0 (Alle Lichter, Jalousien, Szene Abwesenheit):
 # eine umbenannte Bezeichnung bleibt beim Neuerzeugen erhalten
+# Beschreibung einer Reserve, deren Funktion weggelassen wurde
+# (GewerkAssignment.omitted_functions), z.B. "Weggelassen: SPERREN"
+OMITTED_PREFIX = "Weggelassen: "
+
 _FIXED_CENTRAL_ADDRESSES = frozenset({"0/0/1", "0/0/2", "0/1/1", "0/1/2", "0/4/1"})
 
 _DPT_DOT_RE = re.compile(r"^(DPST?)-(\d+)\.(\d+)$")
@@ -94,6 +98,9 @@ class AddressGenerator:
     def __init__(self, catalog: GewerkCatalog, variant: str = "A"):
         self.catalog = catalog
         self.variant = variant  # "A" oder "B"
+        # Weggelassene Funktionen des gerade bearbeiteten Gewerk-Elements
+        # (Element-Nr. -> Funktionen), siehe _fill_entry_fields
+        self._omitted: dict[int, list[str]] = {}
 
     def generate(self, areal: Areal, scenes: list | None = None,
                  project=None,
@@ -254,7 +261,9 @@ class AddressGenerator:
 
         Klartext in Klammern (FA-403) bei jeder GA des Elements: Raumname,
         ergänzt um den Klartext des Elements, z.B. "(Wohnen Decke)"."""
-        if entry.is_reserve or not entry.function:
+        omitted = (not entry.is_reserve and entry.function
+                   and entry.function in self._omitted.get(element_number, ()))
+        if entry.is_reserve or not entry.function or omitted:
             ga.designation = NamingEngine.create_placeholder_designation()
             ga.is_placeholder = True
             ga.datapoint_type = ""
@@ -263,6 +272,12 @@ class AddressGenerator:
             ga.room_id = ""
             ga.element_number = 0
             ga.function_name = ""
+            if (ga.description or "").startswith(OMITTED_PREFIX):
+                ga.description = ""
+            if omitted:
+                # Merker für "Funktion wieder einschalten" (Baumansicht)
+                ga.description = f"{OMITTED_PREFIX}{entry.function}"
+                ga.element_number = element_number
         else:
             desc = " ".join(p for p in (room_name, element_label) if p)
             ga.designation = NamingEngine.create_designation(
@@ -276,6 +291,8 @@ class AddressGenerator:
             ga.element_number = element_number
             ga.function_name = entry.function
             ga.is_placeholder = False
+            if (ga.description or "").startswith(OMITTED_PREFIX):
+                ga.description = ""      # Funktion wieder eingeschaltet
 
     def _update_block_in_place(self, existing_gas: list[GroupAddress],
                                schema: AddressBlockSchema, gewerk_code: str,
@@ -535,6 +552,7 @@ class AddressGenerator:
             get_or_create_mg(mg_num)
 
             for room, assignment, gewerk, room_number_ga, room_desc in mg_data[mg_num]:
+                self._omitted = assignment.omitted_functions
                 schema = self._get_block_schema(gewerk, assignment=assignment, is_feedback=False)
 
                 # Manuell verknuepfte Funktions-Slots je Element (siehe
@@ -605,6 +623,7 @@ class AddressGenerator:
                 get_or_create_mg(fb_mg_num)
 
                 for room, assignment, gewerk, room_number_ga, room_desc in mg_data[mg_num]:
+                    self._omitted = assignment.omitted_functions
                     fb_schema = self._get_block_schema(
                         gewerk, assignment=assignment, is_feedback=True,
                     )
@@ -640,6 +659,7 @@ class AddressGenerator:
         for mg in mg_registry.values():
             mg.group_addresses.sort(key=lambda g: g.sub_group)
         hg.middle_groups = sorted(mg_registry.values(), key=lambda m: m.number)
+        self._omitted = {}
 
         return hg
 
