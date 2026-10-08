@@ -330,8 +330,9 @@ class Step05Gewerke(QWidget):
         # Schnell-Buttons für häufige Gewerke (Zweitaktionen, kompakt)
         quick_layout = QHBoxLayout()
         quick_layout.addWidget(QLabel("Schnell:"))
-        for code, label in [("L", "L Licht"), ("LD", "LD Dimmen"), ("J", "J Jalousie"),
-                             ("H", "H Heizung"), ("S", "S Szenen"), ("V", "V Sonstiges")]:
+        for code, label in [("L", "L Licht"), ("LD", "LD Dimmen"), ("LDA", "LDA DALI"),
+                             ("J", "J Jalousie"), ("H", "H Heizung"),
+                             ("S", "S Steckdose"), ("V", "V Ventilator")]:
             btn = QPushButton(label)
             btn.setObjectName("secondary")
             btn.setStyleSheet("padding: 4px 10px;")

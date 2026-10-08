@@ -141,8 +141,11 @@ def set_device_room(project, device, room) -> bool:
     """Gerät (samt Bedienelement) einem anderen Raum zuordnen. Bei aus der
     ETS importierten Projekten als Korrektur festgehalten, damit sie Re-Import
     und Neuaufbau übersteht; zurück in den ETS-Raum hebt sie auf. Gibt False
-    zurück, wenn sich nichts ändert."""
+    zurück, wenn sich nichts ändert oder der Raum aus der Planung folgt."""
+    from .structure_move import room_follows_planning
     if room is None or device.room_id == room.id:
+        return False
+    if room_follows_planning(project.topology, device):
         return False
     if project.topology.is_imported and device.physical_address:
         target = _key_of_room_id(project, room.id)

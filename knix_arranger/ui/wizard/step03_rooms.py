@@ -16,12 +16,13 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget,
     QTreeWidgetItem, QPushButton,
     QLineEdit, QFormLayout, QGroupBox, QDialog, QDialogButtonBox,
-    QTextEdit, QMessageBox,
+    QTextEdit, QMessageBox, QInputDialog,
 )
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QBrush, QColor
 from ...models.project import KnxProject
 from ...models.building import Room, Wing, Floor, Apartment
+from ...services.room_merge import merge_problem, merge_rooms
 from ...services.room_numbering import room_number_warnings, suggest_room_number
 from ..column_utils import fit_columns
 from ..styles import COLOR_WARNING
@@ -78,6 +79,11 @@ class Step03Rooms(QWidget):
         self._btn_remove = QPushButton("Entfernen")
         self._btn_remove.setObjectName("danger")
         self._btn_remove.setToolTip("Raum entfernen (Entf)  ·  F2: Name bearbeiten")
+        self._btn_merge  = QPushButton("Zusammenführen…")
+        self._btn_merge.setToolTip(
+            "Raum mit Gewerken, Tastern und Verteilern in einen anderen Raum "
+            "integrieren und danach löschen"
+        )
         self._btn_clone  = QPushButton("Klonen")
         self._btn_clone.setToolTip("Raum duplizieren – Nummer wird inkrementiert")
         self._btn_bulk   = QPushButton("Massenerfassung…")
@@ -98,13 +104,14 @@ class Step03Rooms(QWidget):
 
         self._btn_add.clicked.connect(self._add_room)
         self._btn_remove.clicked.connect(self._remove_room)
+        self._btn_merge.clicked.connect(self._merge_room)
         self._btn_clone.clicked.connect(self._clone_room)
         self._btn_bulk.clicked.connect(self._bulk_add_rooms)
         self._btn_copy_floor.clicked.connect(self._copy_floor)
         self._btn_copy_zone.clicked.connect(self._copy_zone)
         self._btn_paste.clicked.connect(self._paste)
 
-        for btn in (self._btn_add, self._btn_remove, self._btn_clone,
+        for btn in (self._btn_add, self._btn_remove, self._btn_merge, self._btn_clone,
                     self._btn_bulk, self._btn_copy_floor, self._btn_copy_zone,
                     self._btn_paste):
             btn_layout.addWidget(btn)
@@ -330,6 +337,48 @@ class Step03Rooms(QWidget):
             return
         apt.rooms.remove(room)
         self._refresh()
+
+    # ── Räume zusammenführen ───────────────────────────────────────────────
+
+    def _merge_room(self):
+        item = self._tree.currentItem()
+        kind = item.data(0, Qt.UserRole) if item else None
+        if not kind or kind[0] != _KIND_ROOM:
+            QMessageBox.information(self, "Räume zusammenführen",
+                                    "Zuerst den Raum wählen, der aufgelöst werden soll.")
+            return
+        source = kind[1]
+        targets = [r for r in self._project.areal.all_rooms if r is not source]
+        if not targets:
+            return
+        labels = [f"{r.number} {r.name}".strip() for r in targets]
+        source_label = f"{source.number} {source.name}".strip()
+        label, ok = QInputDialog.getItem(
+            self, "Räume zusammenführen",
+            f"»{source_label}« integrieren in:", labels, 0, False,
+        )
+        if not ok:
+            return
+        target = targets[labels.index(label)]
+        problem = merge_problem(self._project, source, target)
+        if problem:
+            QMessageBox.warning(self, "Räume zusammenführen", problem)
+            return
+        reply = QMessageBox.question(
+            self, "Räume zusammenführen",
+            f"Gewerke, Tastereinheiten samt Tastenbelegung und Verteiler von "
+            f"»{source_label}« gehen in »{label}« über, danach wird "
+            f"»{source_label}« gelöscht.\n\n"
+            f"Die Gruppenadressen behalten ihre Adresse und werden bei der "
+            f"Neuberechnung auf »{label}« umbenannt. Gleiche Gewerke werden "
+            f"zusammengezählt.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        merge_rooms(self._project, source, target)
+        self._refresh()
+        self._select_by_data(_KIND_ROOM, target)
 
     # ── Raum klonen ────────────────────────────────────────────────────────
 

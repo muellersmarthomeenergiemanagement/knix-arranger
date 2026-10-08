@@ -960,6 +960,22 @@ def _ga_keys(structure: GroupAddressStructure) -> set[str]:
     }
 
 
+def _sync_scene_labels(scenes: list, structure: GroupAddressStructure) -> None:
+    """Aktionen mit GA-Adresse (erkannte Szenen, FA-1808) tragen die
+    Bezeichnung ihrer GA als Text. Nach einer Umbenennung (Raum umbenannt
+    oder zusammengeführt) diesen Text nachführen, die Szene selbst auch,
+    wenn sie wie ihre GA hiess."""
+    designation = {ga.address: ga.designation for ga in structure.all_addresses()}
+    for scene in scenes:
+        for action in scene.actions:
+            new = designation.get(action.ga_address) if action.ga_address else None
+            if not new or new == action.group_address:
+                continue
+            if scene.name == action.group_address:
+                scene.name = new
+            action.group_address = new
+
+
 def regenerate_addresses(project, variant: str | None = None) -> RegenerationResult:
     """Generiert die GA-Struktur des Projekts neu und setzt sie ein.
 
@@ -980,6 +996,7 @@ def regenerate_addresses(project, variant: str | None = None) -> RegenerationRes
     for ga in manual_gas:
         insert_ga(structure, ga)
     project.group_addresses = structure
+    _sync_scene_labels(project.scenes, structure)
 
     new_keys = _ga_keys(structure)
     return RegenerationResult(

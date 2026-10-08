@@ -176,3 +176,89 @@ class TestTopologyViewGaAddressResolution:
         ch_item = dev_item.child(0)
         fa_row = ch_item.child(0)
         assert fa_row.text(1) == "2/0/0  LD_E01_01 E/A"
+
+
+def _two_device_topology():
+    dev_a = Device(physical_address="1.1.105", device_type="sensor",
+                   product="Tastereinheit", installation_location="CDG01 Galerie")
+    dev_b = Device(physical_address="1.1.106", device_type="sensor",
+                   product="Tastereinheit", installation_location="CDG07 Halle")
+    actor = Device(physical_address="1.1.1", device_type="actor",
+                   product="Schaltaktor 8-fach", installation_location="UV DG")
+    line = Line(line_number=1, name="Wohnung")
+    line.devices = [actor, dev_a, dev_b]
+    line2 = Line(line_number=2, name="Studio")
+    line2.devices = [Device(physical_address="1.2.101", device_type="sensor",
+                            product="Tastereinheit", installation_location="SEG01")]
+    area = Area(area_number=1, name="Bereich 1")
+    area.lines += [line, line2]
+    return Topology(areas=[area])
+
+
+def _visible(tree, addr: str) -> bool:
+    item = _find_device_item(tree, addr)
+    while item is not None:
+        if item.isHidden():
+            return False
+        item = item.parent()
+    return True
+
+
+class TestTopologyViewColumnFilter:
+    def test_filter_row_has_one_field_per_column(self):
+        view = TopologyView()
+        assert len(view._filter._edits) == view._tree.columnCount()
+
+    def test_filter_by_location_hides_other_devices(self):
+        topology = _two_device_topology()
+        view = TopologyView()
+        view.set_topology(topology)
+        view._filter.set_text(3, "cdg01")
+        assert _visible(view._tree, "1.1.105")
+        assert not _visible(view._tree, "1.1.106")
+        assert not _visible(view._tree, "1.1.1")
+        assert not _visible(view._tree, "1.2.101")
+        # Linie und Bereich bleiben als Zusammenhang sichtbar und aufgeklappt
+        line_item = _find_device_item(view._tree, "1.1.105").parent()
+        assert not line_item.isHidden() and line_item.isExpanded()
+
+    def test_filters_of_several_columns_combine(self):
+        topology = _two_device_topology()
+        view = TopologyView()
+        view.set_topology(topology)
+        view._filter.set_text(0, "taster")
+        view._filter.set_text(1, "1.1.10")
+        assert _visible(view._tree, "1.1.105")
+        assert _visible(view._tree, "1.1.106")
+        assert not _visible(view._tree, "1.2.101")
+        assert not _visible(view._tree, "1.1.1")
+
+    def test_filter_survives_refresh_and_clear_shows_all(self):
+        topology = _two_device_topology()
+        view = TopologyView()
+        view.set_topology(topology)
+        view._filter.set_text(1, "1.1.106")
+        view.set_topology(topology)  # Neuaufbau nach einer Änderung
+        assert _visible(view._tree, "1.1.106")
+        assert not _visible(view._tree, "1.1.105")
+        view._filter.clear()
+        for addr in ("1.1.1", "1.1.105", "1.1.106", "1.2.101"):
+            assert _visible(view._tree, addr)
+
+
+class TestTopologyViewAssignRoom:
+    def test_planned_device_shows_hint_instead_of_room_choice(self, monkeypatch):
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
+        from knix_arranger.models.project import KnxProject
+        areal, topology = _project_areal_topology()
+        project = KnxProject(name="Test")
+        project.areal = areal
+        project.topology = topology
+        view = TopologyView()
+        view.set_project(project)
+        shown, asked = [], []
+        monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: shown.append(a))
+        monkeypatch.setattr(QInputDialog, "getItem", lambda *a, **k: asked.append(a) or ("", False))
+        device = topology.areas[0].lines[0].devices[0]
+        view._assign_room(device)
+        assert shown and not asked

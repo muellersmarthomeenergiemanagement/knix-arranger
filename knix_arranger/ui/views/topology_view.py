@@ -26,10 +26,11 @@ from ...services.belegungsplan_service import (
 from ...services.multi_ga_check import ga_address_of, ko_for_ga, unlink_ga
 from ...services.verteiler_service import VerteilerPlacement, verteiler_label
 from ...services.structure_move import (
-    can_move_device, move_device, move_kind, move_room_to_line,
+    can_move_device, move_device, move_kind, move_room_to_line, room_follows_planning,
 )
 from ..column_utils import fit_columns
 from ..styles import COLOR_WARNING
+from ..widgets.column_filter import TreeColumnFilter
 from ..widgets.drag_drop import DragDropTree
 
 # Farben für Infrastruktur-Knoten
@@ -115,6 +116,8 @@ class TopologyView(QWidget):
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._filter = TreeColumnFilter(self._tree)
+        layout.addWidget(self._filter)
         layout.addWidget(self._tree)
 
     # ── API ──
@@ -452,6 +455,7 @@ class TopologyView(QWidget):
 
         # ── Zustand wiederherstellen ──
         self._restore_tree_state(expanded_areas, expanded_lines, selected_id)
+        self._filter.apply()
         self._tree.setUpdatesEnabled(True)
         self._tree.verticalScrollBar().setValue(vscroll)
 
@@ -827,6 +831,16 @@ class TopologyView(QWidget):
         """Gerät samt Bedienelement einem Raum zuordnen. Bei importierten
         Projekten eine Korrektur zur ETS (übersteht den Re-Import)."""
         from ...services.ets_corrections import rooms_by_key, set_device_room
+        if room_follows_planning(self._project.topology, device):
+            QMessageBox.information(
+                self, "Raum zuordnen",
+                "Geplante Geräte ergeben sich aus den Gewerken ihres Raums und "
+                "landen bei der nächsten Neuberechnung wieder dort.\n\n"
+                "Um das Gerät in einen anderen Raum zu bringen, die Gewerke "
+                "verschieben: in Schritt 5 (Gewerke) oder per Ziehen in der "
+                "Gebäudestruktur.",
+            )
+            return
         rooms = list(rooms_by_key(self._project).values())
         if not rooms:
             return

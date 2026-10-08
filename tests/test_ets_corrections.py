@@ -120,11 +120,25 @@ def test_raum_korrektur_ueberlebt_reimport():
     assert rooms["01"].bedienelemente == [] and len(rooms["08"].bedienelemente) == 1
 
 
-def test_geplantes_projekt_ohne_raum_korrektur():
+def test_geplantes_projekt_raum_folgt_der_planung():
+    """Geplante Geräte ergeben sich aus den Gewerken ihres Raums: kein
+    Umhängen, sonst bleibt nach der Neuberechnung eine leere Kopie des
+    Bedienelements im Zielraum (Projekt_23 1.1.106)."""
+    from knix_arranger.services.ets_corrections import set_device_room
+    project, taster, carnotzet, halle = _project_with_rooms()
+    project.topology.is_imported = False
+    assert not set_device_room(project, taster, halle)
+    assert taster.room_id == carnotzet.id
+    assert len(carnotzet.bedienelemente) == 1 and halle.bedienelemente == []
+
+
+def test_geplantes_projekt_manuelles_geraet_ohne_raum_korrektur():
     from knix_arranger.services.ets_corrections import set_device_room
     project, taster, _carnotzet, halle = _project_with_rooms()
     project.topology.is_imported = False
+    taster.manually_added = True
     assert set_device_room(project, taster, halle)
+    assert taster.room_id == halle.id
     assert project.ets_corrections.room_by_device == {}
 
 

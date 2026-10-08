@@ -89,6 +89,15 @@ def move_kind(topology: Topology, device: Device) -> str:
     return "room" if device.room_id else ""
 
 
+def room_follows_planning(topology: Topology, device: Device) -> bool:
+    """Geplante Taster, Sensoren und Aktoren ergeben sich aus den Gewerken
+    ihres Raums: eine Neuberechnung legt sie wieder dort ab. Ihr Raum ist
+    deshalb nicht direkt änderbar (sonst blieb eine leere Kopie des
+    Bedienelements im Zielraum zurück, Projekt_23 1.1.106)."""
+    return (not topology.is_imported and not device.manually_added
+            and device.device_type not in ("coupler", "power_supply"))
+
+
 def can_move_device(topology: Topology, device: Device, target: Line) -> bool:
     kind = move_kind(topology, device)
     if not kind:
