@@ -2,6 +2,21 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.2.1",
+      "date": "2026-10-08",
+      "neu": [
+        "Schritt 3 «Zusammenführen…»: einen Raum in einen anderen integrieren und danach löschen. Gewerke, Taster mit ihrer Tastenbelegung und Verteiler wandern mit, gleiche Gewerke werden zusammengezählt. Die Gruppenadressen behalten ihre Adresse und tragen nach der Neuberechnung den neuen Raum im Namen; Szenen und DALI-Gruppen werden nachgeführt. Nur bei geplanten Projekten.",
+        "Topologie: Filterfeld über jeder Spalte, z.B. Einbauort «CDG01» oder Adresse «1.1.10». Bereich und Linie bleiben sichtbar, der Filter bleibt nach Änderungen aktiv."
+      ],
+      "verbessert": [
+        "Schritt 5 Gewerke: neuer Schnell-Button «LDA DALI»; «S» heisst jetzt Steckdose und «V» Ventilator, wie im Gewerk-Katalog.",
+        "Szenen aus der ETS behalten den aktuellen Namen ihrer Gruppenadresse, wenn ein Raum umbenannt oder zusammengeführt wird."
+      ],
+      "behoben": [
+        "Topologie «Raum zuordnen…» bei geplanten Projekten: die nächste Neuberechnung legte den Taster wieder in seinen Gewerk-Raum, im gewählten Raum blieb eine leere Kopie stehen. Geplante Geräte zeigen jetzt einen Hinweis – in einen anderen Raum bringt man sie über die Gewerke."
+      ]
+    },
+    {
       "version": "1.2.0",
       "date": "2026-10-07",
       "neu": [
