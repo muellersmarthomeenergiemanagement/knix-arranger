@@ -67,6 +67,7 @@ class ValidationEngine:
         issues.extend(self._check_naming(all_gas, self._planned_room_numbers(project)))
         issues.extend(self._check_middle_group_assignment(all_gas))
         issues.extend(self._check_block_integrity(structure))
+        issues.extend(self._check_generation_warnings(structure))
 
         if structure.variant == "B":
             issues.extend(self._check_feedback_variant_b(structure))
@@ -84,6 +85,20 @@ class ValidationEngine:
             issues.extend(check_topology(project))
             self._grade_guidelines(issues, project)
 
+        return issues
+
+    @staticmethod
+    def _check_generation_warnings(structure: GroupAddressStructure) -> list[ValidationIssue]:
+        """FA-620: Warnungen der letzten GA-Generierung (nicht gespeichert,
+        bis zum Neustart sichtbar). Eine volle Mittelgruppe ist ein Fehler,
+        dort fehlen GAs."""
+        issues = []
+        for warning in structure.warnings:
+            overflow = "Keine freie Mittelgruppe" in warning
+            issues.append(ValidationIssue(
+                "error" if overflow else "warning", "FA-620", warning, "",
+                "Anzahl des Gewerks prüfen; Gewerke auf andere Stockwerke "
+                "verteilen" if overflow else "Hinweis der Generierung prüfen"))
         return issues
 
     #: Regeln der Projektrichtlinien (Mittelgruppen, Rückmelde-MG, Bezeichnung)

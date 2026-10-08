@@ -196,6 +196,14 @@ VALIDATION_RULES = {
         "Raum). Wird das Element anders bedient (z.B. Visualisierung, Logik), "
         "kann der Hinweis bleiben.",
     ),
+    "FA-620": (
+        "GA-Generierung",
+        "Fehler: eine Mittelgruppe ist voll, Gruppenadressen eines Gewerks "
+        "konnten nicht platziert werden (meist eine zu grosse Anzahl). "
+        "Warnung: Kanal-Verknüpfung entfernt, manuell verknüpfte GA nicht "
+        "mehr gefunden oder Szenennummer mehrfach vergeben.",
+        "Anzahl des Gewerks prüfen bzw. Hinweis der Generierung befolgen.",
+    ),
     "FA-3306": (
         "Zeitsteuerung",
         "Ein Schaltzeitpunkt verweist auf eine GA, die es nicht mehr gibt "

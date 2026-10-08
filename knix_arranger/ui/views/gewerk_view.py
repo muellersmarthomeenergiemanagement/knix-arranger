@@ -279,7 +279,7 @@ class GewerkView(QWidget):
                 self._table.setItem(i, _COL_LABEL, label_item)
 
                 # Anzahl: SpinBox für Inline-Editing
-                spin = QSpinBox()
+                spin = _NoWheelSpinBox()
                 spin.setRange(1, 20)
                 spin.setValue(ga.count)
                 spin.setFrame(False)
@@ -505,3 +505,20 @@ def _read_only(text: str) -> QTableWidgetItem:
     item = QTableWidgetItem(text)
     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
     return item
+
+
+class _NoWheelSpinBox(QSpinBox):
+    """Anzahl in der Tabelle: das Mausrad ändert den Wert nur, wenn das Feld
+    angeklickt ist; sonst scrollt es die Tabelle. Beim Scrollen über die
+    Spalte hatte sich die Anzahl sonst unbemerkt geändert (Projekt_23:
+    Jalousie COG01 1 -> 19, HG 2 lief über)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def wheelEvent(self, event) -> None:
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()

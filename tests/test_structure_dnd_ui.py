@@ -204,3 +204,47 @@ def test_gewerk_view_label_warns_when_more_texts_than_elements():
                             gewerk_view._COL_LABEL)
     assert "wird nicht verwendet" in item.toolTip()
     assert item.foreground().color().name().lower() != "#000000"
+
+
+def test_gewerk_view_count_ignores_wheel_without_focus():
+    """Mausrad über der Anzahl scrollt die Tabelle, statt den Wert zu ändern."""
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QWheelEvent
+    from knix_arranger.ui.views import gewerk_view
+    project = _project()
+    view = GewerkView()
+    view.set_project(project)
+    spin = next(view._table.cellWidget(r, gewerk_view._COL_COUNT)
+                for r in range(view._table.rowCount())
+                if view._table.cellWidget(r, gewerk_view._COL_COUNT))
+    before = spin.value()
+    event = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, 120),
+                        Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+    spin.wheelEvent(event)
+    assert spin.value() == before
+    assert not event.isAccepted()
+    assert spin.focusPolicy() == Qt.StrongFocus
+
+
+def test_building_view_shows_gewerke_per_room(gewerk_catalog):
+    """Raum zeigt, welche Gewerke wie oft (FA-1017), nicht nur deren Anzahl."""
+    from knix_arranger.ui.views.building_view import gewerk_summary
+    project = _project()
+    wohnen, _kueche = project.all_rooms
+    wohnen.gewerk_assignments[0].count = 2
+    wohnen.gewerk_assignments[0].element_labels = ["Decke", "Wand"]
+    view = BuildingView()
+    view.set_gewerk_catalog(gewerk_catalog)
+    view.set_areal(project.areal)
+    room_item = next(i for i in _items(view._tree)
+                     if (i.data(0, Qt.UserRole) or (None,))[0] == "room"
+                     and i.data(0, Qt.UserRole)[1] is wohnen)
+    summary = gewerk_summary(wohnen)
+    assert summary.startswith(f"{wohnen.gewerk_assignments[0].gewerk_code} ×2")
+    assert room_item.text(3).startswith(summary)
+    container = next(room_item.child(i) for i in range(room_item.childCount())
+                     if room_item.child(i).text(1) == "Gewerke")
+    assert container.data(0, Qt.UserRole) is None      # kein Umbenennen/Löschen
+    first = container.child(0)
+    assert first.text(1) == "Gewerk" and first.text(3) == "×2: Decke; Wand"
+    assert " – " in first.text(0)                        # Code – Name aus dem Katalog

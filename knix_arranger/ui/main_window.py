@@ -62,6 +62,7 @@ from ..services.building_service import BuildingService
 from ..services.address_generator import AddressGenerator
 from ..services.topology_engine import TopologyEngine
 from ..services.validation_engine import ValidationEngine
+from ..services.problem_monitor import ProblemMonitor, summarize
 from ..services.sensor_service import refresh_bedienelemente
 from ..services.csv_import_service import CsvImportService
 from ..services.csv_export_service import CsvExportService
@@ -81,6 +82,8 @@ from ..services.recalc_service import RecalcService
 from .. import APP_NAME, __version__
 from ..utils.logging_setup import get_log_dir, set_last_action
 
+_MAX_PROBLEM_LINES = 8   # Sofortmeldung: so viele Meldungen einzeln, Rest als Anzahl
+
 logger = logging.getLogger("knix_arranger.main_window")
 
 
@@ -99,6 +102,7 @@ class MainWindow(QMainWindow):
         self._undo_manager = UndoManager()
         self._bus = ProjectBus()
         self._recalc = RecalcService()
+        self._problems = ProblemMonitor()   # Sofortmeldung neuer Probleme (FA-620a)
         self._dirty = False
         # Inhalts-Prüfsumme beim letzten Laden/Speichern (siehe closeEvent)
         self._saved_fingerprint = ""
@@ -558,6 +562,7 @@ class MainWindow(QMainWindow):
 
         self._overview.update_from_project(self._project)
         self._building_view.set_areal(self._project.areal)
+        self._building_view.set_gewerk_catalog(self._project.gewerk_catalog)
         self._building_view.set_topology(self._project.topology)
         self._building_view.set_group_addresses(self._project.group_addresses)
         self._topology_view.set_project(self._project)
@@ -756,6 +761,7 @@ class MainWindow(QMainWindow):
         self._status_bar.set_ga_count(ga_count)
         # Gebäudeansicht: Bedienelement-Zeilen mit aktualisierten function_assignments neu bauen
         self._building_view.set_areal(self._project.areal)
+        self._building_view.set_gewerk_catalog(self._project.gewerk_catalog)
         self._building_view.set_topology(self._project.topology)
         self._building_view.set_group_addresses(self._project.group_addresses)
         # GA-Bezeichnungen werden in Verknüpfungsmatrix, CO-Linking und den
@@ -816,10 +822,47 @@ class MainWindow(QMainWindow):
             self._pending_undo_cmd = None
             self._update_undo_actions()
 
+        # Neue Fehler/Warnungen sofort melden, nach dem Neuaufbau der Ansichten
+        QTimer.singleShot(0, self._report_new_problems)
+
         # Dirty-Flag und Auto-Save
         self._set_dirty(True)
         if self._project and self._project._file_path:
             self._autosave_timer.start()  # Timer neu starten (30s Inaktivität)
+
+    def _report_new_problems(self):
+        """Fehler und Warnungen, die durch die letzte Änderung neu
+        entstanden sind, sofort melden (FA-620a). Bekannte Meldungen und
+        Hinweise lösen keine Meldung aus."""
+        try:
+            new = self._problems.check(self._project)
+        except Exception:
+            logger.exception("Prüfung auf neue Probleme fehlgeschlagen")
+            return
+        if not new:
+            return
+        errors = sum(1 for i in new if i.level == "error")
+        warnings = len(new) - errors
+        counts = ", ".join(t for t in (
+            f"{errors} Fehler" if errors else "",
+            f"{warnings} Warnung{'en' if warnings > 1 else ''}" if warnings else "",
+        ) if t)
+        groups = summarize(new)
+        shown = [f"• {'Fehler' if level == 'error' else 'Warnung'}: {message}"
+                 + (f"  ({count} ×)" if count > 1 else "")
+                 for level, message, count in groups[:_MAX_PROBLEM_LINES]]
+        if len(groups) > _MAX_PROBLEM_LINES:
+            shown.append(f"… und {len(groups) - _MAX_PROBLEM_LINES} weitere")
+        box = QMessageBox(
+            QMessageBox.Critical if errors else QMessageBox.Warning,
+            "Neue Probleme", f"Die letzte Änderung hat {counts} verursacht:\n\n"
+            + "\n".join(shown)
+            + "\n\nUngewollt? Bearbeiten → Rückgängig (Strg+Z).", parent=self)
+        btn_show = box.addButton("Zur Validierung", QMessageBox.AcceptRole)
+        box.addButton("OK", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is btn_show:
+            self._validate()
 
     def _autosave(self):
         """Automatisch speichern nach 30 Sekunden Inaktivität."""
@@ -844,6 +887,8 @@ class MainWindow(QMainWindow):
         Prüfsumme merken."""
         self._set_dirty(False)
         self._saved_fingerprint = self._project.content_fingerprint() if self._project else ""
+        # Frisch geladenes Projekt: vorhandene Probleme nicht als neu melden
+        self._problems.adopt(self._project)
 
     def _has_unsaved_changes(self) -> bool:
         """Dirty-Flag ODER geänderter Inhalt -- nicht jede Ansicht meldet ihre

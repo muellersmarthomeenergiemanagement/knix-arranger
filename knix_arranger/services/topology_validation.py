@@ -87,7 +87,11 @@ def _check_physical_addresses(topology) -> list[ValidationIssue]:
                         pa, "Adresse im Format Bereich.Linie.Teilnehmer vergeben"))
                     continue
                 a, l, t = (int(x) for x in m.groups())
-                if (a, l) != (area.area_number, line.line_number):
+                # Der Bereichskoppler B.0.0 steht im Modell in einer beliebigen
+                # Linie seines Bereichs (siehe models.topology.area_coupler)
+                is_area_coupler = (device.device_type == "coupler"
+                                   and (a, l, t) == (area.area_number, 0, 0))
+                if (a, l) != (area.area_number, line.line_number) and not is_area_coupler:
                     issues.append(ValidationIssue(
                         "error", "FA-612",
                         f"{label} {pa} liegt in {_line_label(area, line)}",

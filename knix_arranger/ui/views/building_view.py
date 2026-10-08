@@ -40,6 +40,7 @@ class BuildingView(QWidget):
         self._areal: Areal | None = None
         self._topology: Topology | None = None
         self._ga_structure = None  # GroupAddressStructure, siehe set_group_addresses() -- Kanalanzeige Aktoren
+        self._catalog = None  # GewerkCatalog, siehe set_gewerk_catalog() -- Namen der Gewerke
 
         layout = QVBoxLayout(self)
 
@@ -118,6 +119,11 @@ class BuildingView(QWidget):
     def set_areal(self, areal: Areal):
         """Setzt die anzuzeigende Gebäudestruktur."""
         self._areal = areal
+        self._refresh_tree()
+
+    def set_gewerk_catalog(self, catalog) -> None:
+        """Gewerk-Katalog für die Namen der Gewerke am Raum."""
+        self._catalog = catalog
         self._refresh_tree()
 
     def set_topology(self, topology: Topology):
@@ -311,9 +317,9 @@ class BuildingView(QWidget):
                             interactive_bes = [be for be in active_bes if be.is_operable]
                             passive_bes = [be for be in active_bes if not be.is_operable]
                             dev_count = topo_total if topo_total else room.total_devices()
-                            gewerke      = len(room.gewerk_assignments)
                             room_label   = room.name if not room.number else f"{room.number} – {room.name}"
-                            parts = [f"{gewerke} Gewerke", f"{dev_count} Geräte"]
+                            # Welche Gewerke wie oft, nicht nur ihre Anzahl
+                            parts = [gewerk_summary(room) or "keine Gewerke", f"{dev_count} Geräte"]
                             if interactive_bes:
                                 parts.append(f"{len(interactive_bes)} Bedienelemente")
                             if passive_bes:
@@ -323,6 +329,9 @@ class BuildingView(QWidget):
                                 [room_label, "Raum", "", ", ".join(parts)],
                             )
                             room_item.setData(0, Qt.UserRole, ("room", room))
+                            if room.gewerk_assignments:
+                                room_item.setToolTip(3, self._gewerk_tooltip(room))
+                                self._add_gewerk_items(room_item, room)
 
                             # Verteiler als Kindknoten + zugehörige Topologie-Geräte
                             for vt in room.verteiler:
@@ -382,6 +391,34 @@ class BuildingView(QWidget):
                                     self._add_actor_channel_items(dev_item, device)
 
         fit_columns(self._tree)
+
+    def _gewerk_name(self, code: str) -> str:
+        gewerk = self._catalog.get(code) if self._catalog else None
+        return gewerk.name if gewerk else ""
+
+    def _gewerk_tooltip(self, room: Room) -> str:
+        lines = []
+        for ga in room.gewerk_assignments:
+            name = self._gewerk_name(ga.gewerk_code)
+            head = f"{ga.gewerk_code} {name}".strip() + f" ×{ga.count}"
+            labels = "; ".join(t for t in ga.element_labels if t)
+            lines.append(f"{head}: {labels}" if labels else head)
+        return "\n".join(lines)
+
+    def _add_gewerk_items(self, room_item: QTreeWidgetItem, room: Room) -> None:
+        """Zugeklappter Knoten "Gewerke" mit je einer Zeile pro Gewerk
+        (Code, Name, Anzahl, Bezeichnung). Ohne UserRole-Daten: Umbenennen,
+        Löschen und Ziehen gelten hier nicht."""
+        container = QTreeWidgetItem(
+            room_item, [f"Gewerke ({len(room.gewerk_assignments)})", "Gewerke", "", ""])
+        container.setExpanded(False)
+        for ga in room.gewerk_assignments:
+            name = self._gewerk_name(ga.gewerk_code)
+            labels = "; ".join(ga.element_labels[:ga.count])
+            QTreeWidgetItem(container, [
+                f"{ga.gewerk_code} – {name}" if name else ga.gewerk_code,
+                "Gewerk", "", f"×{ga.count}: {labels}" if labels else f"×{ga.count}",
+            ])
 
     def _add_actor_channel_items(self, dev_item: QTreeWidgetItem, device) -> None:
         """Fügt Kanal-Kindknoten mit ihren Gruppenadressen unter einem Aktor
@@ -745,3 +782,11 @@ class BuildingView(QWidget):
             menu.addAction("Löschen",              self._delete_selected)
 
         menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+
+def gewerk_summary(room: Room) -> str:
+    """Kurzform der Gewerke eines Raums, z.B. "LDA ×2, J ×2, S, H"."""
+    return ", ".join(
+        f"{ga.gewerk_code} ×{ga.count}" if ga.count > 1 else ga.gewerk_code
+        for ga in room.gewerk_assignments
+    )

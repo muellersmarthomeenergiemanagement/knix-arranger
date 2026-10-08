@@ -67,6 +67,17 @@ class TestTopologyChecks:
         assert "1.1.0 doppelt vergeben: Gerät und Schaltaktor" in messages
         assert "Schaltaktor: ungültige physikalische Adresse «x.1»" in messages
 
+    def test_area_coupler_in_first_line_is_fine(self):
+        """Bereichskoppler B.0.0 steht im Modell in einer Linie seines
+        Bereichs (area_coupler) -- kein FA-612 (Projekt_23: 1.0.0 in 1.1)."""
+        project = _project(Device(physical_address="1.0.0", device_type="coupler"))
+        assert not [i for i in check_topology(project) if i.rule_id == "FA-612"]
+        # Fremder Bereich oder kein Koppler bleibt ein Fehler
+        project = _project(Device(physical_address="2.0.0", device_type="coupler"),
+                           _actor("1.0.5"))
+        messages = [i.message for i in check_topology(project) if i.rule_id == "FA-612"]
+        assert len(messages) == 2
+
     def test_power_supply_missing(self):
         project = _project(_actor("1.1.1"))
         line = project.topology.areas[0].lines[0]

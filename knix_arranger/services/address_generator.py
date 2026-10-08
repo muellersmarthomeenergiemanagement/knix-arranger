@@ -209,6 +209,42 @@ class AddressGenerator:
             gas.sort(key=lambda g: (g.middle_group, g.sub_group))
         return by_assignment, next_free
 
+    def _replaced_block_ids(self, mg_data: dict, old_by_assignment: dict) -> set[str]:
+        """assignment_ids (inkl. ":fb") mit bestehendem Block, der nicht
+        unverändert übernommen, sondern neu platziert wird."""
+        replaced: set[str] = set()
+        for entries in mg_data.values():
+            for _room, assignment, gewerk, _nr, _desc in entries:
+                keys = [(assignment.id, False)]
+                if self.variant == "B" and gewerk.middle_group in (0, 1):
+                    keys.append((f"{assignment.id}:fb", True))
+                for key, is_feedback in keys:
+                    old = old_by_assignment.get(key)
+                    if old is None:
+                        continue
+                    schema = self._get_block_schema(
+                        gewerk, assignment=assignment, is_feedback=is_feedback)
+                    if not schema:
+                        continue
+                    if (assignment.all_element_links()
+                            or len(old) != schema.block_size * assignment.count):
+                        replaced.add(key)
+        return replaced
+
+    @staticmethod
+    def _next_free_without(
+        existing: GroupAddressStructure, hg_number: int, exclude: set[str],
+    ) -> dict[int, int]:
+        """Nächste freie Untergruppe je MG ohne die GAs der Blöcke in `exclude`."""
+        next_free: dict[int, int] = {}
+        hg = next((h for h in existing.main_groups if h.number == hg_number), None)
+        for mg in (hg.middle_groups if hg else []):
+            subs = [ga.sub_group for ga in mg.group_addresses
+                    if ga.assignment_id not in exclude]
+            if subs:
+                next_free[mg.number] = max(subs) + 1
+        return next_free
+
     def _fill_entry_fields(self, ga: GroupAddress, entry: BlockEntry,
                            gewerk_code: str, room_number: str,
                            element_number: int, room_name: str,
@@ -340,6 +376,14 @@ class AddressGenerator:
         # nächsten freien Mittelgruppe derselben HG fortgesetzt, statt eine
         # ungültige sub_group > 255 zu erzeugen (siehe `place_new_block`).
         old_by_assignment, next_free = self._index_existing_hg(existing, hg_number)
+        # Blöcke, die neu platziert werden (andere Grösse, manuelle
+        # Verknüpfung), belegen ihren alten Platz nicht mehr: sonst hängte
+        # sich der Block hinter sich selbst an, und nach einem Überlauf
+        # fand er gar keinen Platz mehr (Projekt_23: Jalousie COG01
+        # 19 -> 1, alle GAs des Gewerks fehlten bis zur nächsten Berechnung).
+        replaced = self._replaced_block_ids(mg_data, old_by_assignment)
+        if replaced:
+            next_free = self._next_free_without(existing, hg_number, replaced)
 
         # Belegte MG-Nummern: eigene Heimat-MGs aller Gewerke in dieser HG,
         # Variante-B-Rückmeldungs-MGs, sowie alle MGs, die in `existing`
