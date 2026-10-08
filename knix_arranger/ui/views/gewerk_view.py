@@ -9,9 +9,10 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidgetItem, QLabel, QListWidgetItem,
     QAbstractItemView, QComboBox, QHBoxLayout, QPushButton, QSpinBox,
-    QGroupBox, QSplitter,
+    QGroupBox, QSplitter, QHeaderView, QSizePolicy,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor
 
 from ...models.building import Areal, GewerkAssignment
 from ...models.gewerk import GewerkCatalog
@@ -20,7 +21,9 @@ from ...services.structure_move import (
 )
 from ..column_utils import fit_columns
 from ..dialogs.custom_gewerk_dialog import CustomGewerkDialog
+from ..styles import COLOR_WARNING
 from ..widgets.drag_drop import DragDropTable, DragSourceList
+from ..wizard.step05_gewerke import label_hint
 
 # Spalten-Indizes
 _COL_FLOOR   = 0
@@ -29,9 +32,16 @@ _COL_ROOM    = 2
 _COL_NUMBER  = 3
 _COL_GCODE   = 4
 _COL_GNAME   = 5
-_COL_COUNT   = 6
-_COL_ACTION  = 7
-_NUM_COLS    = 8
+_COL_LABEL   = 6   # Klartext je Element (FA-403), wie im Wizard Schritt 5
+_COL_COUNT   = 7
+_COL_ACTION  = 8
+_NUM_COLS    = 9
+
+_LABEL_SEP = ";"
+_MAX_NAME_WIDTH = 200   # Gewerk-Name, längere stehen im Tooltip
+_MIN_NAME_WIDTH = 120
+_MIN_LABEL_WIDTH = 220  # Bezeichnung
+_COUNT_WIDTH = 84       # SpinBox Anzahl
 
 
 class GewerkView(QWidget):
@@ -80,12 +90,10 @@ class GewerkView(QWidget):
         filter_layout.addWidget(self._zone_combo)
 
         filter_layout.addStretch()
-        layout.addLayout(filter_layout)
-
-        # Info
         self._info = QLabel("")
         self._info.setObjectName("subtitle")
-        layout.addWidget(self._info)
+        filter_layout.addWidget(self._info)
+        layout.addLayout(filter_layout)
 
         # Tabelle; Gewerke aus dem Katalog auf einen Raum ziehen oder eine
         # Zuweisung in einen anderen Raum ziehen (FA-1015 c)
@@ -97,11 +105,17 @@ class GewerkView(QWidget):
         self._table.setColumnCount(_NUM_COLS)
         self._table.setHorizontalHeaderLabels([
             "Stockwerk", "Wohnung/Zone", "Raum", "Raumnr.",
-            "Gewerk", "Name", "Anzahl", "Aktion",
+            "Gewerk", "Name", "Bezeichnung", "Anzahl", "Aktion",
         ])
-        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        # Nur die Bezeichnung ist editierbar (Doppelklick, F2)
+        self._table.setEditTriggers(
+            QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
+        self._table.itemChanged.connect(self._on_item_changed)
+        self._refreshing = False
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setAlternatingRowColors(True)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setWordWrap(False)
         # KEIN setStretchLastSection: erzwingt sonst eine volle Breite der
         # Aktion-Spalte (der kleine Entfernen-Button wuerde ueber die ganze
         # Zeile gestreckt) und quetscht die uebrigen Spaltenkoepfe unlesbar
@@ -128,14 +142,20 @@ class GewerkView(QWidget):
         splitter.addWidget(catalog_box)
         splitter.setStretchFactor(0, 4)
         splitter.setStretchFactor(1, 1)
-        layout.addWidget(splitter)
+        splitter.setSizes([1000, 230])   # Katalog schmal, Tabelle breit
+        splitter.splitterMoved.connect(lambda *_: self._fit_table_columns())
+        # Die Tabelle erhält die ganze freie Höhe
+        layout.addWidget(splitter, 1)
 
         # ── Gewerk hinzufügen ──
         add_group = QGroupBox("Gewerk zu selektiertem Raum hinzufügen")
         add_layout = QHBoxLayout()
         add_layout.addWidget(QLabel("Gewerk:"))
         self._gewerk_combo = QComboBox()
-        add_layout.addWidget(self._gewerk_combo, 1)
+        self._gewerk_combo.setMinimumContentsLength(30)
+        self._gewerk_combo.setSizeAdjustPolicy(
+            QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        add_layout.addWidget(self._gewerk_combo)
         add_layout.addWidget(QLabel("Anzahl:"))
         self._count_spin = QSpinBox()
         self._count_spin.setRange(1, 20)
@@ -144,7 +164,9 @@ class GewerkView(QWidget):
         self._btn_add = QPushButton("Hinzufügen")
         self._btn_add.clicked.connect(self._add_gewerk)
         add_layout.addWidget(self._btn_add)
+        add_layout.addStretch()
         add_group.setLayout(add_layout)
+        add_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         layout.addWidget(add_group)
 
     # ── API ──
@@ -233,18 +255,28 @@ class GewerkView(QWidget):
                     else:
                         rows.append((floor, apt, room, None, None))
 
+        self._refreshing = True
+        self._table.clearContents()
         self._table.setRowCount(len(rows))
         for i, (floor, apt, room, ga, gewerk) in enumerate(rows):
-            floor_item = QTableWidgetItem(floor.short_code)
+            floor_item = _read_only(floor.short_code)
             floor_item.setData(Qt.UserRole, (floor, apt, room))
             self._table.setItem(i, _COL_FLOOR,  floor_item)
-            self._table.setItem(i, _COL_APT,    QTableWidgetItem(apt.name))
-            self._table.setItem(i, _COL_ROOM,   QTableWidgetItem(room.name))
-            self._table.setItem(i, _COL_NUMBER, QTableWidgetItem(room.number))
+            self._table.setItem(i, _COL_APT,    _read_only(apt.name))
+            self._table.setItem(i, _COL_ROOM,   _read_only(room.name))
+            self._table.setItem(i, _COL_NUMBER, _read_only(room.number))
 
             if ga:
-                self._table.setItem(i, _COL_GCODE, QTableWidgetItem(ga.gewerk_code))
-                self._table.setItem(i, _COL_GNAME, QTableWidgetItem(gewerk.name if gewerk else "?"))
+                self._table.setItem(i, _COL_GCODE, _read_only(ga.gewerk_code))
+                name_item = _read_only(gewerk.name if gewerk else "?")
+                name_item.setToolTip(name_item.text())
+                self._table.setItem(i, _COL_GNAME, name_item)
+
+                # Bezeichnung – editierbar: Klartext je Element, getrennt mit ";"
+                label_item = QTableWidgetItem(f"{_LABEL_SEP} ".join(ga.element_labels))
+                label_item.setData(Qt.UserRole, (room, ga))
+                self._style_label_item(label_item)
+                self._table.setItem(i, _COL_LABEL, label_item)
 
                 # Anzahl: SpinBox für Inline-Editing
                 spin = QSpinBox()
@@ -280,10 +312,12 @@ class GewerkView(QWidget):
                 action_layout.addStretch()
                 self._table.setCellWidget(i, _COL_ACTION, action_widget)
             else:
-                self._table.setItem(i, _COL_GCODE, QTableWidgetItem(""))
-                self._table.setItem(i, _COL_GNAME, QTableWidgetItem("(keine Gewerke)"))
+                self._table.setItem(i, _COL_GCODE, _read_only(""))
+                self._table.setItem(i, _COL_GNAME, _read_only("(keine Gewerke)"))
+                self._table.setItem(i, _COL_LABEL, _read_only(""))
+        self._refreshing = False
 
-        fit_columns(self._table, stretch_to_fit=False)
+        self._fit_table_columns()
 
         assignments = sum(1 for _, _, _, ga, _ in rows if ga)
         total_ga = sum(
@@ -298,6 +332,29 @@ class GewerkView(QWidget):
         self._info.setText(
             f"{assignments} Gewerk-Zuweisungen | {total_ga} Gruppenadressen total"
         )
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._table.rowCount():
+            self._fit_table_columns()
+
+    def _fit_table_columns(self) -> None:
+        """Spalten nach Inhalt, aber ohne horizontales Scrollen: Name
+        begrenzt, Anzahl/Aktion schmal, die Bezeichnung füllt den Rest
+        (lange Texte stehen vollständig im Tooltip)."""
+        header = self._table.horizontalHeader()
+        header.setSectionResizeMode(_COL_LABEL, QHeaderView.Interactive)
+        fit_columns(self._table, stretch_to_fit=False)
+        self._table.setColumnWidth(_COL_GNAME, min(self._table.columnWidth(_COL_GNAME),
+                                                   _MAX_NAME_WIDTH))
+        self._table.setColumnWidth(_COL_COUNT, _COUNT_WIDTH)
+        # Wenig Platz (z.B. 1366 x 768): Name zugunsten der Bezeichnung kürzen
+        others = sum(self._table.columnWidth(c) for c in range(_NUM_COLS) if c != _COL_LABEL)
+        missing = _MIN_LABEL_WIDTH - (self._table.viewport().width() - others)
+        if missing > 0:
+            name_width = self._table.columnWidth(_COL_GNAME)
+            self._table.setColumnWidth(_COL_GNAME, max(_MIN_NAME_WIDTH, name_width - missing))
+        header.setSectionResizeMode(_COL_LABEL, QHeaderView.Stretch)
 
     # ── Ziehen und Ablegen (FA-1015 c) ──
 
@@ -350,8 +407,45 @@ class GewerkView(QWidget):
 
     # ── Mutations ──
 
+    @staticmethod
+    def _style_label_item(item: QTableWidgetItem) -> None:
+        """Tooltip mit der Zuordnung Text → Element; orange, wenn mehr Texte
+        als Elemente erfasst sind (wie im Wizard Schritt 5)."""
+        room, ga = item.data(Qt.UserRole)
+        tooltip, warning = label_hint(ga, room.number, room.name)
+        item.setToolTip(tooltip)
+        item.setForeground(QBrush(QColor(COLOR_WARNING)) if warning else QBrush())
+
+    def _on_item_changed(self, item: QTableWidgetItem):
+        """Bezeichnung ins Modell übernehmen; die GAs tragen sie im Namen."""
+        if self._refreshing or item.column() != _COL_LABEL or not item.data(Qt.UserRole):
+            return
+        room, ga = item.data(Qt.UserRole)
+        old = list(ga.element_labels)
+        new = f"{_LABEL_SEP} ".join(old)
+        if item.text() != new:
+            if self._bus:
+                self._bus.begin_change(
+                    f"Bezeichnung {ga.gewerk_code} in »{room.name}« bearbeiten")
+            ga.set_element_labels(item.text().split(_LABEL_SEP))
+        self._refreshing = True
+        item.setText(f"{_LABEL_SEP} ".join(ga.element_labels))
+        self._style_label_item(item)
+        self._refreshing = False
+        if ga.element_labels != old:
+            # Neuberechnung baut die Tabelle neu auf: nicht im Signal der Zelle
+            QTimer.singleShot(0, self._emit_changed)
+
     def _on_count_changed(self, ga: GewerkAssignment, value: int):
         ga.count = value
+        # Zuordnung der Bezeichnungen hängt von der Anzahl ab
+        for row in range(self._table.rowCount()):
+            item = self._table.item(row, _COL_LABEL)
+            data = item.data(Qt.UserRole) if item else None
+            if data and data[1] is ga:
+                self._refreshing = True
+                self._style_label_item(item)
+                self._refreshing = False
         self._emit_changed()
 
     def _add_custom_gewerk(self):
@@ -405,3 +499,9 @@ class GewerkView(QWidget):
         self.functions_changed.emit()
         if self._bus:
             self._bus.emit_functions_changed()
+
+
+def _read_only(text: str) -> QTableWidgetItem:
+    item = QTableWidgetItem(text)
+    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+    return item

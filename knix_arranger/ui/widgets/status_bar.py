@@ -32,5 +32,6 @@ class KnxStatusBar(QStatusBar):
         self._ga_count_label.setText(f"{count} Gruppenadressen")
 
     def set_status(self, text: str):
+        # Nur im festen Feld rechts: eine temporäre Meldung (showMessage)
+        # zeichnete Qt über die Felder links, die Texte lagen übereinander
         self._status_label.setText(text)
-        self.showMessage(text, 3000)

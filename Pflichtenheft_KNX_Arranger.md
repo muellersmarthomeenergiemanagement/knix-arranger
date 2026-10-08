@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.32
+**Version:** 3.33
 **Datum:** 08.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -47,6 +47,7 @@
 | 3.30 | 07.10.2026 | M. Mueller / Claude AI | Spannungsversorgungen nach T-06: SV der Bereichslinie 0.0 ergaenzt, SV auf B.0.- als Hauptlinie bezeichnet und auch bei einem Bereich mit mehreren Linien angelegt, Pruefung FA-613 fuer Haupt- und Bereichslinie, Begriffe in Topologie-Ansicht und Diagramm (Linienkoppler verbindet Linie mit Hauptlinie, Bereichskoppler Hauptlinie mit Bereichslinie); Topologie-Diagramm mit Bereichslinie, Hauptlinie als Busleitung und jeder SV an ihrer Linie (FA-904); Praesenz- und Bewegungsmelder mit Kanaelen statt Tasten, nur Schaltbefehl (FA-1015b) |
 | 3.31 | 07.10.2026 | M. Mueller / Claude AI | Drag-and-Drop (a) bis (d) umgesetzt (FA-1015c): Raeume auf Wohnung/Zone oder Stockwerk ziehen; Geraete auf eine andere Linie ziehen (geplant: der Raum wechselt die Linie, importiert/manuell: das Geraet wandert mit freier Teilnehmernummer); Gewerke aus dem Katalog auf einen Raum ziehen oder eine Zuweisung in einen anderen Raum; Gruppenadressen tauschen oder in eine Mittelgruppe verschieben (nur geplante Projekte), Verweise werden nachgefuehrt und die Neuberechnung behaelt die Position |
 | 3.32 | 08.10.2026 | M. Mueller / Claude AI | Raeume zusammenfuehren in Schritt 3 (FA-3203c); Spaltenfilter in der Topologie-Ansicht (FA-1007a); "Raum zuordnen..." bei geplanten Geraeten durch Hinweis ersetzt (FA-616a); erkannte Szenen folgen der Umbenennung ihrer GA (FA-1808); Schnell-Buttons Schritt 5: LDA ergaenzt, S = Steckdose, V = Ventilator (FA-3209a) |
+| 3.33 | 08.10.2026 | M. Mueller / Claude AI | Gewerke-Uebersicht: Spalte "Bezeichnung" wie in Schritt 5 (FA-403), Tabelle mit voller Hoehe und ohne horizontales Scrollen (NFA-034); Statusmeldungen nur im festen Feld rechts der Statusleiste (NFA-023) |
 
 ---
 
@@ -414,7 +415,7 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 |----|-------------|
 | FA-401 | Das System muss Gruppenadress-Bezeichnungen automatisch nach dem KNX Swiss Bezeichnungskonzept generieren: `[Gewerk]_[Raum]_[Nummer] [Funktion] ([Klartext])`. Beispiel: `LD_E05_01 E/A (Eingang Decke)`. |
 | FA-402 | Das Bezeichnungslabel muss aus drei Teilen bestehen: Gewerke-/Funktionslabel (Kuerzel aus FA-302), Raumnummer (eindeutig pro Stockwerk), fortlaufende Nummer (beginnt pro Raum und Gewerk bei 01). |
-| FA-403 | Der Benutzer muss optional eine ergaenzende Klartext-Beschreibung in Klammern anfuegen koennen (z.B. "Schlafzimmer Decke", "Eingang Wand links"). Umsetzung: In Schritt 5 (Spalte "Bezeichnung") wird je Element einer Gewerk-Zuweisung ein Klartext erfasst (bei Anzahl > 1 mit ";" getrennt, z.B. "Decke; Wand"). Er steht in jeder GA des Elements nach dem Raumnamen, z.B. `LDA_E01_01 E/A (Wohnen Decke)`, bleibt bei Neuberechnung und Neuordnen erhalten und ersetzt in den Auswahllisten (Bedienelemente, Bauherrenberatung) die Elementnummer. Der Tooltip der Zelle zeigt die Zuordnung Text zu Element (01, 02 ...); mehr Texte als Elemente: Zelle orange, die ueberzaehligen Texte bleiben gespeichert. Mindestbreite der Spalte fuer die Eingabe. |
+| FA-403 | Der Benutzer muss optional eine ergaenzende Klartext-Beschreibung in Klammern anfuegen koennen (z.B. "Schlafzimmer Decke", "Eingang Wand links"). Umsetzung: In Schritt 5 (Spalte "Bezeichnung") wird je Element einer Gewerk-Zuweisung ein Klartext erfasst (bei Anzahl > 1 mit ";" getrennt, z.B. "Decke; Wand"). Er steht in jeder GA des Elements nach dem Raumnamen, z.B. `LDA_E01_01 E/A (Wohnen Decke)`, bleibt bei Neuberechnung und Neuordnen erhalten und ersetzt in den Auswahllisten (Bedienelemente, Bauherrenberatung) die Elementnummer. Der Tooltip der Zelle zeigt die Zuordnung Text zu Element (01, 02 ...); mehr Texte als Elemente: Zelle orange, die ueberzaehligen Texte bleiben gespeichert. Mindestbreite der Spalte fuer die Eingabe. Dieselbe Spalte steht in der Gewerke-Uebersicht (Doppelklick oder F2, Rueckgaengig-Punkt, Neuberechnung der GA-Namen). |
 
 #### 3.4.2 Hauptgruppen-Zuordnung (gemaess KNX Swiss Kap. 13.1)
 
@@ -1703,7 +1704,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | NFA-031 | Die Benutzeroberflaeche muss in deutscher Sprache gestaltet sein. |
 | NFA-032 | Die Software muss ohne Schulung von einem KNX-Systemintegrator bedienbar sein. |
 | NFA-033 | Der Wizard fuer ein neues Projekt muss in 13 strukturierten Schritten (gemaess FA-1002) zu einem vollstaendigen Projektexport fuehren. Jeder Schritt muss einzeln abschliessbar und navigierbar sein (Vor/Zurueck). |
-| NFA-034 | Alle Tabellen- und Baumansichten muessen ihre Spaltenbreiten automatisch an den laengsten Inhalt anpassen. Dies gilt fuer saemtliche Ansichten: Topologie, Gruppenadressen (Baum und Tabelle), Gebaeudestruktur, Gewerke-Uebersicht, Validierung sowie alle Wizard-Schritte mit Tabellen oder Baeumen. |
+| NFA-034 | Alle Tabellen- und Baumansichten muessen ihre Spaltenbreiten automatisch an den laengsten Inhalt anpassen. Dies gilt fuer saemtliche Ansichten: Topologie, Gruppenadressen (Baum und Tabelle), Gebaeudestruktur, Gewerke-Uebersicht, Validierung sowie alle Wizard-Schritte mit Tabellen oder Baeumen. Ausnahme Gewerke-Uebersicht: kein horizontales Scrollen, der Gewerk-Name ist begrenzt (bei wenig Platz bis 120 px), die Bezeichnung fuellt die restliche Breite (mindestens 220 px), gekuerzte Texte stehen im Tooltip. |
 | NFA-034a | Umsetzung: Spalten passen sich beim Fuellen an den Inhalt an (auch Inbetriebnahme-Checkliste); passen nicht alle in die Breite, werden sie bis zur Breite des Spaltenkopfs gestaucht, danach scrollt die Tabelle. Auswahldialoge (GA, KO, Produkt) dehnen die Bezeichnungsspalte. |
 
 ### 4.4 Zuverlaessigkeit (NFA-040)

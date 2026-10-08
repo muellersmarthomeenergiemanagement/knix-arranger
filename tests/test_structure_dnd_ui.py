@@ -150,3 +150,57 @@ def test_topology_view_device_to_other_line():
     assert view._can_drop([sensor], l2)
     view._apply_line_move([sensor], l2)
     assert sensor in l2.devices and sensor.physical_address == "1.2.1"
+
+
+def _gewerk_row(table, room_name: str, code: str) -> int:
+    return next(r for r in range(table.rowCount())
+                if table.item(r, 2).text() == room_name and table.item(r, 4).text() == code)
+
+
+def test_gewerk_view_label_column_shows_and_edits(monkeypatch):
+    """Spalte Bezeichnung wie im Wizard Schritt 5 (FA-403)."""
+    from PySide6.QtCore import QTimer
+    from knix_arranger.ui.views import gewerk_view
+    monkeypatch.setattr(QTimer, "singleShot", staticmethod(lambda _ms, fn: fn()))
+    project = _project()
+    wohnen, _kueche = project.all_rooms
+    wohnen.gewerk_assignments[0].element_labels = ["Decke"]
+    view = GewerkView()
+    bus = MagicMock()
+    view.set_bus(bus)
+    view.set_project(project)
+    table = view._table
+    col = gewerk_view._COL_LABEL
+    assert table.horizontalHeaderItem(col).text() == "Bezeichnung"
+
+    code = wohnen.gewerk_assignments[0].gewerk_code
+    row = _gewerk_row(table, "Wohnen", code)
+    item = table.item(row, col)
+    assert item.text() == "Decke"
+    assert item.flags() & Qt.ItemIsEditable
+    assert not table.item(row, 2).flags() & Qt.ItemIsEditable
+
+    item.setText("Decke ;Wand")
+    assert wohnen.gewerk_assignments[0].element_labels == ["Decke", "Wand"]
+    assert item.text() == "Decke; Wand"
+    bus.begin_change.assert_called_once()
+    bus.emit_functions_changed.assert_called_once()
+
+    # gleicher Text: keine Änderung, keine Neuberechnung
+    item.setText("Decke; Wand")
+    bus.emit_functions_changed.assert_called_once()
+
+
+def test_gewerk_view_label_warns_when_more_texts_than_elements():
+    from knix_arranger.ui.views import gewerk_view
+    project = _project()
+    wohnen, _kueche = project.all_rooms
+    ga = wohnen.gewerk_assignments[0]
+    ga.count = 1
+    ga.element_labels = ["Decke", "Wand"]
+    view = GewerkView()
+    view.set_project(project)
+    item = view._table.item(_gewerk_row(view._table, "Wohnen", ga.gewerk_code),
+                            gewerk_view._COL_LABEL)
+    assert "wird nicht verwendet" in item.toolTip()
+    assert item.foreground().color().name().lower() != "#000000"
