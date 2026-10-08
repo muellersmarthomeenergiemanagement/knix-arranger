@@ -28,7 +28,7 @@
     "Dimmaktor": [1, 2, 4],
     "Jalousieaktor": [2, 4, 8],
     "Heizungsaktor": [4, 6, 8, 12],
-    "DALI-Gateway": [16, 32, 64],
+    "DALI-Gateway": [16],
     "KNX-Schnittstelle": [1, 2, 4],
     "Modbus-KNX-Gateway": [1]
   },

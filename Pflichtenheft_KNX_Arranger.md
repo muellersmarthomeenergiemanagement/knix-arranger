@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.36
+**Version:** 3.37
 **Datum:** 08.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -51,6 +51,7 @@
 | 3.34 | 08.10.2026 | M. Mueller / Claude AI | Warnungen der GA-Generierung in der Validierung, Neuplatzierung ohne alten Platz (FA-620); Sofortmeldung neuer Fehler und Warnungen (FA-620a); Bereichskoppler B.0.0 kein FA-612-Fehler; Gewerke je Raum in der Gebaeude-Ansicht, Mausrad-Schutz der Anzahl (FA-1017) |
 | 3.35 | 08.10.2026 | M. Mueller / Claude AI | Bericht "Raeume nach Gewerken" neu als "Raumbuch KNX" mit Untertitel: Querformat, Uebersicht als Matrix Raeume x Gewerke, Raumblatt mit Bezeichnung, bedienender Taste, Aktorkanal und GA-Bereichen sowie den KNX-Geraeten im Raum (FA-908) |
 | 3.36 | 08.10.2026 | M. Mueller / Claude AI | Szenennummern: Pruefung gleicher Nummern am selben Aktor ueber verschiedene Szenen-GAs (FA-1813), Nummernbereiche je Ebene mit Vorschlag beim Anlegen (FA-1814), Szenenreport mit Szenen je Aktor (FA-1815) |
+| 3.37 | 08.10.2026 | M. Mueller / Claude AI | DALI: Gateway mit hoechstens 16 Gruppen, Gruppen nach Zuteilung im Belegungsplan (Gruppe = Kanal - 1), Anzeige "Gr. n" in Belegungsplan und Raumbuch, Konfiguration ueber die Gateway-Adresse zugeordnet, keine verwaisten Konfigurationen (FA-2805a) |
 
 ---
 
@@ -1424,6 +1425,7 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 | FA-2803 | Das System muss pro DALI-Gateway die zugeordneten KNX-Gruppenadressen fuer die DALI-Steuerung abbilden: GA fuer Schalten (Broadcast und pro Gruppe), GA fuer Dimmen, GA fuer Szenenabruf, GA fuer Statusrueckmeldung (Ist-Wert, Stoerung). Diese GAs werden aus der automatisch generierten GA-Struktur (FA-400) uebernommen und dem DALI-Gateway zugeordnet. **(C)** Umsetzung geplante Projekte: je LDA-Element eine DALI-Gruppe mit allen GAs dieses Elements (Schalten, Dimmen, Wert, Status RM WERT bzw. RM, Szene, Stoerung), ermittelt aus Gewerk, Raum, Element und Funktion der GA; nur Raeume der Linie des Gateways, je Gateway hoechstens 16 Gruppen (weitere Gateways derselben Linie der Reihe nach). Gruppenname aus Raum und Bezeichnung des Elements (FA-403), z.B. "Wohnen Decke". KNiX erzeugt in geplanten Projekten keine Broadcast-GAs; Gruppen-GAs werden nicht als Broadcast eingetragen (bereinigt frueher falsch gesetzte). Die Konfiguration entsteht beim Oeffnen der DALI-Ansicht automatisch, sofern noch keine Gruppen erfasst sind. Die DALI-Geraeteliste enthaelt die Gruppen mit ihren GAs. |
 | FA-2804 | Das System muss DALI-Notbeleuchtung (Emergency Lighting, DALI Part 202/203) unterstuetzen: Kennzeichnung von EVGs als Notlicht-EVGs, Konfiguration des Betriebsmodus (Dauerlicht, Bereitschaft, Automatik), automatische Aufnahme in die Inbetriebnahme-Checkliste (FA-1901) mit spezifischen DALI-Notlicht-Pruefpunkten (Funktionstest, Dauerbetriebstest). **(C)** |
 | FA-2805 | Das System muss eine DALI-Geraete- und Gruppenliste pro Gateway generieren: DALI-Adresse, EVG-Typ, zugehoerige Gruppe(n), Einbauort/Raum, zugeordnete KNX-GAs. Diese Liste fliesst in die Revisionsunterlagen (FA-2100) ein. **(C)** Im Revisionspaket mit EVGs oder Gruppen; bei geplanten Projekten werden die Gruppen dafuer bei Bedarf eingerichtet (wie beim Oeffnen der DALI-Ansicht). |
+| FA-2805a | Geplante Projekte: Je DALI-Element (Gewerk LDA) eine DALI-Gruppe; ein Gateway bedient eine DALI-Linie mit hoechstens 16 Gruppen, mehr Elemente auf einer Linie ergeben ein weiteres Gateway (Bemessung DALI-Gateway 16-fach). Die Gruppen eines Gateways sind die Elemente, die der Belegungsplan ihm zuteilt, in Kanalreihenfolge (Gruppe = Kanal - 1); Belegungsplan, Verknuepfungsmatrix, Topologie, Aktoren-Bericht und Raumbuch zeigen fuer DALI-Gateways "Gr. n" der DALI-Konfiguration. Aendert sich die Zuteilung (Neuberechnung), werden die Gruppen neu abgeleitet, ausser es sind EVGs erfasst oder Gruppen von Hand angelegt. Die DALI-Konfiguration merkt sich die physikalische Adresse des Gateways und findet es darueber nach einer Neuberechnung wieder (EVGs, Gruppen und Szenen bleiben); verwaiste Konfigurationen ohne EVGs werden entfernt, mit EVGs bleiben sie erhalten. |
 | FA-2806 | **Entfallen (25.09.2026, siehe 3.25).** Das System muss die DALI-Konfiguration in den KNXPROJ-Export (FA-2400) einbinden, sofern das Exportformat DALI-spezifische XML-Felder gemaess KNX-Standard unterstuetzt. **(C)** |
 
 ---

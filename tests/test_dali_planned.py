@@ -167,3 +167,66 @@ def test_dali_list_in_revision_package_without_evgs(tmp_path):
     assert (tmp_path / "DALI-Test_DALI_Geraete.pdf").exists()
     (gw,) = project.dali_configs.values()
     assert not gw.devices and len(gw.groups) == 3
+
+
+# ── Bemessung und Zuordnung (Projekt_23: 28 Elemente auf einem "32-fach") ────
+
+def _big_project(elements: int = 20) -> KnxProject:
+    logging.disable(logging.CRITICAL)
+    project = KnxProject(name="DALI gross")
+    floor = Floor(name="Erdgeschoss", short_code="EG", main_group_number=2)
+    rooms = [Room(number=f"E{i:02d}", name=f"Raum {i}",
+                  gewerk_assignments=[GewerkAssignment(gewerk_code="LDA", count=2)])
+             for i in range(1, elements // 2 + 1)]
+    floor.apartments = [Apartment(name="EG", rooms=rooms)]
+    project.areal = Areal(buildings=[Building(name="Haus", wings=[Wing(floors=[floor])])])
+    engine = TopologyEngine(project.config.topology_mode)
+    project.topology = engine.calculate_topology(project.areal)
+    from knix_arranger.services.recalc_service import RecalcService
+    RecalcService().recalc_actors_and_addresses(project)
+    logging.disable(logging.NOTSET)
+    return project
+
+
+def test_more_than_16_elements_need_second_gateway_with_matching_groups():
+    from knix_arranger.services.belegungsplan_service import BelegungsplanService
+    project = _big_project(20)
+    gateways = DaliService().get_dali_gateways_from_topology(project)
+    assert len(gateways) == 2
+    assert all("16-fach" in g.product for g in gateways)
+    assert sorted(len(c.groups) for c in project.dali_configs.values()) == [4, 16]
+    rows = [r for r in BelegungsplanService().generate(project).actor_rows
+            if r.gewerk_code == "LDA" and r.function_name == "E/A"]
+    assert len(rows) == 20
+    # jedes Element hat eine Gruppe, und Gruppe = Kanal - 1
+    assert all(r.dali_group == int(r.channel_number) - 1 for r in rows)
+    assert all(r.channel_label == f"Gr. {r.dali_group}" for r in rows)
+
+
+def test_config_follows_gateway_address_and_keeps_evgs():
+    from knix_arranger.models.dali_config import DaliDevice
+    project = _project()
+    svc = DaliService()
+    svc.configure_planned(project)
+    (device,) = svc.get_dali_gateways_from_topology(project)
+    gw, _groups_ = _groups(project)
+    gw.devices = [DaliDevice(short_address=0, name="EVG Decke")]
+    assert gw.gateway_address == device.physical_address
+    # Neuberechnung legt das Gateway mit neuer ID an
+    old_id = device.id
+    device.id = "neue-id"
+    svc.configure_planned(project)
+    assert list(project.dali_configs) == ["neue-id"]
+    assert project.dali_configs["neue-id"] is gw and gw.devices[0].name == "EVG Decke"
+    assert old_id not in project.dali_configs
+
+
+def test_orphan_config_without_evgs_removed_with_evgs_kept():
+    from knix_arranger.models.dali_config import DaliDevice, DaliGateway
+    project = _project()
+    project.dali_configs["weg"] = DaliGateway(gateway_device_id="weg", name="alt")
+    project.dali_configs["bleibt"] = DaliGateway(
+        gateway_device_id="bleibt", name="mit EVG", devices=[DaliDevice(short_address=1)])
+    DaliService().configure_planned(project)
+    assert "weg" not in project.dali_configs
+    assert "bleibt" in project.dali_configs

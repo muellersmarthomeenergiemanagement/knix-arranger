@@ -132,6 +132,17 @@ class ActorRow:
                                  # _collect_actor_rows(). Nur zur Anzeige-Disambiguierung,
                                  # NICHT fuer die Kanal-Gruppierung verwenden (die haengt
                                  # bewusst an function_name/co.name, siehe dortiger Kommentar).
+    # DALI-Gateway: Gruppe der DALI-Konfiguration (0–15), None = kein DALI.
+    # Angezeigt statt der fortlaufenden Kanalnummer, damit Belegungsplan,
+    # Raumbuch und DALI-Konfiguration dieselbe Nummer zeigen.
+    dali_group: int | None = None
+
+    @property
+    def channel_label(self) -> str:
+        """Kanal zur Anzeige: "Gr. 3" bei DALI-Gateways, sonst die Kanalnummer."""
+        if self.dali_group is not None:
+            return f"Gr. {self.dali_group}"
+        return self.channel_number
 
 
 @dataclass
@@ -245,6 +256,36 @@ def group_cos_for_display(cos: list) -> list[tuple[str, list]]:
     if singles:
         result.append(("", sorted(singles, key=lambda co: co.object_number)))
     return result
+
+
+def _apply_dali_groups(project, rows: list[ActorRow]) -> None:
+    """DALI-Gruppennummer der Konfiguration an die Zeilen der Gateways: über
+    die GAs der Gruppen (Schalten, Dimmen, Wert, Status, Szene, Störung)."""
+    devices = {d.id: d.physical_address for a in project.topology.areas
+               for l in a.lines for d in l.devices}
+    group_by_ga: dict[tuple[str, str], int] = {}
+    for gateway in project.dali_configs.values():
+        address = devices.get(gateway.gateway_device_id)
+        if not address:
+            continue
+        for group in gateway.groups:
+            for field_name in ("ga_switch", "ga_dim", "ga_value", "ga_status",
+                               "ga_scene", "ga_fault"):
+                ga = getattr(group, field_name, "")
+                if ga:
+                    group_by_ga[(address, ga)] = group.number
+    if not group_by_ga:
+        return
+    # Alle Zeilen eines Kanals erhalten die Gruppe (auch z.B. RM ohne eigenes Feld)
+    by_channel: dict[tuple[str, str], int] = {}
+    for row in rows:
+        number = group_by_ga.get((row.physical_address, row.ga_address))
+        if number is not None and row.channel_number:
+            by_channel[(row.physical_address, row.channel_number)] = number
+    for row in rows:
+        number = by_channel.get((row.physical_address, row.channel_number))
+        if number is not None:
+            row.dali_group = number
 
 
 def group_actor_rows_by_channel(rows: list[ActorRow]) -> list[tuple[str, list[ActorRow]]]:
@@ -363,6 +404,7 @@ class BelegungsplanService:
         data = BelegungsplanData(project_name=project.name)
         data.sensor_rows = self._collect_sensor_rows(project, ga_index, floor_index, zone_index)
         data.actor_rows = self._collect_actor_rows(project, floor_index, zone_index)
+        _apply_dali_groups(project, data.actor_rows)
         return data
 
     # ── Hilfsmethoden ──

@@ -233,7 +233,7 @@ class BelegungsplanExportService:
                     row.uv_location,
                     row.actor_type,
                     row.physical_address,
-                    row.channel_number,
+                    row.channel_label,
                     row.room_number,
                     row.zone_name,
                     row.room_name,
@@ -342,7 +342,7 @@ class BelegungsplanExportService:
             for row in data.actor_rows:
                 a_rows.append([
                     f"{row.physical_address}  {row.actor_type}".strip(),
-                    row.channel_number, row.room_number, row.function_name,
+                    row.channel_label, row.room_number, row.function_name,
                     ga_cell(row.ga_address, row.ga_designation), row.dpt,
                 ])
             pdf.add_table(a_headers, a_rows, col_widths=a_widths)

@@ -86,6 +86,11 @@ class RecalcService:
             SensorService().auto_assign_functions(all_rooms, project.group_addresses)
             logger.info("RecalcService: function_assignments aktualisiert.")
 
+            # DALI-Gruppen folgen der Zuteilung im Belegungsplan (neue Gateways,
+            # verschobene Elemente) -- nicht erst beim Öffnen der DALI-Ansicht
+            from .dali_service import DaliService
+            DaliService().configure_planned(project)
+
         ga_count = len(project.group_addresses.all_addresses())
         return {"ok": True, "actor_count": actor_count, "ga_count": ga_count}
 

@@ -119,10 +119,10 @@ def klartext_from_gas(gas: list, room) -> str:
     return ""
 
 
-def _channel_text(actor_type: str, channels: list[str]) -> str:
+def _channel_text(channels: list[str], dali: bool = False) -> str:
     """Kanäle eines Geräts kompakt: ["4", "5", "6", "9"] -> "K4–6, K9";
-    DALI-Gruppen "Gr. 3–4"."""
-    prefix = "Gr. " if "DALI" in (actor_type or "").upper() else "K"
+    Gruppen der DALI-Konfiguration "Gr. 3–4"."""
+    prefix = "Gr. " if dali else "K"
     numbers = sorted({int(c) for c in channels if c.isdigit()})
     others = sorted({c for c in channels if c and not c.isdigit()})
     parts: list[str] = []
@@ -138,12 +138,12 @@ def _channel_text(actor_type: str, channels: list[str]) -> str:
     return ", ".join(parts)
 
 
-def _outputs_text(found: dict[tuple[str, str], list[str]]) -> list[str]:
-    """Je Aktor eine Zeile "Typ Adresse · Kanäle"."""
+def _outputs_text(found: dict[tuple[str, str, bool], list[str]]) -> list[str]:
+    """Je Aktor eine Zeile "Typ Adresse · Kanäle" (DALI: Gruppen)."""
     lines = []
-    for (actor_type, address), channels in found.items():
+    for (actor_type, address, dali), channels in found.items():
         head = " ".join(p for p in (actor_type, address) if p)
-        channel = _channel_text(actor_type, channels)
+        channel = _channel_text(channels, dali)
         lines.append(head + (f" · {channel}" if channel else ""))
     return lines
 
@@ -204,13 +204,16 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
             central = category == "zentral"
             gewerk = catalog.get(short) if (short and not central) else None
             addresses = [ga.address for ga in gas]
-            found: dict[tuple[str, str], list[str]] = {}
+            found: dict[tuple[str, str, bool], list[str]] = {}
             operated: list[str] = []
             for address in addresses:
                 for row in outputs_by_ga.get(address, []):
-                    channels = found.setdefault((row.actor_type, row.physical_address), [])
-                    if row.channel_number and row.channel_number not in channels:
-                        channels.append(row.channel_number)
+                    dali = row.dali_group is not None
+                    channels = found.setdefault((row.actor_type, row.physical_address, dali), [])
+                    channel = (str(row.dali_group) if row.dali_group is not None
+                               else row.channel_number)
+                    if channel and channel not in channels:
+                        channels.append(channel)
                     for location in (row.uv_location or "").split(","):
                         location = _clean_location(location)
                         if location and location not in distributions:

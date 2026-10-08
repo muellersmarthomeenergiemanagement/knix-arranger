@@ -412,6 +412,35 @@ class DaliService:
 
     # ── Konfiguration anlegen/abrufen ─────────────────────────────────────────
 
+    def reconcile_configs(self, project, gateways: list | None = None) -> None:
+        """Konfigurationen ihren Gateways zuordnen. Die Device.id eines
+        Gateways ändert sich bei jeder Neuberechnung; die Konfiguration wird
+        dann über die physikalische Adresse wiedergefunden (EVGs, Gruppen und
+        Szenen bleiben). Verwaiste Konfigurationen ohne EVGs werden entfernt
+        (Gruppen lassen sich neu ableiten), mit EVGs bleiben sie erhalten."""
+        if gateways is None:
+            gateways = self.get_dali_gateways_from_topology(project)
+        by_id = {d.id: d for d in gateways}
+        by_address = {d.physical_address: d for d in gateways if d.physical_address}
+        for key, config in list(project.dali_configs.items()):
+            device = by_id.get(key)
+            if device is not None:
+                config.gateway_address = device.physical_address
+                continue
+            device = by_address.get(config.gateway_address)
+            if device is not None and device.id not in project.dali_configs:
+                del project.dali_configs[key]
+                config.gateway_device_id = device.id
+                project.dali_configs[device.id] = config
+                logger.info(f"DALI: Konfiguration '{config.name}' dem Gateway "
+                            f"{device.physical_address} wieder zugeordnet.")
+            elif not config.devices:
+                del project.dali_configs[key]
+                logger.debug(f"DALI: verwaiste Konfiguration '{key[:8]}' entfernt.")
+            else:
+                logger.warning(f"DALI: Konfiguration '{config.name}' mit "
+                               f"{len(config.devices)} EVGs ohne Gateway – bleibt erhalten.")
+
     def get_or_create(self, project, gateway_device_id: str, name: str = "") -> DaliGateway:
         """Gibt die DaliGateway-Konfiguration für ein Device zurück; legt sie an falls nötig."""
         if gateway_device_id not in project.dali_configs:
@@ -657,14 +686,17 @@ class DaliService:
                                       and ga.function_name.upper() == "RM WERT"):
                 slots[field] = ga.address
 
-        keys = sorted(groups, key=lambda k: (room_order[k[0]], k[1]))
-        # Mehrere DALI-Gateways auf derselben Linie: der Reihe nach je 16 Gruppen
-        if line is not None:
-            line_gateways = [d.id for d in line.devices if self._is_dali_gateway(d)]
-            idx = line_gateways.index(device.id) if device.id in line_gateways else 0
-            keys = keys[idx * DALI_MAX_GROUPS:(idx + 1) * DALI_MAX_GROUPS]
-        else:
-            keys = keys[:DALI_MAX_GROUPS]
+        keys = self._planned_elements_of_gateway(project, device, groups)
+        if keys is None:
+            # Ohne Zuteilung im Belegungsplan: Räume der Linie, mehrere
+            # Gateways auf derselben Linie der Reihe nach je 16 Gruppen
+            keys = sorted(groups, key=lambda k: (room_order[k[0]], k[1]))
+            if line is not None:
+                line_gateways = [d.id for d in line.devices if self._is_dali_gateway(d)]
+                idx = line_gateways.index(device.id) if device.id in line_gateways else 0
+                keys = keys[idx * DALI_MAX_GROUPS:(idx + 1) * DALI_MAX_GROUPS]
+            else:
+                keys = keys[:DALI_MAX_GROUPS]
 
         room_by_id = {r.id: r for r in rooms}
         dali_gw.groups = []
@@ -675,6 +707,48 @@ class DaliService:
         logger.info(f"DALI: {len(dali_gw.groups)} Gruppen aus der Planung für "
                     f"Gateway '{dali_gw.name}'.")
         return len(dali_gw.groups)
+
+    @staticmethod
+    def _planned_elements_of_gateway(project, device, groups: dict) -> list | None:
+        """LDA-Elemente (room_id, Element), die der Belegungsplan diesem
+        Gateway zuteilt, in Kanalreihenfolge – so ist Gruppe = Kanal - 1 und
+        Belegungsplan, Raumbuch und DALI-Konfiguration stimmen überein.
+        None, wenn der Belegungsplan dem Gateway nichts zuteilt."""
+        from .belegungsplan_service import BelegungsplanService
+        ga_by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+        by_channel: dict[int, tuple[str, int]] = {}
+        for row in BelegungsplanService().generate(project).actor_rows:
+            if row.physical_address != device.physical_address or row.gewerk_code != "LDA":
+                continue
+            ga = ga_by_address.get(row.ga_address)
+            if ga is None or not row.channel_number.isdigit():
+                continue
+            key = (ga.room_id, ga.element_number)
+            if key in groups:
+                by_channel.setdefault(int(row.channel_number), key)
+        if not by_channel:
+            return None
+        keys = list(dict.fromkeys(by_channel[c] for c in sorted(by_channel)))
+        return keys[:DALI_MAX_GROUPS]
+
+    def _planned_groups_outdated(self, project, dali_gw: DaliGateway, device) -> bool:
+        """Teilt der Belegungsplan dem Gateway andere LDA-Elemente zu als seine
+        Gruppen enthalten (z.B. nach einer Neuberechnung mit einem weiteren
+        Gateway auf der Linie)?"""
+        ga_by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+        # Von Hand angelegte oder geänderte Gruppen (Schalt-GA kein LDA-Element)
+        # bleiben unangetastet
+        if any(ga_by_address.get(g.ga_switch) is None
+               or ga_by_address[g.ga_switch].gewerk_code != "LDA"
+               for g in dali_gw.groups):
+            return False
+        current = [(ga_by_address[g.ga_switch].room_id, ga_by_address[g.ga_switch].element_number)
+                   for g in dali_gw.groups]
+        groups = {(ga.room_id, ga.element_number): True
+                  for ga in ga_by_address.values()
+                  if ga.gewerk_code == "LDA" and ga.room_id and not ga.is_placeholder}
+        wanted = self._planned_elements_of_gateway(project, device, groups)
+        return wanted is not None and wanted != current
 
     @staticmethod
     def _planned_group_name(room, element: int) -> str:
@@ -698,15 +772,27 @@ class DaliService:
         group_gas = {ga.address for ga in project.group_addresses.all_addresses()
                      if ga.gewerk_code == "LDA" and ga.room_id}
         created = 0
-        for device in self.get_dali_gateways_from_topology(project):
+        gateways = self.get_dali_gateways_from_topology(project)
+        self.reconcile_configs(project, gateways)
+        for device in gateways:
             gw = self.get_or_create(project, device.id,
                                     name=device.product_name or device.product or "DALI-Gateway")
+            gw.gateway_address = device.physical_address
             for attr in ("ga_switch_broadcast", "ga_dim_broadcast", "ga_scene",
                          "ga_status_value", "ga_status_fault"):
                 if getattr(gw, attr) in group_gas:
                     setattr(gw, attr, "")
             if not gw.groups:
                 created += self._derive_groups(gw, device, project)
+            elif self._planned_groups_outdated(project, gw, device):
+                if gw.devices:
+                    logger.warning(f"DALI: Gruppen von '{gw.name}' passen nicht mehr zur "
+                                   f"Planung, bleiben wegen erfasster EVGs unverändert.")
+                else:
+                    gw.groups = []
+                    created += self._derive_groups(gw, device, project)
+            # Name folgt dem Gerät (z.B. "32-fach" -> "16-fach" nach der Neuberechnung)
+            gw.name = device.product_name or device.product or gw.name
         return created
 
     def _derive_groups(self, dali_gw: DaliGateway, device, project) -> int:
@@ -994,12 +1080,9 @@ class DaliService:
         if not gateways:
             return 0
 
-        # Veraltete Configs entfernen (gateway_device_id nicht mehr in Topologie)
-        active_ids = {d.id for d in gateways}
-        stale = [k for k in project.dali_configs if k not in active_ids]
-        for k in stale:
-            del project.dali_configs[k]
-            logger.debug(f"DALI: veraltete Config '{k[:8]}' entfernt.")
+        # Konfigurationen über die Adresse wieder zuordnen, verwaiste ohne EVGs
+        # entfernen (früher: alle verwaisten gelöscht, auch mit erfassten EVGs)
+        self.reconcile_configs(project, gateways)
 
         total_linked = 0
         for device in gateways:
@@ -1008,6 +1091,7 @@ class DaliService:
                 device.id,
                 name=device.product_name or device.product or "DALI-Gateway",
             )
+            gw.gateway_address = device.physical_address
             # Broadcast-GAs nur verknüpfen wenn noch leer
             if not (gw.ga_switch_broadcast or gw.ga_dim_broadcast):
                 total_linked += self.link_gas_from_structure(gw, project)

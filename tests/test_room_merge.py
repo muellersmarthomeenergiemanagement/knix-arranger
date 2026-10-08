@@ -121,8 +121,10 @@ def test_dali_group_and_scene_names_follow(gewerk_catalog):
     project.scenes = [Scene(name=label, scope="central", actions=[
         SceneAction(group_address=label, ga_address=ld)])]
     merge_rooms(project, halle, galerie)
-    RecalcService().recalc_actors_and_addresses(project)
+    # Umbenennung beim Zusammenführen (die Neuberechnung entfernt danach die
+    # Test-Konfiguration, sie gehört zu keinem Gateway)
     assert project.dali_configs["gw"].groups[0].name == "Galerie Spots"
+    RecalcService().recalc_actors_and_addresses(project)
     new_label = _gas_of(project, galerie)[ld]
     assert project.scenes[0].actions[0].group_address == new_label
     assert project.scenes[0].name == new_label

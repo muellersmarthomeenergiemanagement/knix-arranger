@@ -121,6 +121,9 @@ class DaliGateway:
     """
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     gateway_device_id: str = ""        # Device.id in der Topologie
+    # Physikalische Adresse des Gateways: die Device.id ändert sich bei jeder
+    # Neuberechnung, darüber findet die Konfiguration ihr Gateway wieder
+    gateway_address: str = ""
     name: str = ""                     # Anzeigename
 
     devices: list[DaliDevice] = field(default_factory=list)   # max 64
@@ -143,6 +146,7 @@ class DaliGateway:
         return {
             "id": self.id,
             "gateway_device_id": self.gateway_device_id,
+            "gateway_address": self.gateway_address,
             "name": self.name,
             "devices": [d.to_dict() for d in self.devices],
             "groups": [g.to_dict() for g in self.groups],
@@ -160,6 +164,7 @@ class DaliGateway:
         return cls(
             id=d.get("id", str(uuid.uuid4())),
             gateway_device_id=d.get("gateway_device_id", ""),
+            gateway_address=d.get("gateway_address", ""),
             name=d.get("name", ""),
             devices=[DaliDevice.from_dict(x) for x in d.get("devices", [])],
             groups=[DaliGroup.from_dict(x) for x in d.get("groups", [])],

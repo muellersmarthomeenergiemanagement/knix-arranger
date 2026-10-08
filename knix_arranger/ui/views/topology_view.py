@@ -489,7 +489,9 @@ class TopologyView(QWidget):
         for ch_num, ch_rows in group_actor_rows_by_channel(rows):
             first = ch_rows[0]
             context = " / ".join(p for p in [first.gewerk_code, first.room_name] if p)
-            label = f"Kanal {ch_num}" + (f" – {context}" if context else "")
+            channel = (first.channel_label if first.dali_group is not None
+                       else f"Kanal {ch_num}")
+            label = channel + (f" – {context}" if context else "")
             ch_item = QTreeWidgetItem(dev_item, [
                 label, "", "", "", f"{len(ch_rows)} GA(s)",
             ])

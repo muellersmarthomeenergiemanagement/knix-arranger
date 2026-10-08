@@ -98,8 +98,8 @@ def test_raumblatt_bereiche_und_kanaele():
     assert ga_ranges(["1/0/20", "1/0/21", "1/0/22", "1/0/25", "1/0/29",
                       "1/6/20", "1/6/22", "1/0/60"]) == "1/0/20–29 · 1/0/60 · 1/6/20–22"
     assert ga_ranges([]) == ""
-    assert _channel_text("Jalousieaktor 8-fach", ["1", "2", "3", "7"]) == "K1–3, K7"
-    assert _channel_text("DALI-Gateway 32-fach", ["3", "4"]) == "Gr. 3–4"
+    assert _channel_text(["1", "2", "3", "7"]) == "K1–3, K7"
+    assert _channel_text(["0", "3", "4"], dali=True) == "Gr. 0, Gr. 3–4"
 
 
 def test_raumblatt_klartext_aus_ga_namen():

@@ -1510,7 +1510,8 @@ class ReportService:
                     room = " · ".join(p for p in (
                         first.floor_name, first.zone_name,
                         f"{first.room_number} {first.room_name}".strip()) if p)
-                    label = f"Kanal {channel}"
+                    label = (first.channel_label if first.dali_group is not None
+                             else f"Kanal {channel}")
                     function = (self._gewerk_label(first.gewerk_code) or "–",
                                 _clean_location(room))
                 gas = dict.fromkeys(ga_text(r.ga_address) for r in ch_rows)

@@ -386,7 +386,7 @@ class LinkingMatrixView(QWidget):
             color = _COLOR_ACTOR_ODD if r_idx % 2 == 0 else None
             data = [
                 row.floor_name, row.line_name, row.uv_location, row.actor_type,
-                row.physical_address, row.channel_number,
+                row.physical_address, row.channel_label,
                 row.zone_name, row.room_number, row.room_name,
                 row.gewerk_code, row.function_name, row.ga_designation,
                 row.ga_address, row.dpt,
