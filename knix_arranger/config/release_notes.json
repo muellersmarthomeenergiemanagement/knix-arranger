@@ -2,6 +2,19 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.2.4",
+      "date": "2026-10-09",
+      "neu": [
+        "Topologie: Rechtsklick auf eine Linie › «In anderen Bereich verschieben» – die Linie erhält im Zielbereich die nächste freie Nummer, Koppler und Geräte die neuen Adressen (z.B. Gartenhaus von Linie 1.4 nach 2.2).",
+        "Topologie: Rechtsklick auf eine Linie › «Zusammenlegen mit» – Räume und Geräte wechseln auf die Ziellinie, Linienkoppler und Spannungsversorgung der aufgelösten Linie entfallen.",
+        "Gebäudestruktur: Rechtsklick auf einen Sensor › «Sensortyp» – z.B. beim Gewerk Alarm statt des vorgeschlagenen Bewegungsmelders einen Wassermelder wählen. Die Wahl bleibt bei jeder Neuberechnung erhalten."
+      ],
+      "verbessert": [
+        "Gebäudestruktur: Räume per Rechtsklick › «Verschieben nach» in eine andere Wohnung/Zone umhängen, auch mehrere markierte Räume zusammen – ohne im Baum ziehen zu müssen.",
+        "Gebäudestruktur: ganze Wohnungen/Zonen auf ein anderes Stockwerk ziehen oder per Rechtsklick verschieben, auch in ein anderes Gebäude. Die Gruppenadressen folgen der Hauptgruppe des neuen Stockwerks."
+      ]
+    },
+    {
       "version": "1.2.3",
       "date": "2026-10-08",
       "neu": [
