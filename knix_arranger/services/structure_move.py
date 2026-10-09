@@ -5,19 +5,22 @@ Reine Datenoperationen ohne Qt. Die Ansichten fragen mit den can_*-Funktionen,
 ob ein Ablegen erlaubt ist, und lösen danach die übliche Neuberechnung aus.
 
 a) Raum auf eine Wohnung/Zone oder ein Stockwerk ziehen: der Raum wechselt
-   dorthin (physisches Stockwerk = room.floor_id).
+   dorthin (physisches Stockwerk = room.floor_id). Eine ganze Wohnung/Zone
+   lässt sich auf ein anderes Stockwerk umhängen, auch in ein anderes Gebäude.
 b) Gerät auf eine andere Linie ziehen: bei geplanten Projekten wechselt der
    Raum des Geräts die Linie (die Geräte werden aus der Zuordnung Raum → Linie
    abgeleitet); manuell hinzugefügte und importierte Geräte wandern selbst
    und erhalten eine freie Teilnehmernummer der Ziellinie. Programmierte
-   Geräte bleiben, wo sie sind.
+   Geräte bleiben, wo sie sind. Eine ganze Linie lässt sich in einen anderen
+   Bereich umhängen (z.B. Gartenhaus → Bereich Nebengebäude) oder mit einer
+   anderen Linie zusammenlegen.
 c) Gewerk aus dem Katalog auf einen Raum ziehen (fügt es hinzu bzw. erhöht
    die Anzahl) oder eine Gewerk-Zuweisung in einen anderen Raum ziehen.
 """
 from __future__ import annotations
 
 from ..models.building import Apartment, Areal, Floor, GewerkAssignment, Room
-from ..models.topology import Device, Line, Topology
+from ..models.topology import Area, Device, Line, Topology
 
 MAX_GEWERK_COUNT = 20  # wie die Anzahl-Auswahl der Gewerke-Übersicht
 
@@ -62,6 +65,27 @@ def move_room(areal: Areal, room: Room, target: Apartment) -> bool:
     floor = floor_of(areal, target)
     if floor is not None:
         room.floor_id = floor.id
+    return True
+
+
+def can_move_apartment(areal: Areal, apt: Apartment, target: Floor | None) -> bool:
+    """Nicht auf das eigene Stockwerk und nicht neben eine gleichnamige Zone
+    (gleicher Name = dieselbe Zone, siehe Areal.is_multi_zone)."""
+    source = floor_of(areal, apt)
+    return (target is not None and source is not None and target is not source
+            and not any(a.name == apt.name for a in target.apartments))
+
+
+def move_apartment(areal: Areal, apt: Apartment, target: Floor) -> bool:
+    """Hängt eine Wohnung/Zone samt Räumen auf ein anderes Stockwerk um.
+    Die Gruppenadressen folgen bei der Neuberechnung der Hauptgruppe des
+    neuen Stockwerks."""
+    if not can_move_apartment(areal, apt, target):
+        return False
+    floor_of(areal, apt).apartments.remove(apt)
+    target.apartments.append(apt)
+    for room in apt.rooms:
+        room.floor_id = target.id
     return True
 
 
@@ -151,6 +175,82 @@ def move_room_to_line(topology: Topology, room_id: str, target: Line) -> bool:
             if room_id in line.assigned_room_ids:
                 line.assigned_room_ids.remove(room_id)
     target.assigned_room_ids.append(room_id)
+    return True
+
+
+def free_line_number(area: Area) -> int:
+    """Kleinste freie Liniennummer 1-15 im Bereich, 0 wenn voll."""
+    used = {line.line_number for line in area.lines}
+    return next((n for n in range(1, 16) if n not in used), 0)
+
+
+def can_move_line(topology: Topology, line: Line, target: Area) -> bool:
+    source = _area_of(topology, line)
+    return (source is not None and target is not source
+            and bool(free_line_number(target))
+            and not any(d.is_programmed for d in line.devices))
+
+
+def move_line_to_area(topology: Topology, line: Line, target: Area) -> str:
+    """Linie in einen anderen Bereich: sie erhält dort die kleinste freie
+    Nummer, Koppler und Geräte die neuen Adressen (Teilnehmernummern bleiben).
+    Nicht bei programmierten Geräten – deren Adresse steht im Gerät. Gibt die
+    neue Linienadresse "B.L" zurück, leer wenn nicht möglich."""
+    if not can_move_line(topology, line, target):
+        return ""
+    source = _area_of(topology, line)
+    old_prefix = f"{source.area_number}.{line.line_number}."
+    number = free_line_number(target)
+    source.lines.remove(line)
+    line.line_number = number
+    target.lines.append(line)
+    target.lines.sort(key=lambda l: l.line_number)
+    new_prefix = f"{target.area_number}.{number}."
+    if line.coupler_address:
+        line.coupler_address = f"{new_prefix}0"
+    for device in line.devices:
+        if device.physical_address.startswith(old_prefix):
+            device.physical_address = new_prefix + device.physical_address[len(old_prefix):]
+    return f"{target.area_number}.{number}"
+
+
+def _wandering_devices(topology: Topology, line: Line) -> list[Device]:
+    """Geräte, die beim Zusammenlegen selbst die Linie wechseln."""
+    return [d for d in line.devices
+            if d.device_type not in ("coupler", "power_supply")
+            and move_kind(topology, d) == "device"]
+
+
+def can_merge_lines(topology: Topology, source: Line, target: Line) -> bool:
+    if (source is target or _area_of(topology, source) is None
+            or _area_of(topology, target) is None
+            or any(d.is_programmed for d in source.devices)):
+        return False
+    used = {d.physical_address.split(".")[-1] for d in target.devices}
+    free = sum(1 for n in range(1, 256) if str(n) not in used)
+    return len(_wandering_devices(topology, source)) <= free
+
+
+def merge_lines(topology: Topology, source: Line, target: Line) -> bool:
+    """Linie source in target aufgehen lassen und entfernen. Bei geplanten
+    Projekten wechseln die Räume (die Neuberechnung legt die Geräte auf der
+    Ziellinie an, gleichartige Aktoren werden dabei zusammengelegt); manuell
+    hinzugefügte und importierte Geräte wandern selbst mit einer freien
+    Teilnehmernummer. Koppler und Speisung der aufgelösten Linie entfallen.
+    Nicht bei programmierten Geräten."""
+    if not can_merge_lines(topology, source, target):
+        return False
+    for room_id in source.assigned_room_ids:
+        if room_id not in target.assigned_room_ids:
+            target.assigned_room_ids.append(room_id)
+    for floor_id in source.assigned_floor_ids:
+        if floor_id not in target.assigned_floor_ids:
+            target.assigned_floor_ids.append(floor_id)
+    source.assigned_room_ids = []
+    for device in _wandering_devices(topology, source):
+        move_device(topology, device, target)
+    _area_of(topology, source).lines.remove(source)
+    target.update_device_count()
     return True
 
 

@@ -14,7 +14,10 @@ from ...services.building_service import BuildingService
 from ...services.belegungsplan_service import (
     build_ga_by_designation, group_cos_for_display, resolve_ga_display,
 )
-from ...services.structure_move import move_room, room_target_on_floor, can_move_room
+from ...services.structure_move import (
+    can_move_apartment, can_move_room, move_apartment, move_room, room_target_on_floor,
+)
+from ...services.sensor_service import SENSOR_TYPE_CHOICES, sensor_assignments, set_sensor_type
 from ..column_utils import fit_columns
 from ..widgets.drag_drop import DragDropTree
 
@@ -94,7 +97,9 @@ class BuildingView(QWidget):
         self._tree.drag_data = self._drag_data
         self._tree.can_drop = self._can_drop
         self._tree.on_drop = self._on_drop
-        self._tree.setToolTip("Räume lassen sich auf eine Wohnung/Zone oder ein Stockwerk ziehen.")
+        self._tree.setToolTip("Räume lassen sich auf eine Wohnung/Zone oder ein Stockwerk ziehen, "
+                              "Wohnungen/Zonen auf ein Stockwerk – oder per "
+                              "Rechtsklick › Verschieben nach umhängen.")
         self._tree.itemExpanded.connect(lambda _: fit_columns(self._tree))
         self._tree.setHeaderLabels(["Element", "Typ", "Adresse", "Details"])
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -479,7 +484,7 @@ class BuildingView(QWidget):
     @staticmethod
     def _drag_data(item: QTreeWidgetItem):
         data = item.data(0, Qt.UserRole)
-        return data[1] if data and data[0] == "room" else None
+        return data[1] if data and data[0] in ("room", "apartment") else None
 
     def _drop_apartment(self, room: Room, target) -> Apartment | None:
         kind, obj = target
@@ -492,13 +497,106 @@ class BuildingView(QWidget):
     def _can_drop(self, rooms: list, target) -> bool:
         if not self._areal or not target:
             return False
+        if any(isinstance(obj, Apartment) for obj in rooms):
+            # Zonen nur auf ein Stockwerk, nicht gemischt mit Räumen
+            return (target[0] == "floor"
+                    and all(isinstance(obj, Apartment) for obj in rooms)
+                    and any(can_move_apartment(self._areal, a, target[1]) for a in rooms))
         return any(
             can_move_room(self._areal, room, self._drop_apartment(room, target))
             for room in rooms
         )
 
     def _on_drop(self, rooms: list, target) -> None:
-        moves = [(room, self._drop_apartment(room, target)) for room in rooms]
+        if rooms and isinstance(rooms[0], Apartment):
+            self._move_apartments(rooms, target[1])
+            return
+        self._move_rooms([(room, self._drop_apartment(room, target)) for room in rooms])
+
+    def _add_apartment_move_menu(self, menu: QMenu, apt: Apartment) -> QMenu:
+        """Untermenü «Verschieben nach» mit allen Stockwerken, auch anderer
+        Gebäude (z.B. Gartenhaus → Nebengebäude)."""
+        sub = menu.addMenu("Verschieben nach")
+        multi_building = len(self._areal.buildings) > 1
+        for building in self._areal.buildings:
+            for floor in building.all_floors:
+                label = f"{floor.name} – {building.name}" if multi_building else floor.name
+                action = sub.addAction(
+                    label, lambda f=floor: self._move_apartments([apt], f))
+                action.setEnabled(can_move_apartment(self._areal, apt, floor))
+        return sub
+
+    def _move_apartments(self, apartments: list, floor: Floor) -> None:
+        apartments = [a for a in apartments if can_move_apartment(self._areal, a, floor)]
+        if not apartments:
+            return
+        bus = getattr(self, "_bus", None)
+        if bus:
+            names = ", ".join(f"»{a.name}«" for a in apartments)
+            bus.begin_change(f"{names} nach »{floor.name}« verschieben")
+        for apt in apartments:
+            move_apartment(self._areal, apt, floor)
+        self._refresh_tree()
+        self.structure_changed.emit()
+
+    def _selected_rooms(self, clicked: Room) -> list[Room]:
+        """Markierte Räume; liegt der angeklickte Raum ausserhalb der
+        Markierung, nur dieser."""
+        rooms = [d[1] for d in (i.data(0, Qt.UserRole) for i in self._tree.selectedItems())
+                 if d and d[0] == "room"]
+        return rooms if clicked in rooms else [clicked]
+
+    def _add_move_menu(self, menu: QMenu, clicked: Room) -> QMenu:
+        """Untermenü «Verschieben nach» mit allen Wohnungen/Zonen – Alternative
+        zum Ziehen, wenn das Ziel im Baum weit entfernt oder zugeklappt ist."""
+        rooms = self._selected_rooms(clicked)
+        sub = menu.addMenu("Verschieben nach" if len(rooms) == 1
+                           else f"{len(rooms)} Räume verschieben nach")
+        multi_building = len(self._areal.buildings) > 1
+        for building in self._areal.buildings:
+            for floor in building.all_floors:
+                for apt in floor.apartments:
+                    label = f"{apt.name}  ({floor.name})"
+                    if multi_building:
+                        label = f"{label} – {building.name}"
+                    action = sub.addAction(
+                        label, lambda a=apt: self._move_rooms([(r, a) for r in rooms]))
+                    action.setEnabled(any(can_move_room(self._areal, r, apt) for r in rooms))
+        sub.setEnabled(not sub.isEmpty())
+        return sub
+
+    # ------------------------------------------------------------------
+    # Sensortyp (FA-1407)
+    # ------------------------------------------------------------------
+
+    def _add_sensor_type_menu(self, menu: QMenu, be, room: Room) -> QMenu | None:
+        """Untermenü «Sensortyp» für Sensoren aus Gewerken, z.B. Gewerk A:
+        Bewegungsmelder → Wassermelder."""
+        if be.is_operable or not sensor_assignments(room, be):
+            return None
+        sub = menu.addMenu("Sensortyp")
+        choices = list(SENSOR_TYPE_CHOICES)
+        if be.element_type not in choices:
+            choices.insert(0, be.element_type)
+        for sensor_type in choices:
+            action = sub.addAction(
+                sensor_type, lambda t=sensor_type: self._set_sensor_type(room, be, t))
+            action.setCheckable(True)
+            action.setChecked(sensor_type == be.element_type)
+        return sub
+
+    def _set_sensor_type(self, room: Room, be, sensor_type: str) -> None:
+        old = be.element_type
+        if old == sensor_type:
+            return
+        bus = getattr(self, "_bus", None)
+        if bus:
+            bus.begin_change(f"Sensortyp »{old}« → »{sensor_type}« ({room.name})")
+        if set_sensor_type(room, be, sensor_type):
+            self._refresh_tree()
+            self.structure_changed.emit()
+
+    def _move_rooms(self, moves: list) -> None:
         moves = [(r, a) for r, a in moves if can_move_room(self._areal, r, a)]
         if not moves:
             return
@@ -766,11 +864,13 @@ class BuildingView(QWidget):
             menu.addAction("Löschen",                 self._delete_selected)
         elif kind == "apartment":
             menu.addAction("Raum hinzufügen",      self._add_room)
+            self._add_apartment_move_menu(menu, data[1])
             menu.addAction("Umbenennen",           self._rename_selected)
             menu.addSeparator()
             menu.addAction("Löschen",              self._delete_selected)
         elif kind == "room":
             menu.addAction("Verteiler hinzufügen", self._add_verteiler)
+            self._add_move_menu(menu, data[1])
             menu.addAction("Umbenennen",           self._rename_selected)
             menu.addSeparator()
             menu.addAction("Löschen",              self._delete_selected)
@@ -779,6 +879,7 @@ class BuildingView(QWidget):
             menu.addSeparator()
             menu.addAction("Löschen",              self._delete_selected)
         elif kind == "bedienelement":
+            self._add_sensor_type_menu(menu, *data[1])
             menu.addAction("Löschen",              self._delete_selected)
 
         menu.exec(self._tree.viewport().mapToGlobal(pos))

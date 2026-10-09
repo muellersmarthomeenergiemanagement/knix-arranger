@@ -66,6 +66,30 @@ def test_building_view_room_to_other_floor():
     changed.assert_called_once()
 
 
+def test_building_view_move_menu_moves_room_to_zone():
+    from PySide6.QtWidgets import QMenu
+    project = _project()
+    floor = project.areal.all_floors[0]
+    wohnung = Apartment(name="Wohnung")
+    floor.apartments.append(wohnung)
+    view = BuildingView()
+    bus = MagicMock()
+    view.set_bus(bus)
+    view.set_areal(project.areal)
+    kueche = project.all_rooms[1]
+
+    menu = QMenu()
+    sub = view._add_move_menu(menu, kueche)
+    actions = {a.text(): a for a in sub.actions()}
+    target = next(a for t, a in actions.items() if t.startswith("Wohnung "))
+    current = next(a for a in actions.values() if a is not target)
+    assert target.isEnabled() and not current.isEnabled()
+
+    target.trigger()
+    assert kueche in wohnung.rooms
+    bus.begin_change.assert_called_once()
+
+
 def test_gewerk_view_catalog_and_row_drop():
     project = _project()
     view = GewerkView()
@@ -248,3 +272,114 @@ def test_building_view_shows_gewerke_per_room(gewerk_catalog):
     first = container.child(0)
     assert first.text(1) == "Gewerk" and first.text(3) == "×2: Decke; Wand"
     assert " – " in first.text(0)                        # Code – Name aus dem Katalog
+
+
+def test_building_view_sensor_type_menu_alarm_to_water():
+    from PySide6.QtWidgets import QMenu
+    from knix_arranger.models.building import GewerkAssignment
+    from knix_arranger.services.sensor_service import SensorService
+    project = _project()
+    lift = project.all_rooms[1]
+    lift.gewerk_assignments.append(GewerkAssignment(gewerk_code="A", count=1))
+    service = SensorService()
+    service.auto_assign_functions(project.all_rooms, project.group_addresses)
+    be = next(b for b in lift.bedienelemente if b.element_type == "Bewegungsmelder")
+
+    view = BuildingView()
+    bus = MagicMock()
+    view.set_bus(bus)
+    view.set_areal(project.areal)
+    taster = next(b for b in lift.bedienelemente if b.is_operable)
+    assert view._add_sensor_type_menu(QMenu(), taster, lift) is None
+
+    menu = QMenu()
+    sub = view._add_sensor_type_menu(menu, be, lift)
+    actions = {a.text(): a for a in sub.actions()}
+    assert actions["Bewegungsmelder"].isChecked()
+    actions["Wassermelder"].trigger()
+    bus.begin_change.assert_called_once()
+
+    service.auto_assign_functions(project.all_rooms, project.group_addresses)
+    types = [b.element_type for b in lift.bedienelemente if not b.suppressed]
+    assert "Wassermelder" in types and "Bewegungsmelder" not in types
+    reqs = service.determine_sensors([lift], project.gewerk_catalog)
+    assert any(r.sensor_type == "Wassermelder" for r in reqs)
+
+    # Zurück auf den Gewerk-Standard hebt den Override auf
+    be = next(b for b in lift.bedienelemente if b.element_type == "Wassermelder")
+    view._set_sensor_type(lift, be, "Bewegungsmelder")
+    assert lift.gewerk_assignments[-1].sensor_type_override is None
+
+
+def test_building_view_zone_drag_and_menu_to_floor():
+    from PySide6.QtWidgets import QMenu
+    project = _project()
+    og = Floor(name="Obergeschoss", short_code="OG", main_group_number=3)
+    project.areal.buildings[0].wings[0].floors.append(og)
+    view = BuildingView()
+    bus = MagicMock()
+    view.set_bus(bus)
+    view.set_areal(project.areal)
+    eg = project.areal.all_floors[0].apartments[0]
+
+    tree = view._tree
+    apt_item = next(i for i in _items(tree) if i.data(0, Qt.UserRole)[0] == "apartment")
+    floor_item = next(i for i in _items(tree) if i.text(1) == "Stockwerk" and "OG" in i.text(0))
+    assert view._drag_data(apt_item) is eg
+    room = eg.rooms[0]
+    # Zone nicht auf einen Raum und nicht gemischt mit Räumen
+    assert not view._can_drop([eg, room], tree.target_data(floor_item))
+
+    menu = QMenu()
+    sub = view._add_apartment_move_menu(menu, eg)
+    target = next(a for a in sub.actions() if "Obergeschoss" in a.text())
+    target.trigger()
+    assert eg in og.apartments
+    bus.begin_change.assert_called_once()
+
+
+def test_topology_view_line_to_other_area_menu():
+    from PySide6.QtWidgets import QMenu
+    from knix_arranger.models.topology import Area, Device, Line, Topology
+    from knix_arranger.ui.views.topology_view import TopologyView
+    t = Topology()
+    garten = Line(line_number=4, name="Gartenhaus",
+                  devices=[Device(physical_address="1.4.101", device_type="sensor")])
+    t.areas = [Area(area_number=1, lines=[garten]),
+               Area(area_number=2, name="Nebengebäude", lines=[Line(line_number=1)])]
+    view = TopologyView()
+    bus = MagicMock()
+    view.set_bus(bus)
+    view._topology = t
+
+    menu = QMenu()
+    sub = view._add_line_area_menu(menu, garten)
+    action = next(a for a in sub.actions() if "Nebengebäude" in a.text())
+    action.trigger()
+    assert garten in t.areas[1].lines and garten.line_number == 2
+    assert garten.devices[0].physical_address == "2.2.101"
+    bus.begin_change.assert_called_once()
+    bus.emit_building_changed.assert_called_once()
+
+
+def test_topology_view_merge_lines_menu(monkeypatch):
+    from PySide6.QtWidgets import QMenu, QMessageBox
+    from knix_arranger.models.topology import Area, Line, Topology
+    from knix_arranger.ui.views.topology_view import TopologyView
+    t = Topology()
+    eg = Line(line_number=1, name="EG", assigned_room_ids=["garage"])
+    garten = Line(line_number=2, name="Gartenhaus", assigned_room_ids=["garten"])
+    t.areas = [Area(area_number=2, lines=[eg, garten])]
+    view = TopologyView()
+    bus = MagicMock()
+    view.set_bus(bus)
+    view._topology = t
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
+
+    menu = QMenu()
+    sub = view._add_line_merge_menu(menu, garten)
+    action = next(a for a in sub.actions() if "2.1" in a.text())
+    action.trigger()
+    assert t.areas[0].lines == [eg] and "garten" in eg.assigned_room_ids
+    bus.begin_change.assert_called_once()
+    bus.emit_building_changed.assert_called_once()

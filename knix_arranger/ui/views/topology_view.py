@@ -26,7 +26,8 @@ from ...services.belegungsplan_service import (
 from ...services.multi_ga_check import ga_address_of, ko_for_ga, unlink_ga
 from ...services.verteiler_service import VerteilerPlacement, verteiler_label
 from ...services.structure_move import (
-    can_move_device, move_device, move_kind, move_room_to_line, room_follows_planning,
+    can_merge_lines, can_move_device, can_move_line, merge_lines, move_device, move_kind,
+    move_line_to_area, move_room_to_line, room_follows_planning,
 )
 from ..column_utils import fit_columns
 from ..styles import COLOR_WARNING
@@ -667,6 +668,8 @@ class TopologyView(QWidget):
             _, area, line = data
             rename_act  = menu.addAction("Linie umbenennen…")
             uv_act      = menu.addAction("UV-Einbauort bearbeiten…")
+            self._add_line_area_menu(menu, line)
+            self._add_line_merge_menu(menu, line)
             action = menu.exec(global_pos)
             if action == rename_act:
                 self._rename_line(line)
@@ -991,6 +994,88 @@ class TopologyView(QWidget):
         if not ok:
             return
         self._apply_line_move([device], choices[labels.index(label)][1])
+
+    def _add_line_area_menu(self, menu: QMenu, line: Line) -> QMenu | None:
+        """Untermenü «In anderen Bereich verschieben», z.B. Linie Gartenhaus
+        in den Bereich Nebengebäude."""
+        if not self._topology or len(self._topology.areas) < 2:
+            return None
+        sub = menu.addMenu("In anderen Bereich verschieben")
+        for area in self._topology.areas:
+            if line in area.lines:
+                continue
+            label = f"Bereich {area.area_number}"
+            if area.name:
+                label += f" – {area.name}"
+            action = sub.addAction(label, lambda a=area: self._move_line_to_area(line, a))
+            action.setEnabled(can_move_line(self._topology, line, area))
+        if any(d.is_programmed for d in line.devices):
+            # Programmierte Adressen stehen im Gerät
+            sub.setTitle("In anderen Bereich verschieben (programmierte Geräte)")
+            sub.setEnabled(False)
+        return sub
+
+    def _move_line_to_area(self, line: Line, area) -> None:
+        if not self._topology or not can_move_line(self._topology, line, area):
+            return
+        old = next(f"{a.area_number}.{line.line_number}"
+                   for a in self._topology.areas if line in a.lines)
+        if self._bus:
+            self._bus.begin_change(f"Linie {old} in Bereich {area.area_number} verschieben")
+        move_line_to_area(self._topology, line, area)
+        self._refresh()
+        if self._bus and not self._topology.is_imported:
+            # Koppler, Speisungen und Adressen für die neue Lage neu ableiten
+            self._bus.emit_building_changed()
+        else:
+            self._emit_changed()
+
+    def _add_line_merge_menu(self, menu: QMenu, line: Line) -> QMenu | None:
+        """Untermenü «Zusammenlegen mit»: die Linie geht in einer anderen auf
+        und wird entfernt."""
+        if not self._topology:
+            return None
+        others = [(a, l) for a in self._topology.areas for l in a.lines if l is not line]
+        if not others:
+            return None
+        sub = menu.addMenu("Zusammenlegen mit")
+        for area, other in others:
+            label = f"Linie {area.area_number}.{other.line_number}"
+            if other.name:
+                label += f" – {other.name}"
+            action = sub.addAction(label, lambda o=other: self._merge_lines(line, o))
+            action.setEnabled(can_merge_lines(self._topology, line, other))
+        if any(d.is_programmed for d in line.devices):
+            # Programmierte Adressen stehen im Gerät
+            sub.setTitle("Zusammenlegen mit (programmierte Geräte)")
+            sub.setEnabled(False)
+        return sub
+
+    def _merge_lines(self, source: Line, target: Line) -> None:
+        if not self._topology or not can_merge_lines(self._topology, source, target):
+            return
+        address = {id(l): f"{a.area_number}.{l.line_number}"
+                   for a in self._topology.areas for l in a.lines}
+        src, tgt = address[id(source)], address[id(target)]
+        answer = QMessageBox.question(
+            self, "Linien zusammenlegen",
+            f"Linie {src} »{source.name}« in Linie {tgt} »{target.name}« aufgehen lassen?\n\n"
+            f"Räume und Geräte wechseln auf Linie {tgt} und erhalten dort neue "
+            f"Adressen. Linienkoppler und Spannungsversorgung von Linie {src} "
+            f"entfallen, die Linie wird entfernt.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        if self._bus:
+            self._bus.begin_change(f"Linie {src} mit Linie {tgt} zusammenlegen")
+        merge_lines(self._topology, source, target)
+        self._refresh()
+        if self._bus and not self._topology.is_imported:
+            # Geräte und Adressen aus der neuen Zuordnung ableiten
+            self._bus.emit_building_changed()
+        else:
+            self._emit_changed()
 
     # ── Ziehen und Ablegen (FA-1015 b) ──
 

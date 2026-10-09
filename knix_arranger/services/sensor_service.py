@@ -757,6 +757,47 @@ class SensorService:
         return list(summary.values())
 
 
+# Wählbare Typen für Sensoren aus Gewerken (FA-1407), z.B. Gewerk A: der
+# Standard "Bewegungsmelder" lässt sich durch einen Wassermelder ersetzen.
+SENSOR_TYPE_CHOICES = [
+    "Bewegungsmelder", "Präsenzmelder", "Wassermelder", "Rauchmelder",
+    "Magnetkontakt", "Fensterkontakt", "Türkontakt", "Riegelkontakt",
+    "Temperaturfuehler", "Sensor",
+]
+
+
+def sensor_assignments(room: Room, be: Bedienelement) -> list:
+    """Gewerk-Zuweisungen, aus denen der Sensor be abgeleitet ist."""
+    result = []
+    for assignment in room.gewerk_assignments:
+        auto_type = GEWERK_TO_SENSOR_TYPE.get(assignment.gewerk_code)
+        if not auto_type or assignment.gewerk_code in SYSTEM_SENSOR_GEWERKE:
+            continue
+        if be.taster_index not in assignment.taster_indices:
+            continue
+        effective = SensorService._effective_sensor_type(
+            room, assignment, be.taster_index, auto_type)
+        if effective == be.element_type:
+            result.append(assignment)
+    return result
+
+
+def set_sensor_type(room: Room, be: Bedienelement, sensor_type: str) -> bool:
+    """Sensortyp über sensor_type_override der zugehörigen Gewerke setzen;
+    der Gewerk-Standard hebt den Override wieder auf. Die Neuberechnung legt
+    den Sensor danach mit dem neuen Typ an. False, wenn be nicht aus Gewerken
+    stammt oder schon diesen Typ hat."""
+    assignments = sensor_assignments(room, be)
+    if not assignments or be.element_type == sensor_type:
+        return False
+    for assignment in assignments:
+        default = GEWERK_TO_SENSOR_TYPE[assignment.gewerk_code]
+        assignment.sensor_type_override = None if sensor_type == default else sensor_type
+    # Manuell bearbeitete Sensoren werden nach Typ wiedergefunden
+    be.element_type = sensor_type
+    return True
+
+
 def refresh_bedienelemente(project) -> None:
     """Bedienelemente mit der Topologie abgleichen (FA-1404: je Sensor-Gerät
     eines, im Raum des Geräts) und die Tastenbelegung aus den Funktionen neu

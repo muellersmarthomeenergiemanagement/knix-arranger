@@ -188,3 +188,101 @@ class TestGaMove:
         assert can_reorder(project)
         project.ets_transferred = "2026-10-07"
         assert not can_reorder(project)
+
+
+# ── Zonen auf andere Stockwerke, Linien in andere Bereiche ─────────────────
+
+class TestApartmentMove:
+    def test_zone_to_floor_of_other_building(self):
+        from knix_arranger.models.building import Building, Wing
+        from knix_arranger.services.structure_move import can_move_apartment, move_apartment
+        project = _project()
+        floor = project.areal.all_floors[0]
+        garten = Apartment(name="Gartenhaus")
+        garten.rooms = [Room(number="MEG01", name="Raum", floor_id=floor.id)]
+        floor.apartments.append(garten)
+        neben = Floor(name="Erdgeschoss", short_code="EG", main_group_number=5)
+        neben.apartments = [Apartment(name="EG")]
+        project.areal.buildings.append(
+            Building(name="Einstellhalle", wings=[Wing(name="Nebengebäude", floors=[neben])]))
+
+        assert not can_move_apartment(project.areal, garten, floor)
+        assert move_apartment(project.areal, garten, neben)
+        assert garten in neben.apartments and garten not in floor.apartments
+        assert garten.rooms[0].floor_id == neben.id
+        # Gleichnamige Zone am Ziel: nicht daneben legen
+        assert not can_move_apartment(project.areal, floor.apartments[0],
+                                      Floor(apartments=[Apartment(name="EG")]))
+
+
+class TestLineToArea:
+    def _topology(self):
+        t = Topology()
+        a1, a2 = Area(area_number=1, name="Haupt"), Area(area_number=2, name="Neben")
+        garten = Line(line_number=4, name="Gartenhaus", coupler_address="1.4.0", devices=[
+            Device(physical_address="1.4.0", device_type="coupler"),
+            Device(physical_address="1.4.-", device_type="power_supply"),
+            Device(physical_address="1.4.101", device_type="sensor"),
+        ])
+        a1.lines = [Line(line_number=1), garten]
+        a2.lines = [Line(line_number=1, name="EG")]
+        t.areas = [a1, a2]
+        return t, a1, a2, garten
+
+    def test_line_gets_next_number_and_addresses(self):
+        from knix_arranger.services.structure_move import move_line_to_area
+        t, a1, a2, garten = self._topology()
+        assert move_line_to_area(t, garten, a2) == "2.2"
+        assert garten not in a1.lines and a2.lines[-1] is garten
+        assert garten.coupler_address == "2.2.0"
+        assert [d.physical_address for d in garten.devices] == ["2.2.0", "2.2.-", "2.2.101"]
+
+    def test_not_with_programmed_devices_or_same_area(self):
+        from knix_arranger.services.structure_move import can_move_line, move_line_to_area
+        t, a1, a2, garten = self._topology()
+        assert not can_move_line(t, garten, a1)
+        garten.devices[2].is_programmed = True
+        assert move_line_to_area(t, garten, a2) == ""
+        assert garten.devices[2].physical_address == "1.4.101"
+
+
+class TestMergeLines:
+    def _topology(self, imported=False):
+        t = Topology(is_imported=imported)
+        eg = Line(line_number=1, name="EG", assigned_room_ids=["garage"], devices=[
+            Device(physical_address="2.1.0", device_type="coupler"),
+            Device(physical_address="2.1.101", device_type="sensor", room_id="garage"),
+        ])
+        garten = Line(line_number=2, name="Gartenhaus", assigned_room_ids=["garten"], devices=[
+            Device(physical_address="2.2.0", device_type="coupler"),
+            Device(physical_address="2.2.-", device_type="power_supply"),
+            Device(physical_address="2.2.101", device_type="sensor", room_id="garten"),
+            Device(physical_address="2.2.50", device_type="other", manually_added=True),
+        ])
+        t.areas = [Area(area_number=2, lines=[eg, garten])]
+        return t, eg, garten
+
+    def test_planned_rooms_move_and_line_removed(self):
+        from knix_arranger.services.structure_move import merge_lines
+        t, eg, garten = self._topology()
+        assert merge_lines(t, garten, eg)
+        assert t.areas[0].lines == [eg]
+        assert eg.assigned_room_ids == ["garage", "garten"]
+        # Manuell hinzugefügtes Gerät wandert selbst, Koppler/Speisung entfallen
+        addresses = [d.physical_address for d in eg.devices]
+        assert "2.1.50" in addresses and "2.2.0" not in addresses
+
+    def test_imported_devices_get_free_numbers(self):
+        from knix_arranger.services.structure_move import merge_lines
+        t, eg, garten = self._topology(imported=True)
+        assert merge_lines(t, garten, eg)
+        addresses = sorted(d.physical_address for d in eg.devices)
+        assert addresses == ["2.1.0", "2.1.1", "2.1.101", "2.1.50"]
+
+    def test_not_with_programmed_devices(self):
+        from knix_arranger.services.structure_move import can_merge_lines, merge_lines
+        t, eg, garten = self._topology()
+        assert not can_merge_lines(t, eg, eg)
+        garten.devices[2].is_programmed = True
+        assert not merge_lines(t, garten, eg)
+        assert garten in t.areas[0].lines
