@@ -125,6 +125,50 @@ def move_button(src_be: Bedienelement, sf: SensorFunktion, dst_be: Bedienelement
     _apply_own_labels(bes, before, labels)
 
 
+def next_taster_index(room) -> int:
+    """Nächster freier Index für ein manuell gesetztes Bedienelement --
+    weder von einem Gewerk noch von einem manuellen Element belegt."""
+    used = {i for a in room.gewerk_assignments for i in a.taster_indices}
+    used |= {be.taster_index for be in room.bedienelemente if not be.is_auto}
+    return max(used, default=0) + 1
+
+
+def fit_sensor_channels(be: Bedienelement) -> None:
+    """Kanalzahl eines Sensors auf seine Funktionen verkleinern: ein
+    entfernter oder verschobener Kanal hinterlässt keinen leeren Kanal
+    (anders als bei einer Tastereinheit, deren Tasten es physisch gibt)."""
+    used = sum(1 for sf in _main_functions(be) if sf.primary_role != "fremdsteuerung")
+    if be.channels > max(1, used):
+        be.channels = max(1, used)
+
+
+def move_to_own_device(room, src_be: Bedienelement, sf: SensorFunktion,
+                       element_type: str, labels: dict | None = None) -> Bedienelement:
+    """Sensorkanal sf auf ein neues, eigenes Gerät element_type im selben
+    Raum legen (z.B. Wassermelder neben dem Bewegungsmelder); die
+    Neuberechnung gibt ihm eine eigene Teilnehmernummer."""
+    new_be = Bedienelement(element_type=element_type, channels=1, is_auto=False,
+                           taster_index=next_taster_index(room))
+    room.bedienelemente.append(new_be)
+    move_button(src_be, sf, new_be, labels=labels)
+    fit_sensor_channels(src_be)
+    return new_be
+
+
+def bedienelement_of_device(project, device):
+    """(Raum, Bedienelement) hinter einem Sensor-Gerät der Topologie, sonst
+    (None, None). Geräte entstehen aus den Bedienelementen -- entfernt wird
+    deshalb dort, sonst brächte die Neuberechnung das Gerät zurück."""
+    if device.device_type != "sensor" or not device.physical_address:
+        return None, None
+    room = next((r for r in project.areal.all_rooms if r.id == device.room_id), None)
+    if room is None:
+        return None, None
+    be = next((b for b in room.bedienelemente if not b.suppressed
+               and b.participant_number == device.physical_address), None)
+    return (room, be) if be is not None else (None, None)
+
+
 def remove_bedienelement(room, be: Bedienelement) -> None:
     """Bedienelement entfernen: ein automatisch vorgeschlagenes bleibt
     unterdrückt (sonst schlägt die Neuberechnung es wieder vor), ein

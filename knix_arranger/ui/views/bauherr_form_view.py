@@ -32,7 +32,9 @@ from ...models.building import (
 from ...services.bauherr_form_service import (
     _DROPDOWN_OPTIONS, BauherrFormService,
 )
-from ...services.sensor_service import GEWERK_PRIMARY_FUNCTIONS, PRESENCE_SENSOR_TYPES
+from ...services.sensor_service import (
+    GEWERK_PRIMARY_FUNCTIONS, PRESENCE_SENSOR_TYPES, SENSOR_TYPE_CHOICES,
+)
 from ...services.scene_addressing import (
     scene_group_key, scene_channel_designation, build_scope_label_lookup,
     scene_target_designation, is_callable_scene,
@@ -70,11 +72,15 @@ _TASTE_POSITION_RE = re.compile(
 )
 _SIDE_TO_COL = {"links": 0, "rechts": 1}
 
-# Melder, die selbst schalten (Licht bei Anwesenheit): erscheinen in der
-# Bauherrenberatung mit Kanälen statt Tasten, damit man Leuchten verknüpft
-LINKABLE_SENSOR_TYPES = PRESENCE_SENSOR_TYPES
+# Übrige Melder und Kontakte (Wassermelder, Fensterkontakt …): im Menü
+# «Sonstige», damit z.B. ein Wassermelder ein eigenes Gerät bekommt
+OTHER_SENSOR_TYPES = tuple(t for t in SENSOR_TYPE_CHOICES if t not in PRESENCE_SENSOR_TYPES)
 
-# Hinzufügbar in der Bauherrenberatung: (Typ, Kanäle)
+# Sensoren erscheinen in der Bauherrenberatung mit Kanälen statt Tasten:
+# Präsenz-/Bewegungsmelder, auf die man Leuchten legt, und die sonstigen
+LINKABLE_SENSOR_TYPES = PRESENCE_SENSOR_TYPES | frozenset(OTHER_SENSOR_TYPES)
+
+# Hinzufügbar in der Bauherrenberatung: (Typ, Kanäle); dazu «Sonstige»
 ADDABLE_ELEMENTS = (
     ("Tastereinheit", 4),
     ("Raumthermostat", 1),
@@ -85,9 +91,12 @@ ADDABLE_ELEMENTS = (
 
 def _view_elements(room: Room, imported: bool) -> list[Bedienelement]:
     """Bedienelemente der Bauherrenberatung: was der Bauherr bedient, dazu
-    Präsenz- und Bewegungsmelder, auf die man Leuchten legt."""
+    Präsenz- und Bewegungsmelder, auf die man Leuchten legt, und von Hand
+    gesetzte sonstige Melder (die aus Gewerken abgeleiteten Fenster- und
+    Türkontakte sind keine Bauherren-Frage)."""
     return [be for be in room.bedienelemente if be.is_shown(imported)
-            and (be.is_operable or be.element_type in LINKABLE_SENSOR_TYPES)]
+            and (be.is_operable or be.element_type in PRESENCE_SENSOR_TYPES
+                 or (be.element_type in OTHER_SENSOR_TYPES and not be.is_auto))]
 
 
 # Gezogene Taste der Bauherrenberatung (verschieben/tauschen, FA-1015 e)
@@ -238,6 +247,29 @@ class _SlotWidget(QWidget):
         )
         self._btn_delete.clicked.connect(self._on_delete)
         self._btn_delete.setVisible(sf is not None)
+        # Sensorkanal auf ein eigenes Gerät legen (z.B. Wassermelder neben
+        # dem Bewegungsmelder) -- nur geplant, importierte Geräte gibt es
+        self._btn_own_device = None
+        if (sf is not None and long_of is None and be.element_type in LINKABLE_SENSOR_TYPES
+                and not service.project.topology.is_imported):
+            self._btn_own_device = QPushButton("→ eigenes Gerät")
+            self._btn_own_device.setFixedHeight(18)
+            self._btn_own_device.setToolTip(
+                "Diesen Kanal auf einen eigenen Melder im Raum legen "
+                "(eigene Teilnehmernummer nach der Neuberechnung)")
+            self._btn_own_device.setCursor(Qt.PointingHandCursor)
+            self._btn_own_device.setStyleSheet(
+                "QPushButton { color: #1565C0; font-size: 12px; "
+                "border: 1px solid #90CAF9; border-radius: 2px; "
+                "background: white; padding: 1px 6px; } "
+                "QPushButton:hover { background: #E3F2FD; }")
+            own_menu = QMenu(self._btn_own_device)
+            for element_type in (*sorted(PRESENCE_SENSOR_TYPES, reverse=True),
+                                 *OTHER_SENSOR_TYPES):
+                own_menu.addAction(element_type).triggered.connect(
+                    lambda _c=False, t=element_type: self._on_own_device(t))
+            self._btn_own_device.setMenu(own_menu)
+            head_row.addWidget(self._btn_own_device)
         head_row.addWidget(self._btn_delete)
         layout.addLayout(head_row)
 
@@ -442,6 +474,9 @@ class _SlotWidget(QWidget):
                     else "Bauherrenberatung: Taste verschoben")
         move_button(src_be, sf, self._be, target=self._sf, target_label=target_label,
                     labels=self._project_labels())
+        if src_be is not self._be and src_be.element_type in LINKABLE_SENSOR_TYPES:
+            from ...services.button_move import fit_sensor_channels
+            fit_sensor_channels(src_be)
         return True
 
     def apply_dropped_function(self, data: dict) -> bool:
@@ -923,6 +958,19 @@ class _SlotWidget(QWidget):
             if sf is not None and sf in self._be.funktionen:
                 self._be.funktionen.remove(sf)
         self._be.is_auto = False
+        if self._is_sensor:
+            from ...services.button_move import fit_sensor_channels
+            fit_sensor_channels(self._be)
+        self.removed.emit()
+
+    def _on_own_device(self, element_type: str):
+        """Kanal auf einen neuen Melder element_type im Raum verschieben."""
+        if self._sf is None:
+            return
+        from ...services.button_move import move_to_own_device
+        self._begin(f"Bauherrenberatung: Kanal auf eigenes Gerät ({element_type})")
+        move_to_own_device(self._room, self._be, self._sf, element_type,
+                           labels=self._project_labels())
         self.removed.emit()
 
     def _on_add_long(self):
@@ -1257,12 +1305,18 @@ class BauherrFormView(QWidget):
         self._btn_add_element = QPushButton("+ Bedienelement / Sensor")
         self._btn_add_element.setObjectName("secondary")
         self._btn_add_element.setToolTip(
-            "Tastereinheit, Raumthermostat, Präsenz- oder Bewegungsmelder in "
-            "diesen Raum setzen und danach Funktionen darauf legen")
+            "Tastereinheit, Raumthermostat, Präsenz- oder Bewegungsmelder, unter "
+            "«Sonstige» z.B. Wassermelder oder Fensterkontakt, in diesen Raum "
+            "setzen und danach Funktionen darauf legen")
         add_menu = QMenu(self._btn_add_element)
         for element_type, channels in ADDABLE_ELEMENTS:
             add_menu.addAction(element_type).triggered.connect(
                 lambda _c=False, t=element_type, n=channels: self._add_element(t, n))
+        self._other_menu = QMenu("Sonstige", add_menu)
+        add_menu.addMenu(self._other_menu)
+        for element_type in OTHER_SENSOR_TYPES:
+            self._other_menu.addAction(element_type).triggered.connect(
+                lambda _c=False, t=element_type: self._add_element(t, 1))
         self._btn_add_element.setMenu(add_menu)
         add_bar.addWidget(self._btn_add_element)
         self._empty_hint = QLabel("Noch kein Bedienelement in diesem Raum.")
@@ -1466,12 +1520,11 @@ class BauherrFormView(QWidget):
         room = self._current_room
         if room is None or self._project is None or self._project.topology.is_imported:
             return
-        used = {i for a in room.gewerk_assignments for i in a.taster_indices}
-        used |= {be.taster_index for be in room.bedienelemente if not be.is_auto}
+        from ...services.button_move import next_taster_index
         self._begin_change(f"Bauherrenberatung: {element_type} hinzugefügt")
         room.bedienelemente.append(Bedienelement(
             element_type=element_type, channels=channels, is_auto=False,
-            taster_index=max(used, default=0) + 1))
+            taster_index=next_taster_index(room)))
         self._on_structure_changed()
 
     def _load_room(self, room: Room):

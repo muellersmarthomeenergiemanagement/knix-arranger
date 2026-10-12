@@ -205,3 +205,81 @@ def test_all_rooms_in_tree_and_add_motion_sensor():
     assert slot._is_sensor
     assert slot.apply_dropped_function({"code": "L", "element": 1, "room_id": technik.id})
     assert [(sf.gewerk_code, sf.element_number) for sf in added.funktionen] == [("L", 1)]
+
+
+def test_sonstige_wassermelder_hinzufuegen():
+    """Menü «Sonstige»: Wassermelder als eigenes Gerät, mit Kanal K1."""
+    project, _wasch, technik = _project()
+    view = _view(project, technik)
+    menu = view._btn_add_element.menu()
+    assert "Sonstige" in [a.text() for a in menu.actions()]
+    other = view._other_menu
+    names = [a.text() for a in other.actions()]
+    assert "Wassermelder" in names and "Fensterkontakt" in names
+    assert "Bewegungsmelder" not in names
+
+    next(a for a in other.actions() if a.text() == "Wassermelder").trigger()
+    added = technik.bedienelemente[-1]
+    assert (added.element_type, added.channels, added.is_auto) == ("Wassermelder", 1, False)
+    slot = next(s for s in view.findChildren(_SlotWidget) if s._be is added)
+    assert slot._is_sensor
+    assert "(1)" in next(i.text(0) for i in view._room_items()
+                         if i.data(0, Qt.UserRole) is technik)
+
+
+def _technik_mit_melder():
+    project, _wasch, technik = _project()
+    technik.gewerk_assignments.append(GewerkAssignment(gewerk_code="A", count=2))
+    melder = Bedienelement(element_type="Bewegungsmelder", channels=2,
+                           participant_number="1.2.107", funktionen=[
+                               SensorFunktion(gewerk_code="A", element_number=1),
+                               SensorFunktion(gewerk_code="A", element_number=2)])
+    technik.bedienelemente.append(melder)
+    return project, technik, melder
+
+
+def _melder_slots(view, be):
+    return [s for s in view.findChildren(_SlotWidget)
+            if s._be is be and s._sf is not None and not s.isHidden()]
+
+
+def test_sensorkanal_entfernen_ohne_leeren_kanal():
+    project, technik, melder = _technik_mit_melder()
+    view = _view(project, technik)
+    slot = next(s for s in _melder_slots(view, melder) if s._sf.element_number == 2)
+    slot._btn_delete.click()
+    assert [sf.element_number for sf in melder.funktionen] == [1]
+    assert melder.channels == 1
+
+
+def test_sensorkanal_auf_eigenes_geraet_in_der_beratung():
+    project, technik, melder = _technik_mit_melder()
+    view = _view(project, technik)
+    slot = next(s for s in _melder_slots(view, melder) if s._sf.element_number == 2)
+    wasser = slot._sf
+    assert slot._btn_own_device is not None
+    next(a for a in slot._btn_own_device.menu().actions()
+         if a.text() == "Wassermelder").trigger()
+
+    new_be = technik.bedienelemente[-1]
+    assert (new_be.element_type, new_be.funktionen) == ("Wassermelder", [wasser])
+    assert melder.channels == 1
+    # neu aufgebaut: der Wassermelder steht als eigener Melder in der Beratung
+    assert any(s._be is new_be for s in view.findChildren(_SlotWidget))
+
+
+def test_tastereinheit_ohne_eigenes_geraet():
+    project, wasch, _technik = _project()
+    view = _view(project, wasch)
+    slot = next(s for s in view.findChildren(_SlotWidget) if s._sf is not None)
+    assert slot._btn_own_device is None
+
+
+def test_abgeleitete_kontakte_nicht_in_der_beratung():
+    """Aus Gewerken abgeleitete Fensterkontakte bleiben ausgeblendet."""
+    project, _wasch, technik = _project()
+    technik.bedienelemente.append(Bedienelement(element_type="Fensterkontakt", is_auto=True))
+    view = _view(project, technik)
+    assert not any(s._be.element_type == "Fensterkontakt"
+                   for s in view.findChildren(_SlotWidget))
+    assert not view._empty_hint.isHidden()

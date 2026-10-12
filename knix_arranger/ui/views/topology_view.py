@@ -23,6 +23,7 @@ from ...services.belegungsplan_service import (
     group_actor_rows_by_channel, group_cos_for_display,
     build_ga_by_designation, resolve_ga_display,
 )
+from ...services.button_move import bedienelement_of_device, remove_bedienelement
 from ...services.multi_ga_check import ga_address_of, ko_for_ga, unlink_ga
 from ...services.verteiler_service import VerteilerPlacement, verteiler_label
 from ...services.structure_move import (
@@ -691,7 +692,18 @@ class TopologyView(QWidget):
                 prog_act = menu.addAction("Programmierung aufheben…")
             else:
                 prog_act = menu.addAction("Als programmiert markieren")
+            # Sensor aus der Planung entfernen (über sein Bedienelement);
+            # importierte Geräte gibt es in der Anlage
+            remove_act = None
+            if self._project and not self._project.topology.is_imported:
+                room, be = bedienelement_of_device(self._project, device)
+                if be is not None:
+                    menu.addSeparator()
+                    remove_act = menu.addAction("Gerät entfernen…")
             action = menu.exec(global_pos)
+            if remove_act and action == remove_act:
+                self._remove_sensor(device, room, be)
+                return
             if action == loc_act:
                 self._edit_device_location(device)
             elif room_act and action == room_act:
@@ -708,6 +720,31 @@ class TopologyView(QWidget):
             unlink_act = menu.addAction(f"GA {ga_addr} von diesem KO trennen…")
             if menu.exec(global_pos) == unlink_act:
                 self._unlink_ga(device, co_number, ga_addr)
+
+    def _remove_sensor(self, device: Device, room, be) -> None:
+        """Sensor entfernen wie in der Bauherrenberatung: ein abgeleitetes
+        Bedienelement bleibt unterdrückt, ein manuelles wird gelöscht; die
+        Neuberechnung nimmt das Gerät aus der Linie."""
+        name = " ".join(p for p in (device.product or "Gerät", device.physical_address) if p)
+        text = f"{name} ({room.name}) entfernen?"
+        functions = [sf for sf in be.funktionen if not sf.press_of
+                     and (sf.gewerk_code or sf.ga_designation or sf.label)]
+        if functions:
+            text += (f"\n\nSeine {len(functions)} Funktion(en) gehen mit. Funktionen, die "
+                     "weiterhin gebraucht werden, vorher in der Bauherrenberatung "
+                     "auf ein anderes Gerät legen.")
+        if QMessageBox.question(self, "Gerät entfernen", text,
+                                QMessageBox.Yes | QMessageBox.No,
+                                QMessageBox.No) != QMessageBox.Yes:
+            return
+        if self._bus:
+            self._bus.begin_change(f"{name} entfernt")
+        remove_bedienelement(room, be)
+        if self._bus:
+            # Geräte und Adressen aus den Bedienelementen neu ableiten
+            self._bus.emit_building_changed()
+        else:
+            self.topology_changed.emit()
 
     def _unlink_ga(self, device: Device, co_number: int, ga_addr: str) -> None:
         """GA von einem KO trennen wie in der ETS (Tastenbelegung inklusive)."""

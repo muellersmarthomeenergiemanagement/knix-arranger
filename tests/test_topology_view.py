@@ -262,3 +262,73 @@ class TestTopologyViewAssignRoom:
         device = topology.areas[0].lines[0].devices[0]
         view._assign_room(device)
         assert shown and not asked
+
+
+class _Bus:
+    def __init__(self):
+        self.calls = []
+
+    def begin_change(self, description):
+        self.calls.append(("begin", description))
+
+    def emit_building_changed(self):
+        self.calls.append(("building",))
+
+
+def _technik_project():
+    from knix_arranger.models.building import GewerkAssignment, SensorFunktion
+    from knix_arranger.models.project import KnxProject
+    room = Room(number="CUG02", name="Technik",
+                gewerk_assignments=[GewerkAssignment(gewerk_code="A", count=2)])
+    melder = Bedienelement(element_type="Bewegungsmelder", participant_number="1.2.107",
+                           channels=2, funktionen=[
+                               SensorFunktion(gewerk_code="A", element_number=1),
+                               SensorFunktion(gewerk_code="A", element_number=2)])
+    room.bedienelemente.append(melder)
+    floor = Floor(name="Untergeschoss", short_code="UG",
+                  apartments=[Apartment(name="UG", rooms=[room])])
+    project = KnxProject(name="Chalet")
+    project.areal = Areal(buildings=[Building(name="Haus", wings=[Wing(floors=[floor])])])
+    device = Device(physical_address="1.2.107", device_type="sensor",
+                    product="Bewegungsmelder", room_id=room.id)
+    project.topology = Topology(areas=[Area(area_number=1, lines=[
+        Line(line_number=2, devices=[device], assigned_room_ids=[room.id])])])
+    return project, room, melder, device
+
+
+class TestSensorEntfernen:
+    """Projekt_23: ein Sensor aus Gewerken liess sich in der Topologie nicht
+    entfernen. Entfernt wird über sein Bedienelement, die Neuberechnung
+    nimmt das Gerät aus der Linie."""
+
+    def test_bedienelement_zum_geraet(self):
+        from knix_arranger.services.button_move import bedienelement_of_device
+        project, room, melder, device = _technik_project()
+        assert bedienelement_of_device(project, device) == (room, melder)
+        aktor = Device(physical_address="1.2.14", device_type="actor", room_id=room.id)
+        assert bedienelement_of_device(project, aktor) == (None, None)
+
+    def test_entfernen_unterdrueckt_und_berechnet_neu(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        project, room, melder, device = _technik_project()
+        view = TopologyView()
+        view.set_project(project)
+        bus = _Bus()
+        view._bus = bus
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes) as ask:
+            view._remove_sensor(device, room, melder)
+        assert "2 Funktion(en)" in ask.call_args[0][2]
+        assert melder.suppressed and not melder.is_auto   # kommt nicht zurück
+        assert bus.calls == [("begin", "Bewegungsmelder 1.2.107 entfernt"), ("building",)]
+
+    def test_abbrechen_aendert_nichts(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        project, room, melder, device = _technik_project()
+        view = TopologyView()
+        view.set_project(project)
+        view._bus = _Bus()
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.No):
+            view._remove_sensor(device, room, melder)
+        assert not melder.suppressed and view._bus.calls == []

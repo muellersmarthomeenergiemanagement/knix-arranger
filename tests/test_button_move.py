@@ -1,8 +1,40 @@
 """Tasten verschieben und tauschen, Bedienelement entfernen (FA-1015 e)."""
-from knix_arranger.models.building import Bedienelement, Room, SensorFunktion
-from knix_arranger.services.button_move import (
-    button_keys, move_button, remove_bedienelement,
+from knix_arranger.models.building import (
+    Bedienelement, GewerkAssignment, Room, SensorFunktion,
 )
+from knix_arranger.services.button_move import (
+    button_keys, fit_sensor_channels, move_button, move_to_own_device,
+    remove_bedienelement,
+)
+
+
+def test_sensorkanal_auf_eigenes_geraet():
+    """Projekt_23 Technik: Rauch- und Wassermelder (Gewerk A, 2 Elemente)
+    auf einem Melder -- der Wassermelder bekommt ein eigenes Gerät."""
+    rauch, wasser = (SensorFunktion(gewerk_code="A", element_number=n) for n in (1, 2))
+    melder = Bedienelement(element_type="Bewegungsmelder", channels=2,
+                           participant_number="1.2.107", funktionen=[rauch, wasser])
+    room = Room(number="CUG02", name="Technik", bedienelemente=[melder],
+                gewerk_assignments=[GewerkAssignment(gewerk_code="A", count=2)])
+
+    new_be = move_to_own_device(room, melder, wasser, "Wassermelder")
+
+    assert room.bedienelemente == [melder, new_be]
+    assert (new_be.element_type, new_be.channels, new_be.is_auto) == ("Wassermelder", 1, False)
+    assert new_be.taster_index == 2              # Index 1 gehört dem Gewerk
+    assert new_be.funktionen == [wasser]
+    assert melder.funktionen == [rauch]
+    assert (melder.channels, melder.is_auto) == (1, False)   # kein leerer K2
+
+
+def test_sensorkanaele_nie_unter_eins():
+    be = Bedienelement(element_type="Wassermelder", channels=3)
+    fit_sensor_channels(be)
+    assert be.channels == 1
+    be = Bedienelement(element_type="Wassermelder", channels=1,
+                       funktionen=[SensorFunktion(gewerk_code="A")] * 2)
+    fit_sensor_channels(be)
+    assert be.channels == 1                      # nie vergrössern
 
 
 def _sf(code, nr=1, **kw):
