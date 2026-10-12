@@ -1,9 +1,10 @@
 """
 Selbsttest des ausgelieferten Bundles (KNiX_Arranger.exe --selftest)
 
-Prüft ohne Fenster und ohne Lizenz, ob alles, was erst bei Bedarf geladen
-wird, im kompilierten Bundle vorhanden ist: Datendateien, Firmenschrift,
-Qt-Übersetzung, PDF-Erzeugung (PyMuPDF), Kryptografie und Excel-Import.
+Prüft ohne Lizenz, ob alles, was erst bei Bedarf geladen wird, im
+kompilierten Bundle vorhanden ist: Datendateien, Firmenschrift,
+Qt-Übersetzung, PDF-Erzeugung (PyMuPDF), Kryptografie und Excel-Import --
+und ob sich das Hauptfenster aufbauen lässt (ohne es anzuzeigen).
 Der Release-Workflow ruft ihn nach jedem Build auf -- ein fehlendes Modul
 fällt so vor der Auslieferung auf und nicht erst beim Betatester.
 
@@ -77,6 +78,18 @@ def _check_excel() -> None:
     openpyxl.Workbook()
 
 
+def _check_main_window() -> None:
+    """Hauptfenster aufbauen (ohne Anzeigen und ohne Startdialoge): 1.2.5
+    stürzte mit Nuitka 4.3 schon dabei ab (Segmentation Fault), der übrige
+    Selbsttest lief durch. Ein Absturz beendet den Prozess mit Fehlercode."""
+    from PySide6.QtWidgets import QApplication
+    from ..ui.main_window import MainWindow
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.deleteLater()
+    del app
+
+
 CHECKS = [
     ("Datendateien", _check_data_files),
     ("Firmenschrift", _check_fonts),
@@ -84,6 +97,7 @@ CHECKS = [
     ("PDF-Erzeugung", _check_pdf),
     ("Kryptografie", _check_crypto),
     ("Excel", _check_excel),
+    ("Hauptfenster", _check_main_window),
 ]
 
 
