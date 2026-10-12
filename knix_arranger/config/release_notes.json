@@ -2,6 +2,13 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.2.6",
+      "date": "2026-10-12",
+      "behoben": [
+        "Version 1.2.5 startete nicht: Das Programm beendete sich direkt nach dem Start ohne Meldung. Die Neuerungen von 1.2.5 sind unverändert enthalten."
+      ]
+    },
+    {
       "version": "1.2.5",
       "date": "2026-10-12",
       "neu": [
