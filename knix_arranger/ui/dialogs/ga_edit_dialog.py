@@ -21,7 +21,8 @@ DPT_OPTIONS = [
     "DPST-3-7",    # Dimmen
     "DPST-5-1",    # Prozentwert
     "DPST-9-1",    # Temperatur
-    "DPST-17-1",   # Szene
+    "DPST-17-1",   # Szenennummer (nur abrufen)
+    "DPST-18-1",   # Szenensteuerung (abrufen und speichern)
     "DPST-20-102", # Betriebsart
 ]
 

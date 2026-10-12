@@ -655,3 +655,24 @@ class TestSzenenLinking:
         p = next(p for p in proposals if p.function_name == "SZENE")
         assert p.co_name == "8-Bit-Szene"
         assert p.confidence == "sicher"
+
+    def test_szenen_ga_18001_passt_zu_co_17001(self):
+        """Generierte Szenen-GAs tragen 18.001 (abrufen und speichern); ein
+        Aktor-CO mit 17.001 ist trotzdem kompatibel -- kein 'manuell pruefen'."""
+        room = Room(number="E01", name="Wohnzimmer")
+        gas = [
+            _ga(room, "L", 1, "E/A", 0),
+            _central_ga("", "SZENE", "ZENTRAL Szene Abwesenheit", 1, dpt="DPST-18-1"),
+        ]
+        project = _make_project([room], "Schaltaktor 4-fach", gas)
+        device = project.topology.areas[0].lines[0].devices[0]
+        device.communication_objects = [CommunicationObject(
+            object_number=5, name="8-Bit-Szene",
+            object_function="", data_type="DPST-17-1", flags="KSUA",
+        )]
+
+        proposals = CoLinkingService().generate_proposals(project)
+        p = next(p for p in proposals if p.function_name == "SZENE")
+        assert p.confidence == "sicher"
+        assert _dpt_compatible("DPST-18-1", "DPST-17-1")
+        assert not _dpt_compatible("DPST-18-1", "DPST-5-1")

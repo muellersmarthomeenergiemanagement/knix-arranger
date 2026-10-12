@@ -75,7 +75,7 @@ _FUNCTION_MAP: dict[str, list[tuple[str, str, str, str]]] = {
     # Generischer Fallback ohne reales CO -- generate_proposals() setzt die
     # Konfidenz fuer diesen Fall bewusst auf "manuell pruefen", da nicht jeder
     # Aktor ein Szenen-Objekt besitzt (anders als bei Zentral-Licht/Jalousie).
-    "SZENE":                [("Szene",                  "DPST-17-1",   "KSUA", "empfangen")],
+    "SZENE":                [("Szene",                  "DPST-18-1",   "KSUA", "empfangen")],
     # Fremdsystem-Gateway "MM" (z.B. Multiroom-Audio wie Revox)
     "EIN/AUS":              [("Ein/Aus",                "DPST-1-1",    "KSUA", "empfangen")],
     "LAUTSTAERKE":          [("Lautstaerke",             "DPST-5-1",    "KSUA", "empfangen")],
@@ -98,6 +98,8 @@ def _dpt_compatible(co_dpt: str, ga_dpt: str) -> bool:
     - Leerer Wert auf einer Seite → kompatibel (kein DPT bekannt)
     - Exakter Treffer nach Normalisierung → kompatibel
     - Gleicher Haupttyp (z.B. beide DPT-1-x) → kompatibel
+    - Szenennummer (17.x) und Szenensteuerung (18.x) → kompatibel; 18.001
+      enthält die Szenennummer, Abrufen funktioniert mit beiden
     - Sonst → inkompatibel (Warnung)
     """
     if not co_dpt or not ga_dpt:
@@ -110,6 +112,9 @@ def _dpt_compatible(co_dpt: str, ga_dpt: str) -> bool:
     co_parts = co_n.split("-")
     ga_parts = ga_n.split("-")
     if len(co_parts) >= 2 and len(ga_parts) >= 2 and co_parts[:2] == ga_parts[:2]:
+        return True
+    scene_main = {"17", "18"}
+    if len(co_parts) >= 2 and len(ga_parts) >= 2 and {co_parts[1], ga_parts[1]} <= scene_main:
         return True
     return False
 

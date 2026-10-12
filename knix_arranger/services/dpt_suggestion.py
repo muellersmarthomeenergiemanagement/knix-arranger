@@ -39,7 +39,7 @@ FUNCTION_TO_DPT = {
 # Der Vorschlag ist ein DPST-Code oder ein fertiger Anzeigetext bei zwei
 # gleichwertigen Möglichkeiten.
 _NAME_RULES: list[tuple[str, str]] = [
-    (r"szene", "DPST-17-1"),
+    (r"szene", "DPST-18-1"),
     (r"temp|_ist\b|istwert|sollwert", "DPST-9-1"),
     (r"helligkeit|daemmerung|dämmerung|\blux\b", "DPST-9-4"),
     (r"wind.*km/h", "DPST-9-28"),

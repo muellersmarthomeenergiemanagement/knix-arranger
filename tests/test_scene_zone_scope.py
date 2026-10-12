@@ -23,8 +23,11 @@ from knix_arranger.models.group_address import (
 from knix_arranger.models.project import KnxProject
 from knix_arranger.models.scene import Scene
 from knix_arranger.services.address_generator import AddressGenerator, regenerate_addresses
+from knix_arranger.models.topology import Area, Device, Line
+from knix_arranger.services.belegungsplan_service import BelegungsplanService
 from knix_arranger.services.scene_addressing import (
-    build_scope_label_lookup, canonical_zone_id, normalize_scene_scopes, zone_choices,
+    build_scope_label_lookup, canonical_zone_id, group_named_scenes,
+    normalize_scene_scopes, zone_choices, zone_room_ids,
 )
 from knix_arranger.ui.views.scene_view import SceneView
 
@@ -101,6 +104,40 @@ class TestZonen:
         channels = [ga for ga in mg4.group_addresses if ga.designation.startswith("Szenenaufruf")]
         assert [ga.designation for ga in channels] == ["Szenenaufruf Chalet Wohnung"]
         assert channels[0].description == "0=Morgen, 1=Abend"
+
+    def test_raeume_der_zone_ueber_alle_stockwerke(self):
+        project = _project()
+        og_apt, eg_apt = _zone_apts(project, "Chalet Wohnung")
+        expected = {r.id for a in (og_apt, eg_apt) for r in a.rooms}
+        assert zone_room_ids(project.areal, og_apt.id) == expected
+        assert zone_room_ids(project.areal, eg_apt.id) == expected
+        assert zone_room_ids(project.areal, "unbekannt") is None
+
+    def test_belegungsplan_szene_an_aktoren_aller_stockwerke(self):
+        """Zonen-Szene einer Maisonette: auch ein Aktor, der nur das
+        Obergeschoss bzw. nur das Erdgeschoss bedient, gehört dazu; ein
+        Aktor ausserhalb der Zone nicht."""
+        project = _project()
+        og_apt, eg_apt = _zone_apts(project, "Chalet Wohnung")
+        studio = _zone_apts(project, "Chalet Studio")[0]
+        project.scenes = [Scene(name="Abend", scene_number=1, scope="apartment",
+                                scope_id=og_apt.id)]
+        groups = group_named_scenes(project.scenes, project.areal)
+        designation = groups[og_apt.id][0]
+        project.group_addresses = GroupAddressStructure(variant="B")
+        project.group_addresses.main_groups.append(MainGroup(number=0, name="Zentral",
+            middle_groups=[MiddleGroup(number=4, name="Szenen", group_addresses=[
+                GroupAddress(main_group=0, middle_group=4, sub_group=2,
+                             designation=designation, datapoint_type="DPST-17-1",
+                             central="true", function_name="SZENE")])]))
+        project.topology.areas = [Area(area_number=1, lines=[Line(line_number=1, devices=[
+            Device(device_type="actor", product="Schaltaktor 1-fach", physical_address=pa)
+            for pa in ("1.1.1", "1.1.2", "1.1.3")])])]
+        served = {"1.1.1": {og_apt.rooms[0].id}, "1.1.2": {eg_apt.rooms[0].id},
+                  "1.1.3": {studio.rooms[0].id}}
+
+        rows = BelegungsplanService()._collect_central_actor_rows(project, served)
+        assert {r.physical_address for r in rows} == {"1.1.1", "1.1.2"}
 
 
 class TestFesteZentraladressen:

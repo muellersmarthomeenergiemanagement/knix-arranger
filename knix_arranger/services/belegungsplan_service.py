@@ -11,7 +11,7 @@ import logging
 import re
 
 from .building_service import BuildingService
-from .scene_addressing import group_named_scenes
+from .scene_addressing import group_named_scenes, zone_room_ids
 
 logger = logging.getLogger("knix_arranger.belegungsplan")
 
@@ -1072,11 +1072,9 @@ class BelegungsplanService:
         for room in project.all_rooms:
             if room.id == scope_key:
                 return {room.id}
-        for floor in project.all_floors:
-            for apt in floor.apartments:
-                if apt.id == scope_key:
-                    return {r.id for r in apt.rooms}
-        return set()
+        # Zone: alle Stockwerke, nicht nur das Apartment der scope_id
+        zone_rooms = zone_room_ids(project.areal, scope_key)
+        return zone_rooms if zone_rooms is not None else set()
 
     @staticmethod
     def _gewerke_for_device(product: str) -> set[str]:

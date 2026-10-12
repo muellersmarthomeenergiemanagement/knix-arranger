@@ -18,7 +18,7 @@ class TestDptSuggestion:
         ("H.EG.01.1_ist Temp ( Carnozet )", "9.001 Temperatur"),
         ("Helligkeit_wert West", "9.004 Helligkeit (Lux)"),
         ("Windgeschwindigkeit_wert km/h", "9.028 Wind (km/h)"),
-        ("Raum3_Szeneaufruf LED", "17.001 Szenennummer"),
+        ("Raum3_Szeneaufruf LED", "18.001 Szenensteuerung"),
         ("H.EG.00.1_status Ventil", "1.001 (PWM) / 5.001 (stetig)"),
     ])
     def test_aus_bezeichnung(self, designation, expected):

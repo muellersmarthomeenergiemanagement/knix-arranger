@@ -24,6 +24,7 @@ _DPT_OPTIONS = [
     ("DPST-5-10",  "1-Byte: Wert 0-255"),
     ("DPST-9-1",   "2-Byte: Temperatur"),
     ("DPST-17-1",  "1-Byte: Szenen-Nummer"),
+    ("DPST-18-1",  "1-Byte: Szenensteuerung (abrufen/speichern)"),
     ("DPST-20-102","1-Byte: HVAC-Betriebsart"),
 ]
 

@@ -68,6 +68,16 @@ def canonical_zone_id(areal, apt_id: str) -> str:
     return apt_id
 
 
+def zone_room_ids(areal, apt_id: str) -> set[str] | None:
+    """room_ids aller Stockwerke der Zone, zu der apt_id gehört (Maisonette,
+    EFH: ein Apartment je Stockwerk mit gleichem Namen). None, wenn apt_id
+    kein Apartment ist."""
+    for _b_idx, _building, _name, apts in _zones(areal):
+        if any(a.id == apt_id for a in apts):
+            return {r.id for a in apts for r in a.rooms}
+    return None
+
+
 def normalize_scene_scopes(project) -> int:
     """Vereinheitlicht Zonen-Geltungsbereiche: scope "apartment" und die
     scope_id der Zone (nicht eines einzelnen Stockwerks). Gibt die Anzahl
