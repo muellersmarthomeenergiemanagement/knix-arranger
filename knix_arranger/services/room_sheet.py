@@ -138,14 +138,42 @@ def _channel_text(channels: list[str], dali: bool = False) -> str:
     return ", ".join(parts)
 
 
-def _outputs_text(found: dict[tuple[str, str, bool], list[str]]) -> list[str]:
-    """Je Aktor eine Zeile "Typ Adresse · Kanäle" (DALI: Gruppen)."""
+def _outputs_text(found: dict[tuple[str, str, bool, str], list[str]]) -> list[str]:
+    """Je Aktor eine Zeile "Typ Adresse · Kanäle · Verteiler" (DALI: Gruppen)."""
     lines = []
-    for (actor_type, address, dali), channels in found.items():
+    for (actor_type, address, dali, location), channels in found.items():
         head = " ".join(p for p in (actor_type, address) if p)
-        channel = _channel_text(channels, dali)
-        lines.append(head + (f" · {channel}" if channel else ""))
+        parts = [head, _channel_text(channels, dali), location]
+        lines.append(" · ".join(p for p in parts if p))
     return lines
+
+
+def short_location(location: str, designations: dict[str, str] | None = None) -> str:
+    """Kurzname des Verteilers für die Ausgangszeile: die Bezeichnung aus
+    Schritt 4 (Elektroverteilungen, vom Integrator bearbeitbar), sonst der
+    Typ: "HV (HV Technikraum)" -> "HV T" bzw. "HV". Der volle Name steht im
+    Kopf des Raums."""
+    if designations and designations.get(location):
+        return designations[location]
+    return location.split(" (", 1)[0].strip()
+
+
+def verteiler_designations(project) -> dict[str, str]:
+    """Einbauort-Text eines Verteilers ("HV (HV Technikraum)") -> seine
+    Bezeichnung ("HV T"); Verteiler ohne Bezeichnung fehlen."""
+    from .report_service import _clean_location
+    from .verteiler_service import verteiler_label
+    return {_clean_location(verteiler_label(vt, room)): vt.designation.strip()
+            for room in project.all_rooms for vt in room.verteiler
+            if vt.designation.strip()}
+
+
+def _room_text(room) -> str:
+    return " ".join(p for p in (room.number, room.name) if p)
+
+
+# Taste_label der Melder und Kontakte (ein Kanal je Funktion)
+_SENSOR_CHANNEL_LABELS = ("Ausgang", "Kontakt")
 
 
 def _operator_text(row) -> str:
@@ -165,27 +193,55 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
     for row in plan.actor_rows:
         if row.ga_address:
             outputs_by_ga.setdefault(row.ga_address, []).append(row)
+    rooms_by_id = {room.id: room for room in project.all_rooms}
+    designations = verteiler_designations(project)
+    # Raum je Gruppenadresse (wie im Raumblatt zugeordnet, ohne Zentral) und
+    # je Taster/Sensor -- für "Bedient von" aus einem anderen Raum
+    room_of_ga: dict[str, str] = {}
+    for room_id, items in groups.items():
+        for (category, _label, _element, _short), gas in items.items():
+            if category != "zentral":
+                for ga in gas:
+                    room_of_ga.setdefault(ga.address, room_id)
+    devices_by_room: dict[str, list] = {}
+    room_of_pa: dict[str, str] = {}
+    for area in project.topology.areas:
+        for line in area.lines:
+            for dev in line.devices:
+                if dev.room_id and dev.device_type not in _NOT_IN_ROOM:
+                    devices_by_room.setdefault(dev.room_id, []).append(dev)
+                    if dev.physical_address:
+                        room_of_pa.setdefault(dev.physical_address, dev.room_id)
+    for room in project.all_rooms:
+        for be in room.bedienelemente:
+            if be.participant_number and not be.suppressed:
+                room_of_pa.setdefault(be.participant_number, room.id)
+
     operators_by_ga: dict[str, list[tuple[str, str]]] = {}
     usage_by_pa: dict[str, list[str]] = {}
+    channels_by_pa: dict[str, set] = {}
+    foreign_by_pa: dict[str, dict[str, set[str]]] = {}   # pa -> Raum -> Tasten
     for row in plan.sensor_rows:
         if row.is_feedback:
             continue
         if row.ga_address:
             operators_by_ga.setdefault(row.ga_address, []).append(
                 (row.physical_address, _operator_text(row)))
-        if row.taste_label:
+            target = room_of_ga.get(row.ga_address)
+            own = room_of_pa.get(row.physical_address)
+            if (target and own and target != own and row.taste_label
+                    and row.taste_label.startswith("Taste")):
+                foreign_by_pa.setdefault(row.physical_address, {}).setdefault(
+                    target, set()).add(row.taste_label)
+        if row.taste_label in _SENSOR_CHANNEL_LABELS or row.taste_label.startswith("Kanal"):
+            key = row.taste_label if row.taste_label.startswith("Kanal") else row.ga_address
+            channels_by_pa.setdefault(row.physical_address, set()).add(key)
+        elif row.taste_label:
             labels = usage_by_pa.setdefault(row.physical_address, [])
             if row.taste_label not in labels:
                 labels.append(row.taste_label)
     unoperated = {(u.room_id, u.gewerk_code, u.element_number)
                   for u in unoperated_elements(project)}
-
-    devices_by_room: dict[str, list] = {}
-    for area in project.topology.areas:
-        for line in area.lines:
-            for dev in line.devices:
-                if dev.room_id and dev.device_type not in _NOT_IN_ROOM:
-                    devices_by_room.setdefault(dev.room_id, []).append(dev)
 
     sheets: list[RoomSheet] = []
     for room in project.all_rooms:
@@ -204,23 +260,30 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
             central = category == "zentral"
             gewerk = catalog.get(short) if (short and not central) else None
             addresses = [ga.address for ga in gas]
-            found: dict[tuple[str, str, bool], list[str]] = {}
+            found: dict[tuple[str, str, bool, str], list[str]] = {}
             operated: list[str] = []
             for address in addresses:
                 for row in outputs_by_ga.get(address, []):
                     dali = row.dali_group is not None
-                    channels = found.setdefault((row.actor_type, row.physical_address, dali), [])
+                    locations = [loc for loc in (_clean_location(part) for part in
+                                                 (row.uv_location or "").split(",")) if loc]
+                    for location in locations:
+                        if location not in distributions:
+                            distributions.append(location)
+                    uv_short = ", ".join(dict.fromkeys(
+                        short_location(loc, designations) for loc in locations))
+                    channels = found.setdefault(
+                        (row.actor_type, row.physical_address, dali, uv_short), [])
                     channel = (str(row.dali_group) if row.dali_group is not None
                                else row.channel_number)
                     if channel and channel not in channels:
                         channels.append(channel)
-                    for location in (row.uv_location or "").split(","):
-                        location = _clean_location(location)
-                        if location and location not in distributions:
-                            distributions.append(location)
                 for pa, text in operators_by_ga.get(address, []):
                     if central and pa not in room_pas:
                         continue
+                    other = rooms_by_id.get(room_of_pa.get(pa, ""))
+                    if other is not None and other.id != room.id:
+                        text = f"{text} · {_room_text(other)}"
                     if text not in operated:
                         operated.append(text)
             text = ""
@@ -246,7 +309,11 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
         sheets.append(RoomSheet(
             room=room,
             elements=elements,
-            devices=[_device_row(d, usage_by_pa.get(d.physical_address, []))
+            devices=[_device_row(d, usage_by_pa.get(d.physical_address, []),
+                                 len(channels_by_pa.get(d.physical_address, ())),
+                                 {_room_text(rooms_by_id[rid]): len(keys) for rid, keys in
+                                  foreign_by_pa.get(d.physical_address, {}).items()
+                                  if rid in rooms_by_id})
                      for d in sorted(devices, key=lambda d: physical_address_key(
                          d.physical_address))],
             distributions=distributions,
@@ -254,7 +321,10 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
     return sheets
 
 
-def _device_row(device, usage: list[str]) -> DeviceRow:
+def _device_row(device, usage: list[str], channels: int = 0,
+                foreign: dict[str, int] | None = None) -> DeviceRow:
+    """foreign: Raum -> Anzahl Tasten, die Elemente eines anderen Raums
+    bedienen ("2 Tasten belegt, davon 1 für CUG02 Technik")."""
     product = " · ".join(p for p in (device.manufacturer, device.order_number) if p)
     if device.product_name and device.product_name != device.product:
         product = " · ".join(p for p in (device.product_name, product) if p)
@@ -262,7 +332,15 @@ def _device_row(device, usage: list[str]) -> DeviceRow:
         product = "kein Produkt zugewiesen"
     tasten = [u for u in usage if u.startswith("Taste")]
     others = [u for u in usage if not u.startswith("Taste")]
-    parts = [f"{len(tasten)} {'Taste' if len(tasten) == 1 else 'Tasten'} belegt"] if tasten else []
+    parts = []
+    if tasten:
+        text = f"{len(tasten)} {'Taste' if len(tasten) == 1 else 'Tasten'} belegt"
+        if foreign:
+            text += ", davon " + ", ".join(f"{n} für {name}"
+                                           for name, n in sorted(foreign.items()))
+        parts.append(text)
+    if channels:
+        parts.append(f"{channels} {'Kanal' if channels == 1 else 'Kanäle'} belegt")
     text = ", ".join(parts + others)
     return DeviceRow(
         physical_address=device.physical_address or "–",

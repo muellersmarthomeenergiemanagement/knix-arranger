@@ -817,8 +817,10 @@ class ReportService:
                 f"{c} = {catalog.get(c).name}" for c in columns if catalog.get(c)))
         pdf.add_note(
             "Raumblatt:",
-            "Bedient von = Taste bzw. Sensor, der das Element anspricht; Ausgang = "
-            "Aktor mit Kanal (K) bzw. DALI-Gruppe (Gr.), Einbauort im Kopf des Raums. "
+            "Bedient von = Taste bzw. Sensor, der das Element anspricht, mit Raum, "
+            "wenn er in einem anderen Raum liegt; Ausgang = Aktor mit Kanal (K) bzw. "
+            "DALI-Gruppe (Gr.) und Verteiler (Bezeichnung aus den Elektroverteilungen), "
+            "voller Einbauort im Kopf des Raums. "
             "Gruppenadressen als Bereiche, kleine Lücken sind Reserven des Blocks.")
         pdf.add_note(
             "Zuordnung:",

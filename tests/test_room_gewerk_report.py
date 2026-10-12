@@ -146,3 +146,68 @@ def test_raumblatt_geplant_mit_taste_und_ausgang(gewerk_catalog):
     assert any("Taste" in t for e in by_key.values() for t in e.operated_by)
     assert sheet.devices and sheet.devices[0].product == "kein Produkt zugewiesen"
     assert sheet.element_count == 3
+
+
+def test_raumblatt_bedienung_aus_anderem_raum_und_verteiler(gewerk_catalog):
+    """Projekt_23: Licht Technik wird vom Taster in der Waschküche bedient --
+    das Raumblatt nennt den Raum des Tasters, beim Ausgang den Verteiler,
+    und beim Taster im Raum Waschen die Taste für die Technik."""
+    from knix_arranger.models.building import Bedienelement, GewerkAssignment, SensorFunktion
+    from knix_arranger.services.belegungsplan_service import BelegungsplanService
+    from knix_arranger.services.recalc_service import RecalcService
+    from knix_arranger.services.room_sheet import build_room_sheets
+    from knix_arranger.services.sensor_service import project_for_export, refresh_bedienelemente
+    from knix_arranger.services.topology_engine import TopologyEngine
+    waschen = Room(number="CUG01", name="Waschen",
+                   gewerk_assignments=[GewerkAssignment(gewerk_code="L")])
+    from knix_arranger.models.building import Verteiler
+    technik = Room(number="CUG02", name="Technik",
+                   gewerk_assignments=[GewerkAssignment(gewerk_code="L", taster_indices=[])],
+                   verteiler=[Verteiler(name="HV Technikraum", verteiler_type="HV",
+                                        designation="HV T")])
+    project = KnxProject(name="Chalet")
+    project.areal = Areal(buildings=[Building(wings=[Wing(floors=[
+        Floor(name="UG", short_code="UG", main_group_number=4,
+              apartments=[Apartment(name="Wohnung", rooms=[waschen, technik])])])])])
+    project._gewerk_catalog = gewerk_catalog
+    project.topology = TopologyEngine().calculate_topology(project.areal)
+    RecalcService().recalc_actors_and_addresses(project)
+    refresh_bedienelemente(project)
+    taster = next(be for be in waschen.bedienelemente if be.element_type == "Tastereinheit")
+    taster.funktionen.append(SensorFunktion(gewerk_code="L", element_number=1,
+                                            source_room_id=technik.id))
+    taster.is_auto = False
+    for area in project.topology.areas:
+        for line in area.lines:
+            for dev in line.devices:
+                if dev.device_type == "actor":
+                    dev.installation_location = "HV (HV Technikraum)"
+    refresh_bedienelemente(project)
+    project = project_for_export(project)
+    groups, _missing = ReportService(project)._room_gewerk_groups()
+    sheets = {s.room.number: s for s in build_room_sheets(
+        project, groups, project.gewerk_catalog, BelegungsplanService().generate(project))}
+
+    licht_technik = next(e for e in sheets["CUG02"].elements if e.gewerk_code == "L")
+    assert licht_technik.operated_by and all(
+        t.endswith("· CUG01 Waschen") for t in licht_technik.operated_by)
+    # Verteiler mit seiner Bezeichnung aus Schritt 4
+    assert licht_technik.outputs and all(t.endswith("· HV T") for t in licht_technik.outputs)
+    licht_waschen = next(e for e in sheets["CUG01"].elements if e.gewerk_code == "L")
+    assert not any("Waschen" in t for t in licht_waschen.operated_by)   # eigener Raum
+    assert sheets["CUG02"].distributions == ["HV (HV Technikraum)"]
+    usage = next(d.usage for d in sheets["CUG01"].devices if d.kind == "Tastereinheit")
+    assert usage == "2 Tasten belegt, davon 1 für CUG02 Technik"
+
+
+def test_raumblatt_geraetezeile():
+    from knix_arranger.services.room_sheet import _device_row, short_location
+    melder = Device(physical_address="1.2.109", device_type="sensor", product="Rauchmelder")
+    assert _device_row(melder, [], channels=1).usage == "1 Kanal belegt"
+    assert _device_row(melder, [], channels=2).usage == "2 Kanäle belegt"
+    taster = Device(physical_address="1.2.101", device_type="sensor", product="Tastereinheit")
+    assert _device_row(taster, ["Taste 1", "Taste 2", "Sollwert"]).usage == \
+        "2 Tasten belegt, Sollwert"
+    assert short_location("HV (HV Technikraum)") == "HV"
+    assert short_location("UV2") == "UV2"
+    assert short_location("HV (HV Technikraum)", {"HV (HV Technikraum)": "HV T"}) == "HV T"
