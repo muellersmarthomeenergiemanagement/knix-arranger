@@ -2,6 +2,28 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.2.5",
+      "date": "2026-10-12",
+      "neu": [
+        "Schritt 5 (Gewerke): Produkt je Element – bei mehreren Elementen fragt «Produkt…», ob es für alle oder für ein einzelnes Element gilt (z.B. Gewerk A ×2: Wassermelder = Elsner Leak, Rauchmelder ein anderes Gerät). Jedes Element erhält die GAs seines Produkts, kleinere Blöcke mit Reserven.",
+        "Produkt am Gerät und GA-Planung abgleichen: Erhält ein Sensor in der Materialliste oder Topologie ein Produkt, fragt KNiX, ob es auch die GAs bestimmen soll. Schritt 5 markiert Abweichungen («⚠ Produkt…», «Produkt von Gerät übernehmen»), die Validierung warnt (FA-621).",
+        "Bauherrenberatung: «+ Bedienelement / Sensor» › «Sonstige» für Wassermelder, Rauchmelder, Kontakte usw.; an jedem Sensorkanal «→ eigenes Gerät» – der Kanal wird ein eigener Melder mit eigener Teilnehmernummer.",
+        "Topologie: Rechtsklick auf einen Sensor › «Gerät entfernen…» (geplante Projekte)."
+      ],
+      "verbessert": [
+        "Szenen-GAs mit DPT 18.001 (abrufen und speichern). Bestehende Projekte erhalten ihn beim nächsten Neuberechnen; Aktor-Objekte mit 17.001 gelten weiterhin als passend.",
+        "Raumbuch: «Bedient von» nennt den Raum, wenn der Taster in einem anderen Raum hängt; beim Ausgang steht der Verteiler mit seiner Bezeichnung aus Schritt 4; Taster zeigen «davon n für <Raum>», Melder «n Kanal belegt».",
+        "Entfernen oder Wegziehen eines Sensorkanals passt die Kanalzahl an – kein leerer Kanal mehr.",
+        "Produkt in Schritt 5 entfernen: «Alle Elemente: Produkt entfernen» bzw. Knopf «Produkt entfernen» in der KO-Auswahl.",
+        "GA-Namen aus Produktdaten ohne ETS-Platzhalter und Klammerzusätze («{{0:Room 1}}: Room Status» → «Room 1: Room Status», «Leckage Alarm (0 = Aus | 1 = An)» → «Leckage Alarm»)."
+      ],
+      "behoben": [
+        "Belegungsplan: Szenen einer Zone über mehrere Stockwerke (Maisonette, EFH) gingen nur an die Aktoren des ersten Stockwerks.",
+        "KO-Auswahl: Objekte mit derselben Nummer in mehreren Parametervarianten (z.B. Elsner Leak, KO 2) hoben ihre Auswahl auf und erhielten keine GA.",
+        "«Anderes Produkt wählen…» in der KO-Auswahl (Schritt 5 und 6) hatte keine Wirkung."
+      ]
+    },
+    {
       "version": "1.2.4",
       "date": "2026-10-09",
       "neu": [
