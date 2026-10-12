@@ -162,9 +162,9 @@ class _DeviceConfigDialog(QDialog):
                 parent=self,
             )
             if co_dlg.exec() != QDialog.Accepted:
-                return
-            if co_dlg.wants_different_product():
-                self._pick_new_extra_sensor_product()
+                # «Anderes Produkt wählen…» schliesst den Dialog wie Abbrechen
+                if co_dlg.wants_different_product():
+                    self._pick_new_extra_sensor_product()
                 return
             lp["excluded_co_numbers"] = sorted(co_dlg.excluded_numbers())
             self._update_extra_product_button()

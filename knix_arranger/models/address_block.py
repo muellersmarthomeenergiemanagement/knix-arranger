@@ -45,6 +45,14 @@ class AddressBlockSchema:
     block_size: int = 5       # 5 oder 10
     entries: list[BlockEntry] = field(default_factory=list)
     middle_group: int = 0     # Standard-Mittelgruppe
+    # Abweichende Einträge einzelner Elemente (Element-Nr. -> Einträge, auf
+    # block_size mit Reserven aufgefüllt), z.B. ein Element mit eigenem
+    # Produkt. Nur zur Laufzeit der Generierung, nicht serialisiert.
+    element_entries: dict[int, list[BlockEntry]] = field(default_factory=dict)
+
+    def entries_for(self, element_nr: int) -> list[BlockEntry]:
+        """Einträge eines Elements (1-basiert)."""
+        return self.element_entries.get(element_nr, self.entries)
 
     def to_dict(self) -> dict:
         return {

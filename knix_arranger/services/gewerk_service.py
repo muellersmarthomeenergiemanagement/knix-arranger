@@ -43,12 +43,28 @@ def _com_object_needs_ga(co: dict) -> bool:
     )
 
 
-def linked_product_ga_count(assignment: GewerkAssignment) -> int | None:
-    """Anzahl GAs pro Element aus verknüpftem Produkt (None = kein Produkt verknüpft)."""
-    lp = assignment.linked_product
+def ga_per_element(assignment: GewerkAssignment, gewerk) -> int:
+    """GAs je Element wie bei der Generierung: Elemente mit eigenem Produkt
+    haben dieselbe Blockgrösse wie das grösste Element (Rest Reserven)."""
+    sizes = [linked_product_ga_count(assignment) or gewerk.ga_count]
+    for nr in assignment.own_element_products():
+        sizes.append(linked_product_ga_count(assignment, nr) or gewerk.ga_count)
+    return max(sizes)
+
+
+def linked_product_ga_count(assignment: GewerkAssignment,
+                            element_nr: int | None = None) -> int | None:
+    """Anzahl GAs pro Element aus verknüpftem Produkt (None = kein Produkt
+    verknüpft) -- wie AddressGenerator._build_product_schema: je KO-Nummer
+    einmal, abgewählte Objekte nicht. element_nr: Produkt dieses Elements."""
+    from .knxprod_catalog_service import unique_com_objects
+    lp = (assignment.product_for_element(element_nr) if element_nr
+          else assignment.linked_product)
     if not lp or not lp.get("com_objects"):
         return None
-    count = sum(1 for co in lp["com_objects"] if _com_object_needs_ga(co))
+    excluded = set(lp.get("excluded_co_numbers") or [])
+    count = sum(1 for co in unique_com_objects(lp["com_objects"])
+                if _com_object_needs_ga(co) and co.get("number") not in excluded)
     if count == 0:
         return None
     return count + len(assignment.extra_entries)
@@ -242,10 +258,7 @@ class GewerkService:
         for assignment in room.gewerk_assignments:
             gewerk = self.catalog.get(assignment.gewerk_code)
             if gewerk:
-                ga_per_element = linked_product_ga_count(assignment)
-                if ga_per_element is None:
-                    ga_per_element = gewerk.ga_count
-                total += ga_per_element * assignment.count
+                total += ga_per_element(assignment, gewerk) * assignment.count
         return total
 
     def get_room_summary(self, room: Room) -> list[dict]:
@@ -254,15 +267,13 @@ class GewerkService:
         for assignment in room.gewerk_assignments:
             gewerk = self.catalog.get(assignment.gewerk_code)
             if gewerk:
-                ga_per_element = linked_product_ga_count(assignment)
-                if ga_per_element is None:
-                    ga_per_element = gewerk.ga_count
+                per_element = ga_per_element(assignment, gewerk)
                 summary.append({
                     "code": assignment.gewerk_code,
                     "name": gewerk.name,
                     "count": assignment.count,
-                    "ga_per_element": ga_per_element,
-                    "total_ga": ga_per_element * assignment.count,
+                    "ga_per_element": per_element,
+                    "total_ga": per_element * assignment.count,
                 })
         return summary
 

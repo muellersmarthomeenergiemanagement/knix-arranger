@@ -31,16 +31,6 @@ from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 logger = logging.getLogger("knix_arranger.material_list_view")
 
 
-def _flags_str(co: dict) -> str:
-    """Erstellt ETS-artigen Flags-String aus ComObject-Dict."""
-    return "".join([
-        "K" if co.get("communication_flag", True) else "-",
-        "L" if co.get("read_flag", False) else "-",
-        "Ü" if co.get("write_flag", False) else "-",
-        "S" if co.get("transmit_flag", False) else "-",
-        "U" if co.get("update_flag", False) else "-",
-    ])
-
 # Mapping Gerätetyp → Materiallisten-Kategorie
 _DEVICE_CATEGORY = {
     "actor":        "Aktor",
@@ -1065,6 +1055,19 @@ class MaterialListView(QWidget):
         if room is None:
             return ""
 
+        # Sensor mit eigenem Produkt für sein Element (z.B. Wassermelder =
+        # Element 2 von Gewerk A): das Produkt dieses Elements vorschlagen
+        if entry.category == "Sensor":
+            from ...services.button_move import bedienelement_of_device
+            _room, be = bedienelement_of_device(self._project, device)
+            by_code = {a.gewerk_code: a for a in room.gewerk_assignments}
+            for sf in (be.funktionen if be is not None else []):
+                assignment = by_code.get(sf.gewerk_code)
+                lp = (assignment.product_for_element(sf.element_number)
+                      if assignment and sf.element_number else None)
+                if lp and lp.get("order_number"):
+                    return lp["order_number"]
+
         type_map = GEWERK_TO_SENSOR_TYPE if entry.category == "Sensor" else GEWERK_TO_ACTOR_TYPE
         for assignment in room.gewerk_assignments:
             if assignment.gewerk_code not in type_map:
@@ -1148,14 +1151,14 @@ class MaterialListView(QWidget):
                 return
 
         # Rückkopplung ins Device der Topologie
-        if self._project:
-            self._update_device_product(entry, prod)
+        devices = self._update_device_product(entry, prod) if self._project else []
 
         self._rebuild_table()
         self.list_changed.emit()
+        self._offer_device_product(devices)
 
     def _update_device_product(self, entry: MaterialEntry,
-                               prod: ProductSuggestion) -> None:
+                               prod: ProductSuggestion) -> list:
         """
         Schreibt Produktdaten in alle Device-Objekte der Topologie zurück,
         die zu diesem Materiallisten-Eintrag gehören (per physical_addresses).
@@ -1167,9 +1170,12 @@ class MaterialListView(QWidget):
         Geräts (z.B. 8-fach-Taster statt berechneter 7 Kanäle) – das Bauherr-
         Formular bietet dank be.channels dann die zusätzlichen Tasten als
         wählbare Slots an.
-        """
-        from ...models.topology import CommunicationObject
 
+        Gibt die aktualisierten Geräte zurück.
+        """
+        from ...services.product_sync import communication_objects_of
+
+        updated: list = []
         be_by_addr = {
             be.participant_number: be
             for room in self._project.all_rooms
@@ -1179,17 +1185,9 @@ class MaterialListView(QWidget):
 
         def _apply(device: Device) -> None:
             device.apply_product(prod)
+            updated.append(device)
             if prod.com_objects:
-                device.communication_objects = [
-                    CommunicationObject(
-                        object_number=co.get("number", 0),
-                        name=co.get("name", ""),
-                        object_function=co.get("function_text", ""),
-                        data_type=co.get("datapoint_type", ""),
-                        flags=_flags_str(co),
-                    )
-                    for co in prod.com_objects
-                ]
+                device.communication_objects = communication_objects_of(prod.com_objects)
             if prod.channels:
                 be = be_by_addr.get(device.physical_address)
                 if be:
@@ -1203,6 +1201,16 @@ class MaterialListView(QWidget):
                         _apply(device)
                     elif entry.device_id and device.id == entry.device_id:
                         _apply(device)
+        return updated
+
+    def _offer_device_product(self, devices: list) -> None:
+        """Sensor-Produkt auch für die GAs seiner Gewerk-Elemente übernehmen
+        (Rückfrage); danach Aktoren/Sensoren und GAs neu berechnen."""
+        from ..dialogs.product_sync_dialog import offer_device_product
+        if self._project and offer_device_product(self, self._project, devices):
+            bus = getattr(self, "_bus", None)
+            if bus:
+                bus.emit_functions_changed()
 
     def _batch_assign_by_type(self) -> None:
         """
@@ -1291,6 +1299,7 @@ class MaterialListView(QWidget):
                 return
 
         # Alle Einträge dieses Typs zuweisen
+        devices: list = []
         for entry in entries_to_assign:
             entry.manufacturer = prod.manufacturer
             entry.order_number = prod.order_number
@@ -1301,7 +1310,7 @@ class MaterialListView(QWidget):
             entry.ga_max = prod.ga_max
             entry.ga_override = None  # gehörte zum bisherigen Produkt
             if self._project:
-                self._update_device_product(entry, prod)
+                devices += self._update_device_product(entry, prod)
 
         QMessageBox.information(
             self,
@@ -1311,6 +1320,7 @@ class MaterialListView(QWidget):
         )
         self._rebuild_table()
         self.list_changed.emit()
+        self._offer_device_product(devices)
 
     def _on_item_changed(self, item: QTableWidgetItem):
         """Reagiert auf Mengen-Änderung durch Doppelklick (nur manuelle Einträge)."""

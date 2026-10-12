@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QPushButton, QComboBox, QSpinBox,
     QGroupBox, QAbstractItemView, QHeaderView, QMessageBox, QLineEdit,
-    QDialog,
+    QDialog, QInputDialog,
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QBrush, QColor
@@ -17,6 +17,7 @@ from ...models.building import GewerkAssignment
 from ...models.device import GEWERK_TO_SENSOR_TYPE
 from ...services.gewerk_service import GewerkService
 from ...services.address_generator import regenerate_addresses
+from ...services.product_sync import ProductMismatch, product_mismatches
 from ..dialogs.gewerk_template_dialog import GewerkTemplateDialog
 from ..dialogs.extra_ga_dialog import ExtraGaDialog
 from ..dialogs.product_select_dialog import ProductSelectDialog
@@ -82,6 +83,24 @@ def label_hint(ga: GewerkAssignment, room_number: str, room_name: str) -> tuple[
 # QPushButton-Padding (8px 16px) schnitt deren Text ab ("rodukt", "' Kanal (").
 # Ohne feste Breite richtet sich jeder Button nach seinem Text.
 _ROW_BUTTON_STYLE = "padding: 3px 8px;"
+
+
+def _product_text(lp: dict) -> str:
+    """"Elsner 70316 – Leak KNX 2.0" für Auswahl und Tooltip."""
+    head = " ".join(p for p in (lp.get("manufacturer", ""), lp.get("order_number", "")) if p)
+    return " – ".join(p for p in (head, lp.get("product_name", "")) if p)
+
+
+def _device_product_text(device) -> str:
+    """"Elsner 70316 – Leak KNX 2.0" eines Topologie-Geräts."""
+    return _product_text({"manufacturer": device.manufacturer,
+                          "order_number": device.order_number,
+                          "product_name": device.product_name})
+
+
+def _element_text(ga: GewerkAssignment, element_nr: int) -> str:
+    """"Element 2 Wassermelder" (mit Klartext, falls erfasst)."""
+    return " ".join(p for p in (f"Element {element_nr}", ga.element_label(element_nr)) if p)
 
 
 def _fresh_ga(ga_dict: dict) -> GewerkAssignment:
@@ -464,6 +483,10 @@ class Step05Gewerke(QWidget):
 
     def _refresh_table_impl(self):
         _ro = Qt.ItemIsSelectable | Qt.ItemIsEnabled  # read-only flags
+        # Sensor-Geräte mit anderem Produkt als die GA-Planung (Hinweis am Knopf)
+        mismatches_by_assignment: dict[str, list] = {}
+        for m in product_mismatches(self._project):
+            mismatches_by_assignment.setdefault(m.assignment.id, []).append(m)
 
         rows = []
         for floor in self._project.all_floors:
@@ -546,20 +569,30 @@ class Step05Gewerke(QWidget):
                 )
                 action_layout.addWidget(btn_extra)
 
-                btn_product = QPushButton("✓ Produkt" if ga.linked_product else "Produkt…")
-                if ga.linked_product:
-                    lp = ga.linked_product
+                btn_product = QPushButton("✓ Produkt" if ga.has_product() else "Produkt…")
+                if ga.has_product():
+                    lines = []
+                    if ga.linked_product:
+                        prefix = "Alle Elemente: " if ga.count > 1 else ""
+                        lines.append(prefix + _product_text(ga.linked_product))
+                    for nr, lp in ga.own_element_products().items():
+                        lines.append(f"{_element_text(ga, nr)}: {_product_text(lp)}")
                     btn_product.setToolTip(
-                        f"Verknüpft: {lp.get('manufacturer', '')} "
-                        f"{lp.get('order_number', '')} – {lp.get('product_name', '')}\n"
-                        "Klicken um Produkt zu ändern."
-                    )
+                        "Verknüpft:\n" + "\n".join(lines) + "\nKlicken um Produkt zu ändern.")
                 else:
                     btn_product.setToolTip(
                         "Produkt aus Katalog/KNXPROD zuweisen – generiert die GAs "
                         "dieser Zuweisung aus den ComObjects des Produkts und fügt "
                         "es der Materialliste hinzu."
                     )
+                row_mismatches = mismatches_by_assignment.get(ga.id, [])
+                if row_mismatches:
+                    btn_product.setText("⚠ " + btn_product.text())
+                    btn_product.setToolTip(btn_product.toolTip() + "\n\n" + "\n".join(
+                        f"Gerät {m.device.physical_address}: {_device_product_text(m.device)} "
+                        f"– GAs von {_element_text(ga, m.element_nr)} folgen einem anderen "
+                        f"Produkt. Klicken, um es zu übernehmen."
+                        for m in row_mismatches))
                 btn_product.setStyleSheet(_ROW_BUTTON_STYLE)
                 btn_product.clicked.connect(
                     lambda checked, r=room, g=ga: self._select_product(r, g)
@@ -931,33 +964,125 @@ class Step05Gewerke(QWidget):
     def _select_product(self, room, ga: GewerkAssignment):
         """Verwaltet die Produktverknüpfung samt GA-Auswahl dieser Zuweisung.
 
+        Bei mehreren Elementen zuerst: für alle Elemente oder für ein
+        einzelnes (z.B. Gewerk A ×2: Element 2 «Wassermelder» = Elsner Leak,
+        der Rauchmelder ein anderes Gerät).
+
         Ist bereits ein Produkt verknüpft, öffnet sich direkt die
         ComObject-Auswahl für dieses Produkt (kein erneutes Suchen nötig) –
         nur über deren "Anderes Produkt wählen…" gelangt man zur
         Produktsuche. Ohne bestehende Verknüpfung öffnet sich die
         Produktsuche direkt.
         """
-        if ga.linked_product and ga.linked_product.get("com_objects"):
-            lp = ga.linked_product
-            label = f"{lp.get('manufacturer', '')} {lp.get('order_number', '')} – {lp.get('product_name', '')}"
+        from ..dialogs.product_sync_dialog import take_over_device_product
+        mismatches = [m for m in product_mismatches(self._project) if m.assignment is ga]
+        element_nr = None
+        if ga.count > 1:
+            choice = self._choose_product_target(ga, mismatches)
+            if choice is None:
+                return
+            element_nr, action = choice
+            if action == "remove":
+                self._remove_product(ga, element_nr)
+                return
+            if isinstance(action, ProductMismatch):
+                if take_over_device_product(self, [action]):
+                    self._regenerate_gas()
+                    self._refresh_table()
+                return
+        elif mismatches:
+            device = mismatches[0].device
+            answer = QMessageBox.question(
+                self, "Produkt des Geräts",
+                f"Gerät {device.physical_address} ist als "
+                f"{_device_product_text(device)} geplant. Dieses Produkt für die "
+                f"GAs übernehmen?\n\nNein = Produkt hier selbst wählen.",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.Yes)
+            if answer == QMessageBox.Cancel:
+                return
+            if answer == QMessageBox.Yes:
+                if take_over_device_product(self, mismatches):
+                    self._regenerate_gas()
+                    self._refresh_table()
+                return
+
+        lp = ga.element_products.get(element_nr) if element_nr else ga.linked_product
+        if lp and not lp.get("com_objects"):
+            # Produkt ohne Kommunikationsobjekte: ändern oder entfernen
+            box = QMessageBox(QMessageBox.Question, "Produkt",
+                              f"Verknüpft: {_product_text(lp)}", parent=self)
+            btn_other = box.addButton("Anderes Produkt…", QMessageBox.AcceptRole)
+            btn_remove = box.addButton("Produkt entfernen", QMessageBox.DestructiveRole)
+            box.addButton("Abbrechen", QMessageBox.RejectRole)
+            box.exec()
+            if box.clickedButton() is btn_remove:
+                self._remove_product(ga, element_nr)
+            elif box.clickedButton() is btn_other:
+                self._pick_new_product(room, ga, element_nr)
+            return
+        if lp:
             co_dlg = ComObjectSelectDialog(
-                label, lp["com_objects"],
+                _product_text(lp), lp["com_objects"],
                 excluded_numbers=set(lp.get("excluded_co_numbers", [])),
-                parent=self,
+                allow_remove=True, parent=self,
             )
             if co_dlg.exec() != QDialog.Accepted:
-                return
-            if co_dlg.wants_different_product():
-                self._pick_new_product(room, ga)
+                if co_dlg.wants_remove():
+                    self._remove_product(ga, element_nr)
+                elif co_dlg.wants_different_product():
+                    self._pick_new_product(room, ga, element_nr)
                 return
             lp["excluded_co_numbers"] = sorted(co_dlg.excluded_numbers())
             self._regenerate_gas()
             self._refresh_table()
             return
 
-        self._pick_new_product(room, ga)
+        self._pick_new_product(room, ga, element_nr)
 
-    def _pick_new_product(self, room, ga: GewerkAssignment):
+    def _remove_product(self, ga: GewerkAssignment, element_nr: int | None) -> None:
+        """Produkt eines Elements bzw. für alle Elemente lösen; die GAs
+        kommen wieder aus dem Gewerk (bzw. dem Produkt für alle)."""
+        if element_nr:
+            ga.element_products.pop(element_nr, None)
+        else:
+            ga.linked_product = None
+        self._regenerate_gas()
+        self._refresh_table()
+
+    def _choose_product_target(self, ga: GewerkAssignment, mismatches=()) -> tuple | None:
+        """Auswahl, wofür das Produkt gilt: (None, "") = alle Elemente,
+        (Nr., "") = ein Element, (None/Nr., "remove") = Produkt für alle bzw.
+        eigenes Produkt des Elements entfernen, (Nr., ProductMismatch) =
+        Produkt des Geräts übernehmen (zuoberst); None = abgebrochen."""
+        own = ga.own_element_products()
+        options: list[tuple[str, tuple]] = [
+            (f"{_element_text(ga, m.element_nr)}: Produkt von Gerät "
+             f"{m.device.physical_address} übernehmen ({_device_product_text(m.device)})",
+             (m.element_nr, m))
+            for m in mismatches]
+        options.append((
+            "Alle Elemente" + (f"  ·  {_product_text(ga.linked_product)}"
+                               if ga.linked_product else ""), (None, "")))
+        for nr in range(1, ga.count + 1):
+            current = (f"eigenes: {_product_text(own[nr])}" if nr in own
+                       else "wie alle Elemente")
+            options.append((f"{_element_text(ga, nr)}  ·  {current}", (nr, "")))
+        if ga.linked_product:
+            options.append(("Alle Elemente: Produkt entfernen", (None, "remove")))
+        for nr in own:
+            options.append((f"{_element_text(ga, nr)}: eigenes Produkt entfernen",
+                            (nr, "remove")))
+        labels = [label for label, _ in options]
+        label, ok = QInputDialog.getItem(
+            self, "Produkt zuweisen",
+            "Das Produkt erzeugt die GAs aus seinen Kommunikationsobjekten.\n"
+            "Gilt es für alle Elemente oder für ein einzelnes Gerät?",
+            labels, 0, False)
+        if not ok:
+            return None
+        return dict(options)[label] if label in labels else None
+
+    def _pick_new_product(self, room, ga: GewerkAssignment, element_nr: int | None = None):
         """Öffnet die Produktsuche und verknüpft das gewählte Produkt mit der Zuweisung.
 
         Dient ausschliesslich der GA-Generierung aus echten ComObjects
@@ -994,13 +1119,17 @@ class Step05Gewerke(QWidget):
                 "Das GA-Schema dieser Zuweisung bleibt unverändert.",
             )
 
-        ga.linked_product = {
+        product = {
             "manufacturer": prod.manufacturer,
             "order_number": prod.order_number,
             "product_name": prod.product_name,
             "com_objects": prod.com_objects,
             "excluded_co_numbers": sorted(excluded_co_numbers),
         }
+        if element_nr:
+            ga.element_products[element_nr] = product
+        else:
+            ga.linked_product = product
         self._regenerate_gas()
         self._refresh_table()
 

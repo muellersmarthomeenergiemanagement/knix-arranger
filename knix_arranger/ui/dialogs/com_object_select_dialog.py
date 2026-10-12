@@ -17,7 +17,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-from ...services.knxprod_catalog_service import ComObjectInfo
+from ...services.knxprod_catalog_service import (
+    ComObjectInfo, clean_co_text, unique_com_objects,
+)
 
 _COL_CHECK    = 0
 _COL_NUMBER   = 1
@@ -33,12 +35,16 @@ class ComObjectSelectDialog(QDialog):
     def __init__(self, product_label: str, com_objects: list[dict],
                  excluded_numbers: set[int] | None = None,
                  default_all_selected: bool = True,
-                 header_note: str | None = None, parent=None):
+                 header_note: str | None = None, allow_remove: bool = False,
+                 parent=None):
         super().__init__(parent)
         self.setWindowTitle("Gruppenadressen-Auswahl")
         self.setMinimumSize(720, 560)
+        self._want_remove = False
 
-        all_infos = [ComObjectInfo.from_dict(co) for co in com_objects]
+        # Eine Zeile je KO-Nummer: ausgewählt wird nach Nummer, doppelte
+        # Parametervarianten hoben ihre Auswahl sonst gegenseitig auf
+        all_infos = [ComObjectInfo.from_dict(co) for co in unique_com_objects(com_objects)]
         self._relevant: list[ComObjectInfo] = [i for i in all_infos if i.needs_ga]
         self._checkboxes: list[QCheckBox] = []
         self._want_different_product = False
@@ -110,7 +116,7 @@ class ComObjectSelectDialog(QDialog):
             self._table.setCellWidget(row, _COL_CHECK, holder)
 
             self._table.setItem(row, _COL_NUMBER, QTableWidgetItem(str(info.number)))
-            func_text = info.function_text or info.name
+            func_text = clean_co_text(info.function_text) or clean_co_text(info.name)
             self._table.setItem(row, _COL_FUNCTION, QTableWidgetItem(func_text))
             self._table.setItem(row, _COL_DPT, QTableWidgetItem(info.datapoint_type))
             self._table.setItem(row, _COL_FLAGS, QTableWidgetItem(info.flags_display))
@@ -123,6 +129,15 @@ class ComObjectSelectDialog(QDialog):
         btn_other.setToolTip("Bricht diese Auswahl ab und öffnet die Produktsuche erneut")
         btn_other.clicked.connect(self._choose_different_product)
         footer.addWidget(btn_other)
+        # Bestehende Verknüpfung lösen: die GAs kommen wieder aus dem Gewerk
+        self._btn_remove = None
+        if allow_remove:
+            self._btn_remove = QPushButton("Produkt entfernen")
+            self._btn_remove.setToolTip(
+                "Verknüpfung lösen – die Gruppenadressen werden wieder nach dem "
+                "Standard des Gewerks erzeugt")
+            self._btn_remove.clicked.connect(self._remove_product)
+            footer.addWidget(self._btn_remove)
         footer.addStretch()
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -153,6 +168,14 @@ class ComObjectSelectDialog(QDialog):
     def _choose_different_product(self):
         self._want_different_product = True
         self.reject()
+
+    def _remove_product(self):
+        self._want_remove = True
+        self.reject()
+
+    def wants_remove(self) -> bool:
+        """True wenn der Nutzer 'Produkt entfernen' geklickt hat."""
+        return self._want_remove
 
     # ------------------------------------------------------------------ Ergebnis
 

@@ -1298,7 +1298,8 @@ class TestSceneAddressGeneration:
         assert len(gas) == 2
         assert gas[0].designation == "ZENTRAL Szene Abwesenheit"
         assert gas[1].designation == "ZENTRAL Szenenaufruf"
-        assert gas[1].datapoint_type == "DPST-17-1"
+        # 18.001: abrufen und speichern (Bit 7) über dieselbe GA
+        assert [ga.datapoint_type for ga in gas] == ["DPST-18-1", "DPST-18-1"]
 
     def test_shared_scene_ga_description_maps_byte_values(self, simple_efh, gewerk_catalog):
         from knix_arranger.models.scene import Scene
@@ -1572,3 +1573,76 @@ class TestAstroGasSurviveRegeneration:
         result = regenerate_addresses(project)
         assert result.changed and result.added and not result.removed
         assert result.summary().startswith("Gruppenadressen aktualisiert: +")
+
+
+def _leak_product() -> dict:
+    """Elsner Leak KNX 2.0 (Projekt_23), KO 2 doppelt, Platzhalter im Text."""
+    def co(number, text, dpt):
+        return {"number": number, "name": text, "function_text": text,
+                "datapoint_type": dpt, "communication_flag": True, "read_flag": False,
+                "write_flag": False, "transmit_flag": True, "update_flag": False}
+    return {"manufacturer": "Elsner", "order_number": "70316",
+            "product_name": "Leak KNX 2.0", "excluded_co_numbers": [],
+            "com_objects": [co(2, "Leckage Alarm", "DPST-1-1"),
+                            co(3, "{{0}}Leckage Alarm Text", "DPST-16-0"),
+                            co(2, "Leckage Alarm", "DPST-1-1")]}
+
+
+class TestProduktJeElement:
+    """Projekt_23 Technik: Gewerk A ×2 (Rauchmelder, Wassermelder) -- das
+    Produkt des Wassermelders gilt nur für Element 2."""
+
+    @staticmethod
+    def _areal():
+        room = Room(number="CUG02", name="Technik")
+        room.gewerk_assignments = [GewerkAssignment(
+            gewerk_code="A", count=2, element_products={2: _leak_product()})]
+        room.gewerk_assignments[0].set_element_labels(["Rauchmelder", "Wassermelder"])
+        floor = Floor(name="Untergeschoss", short_code="UG", main_group_number=4,
+                      apartments=[Apartment(name="Wohnung", rooms=[room])])
+        return Areal(buildings=[Building(wings=[Wing(floors=[floor])])]), room
+
+    @staticmethod
+    def _by_element(structure):
+        result = {}
+        for ga in sorted(structure.all_addresses(), key=lambda g: (g.middle_group, g.sub_group)):
+            if ga.main_group == 4 and ga.middle_group == 3:
+                result.setdefault(ga.element_number, []).append(ga)
+        return result
+
+    def test_element_mit_eigenem_produkt(self, gewerk_catalog):
+        areal, room = self._areal()
+        structure = AddressGenerator(gewerk_catalog, variant="B").generate(areal)
+        gas = [ga for ga in structure.all_addresses() if (ga.main_group, ga.middle_group) == (4, 3)]
+        assert len(gas) == 10                       # 2 Elemente × Blockgrösse 5
+        rauch = [g.function_name for g in gas if g.element_number == 1]
+        wasser = [g.function_name for g in gas if g.element_number == 2]
+        assert "Leckage Alarm" not in rauch         # Rauchmelder: Gewerk-Standard
+        assert wasser == ["Leckage Alarm", "Leckage Alarm Text"]   # Rest Reserven
+        assert all("{{" not in g.designation for g in gas)
+        # Blöcke gleich gross: Element 2 beginnt 5 Adressen nach Element 1
+        subs = sorted(g.sub_group for g in gas)
+        assert subs == list(range(subs[0], subs[0] + 10))
+
+    def test_neu_generieren_behaelt_adressen(self, gewerk_catalog):
+        areal, room = self._areal()
+        gen = AddressGenerator(gewerk_catalog, variant="B")
+        first = gen.generate(areal)
+        second = gen.generate(areal, existing=first)
+        key = lambda s: sorted((g.address, g.id, g.function_name) for g in s.all_addresses()
+                               if (g.main_group, g.middle_group) == (4, 3))
+        assert key(second) == key(first)
+
+    def test_speichern_und_laden(self):
+        ga = GewerkAssignment(gewerk_code="A", count=2, element_products={2: _leak_product()})
+        restored = GewerkAssignment.from_dict(ga.to_dict())
+        assert restored.element_products == {2: _leak_product()}
+        assert restored.product_for_element(2)["order_number"] == "70316"
+        assert restored.product_for_element(1) is None
+        restored.count = 1                          # Element 2 entfällt
+        assert restored.own_element_products() == {} and not restored.has_product()
+
+    def test_ga_zahl_je_element(self, gewerk_catalog):
+        from knix_arranger.services.gewerk_service import ga_per_element
+        ga = GewerkAssignment(gewerk_code="A", count=2, element_products={2: _leak_product()})
+        assert ga_per_element(ga, gewerk_catalog.get("A")) == 5

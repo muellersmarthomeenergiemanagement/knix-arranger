@@ -21,6 +21,7 @@ Produktinfos die gelesen werden:
 """
 from __future__ import annotations
 import logging
+import re
 import zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -28,6 +29,34 @@ from dataclasses import dataclass, field
 from ..utils.manufacturers import canonical_manufacturer
 
 logger = logging.getLogger("knix_arranger.knxprod_catalog")
+
+# Platzhalter in KO-Texten, die die ETS aus Parametern füllt, z.B.
+# "{{0}}Leckage Alarm Text" oder "{{0:Room 1}}: Room Status" (mit Standardtext)
+_PLACEHOLDER_RE = re.compile(r"\{\{\s*\d*\s*(?::([^}]*))?\}\}")
+
+
+def clean_co_text(text: str) -> str:
+    """KO-Text wie die ETS ihn ohne Parameter zeigt: Platzhalter mit
+    Standardtext durch diesen ersetzt, sonst entfernt.
+    "{{0}}Leckage Alarm Text" -> "Leckage Alarm Text",
+    "{{0:Room 1}}: Room Status" -> "Room 1: Room Status"."""
+    text = _PLACEHOLDER_RE.sub(lambda m: (m.group(1) or "").strip() or " ", text or "")
+    return " ".join(text.split()).lstrip(":-–| ").strip()
+
+
+def unique_com_objects(com_objects: list[dict]) -> list[dict]:
+    """Ein ComObject je Nummer: Applikationen führen dieselbe Nummer in
+    mehreren Parametervarianten (Elsner Leak: KO 2 «Leckage Alarm» zweimal).
+    Ausgewählt wird nach Nummer -- doppelte Zeilen hoben sich sonst auf."""
+    seen: set = set()
+    result = []
+    for co in com_objects:
+        number = co.get("number")
+        if number in seen:
+            continue
+        seen.add(number)
+        result.append(co)
+    return result
 
 # Mapping von KNX-ApplicationArea auf interne Kategorien (ProductSearchService)
 _AREA_TO_CATEGORY: dict[str, str] = {

@@ -160,3 +160,103 @@ class TestStep05Column:
         assert "04  Ost" in item.toolTip()
         assert "nicht verwendet" not in item.toolTip()
         assert item.foreground().color().name().upper() != COLOR_WARNING.upper()
+
+
+class TestProduktJeElementSchritt5:
+    """Schritt 5: «Produkt…» fragt bei mehreren Elementen, wofür es gilt."""
+
+    @pytest.fixture(autouse=True)
+    def _app(self):
+        yield QApplication.instance() or QApplication([])
+
+    def _step(self, assignment):
+        from knix_arranger.ui.wizard.step05_gewerke import Step05Gewerke
+        project = KnxProject(name="Test")
+        project.areal = _areal(assignment)
+        return Step05Gewerke(project)
+
+    def test_auswahl_element_und_entfernen(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QInputDialog
+        lp = {"manufacturer": "Elsner", "order_number": "70316",
+              "product_name": "Leak KNX 2.0", "com_objects": []}
+        assignment = GewerkAssignment(gewerk_code="A", count=2, element_products={2: lp})
+        assignment.set_element_labels(["Rauchmelder", "Wassermelder"])
+        step = self._step(assignment)
+        captured = {}
+
+        def pick(_parent, _title, _label, items, *_args):
+            captured["items"] = items
+            return items[2], True              # Element 2
+        with patch.object(QInputDialog, "getItem", side_effect=pick):
+            assert step._choose_product_target(assignment) == (2, "")
+        assert captured["items"][0] == "Alle Elemente"
+        assert captured["items"][1] == "Element 1 Rauchmelder  ·  wie alle Elemente"
+        assert captured["items"][2] == \
+            "Element 2 Wassermelder  ·  eigenes: Elsner 70316 – Leak KNX 2.0"
+        assert captured["items"][3] == "Element 2 Wassermelder: eigenes Produkt entfernen"
+
+        with patch.object(QInputDialog, "getItem",
+                          return_value=(captured["items"][3], True)), \
+                patch.object(step, "_regenerate_gas"):
+            step._select_product(None, assignment)
+        assert assignment.element_products == {}
+
+    def test_produkt_fuer_alle_entfernen(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QDialog, QInputDialog
+        from knix_arranger.ui.dialogs.com_object_select_dialog import ComObjectSelectDialog
+        co = {"number": 2, "name": "Leckage Alarm", "function_text": "Leckage Alarm",
+              "datapoint_type": "DPST-1-1", "communication_flag": True,
+              "transmit_flag": True}
+        lp = {"manufacturer": "Elsner", "order_number": "70316",
+              "product_name": "Leak KNX 2.0", "com_objects": [co]}
+        # mehrere Elemente: Eintrag in der Auswahl
+        assignment = GewerkAssignment(gewerk_code="A", count=2, linked_product=dict(lp))
+        step = self._step(assignment)
+        with patch.object(QInputDialog, "getItem",
+                          return_value=("Alle Elemente: Produkt entfernen", True)), \
+                patch.object(step, "_regenerate_gas"):
+            step._select_product(None, assignment)
+        assert assignment.linked_product is None
+        # ein Element: Knopf im Dialog der Kommunikationsobjekte
+        single = GewerkAssignment(gewerk_code="A", count=1, linked_product=dict(lp))
+        step = self._step(single)
+
+        def click_remove(dlg):
+            assert dlg._btn_remove is not None
+            dlg._btn_remove.click()
+            return QDialog.Rejected
+        with patch.object(ComObjectSelectDialog, "exec", click_remove), \
+                patch.object(step, "_regenerate_gas"):
+            step._select_product(None, single)
+        assert single.linked_product is None
+
+
+class TestGeraeteproduktInSchritt5:
+    """FA-621: Schritt 5 bietet das Produkt des Sensor-Geräts zuoberst an."""
+
+    @pytest.fixture(autouse=True)
+    def _app(self):
+        yield QApplication.instance() or QApplication([])
+
+    def test_uebernehmen_zuoberst(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QInputDialog
+        from tests.test_product_sync import _project
+        from knix_arranger.ui.wizard.step05_gewerke import Step05Gewerke
+        project, _room, assignment, _wasser = _project()
+        step = Step05Gewerke(project)
+        captured = {}
+
+        def pick(_parent, _title, _label, items, *_args):
+            captured["items"] = items
+            return items[0], True
+        with patch.object(QInputDialog, "getItem", side_effect=pick), \
+                patch("knix_arranger.ui.dialogs.product_sync_dialog.take_over_device_product",
+                      return_value=True) as take, \
+                patch.object(step, "_regenerate_gas"):
+            step._select_product(None, assignment)
+        assert captured["items"][0].startswith(
+            "Element 2 Wassermelder: Produkt von Gerät 1.2.113 übernehmen (Elsner 70316")
+        assert take.call_args[0][1][0].element_nr == 2

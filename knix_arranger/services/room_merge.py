@@ -41,6 +41,10 @@ def merge_problem(project, source: Room, target: Room) -> str:
                 or tgt.sensor_type_override != src.sensor_type_override:
             return (f"Gewerk {src.gewerk_code} hat in beiden Räumen ein anderes "
                     f"Produkt oder einen anderen Sensortyp.")
+        if tgt.own_element_products() or src.own_element_products():
+            return (f"Gewerk {src.gewerk_code} hat Produkte für einzelne Elemente – "
+                    f"beim Zusammenführen ändern sich die Elementnummern. Die "
+                    f"Produkte vorher auf «für alle Elemente» stellen.")
     return ""
 
 

@@ -70,8 +70,12 @@ def _com_object_needs_ga(co: dict) -> bool:
 
 
 def _com_object_function_name(co: dict) -> str:
-    """Leitet eine GA-Funktionsbezeichnung aus einem ComObject-Dict ab."""
-    name = (co.get("function_text") or co.get("name") or "").strip()
+    """Leitet eine GA-Funktionsbezeichnung aus einem ComObject-Dict ab
+    (ohne ETS-Platzhalter wie "{{0}}" und ohne Klammerzusätze wie
+    "(0 = Aus | 1 = An)" -- Klammern tragen in der Bezeichnung den Klartext)."""
+    from .knxprod_catalog_service import clean_co_text
+    name = clean_co_text(co.get("function_text", "")) or clean_co_text(co.get("name", ""))
+    name = " ".join(re.sub(r"\([^()]*\)", " ", name).split()) or name
     if len(name) > 40:
         name = name[:40].strip()
     return name
@@ -300,7 +304,7 @@ class AddressGenerator:
                                room_name: str, room_id: str,
                                element_label: str = "") -> None:
         """Aktualisiert bestehende GAs inhaltlich, ohne ihre Position/id zu ändern."""
-        for ga, entry in zip(existing_gas, schema.entries):
+        for ga, entry in zip(existing_gas, schema.entries_for(element_number)):
             self._fill_entry_fields(
                 ga, entry, gewerk_code, room_number, element_number,
                 room_name, room_id, element_label,
@@ -448,7 +452,7 @@ class AddressGenerator:
             placed = 0
             for element_nr in range(1, assignment.count + 1):
                 skip_functions = skip_by_element.get(element_nr, frozenset())
-                for entry in schema.entries:
+                for entry in schema.entries_for(element_nr):
                     if entry.function and entry.function in skip_functions:
                         continue
                     if cursor > 255:
@@ -746,7 +750,7 @@ class AddressGenerator:
         mg_szenen.group_addresses.append(GroupAddress(
             main_group=0, middle_group=4, sub_group=1,
             designation="ZENTRAL Szene Abwesenheit",
-            datapoint_type="DPST-17-1", central="true",
+            datapoint_type="DPST-18-1", central="true",
             function_name="SZENE",
         ))
         sub = 2
@@ -764,7 +768,7 @@ class AddressGenerator:
             mg_szenen.group_addresses.append(GroupAddress(
                 main_group=0, middle_group=4, sub_group=sub,
                 designation=designation,
-                datapoint_type="DPST-17-1", central="true",
+                datapoint_type="DPST-18-1", central="true",
                 function_name="SZENE",
                 description=scene_value_mapping_text(group_scenes),
             ))
@@ -811,7 +815,8 @@ class AddressGenerator:
         wählt so bei grossen Produkten (Gateways mit hunderten ComObjects)
         gezielt aus, was tatsächlich eine GA braucht.
         """
-        com_objects = linked_product.get("com_objects") or []
+        from .knxprod_catalog_service import unique_com_objects
+        com_objects = unique_com_objects(linked_product.get("com_objects") or [])
         excluded = set(linked_product.get("excluded_co_numbers") or [])
         entries: list[BlockEntry] = []
         for co in com_objects:
@@ -852,10 +857,36 @@ class AddressGenerator:
         Ist assignment.linked_product mit GA-relevanten ComObjects gesetzt,
         wird das Schema vollständig aus diesen ComObjects gebaut (ersetzt
         Standard-/gewerk-spezifisches Schema).
+
+        Elemente mit eigenem Produkt (assignment.element_products) bekommen
+        eigene Einträge (schema.entries_for); alle Elemente haben die Grösse
+        des grössten, kleinere mit Reserven am Ende. Die Rückmeldungen
+        (Variante B) folgen dem Produkt für alle Elemente.
         """
+        product = assignment.linked_product if assignment else None
+        schema = self._uniform_block_schema(gewerk, assignment, is_feedback, product)
+        own = assignment.own_element_products() if assignment else {}
+        if is_feedback or schema is None or not own:
+            return schema
+        per_element = {nr: self._uniform_block_schema(gewerk, assignment, False, lp)
+                       for nr, lp in own.items()}
+        size = max([schema.block_size] + [s.block_size for s in per_element.values()])
+        return AddressBlockSchema(
+            gewerk_code=schema.gewerk_code,
+            block_size=size,
+            entries=_pad_entries(schema.entries, size),
+            middle_group=schema.middle_group,
+            element_entries={nr: _pad_entries(s.entries, size)
+                             for nr, s in per_element.items()},
+        )
+
+    def _uniform_block_schema(self, gewerk: Gewerk, assignment: GewerkAssignment | None,
+                              is_feedback: bool, product: dict | None
+                              ) -> AddressBlockSchema | None:
+        """Schema für alle Elemente gleich, mit dem Produkt product."""
         product_schema = None
-        if assignment and assignment.linked_product:
-            product_schema = self._build_product_schema(gewerk, assignment.linked_product)
+        if product:
+            product_schema = self._build_product_schema(gewerk, product)
 
         if is_feedback:
             if product_schema:
@@ -964,6 +995,12 @@ class RegenerationResult:
         return f"Gruppenadressen aktualisiert: +{len(self.added)} / −{len(self.removed)}"
 
 
+def _pad_entries(entries: list[BlockEntry], size: int) -> list[BlockEntry]:
+    """Einträge nach Offset, bis size mit Reserven aufgefüllt."""
+    by_offset = {e.offset: e for e in entries}
+    return [by_offset.get(o, BlockEntry(o, is_reserve=True)) for o in range(size)]
+
+
 def _in_slot_order(gas: list[GroupAddress], schema: AddressBlockSchema,
                    count: int) -> list[GroupAddress]:
     """Bisherige GAs eines Blocks in Schema-Reihenfolge (Element, Eintrag).
@@ -972,16 +1009,16 @@ def _in_slot_order(gas: list[GroupAddress], schema: AddressBlockSchema,
     verschobene GAs (FA-1015 d) ihre Funktion behalten; Reserven und nicht
     zuordenbare GAs füllen die übrigen Plätze in der bisherigen Reihenfolge.
     Ohne Verschiebung ist das Ergebnis die Adressreihenfolge."""
-    if len(gas) != schema.block_size * count or len(schema.entries) != schema.block_size:
+    if len(gas) != schema.block_size * count or any(
+            len(schema.entries_for(nr)) != schema.block_size for nr in range(1, count + 1)):
         return gas
     pool: dict[tuple[int, str], list[GroupAddress]] = {}
     for ga in gas:
         if not ga.is_placeholder and ga.function_name:
             pool.setdefault((ga.element_number, ga.function_name), []).append(ga)
-    entries = sorted(schema.entries, key=lambda e: e.offset)
     slots: list[GroupAddress | None] = []
     for element_nr in range(1, count + 1):
-        for entry in entries:
+        for entry in sorted(schema.entries_for(element_nr), key=lambda e: e.offset):
             found = None
             if entry.function and not entry.is_reserve:
                 candidates = pool.get((element_nr, entry.function))

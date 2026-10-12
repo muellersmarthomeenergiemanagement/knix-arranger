@@ -156,6 +156,8 @@ class ProductSearchService:
         target.append(product)
 
     def _save_user_catalog(self) -> None:
+        from .product_sync import reset_shared_catalog
+        reset_shared_catalog()   # Abgleich Gerät/GA-Planung liest neu
         path = _user_catalog_path()
         try:
             with open(path, "w", encoding="utf-8") as f:
@@ -510,6 +512,8 @@ class ProductSearchService:
         result = self._online.fetch(timeout=timeout)
         if result.ok:
             self._merge_online(result.products)
+            from .product_sync import reset_shared_catalog
+            reset_shared_catalog()
         return result
 
     def search_online(

@@ -80,6 +80,7 @@ class ValidationEngine:
             issues.extend(self._check_ets_deviations(project))
             issues.extend(self._check_time_programs(project))
             issues.extend(self._check_unoperated(project))
+            issues.extend(self._check_product_mismatch(project))
             issues.extend(self._check_scene_numbers(project))
             # FA-609, FA-611 bis FA-613: Topologie
             from .topology_validation import check_topology
@@ -173,6 +174,30 @@ class ValidationEngine:
                 designation=f.extra_designation,
                 details={"ko": f.ko_text, "sent": f.sent_ga, "reason": f.reason,
                          "verdict": f.verdict_label},
+            ))
+        return issues
+
+    def _check_product_mismatch(self, project) -> list[ValidationIssue]:
+        """FA-621: Sensor-Gerät mit anderem Produkt als die GA-Planung seiner
+        Elemente (Schritt 5) -- GAs und eingebautes Gerät passen nicht."""
+        from .product_sync import product_mismatches
+        issues = []
+        for m in product_mismatches(project):
+            device = m.device
+            product = " ".join(p for p in (device.manufacturer, device.order_number) if p)
+            planned = m.assignment.product_for_element(m.element_nr)
+            planned_text = (" ".join(p for p in (planned.get("manufacturer", ""),
+                                                 planned.get("order_number", "")) if p)
+                            if planned else "Standard des Gewerks")
+            issues.append(ValidationIssue(
+                "warning", "FA-621",
+                f"{device.physical_address} {device.product} ist {product}, die GAs von "
+                f"{m.element_text} ({m.room.number} {m.room.name}) folgen "
+                f"{planned_text}",
+                device.physical_address,
+                "In Schritt 5 «Produkt…» das Produkt des Geräts übernehmen",
+                details={"device": device.physical_address, "product": product,
+                         "planned": planned_text},
             ))
         return issues
 

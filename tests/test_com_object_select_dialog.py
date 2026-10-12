@@ -125,3 +125,43 @@ class TestComObjectSelectDialog:
         )
         labels = [w.text() for w in dlg.findChildren(QLabel)]
         assert any("Eigener Hinweistext" in t for t in labels)
+
+
+def _leak_objects() -> list[dict]:
+    """Elsner Leak KNX 2.0 (Projekt_23): KO 2 in zwei Parametervarianten,
+    Texte mit ETS-Platzhalter."""
+    def co(number, text, dpt):
+        return {"number": number, "name": text, "function_text": text,
+                "datapoint_type": dpt, "communication_flag": True, "read_flag": False,
+                "write_flag": False, "transmit_flag": True, "update_flag": False}
+    return [co(2, "Leckage Alarm", "DPST-1-1"),
+            co(3, "{{0}}Leckage Alarm Text", "DPST-16-0"),
+            co(2, "Leckage Alarm", "DPST-1-1")]
+
+
+class TestDoppelteKoNummern:
+    def test_eine_zeile_je_nummer_und_auswahl_bleibt(self):
+        dlg = ComObjectSelectDialog("Elsner Leak", _leak_objects(),
+                                    default_all_selected=False)
+        assert dlg._table.rowCount() == 2
+        dlg._checkboxes[0].setChecked(True)           # nur «Leckage Alarm»
+        assert dlg.excluded_numbers() == {3}
+
+    def test_platzhalter_nicht_angezeigt(self):
+        dlg = ComObjectSelectDialog("Elsner Leak", _leak_objects())
+        texts = [dlg._table.item(r, 2).text() for r in range(dlg._table.rowCount())]
+        assert texts == ["Leckage Alarm", "Leckage Alarm Text"]
+
+    def test_produkt_schema_ohne_doppel_und_platzhalter(self):
+        from knix_arranger.models.gewerk import Gewerk
+        from knix_arranger.services.address_generator import AddressGenerator
+        from knix_arranger.services.knxprod_catalog_service import clean_co_text
+        gewerk = Gewerk(code="A", name="Alarm", ga_count=5, block_size=5, middle_group=3)
+        schema = AddressGenerator.__new__(AddressGenerator)._build_product_schema(
+            gewerk, {"com_objects": _leak_objects(), "excluded_co_numbers": []})
+        assert [e.function for e in schema.entries] == ["Leckage Alarm", "Leckage Alarm Text"]
+        assert clean_co_text("{{0:Room 1}}: Room Status") == "Room 1: Room Status"
+        assert clean_co_text("{{1}}: Mute") == "Mute"
+        from knix_arranger.services.address_generator import _com_object_function_name
+        assert _com_object_function_name(
+            {"function_text": "Leckage Alarm (0 = Aus | 1 = An)"}) == "Leckage Alarm"
