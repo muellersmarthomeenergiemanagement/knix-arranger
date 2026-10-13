@@ -808,12 +808,17 @@ class ProductSelectDialog(QDialog):
         qty = self._qty_spin.value()
 
         # MaterialEntry-Kategorie aus Produkt ableiten
-        if prod.category == "actor":
+        from ...services.product_classifier import type_group
+        if prod.device_type in _DEVICE_TYPE_TO_ML_CAT:
+            ml_cat = _DEVICE_TYPE_TO_ML_CAT[prod.device_type]
+        elif prod.category == "actor":
             ml_cat = "Aktor"
         elif prod.category == "sensor":
             ml_cat = "Sensor"
+        elif type_group(prod.device_type) == "Gateways & Schnittstellen":
+            ml_cat = "Gateway / Schnittstellen"
         else:
-            ml_cat = _DEVICE_TYPE_TO_ML_CAT.get(prod.device_type, "Sonstiges")
+            ml_cat = "Sonstiges"
 
         entry = MaterialEntry(
             quantity=qty,

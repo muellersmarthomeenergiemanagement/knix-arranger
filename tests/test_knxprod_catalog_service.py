@@ -306,15 +306,16 @@ class TestCategoryFallbackViaCatalogSection:
         finally:
             os.remove(path)
 
-    def test_unclassifiable_section_without_application_area_falls_back_to_actor(self):
-        """Katalogbaum ohne erkennbare Stichworte -> weiterhin 'actor'
-        (bisheriges Verhalten, kein falscher Rueckschluss)."""
+    def test_unclassifiable_section_without_application_area_is_other(self):
+        """Katalogbaum und Name ohne erkennbare Stichworte -> "Sonstiges".
+        Frueher "actor"/"Schaltaktor" -- so landeten Bedienelemente,
+        Praesenzmelder usw. als Schaltaktoren im Katalog."""
         path = _build_knxprod_no_application_area(
             ["Diverses"], "Unbekanntes Geraet",
         )
         try:
             products = KnxprodCatalogService().import_file(path)
-            assert products[0].category == "actor"
+            assert products[0].device_type == "Sonstiges"
         finally:
             os.remove(path)
 
@@ -558,7 +559,7 @@ class TestProductMissingFromCatalog:
     def test_gateway_classified_as_infrastructure_by_name(self):
         prod = self._import("Revox Gateway designed by Weinzierl")["TP-1"]
         assert prod.category == "infrastructure"
-        assert prod.device_type == "Sonstiges"
+        assert prod.device_type == "Multimedia-Gateway"
 
     def test_input_interface_classified_as_sensor_by_name(self):
         prod = self._import("Universalschnittstelle 8fach Komfort")["TP-1"]
@@ -567,8 +568,9 @@ class TestProductMissingFromCatalog:
     def test_application_area_still_wins_over_name(self):
         prod = self._import("KNX DALI Gateway", area="Lighting")["TP-1"]
         assert prod.category == "actor"
+        assert prod.device_type == "DALI-Gateway"
 
-    def test_unknown_name_still_falls_back_to_actor(self):
+    def test_unknown_name_is_other(self):
         prod = self._import("Geraet XY")["TP-1"]
-        assert prod.category == "actor"
+        assert prod.device_type == "Sonstiges"
         assert len(prod.com_objects) == 3

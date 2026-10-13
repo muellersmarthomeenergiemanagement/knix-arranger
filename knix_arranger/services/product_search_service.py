@@ -44,6 +44,12 @@ def _user_catalog_path() -> str:
 _USER_CATALOG_FORMAT = 3
 
 
+# Stand der Einordnung (product_classifier): eigene Produkte mit kleinerem
+# "classified" werden beim Laden neu eingeordnet -- ausser von Hand
+# bearbeitete ("user_edited").
+_CLASSIFY_VERSION = 1
+
+
 def _com_object_store_path() -> str:
     return os.path.join(os.path.dirname(_user_catalog_path()),
                         "product_com_objects.sqlite")
@@ -82,6 +88,8 @@ class ProductSuggestion:
     online: bool = False
     # Vom Nutzer ausgeblendet (nur sichtbar mit "Ausgeblendete anzeigen")
     hidden: bool = False
+    # Anzahl KOs, ohne sie zu laden (0 = keine KNXPROD-Daten)
+    co_count: int = 0
     # Lädt die KOs beim ersten Zugriff auf com_objects (eigener Katalog)
     com_objects_loader: object = field(default=None, repr=False, compare=False)
 
@@ -175,7 +183,8 @@ class ProductSearchService:
                 self._online_keys.discard(self._key(prod))
             if self._user_products:
                 logger.info(f"Nutzereigener Produktkatalog geladen: {len(self._user_products)} Produkte")
-                if loaded and data.get("format", 1) < _USER_CATALOG_FORMAT:
+                migrate = loaded and data.get("format", 1) < _USER_CATALOG_FORMAT
+                if self._reclassify() or migrate:
                     self._save_user_catalog()   # einmalig: KOs in die Datenbank
 
     @staticmethod
@@ -254,6 +263,37 @@ class ProductSearchService:
     def _co_loader(self, product: dict):
         return lambda: self.com_objects_of(product)
 
+    @staticmethod
+    def _co_count(product: dict) -> int:
+        if "com_objects" in product:
+            return len(product["com_objects"] or [])
+        return int(product.get("co_count") or 0)
+
+    def _reclassify(self) -> bool:
+        """Eigene Produkte einmalig neu einordnen (Kategorie, Gerätetyp,
+        Kanäle aus Name und KOs, product_classifier). Früher landete alles
+        ohne Herstellerangabe als "Schaltaktor". Gibt True zurück, wenn
+        sich etwas geändert hat."""
+        from .product_classifier import classify
+        changed = False
+        for product in self._user_products:
+            if (product.get("classified", 0) >= _CLASSIFY_VERSION
+                    or product.get("user_edited")):
+                continue
+            found = classify(product.get("product_name", ""),
+                             product.get("order_number", ""),
+                             product.get("category", ""),
+                             self.com_objects_of(product))
+            product.update(
+                category=found.category, device_type=found.device_type,
+                actor_type=found.device_type if found.category == "actor" else "",
+                sensor_type=found.device_type if found.category == "sensor" else "",
+                channels=product.get("channels") or found.channels,
+                classified=_CLASSIFY_VERSION,
+            )
+            changed = True
+        return changed
+
     def _save_user_catalog(self) -> None:
         from .product_sync import set_shared_catalog
         set_shared_catalog(self)   # dieser Stand gilt für die ganze Sitzung
@@ -309,6 +349,7 @@ class ProductSearchService:
                 actor_type=prod.get("actor_type", ""),
                 url=prod.get("url", ""),
                 price_hint=prod.get("price_hint", ""),
+                co_count=self._co_count(prod),
                 com_objects_loader=self._co_loader(prod),
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
@@ -359,6 +400,7 @@ class ProductSearchService:
                 sensor_type=prod.get("sensor_type", ""),
                 url=prod.get("url", ""),
                 price_hint=prod.get("price_hint", ""),
+                co_count=self._co_count(prod),
                 com_objects_loader=self._co_loader(prod),
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
@@ -408,6 +450,7 @@ class ProductSearchService:
                 device_type=prod.get("device_type", ""),
                 url=prod.get("url", ""),
                 price_hint=prod.get("price_hint", ""),
+                co_count=self._co_count(prod),
                 com_objects_loader=self._co_loader(prod),
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
@@ -487,6 +530,7 @@ class ProductSearchService:
                 device_type=prod.get("device_type", ""),
                 url=prod.get("url", ""),
                 price_hint=prod.get("price_hint", ""),
+                co_count=self._co_count(prod),
                 com_objects_loader=self._co_loader(prod),
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
@@ -539,6 +583,7 @@ class ProductSearchService:
         Für mehrere Produkte auf einmal: add_products() (ein Schreibvorgang
         statt einem pro Produkt)."""
         product = canonicalize_product(dict(product))
+        product.setdefault("classified", _CLASSIFY_VERSION)
         self._detach_com_objects(product)
         self._upsert(self._catalog, product)
         self._upsert(self._user_products, product)
@@ -552,6 +597,7 @@ class ProductSearchService:
         Import einer KNXPROD-Datei mit hunderten Produkten)."""
         for product in products:
             product = canonicalize_product(dict(product))
+            product.setdefault("classified", _CLASSIFY_VERSION)
             self._detach_com_objects(product)
             self._upsert(self._catalog, product)
             self._upsert(self._user_products, product)
@@ -652,6 +698,7 @@ class ProductSearchService:
                 product[name] = value
         if product.get("manufacturer") != old.get("manufacturer"):
             product.pop("manufacturer_id", None)   # neu aus dem Namen bestimmen
+        product["user_edited"] = True
         product = canonicalize_product(product)
         new_key = self._key(product)
         if new_key != old_key:

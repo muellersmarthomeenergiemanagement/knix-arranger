@@ -253,13 +253,11 @@ class KnxprodCatalogService:
                 # Kategorie ersatzweise aus dem ETS-Katalogbaum abgeleitet.
                 # Fehlt auch der Katalogbaum (Produkt nicht in Catalog.xml),
                 # hilft der Produktname (z.B. "... Gateway" -> Infrastruktur).
-                category = (
+                category_hint = (
                     hw.get("category")
                     or self._infer_category_from_section(section_path)
                     or self._infer_category_from_name(full_name)
-                    or "actor"
                 )
-                device_type = self._infer_device_type(full_name, category, section_path)
 
                 # ComObjects über Hardware2Program → ApplikationsprogrammID auflösen.
                 # Hardware2ProgramRefId steht je nach Hersteller entweder am Product-
@@ -277,6 +275,16 @@ class KnxprodCatalogService:
                 # fremder Produkte zuordnen (z.B. Sammel-Produktdatenbanken).
                 if not com_objects and len(app_comobjects) == 1:
                     com_objects = next(iter(app_comobjects.values()))
+
+                # Gerätetyp und Kanäle aus Name und KOs (product_classifier).
+                # Die Kategorie der Herstellerdatei (ApplicationArea) behält
+                # Vorrang; ohne sie gilt die Einordnung (früher: alles "actor")
+                from .product_classifier import classify
+                found = classify(full_name, order_number, category_hint,
+                                 [co.to_dict() for co in com_objects])
+                category = hw.get("category") or found.category
+                device_type = found.device_type
+                channels = channels or found.channels
 
                 prod = KnxprodProduct(
                     manufacturer=mfr_name,
@@ -666,50 +674,3 @@ class KnxprodCatalogService:
         if any(k in name for k in self._NAME_SENSOR_KEYWORDS):
             return "sensor"
         return self._infer_category_from_section(name)
-
-    def _infer_device_type(self, product_name: str, category: str,
-                           section_path: str = "") -> str:
-        """Leitet den Gerätetyp aus Produktname und Katalogbaum-Pfad ab
-        (Best-Effort). `section_path` hilft bei Herstellern, deren
-        Produktnamen selbst keine erkennbaren Stichworte enthalten
-        (z.B. "Meteodata 140" statt "Wetterstation")."""
-        name_lower = f"{product_name.lower()} {section_path}"
-
-        if category == "infrastructure":
-            if "linienkoppler" in name_lower or "line coupler" in name_lower:
-                return "Linienkoppler"
-            if "bereichskoppler" in name_lower or "area coupler" in name_lower:
-                return "Bereichskoppler"
-            if "ip router" in name_lower or "ip-router" in name_lower:
-                return "IP-Router"
-            if "netzteil" in name_lower or "power supply" in name_lower:
-                return "Netzteil"
-            if "dali" in name_lower:
-                return "DALI-Gateway"
-            return "Sonstiges"
-
-        if category == "actor":
-            if "jalousie" in name_lower or "shutter" in name_lower:
-                return "Jalousieaktor"
-            if "dimm" in name_lower or "dim" in name_lower:
-                return "Dimmaktor"
-            if "heizung" in name_lower or "heat" in name_lower:
-                return "Heizungsaktor"
-            if "dali" in name_lower:
-                return "DALI-Gateway"
-            return "Schaltaktor"
-
-        if category == "sensor":
-            if "taster" in name_lower or "push" in name_lower:
-                return "Tastereinheit"
-            if "thermostat" in name_lower or "temperatur" in name_lower:
-                return "Raumthermostat"
-            if "präsenz" in name_lower or "praesenz" in name_lower or "presence" in name_lower:
-                return "Praesenzmelder"
-            if "bewegung" in name_lower or "motion" in name_lower:
-                return "Bewegungsmelder"
-            if "wetter" in name_lower or "weather" in name_lower:
-                return "Wetterstation"
-            return "Sensor"
-
-        return "Sonstiges"
