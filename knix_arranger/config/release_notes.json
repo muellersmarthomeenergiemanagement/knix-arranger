@@ -2,6 +2,27 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.2.8",
+      "date": "2026-10-14",
+      "neu": [
+        "Materialliste › Weitere › «Kanäle und KOs zuordnen…»: Stromkreise den Kanälen eines Aktors zuordnen – in der Benennung des Herstellers (z.B. «Kanal C», «Output A», «Sortie 1», «Motor 3») – und je GA den KO wählen oder «nicht verknüpfen». Nach einer Produktzuweisung mit KNXPROD-Daten bietet KNiX die Zuordnung gleich an. Die KO-Auswahl zeigt immer alle KOs des Geräts und ist durchsuchbar.",
+        "«Nicht benötigte Funktionen weglassen»: Funktionen, für die der Kanal keinen KO hat (z.B. DIM/WERT eines Lichtkreises an einem Schaltaktor), erhalten keine GA. Ihr Platz im Block bleibt als Reserve frei, die übrigen Adressen ändern sich nicht.",
+        "Produktdialog: links ein Typenbaum (Gruppe › Typ mit Anzahl), Spalten «Kanäle» und «KOs», Infobereich mit Quelle, Anzahl KOs und den Kanälen im Gerät. KNXPROD-Dateien oder ganze Ordner lassen sich mit Strg+V einfügen oder ins Fenster ziehen."
+      ],
+      "verbessert": [
+        "Produktkatalog sauber eingeordnet: Bedienelemente, Präsenzmelder, Regler, Gateways usw. erscheinen nicht mehr als «Schaltaktor» bzw. «Sonstiges»; Kanalzahl aus Produktname oder KOs. Der eigene Katalog wird beim ersten Start einmalig neu eingeordnet, von Hand bearbeitete Produkte bleiben.",
+        "Belegungsplan, Topologie, Aktoren-Bericht und Raumbuch zeigen die Kanäle in der Benennung des Herstellers.",
+        "Vorauswahl im Produktdialog: Gateway-Gewerke in Schritt 5 öffnen bei den Gateways, die Materialliste beim Gerätetyp des Eintrags.",
+        "KO-Verknüpfung nutzt die gewählten KOs (sicher) und schlägt bei «nicht verknüpfen» nichts vor.",
+        "CSV-Export für die ETS: Reserven werden nicht mehr als leere GAs exportiert – sie bleiben Lücken im Adressraum, die sich später füllen lassen."
+      ],
+      "behoben": [
+        "Markierte Zeilen im Produktdialog waren bei Produkten aus dem Online-Katalog kaum lesbar.",
+        "Griesser JAX-9 und andere Produkte mit Platzhaltertexten («{{0:GO}}»): Kanäle und KOs wurden nicht erkannt.",
+        "Nach einer Neuberechnung der Topologie fehlten die KOs zugewiesener Produkte."
+      ]
+    },
+    {
       "version": "1.2.7",
       "date": "2026-10-13",
       "neu": [
