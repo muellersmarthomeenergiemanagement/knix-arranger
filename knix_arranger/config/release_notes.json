@@ -2,6 +2,23 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.2.7",
+      "date": "2026-10-13",
+      "neu": [
+        "Räume und Kanäle im Gerät zuordnen: Hat ein Produkt Kommunikationsobjekte je Raum oder Kanal (z.B. Revox Multiuser «Raum 1…15», Theben KNX-OT-Box «Zone/Raum», Aktoren «Kanal A…» oder «Ausgang 1…»), ordnet ein Dialog jedem KNiX-Raum seinen Raum bzw. Kanal im Gerät zu. Jeder Raum erhält nur dessen KOs, Systemobjekte (z.B. System Off, Szenen) nur ein Raum – Revox mit 6 Räumen: 130 statt 780 GAs. «alle» behält das bisherige Verhalten.",
+        "Schritt 5: Bei Gewerken mit gemeinsamem Gateway (z.B. Multimedia) übernimmt «Produkt…» das Produkt auf Wunsch für alle Räume mit diesem Gewerk.",
+        "Produktkatalog: Rechtsklick › «Bearbeiten…» (Hersteller, Bestellnummer, Produktname, Gerätetyp, Kanäle, Preis, URL – die KOs bleiben) und «Ausblenden», z.B. für ein Vorgängermodell. «Katalog › Ausgeblendete anzeigen» blendet sie wieder ein."
+      ],
+      "verbessert": [
+        "Gemeinsames Gateway (Schritt 8, «gemeinsam für das Projekt»): ein Gerät für alle Räume statt Aufteilung nach Kanalgrössen – Revox mit 6 Räumen ergibt 1 Gateway statt 2. DALI und DMX werden weiterhin nach Kapazität aufgeteilt.",
+        "Produktkatalog deutlich schneller und kleiner: Der Produktdialog öffnet ohne Wartezeit, auch mit vielen KNXPROD-Importen (Beispiel: 3,6 statt 183 MB). Beim ersten Start wird der eigene Katalog einmalig umgestellt (wenige Sekunden).",
+        "Der eigene Produktkatalog besteht jetzt aus zwei Dateien in %APPDATA%\\KNiX Arranger (product_catalog_user.json und product_com_objects.sqlite) – bei Sicherung oder Umzug beide mitnehmen. Ältere Versionen von KNiX können den umgestellten Katalog nicht mehr lesen."
+      ],
+      "behoben": [
+        "Ein Produkt aus «Zuletzt verwendet» kam ohne Kommunikationsobjekte ins Projekt (Hinweis «Keine ComObject-Daten»), z.B. das Revox-Gateway."
+      ]
+    },
+    {
       "version": "1.2.6",
       "date": "2026-10-12",
       "behoben": [
