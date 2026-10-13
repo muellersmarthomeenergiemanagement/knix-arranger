@@ -42,8 +42,9 @@ _shared_catalog = None
 
 
 def shared_catalog():
-    """Produktkatalog einmal laden (die Prüfung läuft nach jeder Änderung);
-    ProductSearchService verwirft ihn bei Importen (reset_shared_catalog)."""
+    """Produktkatalog einmal je Sitzung laden (Prüfung nach jeder Änderung,
+    Produktdialog). Speichert ein ProductSearchService den eigenen Katalog,
+    wird er der gemeinsame (set_shared_catalog)."""
     global _shared_catalog
     if _shared_catalog is None:
         try:
@@ -52,6 +53,11 @@ def shared_catalog():
         except Exception:
             return None
     return _shared_catalog
+
+
+def set_shared_catalog(catalog) -> None:
+    global _shared_catalog
+    _shared_catalog = catalog
 
 
 def reset_shared_catalog() -> None:

@@ -34,6 +34,44 @@ def _user_catalog_path() -> str:
     return os.path.join(data_dir, "product_catalog_user.json")
 
 
+# Eigener Katalog, Format 2: KOs als Zeile [Nummer, Name, Funktionstext,
+# Datenpunkttyp, Flags-Bits] statt Dict -- 33 statt 111 MB bei ~520'000 KOs
+# der KNXPROD-Importe. Format 1 (KOs als Dict) wird weiterhin gelesen.
+_USER_CATALOG_FORMAT = 2
+_CO_FIELDS = ("number", "name", "function_text", "datapoint_type")
+_CO_FLAGS = ("communication_flag", "read_flag", "write_flag", "transmit_flag",
+             "update_flag")
+_CO_KEYS = frozenset(_CO_FIELDS + _CO_FLAGS)
+
+
+def _pack_com_object(co):
+    """KO als Zeile; ein KO mit weiteren Feldern bleibt ein Dict."""
+    if not isinstance(co, dict) or not co.keys() <= _CO_KEYS:
+        return co
+    bits = 0
+    for i, flag in enumerate(_CO_FLAGS):
+        if co.get(flag, flag == "communication_flag"):
+            bits |= 1 << i
+    return [co.get("number", 0), co.get("name", ""), co.get("function_text", ""),
+            co.get("datapoint_type", ""), bits]
+
+
+def _unpack_com_object(row):
+    if not isinstance(row, list):
+        return row
+    co = dict(zip(_CO_FIELDS, row))
+    bits = row[4] if len(row) > 4 else 1
+    for i, flag in enumerate(_CO_FLAGS):
+        co[flag] = bool(bits >> i & 1)
+    return co
+
+
+def _packed_product(product: dict) -> dict:
+    if not product.get("com_objects"):
+        return product
+    return {**product, "com_objects": [_pack_com_object(c) for c in product["com_objects"]]}
+
+
 @dataclass
 class ProductSuggestion:
     """Produktvorschlag für Aktoren/Sensoren/Infrastruktur."""
@@ -83,6 +121,8 @@ class ProductSearchService:
         # Vom Nutzer ausgeblendete Produkte (Schlüssel wie _key), z.B. ein
         # Vorgängermodell, das nicht mehr verbaut wird
         self._hidden: set[tuple[str, str]] = set()
+        # Schlüssel -> Position je Liste (_upsert), siehe _index_for
+        self._indexes: dict[int, tuple[list, dict, int]] = {}
         self._load_catalog()
 
     def _load_catalog(self):
@@ -112,6 +152,11 @@ class ProductSearchService:
                 with open(user_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 loaded = data.get("products", [])
+                if data.get("format", 1) >= 2:
+                    for prod in loaded:
+                        if prod.get("com_objects"):
+                            prod["com_objects"] = [_unpack_com_object(r)
+                                                   for r in prod["com_objects"]]
                 self._hidden = {tuple(k) for k in data.get("hidden", []) if len(k) == 2}
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Nutzereigener Produktkatalog konnte nicht gelesen werden: {e}")
@@ -127,6 +172,8 @@ class ProductSearchService:
                 self._online_keys.discard(self._key(prod))
             if self._user_products:
                 logger.info(f"Nutzereigener Produktkatalog geladen: {len(self._user_products)} Produkte")
+                if loaded and data.get("format", 1) < _USER_CATALOG_FORMAT:
+                    self._save_user_catalog()   # einmalig ins kompakte Format
 
     @staticmethod
     def _key(product: dict) -> tuple[str, str]:
@@ -150,27 +197,50 @@ class ProductSearchService:
     def _is_online(self, prod: dict) -> bool:
         return self._key(prod) in self._online_keys
 
-    @staticmethod
-    def _upsert(target: list[dict], product: dict) -> None:
+    def _index_for(self, target: list[dict]) -> dict:
+        """Schlüssel -> erste Position in target. Wird neu aufgebaut, wenn die
+        Liste ersetzt oder ausserhalb von _upsert verändert wurde."""
+        cached = self._indexes.get(id(target))
+        if cached and cached[0] is target and cached[2] == len(target):
+            return cached[1]
+        index: dict = {}
+        for i, existing in enumerate(target):
+            index.setdefault(self._key(existing), i)
+        self._indexes[id(target)] = (target, index, len(target))
+        return index
+
+    def _upsert(self, target: list[dict], product: dict) -> None:
         """Fügt product zu target hinzu, oder ersetzt einen bestehenden Eintrag
         mit gleichem (manufacturer, order_number) -- verhindert Duplikate bei
-        wiederholtem Import derselben KNXPROD-Datei."""
-        key = ProductSearchService._key(product)
-        for i, existing in enumerate(target):
-            if ProductSearchService._key(existing) == key:
-                target[i] = product
-                return
+        wiederholtem Import derselben KNXPROD-Datei. Über einen Index statt
+        durch Vergleich mit allen Einträgen (Laden war quadratisch: 3 s bei
+        ~800 eigenen Produkten)."""
+        index = self._index_for(target)
+        key = self._key(product)
+        i = index.get(key)
+        if i is not None:
+            target[i] = product
+            return
+        index[key] = len(target)
         target.append(product)
+        self._indexes[id(target)] = (target, index, len(target))
 
     def _save_user_catalog(self) -> None:
-        from .product_sync import reset_shared_catalog
-        reset_shared_catalog()   # Abgleich Gerät/GA-Planung liest neu
+        from .product_sync import set_shared_catalog
+        set_shared_catalog(self)   # dieser Stand gilt für die ganze Sitzung
         path = _user_catalog_path()
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump({"products": self._user_products,
+            # Ohne Einrückung und mit KOs als Zeilen (Format 2): die KOs der
+            # KNXPROD-Importe machten die Datei 183 MB gross
+            # Erst vollständig in eine Zwischendatei, dann ersetzen: ein
+            # Abbruch beim Schreiben lässt den bisherigen Katalog intakt
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"format": _USER_CATALOG_FORMAT,
+                           "products": [_packed_product(p) for p in self._user_products],
                            "hidden": sorted(list(k) for k in self._hidden)},
-                          f, ensure_ascii=False, indent=2)
+                          f, ensure_ascii=False, separators=(",", ":"))
+            os.replace(tmp, path)
         except OSError as e:
             logger.error(f"Nutzereigener Produktkatalog konnte nicht gespeichert werden: {e}")
 

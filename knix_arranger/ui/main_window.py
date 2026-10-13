@@ -1592,6 +1592,7 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QFileDialog
         from ..services.knxprod_catalog_service import KnxprodCatalogService
         from ..services.product_search_service import ProductSearchService
+        from ..services.product_sync import shared_catalog
 
         filepaths, _ = QFileDialog.getOpenFileNames(
             self, "KNXPROD-Dateien importieren (Mehrfachauswahl möglich)", "",
@@ -1622,7 +1623,7 @@ class MainWindow(QMainWindow):
         # In den Katalog aufnehmen -- ein Schreibvorgang, persistiert dauerhaft
         # (%APPDATA%/KNiX Arranger/), projekt- und session-übergreifend verfügbar
         if all_products:
-            ProductSearchService().add_products([p.to_catalog_dict() for p in all_products])
+            (shared_catalog() or ProductSearchService()).add_products([p.to_catalog_dict() for p in all_products])
 
         if total_products == 0 and (errors or empty):
             details = "\n".join(f"• {n}: {e}" for n, e in errors)
@@ -1660,6 +1661,7 @@ class MainWindow(QMainWindow):
         Gibt die Anzahl uebernommener Produkte zurueck."""
         from ..services.knxprod_catalog_service import KnxprodCatalogService
         from ..services.product_search_service import ProductSearchService
+        from ..services.product_sync import shared_catalog
 
         svc = KnxprodCatalogService()
         all_products = []
@@ -1669,7 +1671,7 @@ class MainWindow(QMainWindow):
             except ValueError as e:
                 logger.warning(f"KNXPROD-Auto-Katalogisierung: {path} übersprungen ({e}).")
         if all_products:
-            ProductSearchService().add_products([p.to_catalog_dict() for p in all_products])
+            (shared_catalog() or ProductSearchService()).add_products([p.to_catalog_dict() for p in all_products])
         return len(all_products)
 
     def _with_knxproj_password(self, filepath: str, action, busy_text: str,

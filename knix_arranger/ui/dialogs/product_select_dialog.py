@@ -83,7 +83,9 @@ class ProductSelectDialog(QDialog):
         self.setWindowTitle("Produkt auswählen")
         self.setMinimumSize(820, 560)
 
-        self._search_service = ProductSearchService()
+        from ...services.product_sync import shared_catalog
+        # Einmal je Sitzung geladen (eigener Katalog kann >100 MB gross sein)
+        self._search_service = shared_catalog() or ProductSearchService()
         self._preferred = preferred_manufacturers or []
         self._all_results: list[ProductSuggestion] = []
         self._selected: ProductSuggestion | None = None

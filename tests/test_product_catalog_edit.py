@@ -113,3 +113,52 @@ def test_dialog_context_menu_hides_and_shows_hidden(monkeypatch):
     dlg._show_table_context_menu(dlg._table.visualItemRect(dlg._table.item(0, 0)).center())
     dlg._show_hidden_action.setChecked(False)
     assert dlg._table.rowCount() == 1
+
+
+# ── Kompaktes Format des eigenen Katalogs (Format 2) ──
+
+def _write_user_catalog(data):
+    with open(_user_catalog_path(), "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+
+def test_old_format_is_read_and_upgraded_once():
+    co = {"number": 3, "name": "R_1_VOLUME", "function_text": "Volume",
+          "datapoint_type": "DPT-5", "communication_flag": True, "read_flag": False,
+          "write_flag": True, "transmit_flag": False, "update_flag": True}
+    _write_user_catalog({"products": [{**_NEW, "com_objects": [co]}]})
+    svc = ProductSearchService()
+    assert svc.find_product("Weinzierl", _NEW["order_number"])["com_objects"] == [co]
+    raw = json.load(open(_user_catalog_path(), encoding="utf-8"))
+    assert raw["format"] == 2
+    assert raw["products"][0]["com_objects"] == [[3, "R_1_VOLUME", "Volume", "DPT-5", 0b10101]]
+    # erneut geladen: gleiche KOs, keine weitere Umstellung nötig
+    assert ProductSearchService().find_product(
+        "Weinzierl", _NEW["order_number"])["com_objects"] == [co]
+
+
+def test_packed_round_trip_keeps_extra_fields_and_default_flag():
+    extra = {"number": 1, "name": "X", "function_text": "", "datapoint_type": "",
+             "communication_flag": True, "object_size": "1 Bit"}
+    no_flag = {"number": 2, "name": "Y", "function_text": "", "datapoint_type": ""}
+    svc = ProductSearchService()
+    svc.add_product({**_NEW, "com_objects": [extra, no_flag]})
+    raw = json.load(open(_user_catalog_path(), encoding="utf-8"))
+    rows = raw["products"][0]["com_objects"]
+    assert rows[0] == extra                    # Zusatzfeld: bleibt Dict
+    assert rows[1] == [2, "Y", "", "", 1]      # fehlendes Flag = kommunizierend
+    cos = ProductSearchService().find_product("Weinzierl", _NEW["order_number"])["com_objects"]
+    assert cos[0] == extra
+    assert cos[1]["communication_flag"] is True and cos[1]["write_flag"] is False
+    assert not os.path.exists(_user_catalog_path() + ".tmp")
+
+
+def test_dialog_uses_session_catalog():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from knix_arranger.services.product_sync import shared_catalog
+    from knix_arranger.ui.dialogs.product_select_dialog import ProductSelectDialog
+    svc = ProductSearchService()
+    svc.add_product(dict(_NEW))                 # gespeichert -> Sitzungskatalog
+    assert shared_catalog() is svc
+    assert ProductSelectDialog()._search_service is svc

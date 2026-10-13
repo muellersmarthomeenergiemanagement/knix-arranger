@@ -26,6 +26,9 @@ def isolate_appdata(monkeypatch, tmp_path):
     product_catalog_user.json-Verschmutzung durch add_product()-Tests).
     """
     monkeypatch.setenv("APPDATA", str(tmp_path))
+    # Der in der Sitzung geladene Produktkatalog gehört zum alten APPDATA
+    from knix_arranger.services.product_sync import reset_shared_catalog
+    reset_shared_catalog()
 
 
 @pytest.fixture
