@@ -60,15 +60,19 @@ def _co_dicts(device) -> list[dict]:
 def device_channels(device, fallback_count: int = 0) -> list[DeviceChannel]:
     """Kanäle des Geräts in der Benennung des Herstellers (aus den KOs, siehe
     product_zones); ohne erkennbare Kanäle "Kanal 1…n" nach der Kanalzahl."""
+    from .knxprod_catalog_service import unique_com_objects
     from .product_zones import co_zone, zone_label, zone_scheme
     product = {"com_objects": _co_dicts(device)}
     scheme = zone_scheme(product)
     if scheme is not None:
+        # Je KO-Nummer ein Eintrag (echter Text vor "{{0:GO}}"-Varianten)
+        by_id = {id(data): co for co, data in zip(device.communication_objects,
+                                                  product["com_objects"])}
         by_zone: dict[int, list] = {}
-        for co, data in zip(device.communication_objects, product["com_objects"]):
+        for data in unique_com_objects(product["com_objects"]):
             zone = co_zone(data, scheme)
             if zone is not None:
-                by_zone.setdefault(zone, []).append(co)
+                by_zone.setdefault(zone, []).append(by_id[id(data)])
         return [DeviceChannel(z, zone_label(product, z), cos)
                 for z, cos in sorted(by_zone.items())]
     from .belegungsplan_service import BelegungsplanService
@@ -125,14 +129,25 @@ _EXTRA_KEYWORDS: dict[str, tuple[str, ...]] = {
     "DIM": ("dimming", "relative", "variation"),
     "WERT": ("value", "brightness", "valeur"),
     "RM WERT": ("value", "brightness"),
-    "AUF/AB": ("up/down", "move", "montée", "monter"),
-    "STOPP": ("stop", "step", "slat", "arrêt"),
+    # Griesser JAX-9: "End position" = Auf/Ab, "Tilt" = Schritt/Stopp
+    "AUF/AB": ("up/down", "move", "montée", "monter", "end position", "endlage"),
+    "STOPP": ("stop", "step", "tilt", "wippen", "arrêt"),
     "POSITION HOEHE": ("position height", "height", "position"),
-    "POSITION LAMELLEN": ("slat position", "slat", "lamelle"),
+    "POSITION LAMELLEN": ("slat position", "slat", "lamelle", "angle", "winkel"),
+    "STATUS POSITION HOEHE": ("height", "position"),
+    "STATUS POSITION LAMELLEN": ("angle", "slat", "winkel"),
+    "BESCHATTUNG": ("shading", "sun protection", "ombrage"),
     "SPERREN": ("disable", "lock", "blocage"),
     "SZENE": ("scene", "scène"),
 }
 _FEEDBACK_FUNCTION = re.compile(r"^(RM|STATUS)\b")
+_WEAK_KEYWORDS = frozenset({"position", "wert", "value", "status", "meldung"})
+
+
+def _is_feedback(co) -> bool:
+    """Rückmeldung -- auch englisch/französisch ("Height feedback")."""
+    text = f"{co.object_function or ''} {co.name or ''}".lower()
+    return _is_feedback_co(co) or "feedback" in text or "état" in text
 
 
 def suggest_co(channel_cos: list, function: str, used=frozenset()):
@@ -145,10 +160,11 @@ def suggest_co(channel_cos: list, function: str, used=frozenset()):
     feedback = bool(_FEEDBACK_FUNCTION.match(function))
     best, best_score = None, 0
     for co in channel_cos:
-        if co.object_number in used or _is_feedback_co(co) != feedback:
+        if co.object_number in used or _is_feedback(co) != feedback:
             continue
         text = f"{co.object_function} {co.name}".lower()
-        score = sum(1 for kw in keywords if kw in text)
+        # Allgemeine Wörter zählen halb: "Height" schlägt "Position"
+        score = sum(0.5 if kw in _WEAK_KEYWORDS else 1 for kw in keywords if kw in text)
         if score > best_score:
             best, best_score = co, score
     return best
@@ -175,6 +191,11 @@ def unneeded_functions(channel: DeviceChannel | None, circuit: Circuit,
     KNXPROD) ist nichts bekannt -> leer. Ein bewusst nicht verknüpfter,
     aber vorhandener KO zählt nicht: die GA kann anderswo gebraucht werden."""
     if channel is None or not channel.com_objects:
+        return []
+    # Sicherung: hat schon die Hauptfunktion des Stromkreises (die erste,
+    # z.B. E/A, AUF/AB) keinen KO, sind die Texte des Herstellers nicht
+    # verstanden -- dann nichts weglassen (sonst fiele AUF/AB weg)
+    if not circuit.functions or selection.get(circuit.functions[0][0], -1) < 0:
         return []
     # Bereits anderen Funktionen zugeordnete KOs zählen nicht (RM WERT ist
     # nicht "Status Schalten", wenn der schon RM gehört)

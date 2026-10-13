@@ -134,7 +134,8 @@ def _channel_text(channels: list[str], dali: bool = False) -> str:
         if start is not None:
             parts.append(f"{prefix}{start}" if start == prev else f"{prefix}{start}–{prev}")
         start = prev = n
-    parts += [f"{prefix}{c}" for c in others]
+    # Kanalnamen des Herstellers ("Kanal C", "Motor 3") ohne Kürzel
+    parts += others
     return ", ".join(parts)
 
 
@@ -275,7 +276,7 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
                     channels = found.setdefault(
                         (row.actor_type, row.physical_address, dali, uv_short), [])
                     channel = (str(row.dali_group) if row.dali_group is not None
-                               else row.channel_number)
+                               else row.channel_name or row.channel_number)
                     if channel and channel not in channels:
                         channels.append(channel)
                 for pa, text in operators_by_ga.get(address, []):

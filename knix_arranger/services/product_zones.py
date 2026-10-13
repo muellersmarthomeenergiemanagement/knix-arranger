@@ -43,6 +43,8 @@ _SCHEMES = (
     ZoneScheme("Kanal", re.compile(r"\b(?:Kanal|Channel)\s*(\d+)\b", re.I)),
     ZoneScheme("Kanal", re.compile(r"\b(?:[Kk]anal|[Cc]hannel)\s+([A-Z])\b"), letters=True),
     ZoneScheme("Ausgang", re.compile(r"\b(?:Ausgang|Output)\s*(\d+)\b", re.I)),
+    # Griesser JAX-9: "Operation of Blinds (M1), End position" (Motor 1)
+    ZoneScheme("Motor", re.compile(r"\(M(\d+)\)")),
 )
 # Mindestens so viele KOs müssen eine Zone tragen (Anteil), und es braucht
 # mindestens zwei verschiedene Zonen
@@ -67,14 +69,30 @@ def _zone_number(scheme: ZoneScheme, m) -> int:
 _scheme_cache: dict[int, tuple[list, ZoneScheme | None]] = {}
 
 
+def _unique(product: dict | None) -> list[dict]:
+    """Ein KO je Nummer (echter Text vor Platzhalter, siehe unique_com_objects)."""
+    from .knxprod_catalog_service import unique_com_objects
+    return unique_com_objects((product or {}).get("com_objects") or [])
+
+
+def _placeholder_only(co: dict) -> bool:
+    """Funktionstext nur aus ETS-Platzhaltern ("{{0:GO}}") -- sagt nichts."""
+    from .knxprod_catalog_service import is_placeholder_text
+    text = co.get("function_text", "") or ""
+    return bool(text.strip()) and is_placeholder_text(text)
+
+
 def zone_scheme(product: dict | None) -> ZoneScheme | None:
-    """Muster des Produkts, None = keine Zonen."""
-    cos = (product or {}).get("com_objects") or []
-    if len(cos) < 2:
+    """Muster des Produkts, None = keine Zonen. Gezählt werden eindeutige
+    KOs; reine Platzhalter (Griesser JAX-9: hunderte "{{0:GO}}") zählen
+    nicht, sonst fiele der Anteil mit Kanal unter die Schwelle."""
+    raw = (product or {}).get("com_objects") or []
+    if len(raw) < 2:
         return None
-    cached = _scheme_cache.get(id(cos))
-    if cached and cached[0] is cos:
+    cached = _scheme_cache.get(id(raw))
+    if cached and cached[0] is raw:
         return cached[1]
+    cos = [co for co in _unique(product) if not _placeholder_only(co)]
     best, best_count = None, 0
     for scheme in _SCHEMES:
         zones, count = set(), 0
@@ -87,7 +105,7 @@ def zone_scheme(product: dict | None) -> ZoneScheme | None:
             best, best_count = scheme, count
     if len(_scheme_cache) > 256:
         _scheme_cache.clear()
-    _scheme_cache[id(cos)] = (cos, best)
+    _scheme_cache[id(raw)] = (raw, best)
     return best
 
 
@@ -123,7 +141,7 @@ def zones_of(product: dict | None) -> list[int]:
     scheme = zone_scheme(product)
     if scheme is None:
         return []
-    return sorted({z for co in product.get("com_objects") or []
+    return sorted({z for co in _unique(product)
                    if (z := co_zone(co, scheme)) is not None})
 
 
@@ -135,7 +153,7 @@ def selected_zones(product: dict) -> list[int]:
     """Zonen mit mindestens einem ausgewählten KO."""
     scheme = zone_scheme(product)
     excluded = set(product.get("excluded_co_numbers") or [])
-    return sorted({z for co in product.get("com_objects") or []
+    return sorted({z for co in _unique(product)
                    if co.get("number") not in excluded
                    and (z := co_zone(co, scheme)) is not None})
 
@@ -143,7 +161,7 @@ def selected_zones(product: dict) -> list[int]:
 def zone_excluded_numbers(product: dict) -> set[int]:
     """Nicht anzulegende KOs: die gewählten (excluded_co_numbers) und, wenn
     eine Zone gesetzt ist, alle KOs anderer Zonen bzw. die Systemobjekte."""
-    cos = product.get("com_objects") or []
+    cos = _unique(product)
     excluded = set(product.get("excluded_co_numbers") or [])
     zone = product.get("zone") or 0
     scheme = zone_scheme(product)

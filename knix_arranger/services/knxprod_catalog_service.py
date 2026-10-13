@@ -44,19 +44,32 @@ def clean_co_text(text: str) -> str:
     return " ".join(text.split()).lstrip(":-–| ").strip()
 
 
+_PLACEHOLDER_ONLY = re.compile(r"\s*(?:\{\{[^}]*\}\}\s*)*")
+
+
+def is_placeholder_text(text: str) -> bool:
+    """Nur ETS-Platzhalter wie "{{0:GO}}" (oder leer): der Text hängt von
+    Parametern ab und sagt nichts über die Funktion."""
+    return bool(_PLACEHOLDER_ONLY.fullmatch(text or ""))
+
+
 def unique_com_objects(com_objects: list[dict]) -> list[dict]:
     """Ein ComObject je Nummer: Applikationen führen dieselbe Nummer in
     mehreren Parametervarianten (Elsner Leak: KO 2 «Leckage Alarm» zweimal).
-    Ausgewählt wird nach Nummer -- doppelte Zeilen hoben sich sonst auf."""
-    seen: set = set()
-    result = []
+    Ausgewählt wird nach Nummer -- doppelte Zeilen hoben sich sonst auf.
+    Steht in der ersten Variante nur ein Platzhalter ("{{0:GO}}", Griesser
+    JAX-9), gilt die erste mit echtem Funktionstext."""
+    chosen: dict = {}
     for co in com_objects:
         number = co.get("number")
-        if number in seen:
-            continue
-        seen.add(number)
-        result.append(co)
-    return result
+        if number is None:          # ohne Nummer: nicht zusammenfassen
+            number = ("ohne Nummer", id(co))
+        if number not in chosen:
+            chosen[number] = co
+        elif (is_placeholder_text(chosen[number].get("function_text", ""))
+              and not is_placeholder_text(co.get("function_text", ""))):
+            chosen[number] = co
+    return list(chosen.values())
 
 # Mapping von KNX-ApplicationArea auf interne Kategorien (ProductSearchService)
 _AREA_TO_CATEGORY: dict[str, str] = {

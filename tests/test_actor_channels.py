@@ -242,3 +242,73 @@ def test_csv_export_leaves_reserves_as_gaps(project, tmp_path):
     assert reserves and real
     assert all(f'"{g.address}"' not in text for g in reserves)
     assert all(f'"{g.address}"' in text for g in real)
+
+
+# ── Griesser JAX-9: "GO0002" + "(M1)" im Text, Platzhalter-Doppel ──
+
+_JAX_FUNCTIONS = ["Operation of Blinds (M{m}), End position", "Operation of Blinds (M{m}), Tilt",
+                  "Operation of Blinds (M{m}), Shading", "Operation of Blinds (M{m}), Height",
+                  "Operation of Blinds (M{m}), Angle", "Operation of Blinds (M{m}), Position",
+                  "Sun Protection (M{m}), Activate position feedback",
+                  "Sun Protection (M{m}), Height feedback",
+                  "Sun Protection (M{m}), Angle feedback",
+                  "Automatic lock-out (M{m}), activate"]
+
+
+def _jax_kos(motors=3):
+    cos = [CommunicationObject(object_number=1, name="GO0001",
+                               object_function="Griesser object, Central Command")]
+    n = 2
+    for m in range(1, motors + 1):
+        for text in _JAX_FUNCTIONS:
+            # erste Variante nur Platzhalter, zweite mit echtem Text
+            cos.append(CommunicationObject(object_number=n, name=f"GO{n:04d}",
+                                           object_function="{{0:GO}}"))
+            cos.append(CommunicationObject(object_number=n, name=f"GO{n:04d}",
+                                           object_function=text.format(m=m)))
+            n += 1
+    cos += [CommunicationObject(object_number=n + i, name=f"GO{n + i:04d}",
+                                object_function="{{0:GO}}") for i in range(80)]
+    return cos
+
+
+def test_unique_com_objects_prefers_real_text():
+    from knix_arranger.services.knxprod_catalog_service import unique_com_objects
+    cos = [{"number": 2, "function_text": "{{0:GO}}"},
+           {"number": 2, "function_text": "Operation of Blinds (M1), End position"},
+           {"number": 3, "function_text": "Leckage Alarm"},
+           {"number": 3, "function_text": "Leckage Alarm 2"}]
+    assert [c["function_text"] for c in unique_com_objects(cos)] == [
+        "Operation of Blinds (M1), End position", "Leckage Alarm"]
+
+
+def test_griesser_motors_and_ko_suggestions():
+    from knix_arranger.services.actor_channels import Circuit, suggested_co_map, unneeded_functions
+    device = Device(product="Jalousieaktor 2-fach", communication_objects=_jax_kos())
+    channels = device_channels(device)
+    assert [ch.label for ch in channels] == ["Motor 1", "Motor 2", "Motor 3"]
+    assert len(channels[0].com_objects) == len(_JAX_FUNCTIONS)
+    circuit = Circuit(key="r|J|1", room_number="W01", room_name="Wohnen", gewerk_code="J",
+                      element_number=1, channel=1, functions=[
+                          (f, "") for f in ("AUF/AB", "STOPP", "POSITION HOEHE",
+                                            "POSITION LAMELLEN", "BESCHATTUNG", "SPERREN",
+                                            "STATUS POSITION HOEHE", "STATUS POSITION LAMELLEN")])
+    selection = suggested_co_map(channels[0], circuit)
+    by_number = {co.object_number: co.object_function for co in channels[0].com_objects}
+    chosen = {f: by_number[n].split(", ", 1)[1] for f, n in selection.items()}
+    assert chosen == {
+        "AUF/AB": "End position", "STOPP": "Tilt", "POSITION HOEHE": "Height",
+        "POSITION LAMELLEN": "Angle", "BESCHATTUNG": "Shading", "SPERREN": "activate",
+        "STATUS POSITION HOEHE": "Height feedback",
+        "STATUS POSITION LAMELLEN": "Angle feedback"}
+    assert unneeded_functions(channels[0], circuit, selection) == []
+    # Sicherung: Hauptfunktion ohne KO -> nichts weglassen
+    selection.pop("AUF/AB")
+    selection["STOPP"] = -1
+    assert unneeded_functions(channels[0], circuit, selection) == []
+
+
+def test_room_sheet_shows_channel_names():
+    from knix_arranger.services.room_sheet import _channel_text
+    assert _channel_text(["Motor 3", "Motor 1"]) == "Motor 1, Motor 3"
+    assert _channel_text(["1", "2", "Kanal C"]) == "K1–2, Kanal C"
