@@ -40,6 +40,7 @@ from knix_arranger.services.product_search_service import (
     ("Télécommande 4 canaux radio", "", "Tastereinheit", 0),
     ("6108/18 Flush-mounted room temperature controller", "", "Raumthermostat", 0),
     ("SBC/U6.0 HVAC/CO2 device, 6gang BE", "", "Raumthermostat", 6),
+    ("6138/11-xx RTR fan coil with display, SM", "", "Raumthermostat", 0),
     ("6131/21 Busch-Presence detector mini premium", "", "Praesenzmelder", 0),
     ("compact office EIB", "201 9 200", "Praesenzmelder", 0),
     ("BE/S4.230.2.1 Binary Input,4-fold,230V,MDRC", "", "Binäreingang", 4),

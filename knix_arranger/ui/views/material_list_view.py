@@ -1097,13 +1097,16 @@ class MaterialListView(QWidget):
             initial_category_filter=initial_cat,
             topology=topology,
             parent=self,
+            initial_device_type=entry.device_type,
         )
         dialog.setWindowTitle(self._product_dialog_title([entry], entry.device_type))
         # Suche vorbelegen: falls in Schritt 5 für dasselbe Gewerk bereits ein
         # Produkt verknüpft wurde (GA-Generierung), dessen Bestellnummer als
         # praezisen Vorschlag nutzen - sonst den generischen Gerätetyp.
+        # Mit Typ-Vorauswahl im Typenbaum kein zusätzlicher Typ-Suchtext
         dialog._search_edit.setText(
-            self._suggested_search_text(entry) or entry.device_type
+            self._suggested_search_text(entry)
+            or ("" if dialog.has_type_preselection() else entry.device_type)
         )
 
         if not dialog.exec():
@@ -1266,9 +1269,11 @@ class MaterialListView(QWidget):
             initial_category_filter=initial_cat,
             topology=topology,
             parent=self,
+            initial_device_type=chosen_type,
         )
         dialog.setWindowTitle(self._product_dialog_title(entries_to_assign, chosen_type))
-        dialog._search_edit.setText(chosen_type)
+        if not dialog.has_type_preselection():
+            dialog._search_edit.setText(chosen_type)
 
         if not dialog.exec():
             return

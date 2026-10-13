@@ -78,7 +78,8 @@ _EARLY_RULES: tuple[tuple[re.Pattern, str, str], ...] = (
      INFRA, "Klima-KNX-Gateway"),
     (_r(r"\busb\b|ip[ /-]*(?:knx )?interface|ip\s?secure interface|ip[ -]?schnittstelle|"
         r"knx[ /-]*ip|smart connect"), INFRA, "KNX-Schnittstelle"),
-    (_r(r"domovea|visu|server|\btouch\b|display|écran"), INFRA, "Visualisierung / Server"),
+    # "display" allein nicht: "RTR fan coil with display" ist ein Regler
+    (_r(r"domovea|visu|server|\btouch\b|écran"), INFRA, "Visualisierung / Server"),
     (_r(r"\bac500\b|\bplc\b|\bsps\b"), INFRA, "Logik / Zeit"),
     (_r(r"gateway|passerelle"), INFRA, "KNX-Schnittstelle"),
     # Messen und Zähler

@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QBrush, QColor
 from ...models.project import KnxProject
 from ...models.building import GewerkAssignment
-from ...models.device import GEWERK_TO_SENSOR_TYPE
+from ...models.device import GEWERK_TO_ACTOR_TYPE, GEWERK_TO_SENSOR_TYPE
 from ...services.gewerk_service import GewerkService
 from ...services.address_generator import regenerate_addresses
 from ...services.product_sync import (
@@ -1117,7 +1117,11 @@ class Step05Gewerke(QWidget):
         Hat das Produkt ComObject-Daten, wird direkt im Anschluss die
         GA-Auswahl gezeigt (siehe ComObjectSelectDialog).
         """
-        dlg = ProductSelectDialog(parent=self)
+        # Gateway-Gewerke (Multimedia, DALI, Wärmepumpe …): Gateways vorauswählen
+        gewerk = self._project.gewerk_catalog.get(ga.gewerk_code)
+        initial_type = (GEWERK_TO_ACTOR_TYPE.get(ga.gewerk_code, "")
+                        if gewerk and gewerk.interface_type == "gateway" else "")
+        dlg = ProductSelectDialog(parent=self, initial_device_type=initial_type)
         if dlg.exec() != QDialog.Accepted:
             return
 

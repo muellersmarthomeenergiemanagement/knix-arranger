@@ -92,6 +92,7 @@ def test_dialog_context_menu_hides_and_shows_hidden(monkeypatch):
     from PySide6.QtWidgets import QApplication, QMenu
     QApplication.instance() or QApplication([])
     from knix_arranger.ui.dialogs import product_select_dialog
+    from knix_arranger.ui.dialogs.product_select_dialog import _COL_NAME
     ProductSearchService().add_products([dict(_OLD), dict(_NEW)])
     dlg = product_select_dialog.ProductSelectDialog()
     dlg._search_edit.setText("KNX Revox Gateway")
@@ -108,7 +109,7 @@ def test_dialog_context_menu_hides_and_shows_hidden(monkeypatch):
     assert dlg._table.rowCount() == 0
     dlg._show_hidden_action.setChecked(True)
     assert dlg._table.rowCount() == 1
-    assert "(ausgeblendet)" in dlg._table.item(0, 4).text()
+    assert "(ausgeblendet)" in dlg._table.item(0, _COL_NAME).text()
     choose("Wieder einblenden")
     dlg._show_table_context_menu(dlg._table.visualItemRect(dlg._table.item(0, 0)).center())
     dlg._show_hidden_action.setChecked(False)

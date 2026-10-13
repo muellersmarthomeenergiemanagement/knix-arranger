@@ -13,12 +13,14 @@ from PySide6.QtWidgets import (
     QComboBox, QTableWidget, QTableWidgetItem, QPushButton,
     QHeaderView, QAbstractItemView, QFileDialog, QMessageBox,
     QGroupBox, QSpinBox, QFormLayout, QProgressDialog, QMenu, QInputDialog,
+    QSplitter, QTreeWidget, QTreeWidgetItem, QWidget, QStyledItemDelegate, QStyle,
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QColor
+from PySide6.QtCore import Qt, QEvent
+from PySide6.QtGui import QFont, QColor, QKeySequence, QBrush, QPalette
 
 from ...services.product_search_service import ProductSearchService, ProductSuggestion
 from ...services.knxprod_catalog_service import KnxprodCatalogService
+from ...services.product_classifier import TYPE_GROUPS, type_group
 from ...services.recent_products import load_recent, add_recent
 from ...models.material_list import MaterialEntry, MATERIAL_CATEGORIES
 from ...models.topology import Topology, Line
@@ -51,6 +53,83 @@ _CAT_FILTER_MAP = {
     "Infrastruktur": "infrastructure",
 }
 
+# Spalten der Produktliste
+_COL_TYPE, _COL_MFR, _COL_ORDER, _COL_NAME, _COL_CH, _COL_KO = range(6)
+_COLUMNS = ["Typ", "Hersteller", "Bestellnummer", "Produktname", "Kanäle", "KOs"]
+
+# Vorauswahl im Typenbaum aus der Kategorie des Aufrufers
+_CATEGORY_TO_GROUP = {"actor": "Aktoren", "sensor": "Bedienung & Sensoren"}
+_GROUP_TYPES = {group: types for group, types in TYPE_GROUPS}
+_ALL_TYPES = {t for _g, types in TYPE_GROUPS for t in types}
+
+
+def _group_of(prod: ProductSuggestion) -> str:
+    """Gruppe im Typenbaum; Typen ausserhalb der Einordnung (z.B. "Taster
+    4-fach" im Basiskatalog) nach ihrer Kategorie."""
+    device_type = prod.display_type()
+    if device_type in _ALL_TYPES:
+        return type_group(device_type)
+    return _CATEGORY_TO_GROUP.get(prod.category, "Systemgeräte")
+
+
+def _initial_type_filter(device_type: str, category: str) -> tuple[str, str]:
+    """("type"|"group"|"", Name) für die Vorauswahl, z.B. aus der Materialliste
+    ("Schaltaktor 8-fach") oder einem Gateway-Gewerk ("KNX-Schnittstelle")."""
+    import re
+    base = re.sub(r"\s+\d+\s*-?\s*fach$", "", device_type or "").strip()
+    if base in _ALL_TYPES and base != "KNX-Schnittstelle":
+        return "type", base
+    if base and ("Gateway" in base or base == "KNX-Schnittstelle"):
+        return "group", "Gateways & Schnittstellen"
+    if category in _CATEGORY_TO_GROUP:
+        return "group", _CATEGORY_TO_GROUP[category]
+    return "", ""
+
+
+def _knxprod_paths(mime) -> list[str]:
+    """.knxprod-Dateien aus Zwischenablage oder Ziehen (auch Ordner)."""
+    if mime is None or not mime.hasUrls():
+        return []
+    paths = []
+    for url in mime.urls():
+        path = url.toLocalFile()
+        if os.path.isdir(path):
+            for root, _dirs, files in os.walk(path):
+                paths += [os.path.join(root, fn) for fn in files
+                          if fn.lower().endswith(".knxprod")]
+        elif path.lower().endswith(".knxprod") and os.path.isfile(path):
+            paths.append(path)
+    return sorted(set(paths))
+
+
+class _ReadableSelectionDelegate(QStyledItemDelegate):
+    """Markierte Zeilen weiss auf Markierungsfarbe -- auch Zellen mit eigener
+    Schrift- oder Hintergrundfarbe (Online-Katalog blau, veraltet grau,
+    "Zuletzt verwendet" gelb) wären sonst kaum lesbar."""
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        if option.state & QStyle.State_Selected:
+            option.backgroundBrush = QBrush()
+            white = QColor("white")
+            option.palette.setColor(QPalette.Text, white)
+            option.palette.setColor(QPalette.HighlightedText, white)
+
+
+class _NumberItem(QTableWidgetItem):
+    """Zahl, numerisch sortiert; 0 als "–"."""
+
+    def __init__(self, value: int):
+        super().__init__(str(value) if value else "–")
+        self._value = value or 0
+        self.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+    def __lt__(self, other):
+        if isinstance(other, _NumberItem):
+            return self._value < other._value
+        return super().__lt__(other)
+
+
 # Schriftfarbe für Produkte aus dem Online-Katalog
 _ONLINE_COLOR = QColor("#1f5fa8")
 
@@ -78,10 +157,13 @@ class ProductSelectDialog(QDialog):
         initial_category_filter: str = "",   # "actor", "sensor", "infrastructure", ""
         topology: Topology | None = None,
         parent=None,
+        initial_device_type: str = "",       # z.B. "Schaltaktor 8-fach", Vorauswahl
     ):
         super().__init__(parent)
         self.setWindowTitle("Produkt auswählen")
-        self.setMinimumSize(820, 560)
+        self.setMinimumSize(980, 620)
+        # .knxprod-Dateien hineinziehen oder mit Strg+V einfügen
+        self.setAcceptDrops(True)
 
         from ...services.product_sync import shared_catalog
         # Einmal je Sitzung geladen (eigener Katalog kann >100 MB gross sein)
@@ -91,6 +173,9 @@ class ProductSelectDialog(QDialog):
         self._selected: ProductSuggestion | None = None
         self._topology = topology
         self._selected_line: Line | None = None
+        # Filter aus dem Typenbaum: ("group"|"type"|"", Name)
+        self._type_filter = _initial_type_filter(initial_device_type,
+                                                 initial_category_filter)
 
         self._build_ui(initial_category_filter)
         self._populate_recent_table()
@@ -104,11 +189,12 @@ class ProductSelectDialog(QDialog):
         # --- Zuletzt verwendet ---
         self._recent_group = QGroupBox("Zuletzt verwendet")
         recent_layout = QVBoxLayout()
-        self._recent_table = QTableWidget(0, 6)
-        self._recent_table.setHorizontalHeaderLabels([
-            "Kategorie", "Typ", "Hersteller", "Bestellnummer", "Produktname", "Kanäle",
-        ])
-        self._recent_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self._recent_table = QTableWidget(0, len(_COLUMNS))
+        self._recent_table.setHorizontalHeaderLabels(_COLUMNS)
+        self._recent_table.horizontalHeader().setSectionResizeMode(_COL_NAME,
+                                                                   QHeaderView.Stretch)
+        self._recent_table.verticalHeader().setVisible(False)
+        self._set_column_widths(self._recent_table)
         self._recent_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._recent_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self._recent_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -127,18 +213,9 @@ class ProductSelectDialog(QDialog):
         self._search_edit = QLineEdit()
         self._search_edit.setPlaceholderText("Produktname, Bestellnummer, Hersteller…")
         self._search_edit.textChanged.connect(self._refresh_results)
+        # Strg+V mit .knxprod-Dateien in der Zwischenablage: importieren
+        self._search_edit.installEventFilter(self)
         filter_layout.addWidget(self._search_edit, 2)
-
-        filter_layout.addWidget(QLabel("Kategorie:"))
-        self._cat_combo = QComboBox()
-        self._cat_combo.addItems(_CAT_FILTER_OPTIONS)
-        # Vorauswahl setzen
-        pre_display = {v: k for k, v in _CAT_FILTER_MAP.items()}.get(
-            initial_category_filter, "Alle"
-        )
-        self._cat_combo.setCurrentText(pre_display)
-        self._cat_combo.currentIndexChanged.connect(self._refresh_results)
-        filter_layout.addWidget(self._cat_combo)
 
         filter_layout.addWidget(QLabel("Hersteller:"))
         self._mfr_combo = QComboBox()
@@ -153,7 +230,8 @@ class ProductSelectDialog(QDialog):
         catalog_menu.setToolTipsVisible(True)
         act = catalog_menu.addAction("KNXPROD importieren…", self._import_knxprod)
         act.setToolTip(
-            "Herstellerdatei (.knxprod) importieren und Produkte in den Katalog aufnehmen"
+            "Herstellerdatei (.knxprod) importieren und Produkte in den Katalog aufnehmen\n"
+            "Auch: Dateien in dieses Fenster ziehen oder kopieren und mit Strg+V einfügen"
         )
         act = catalog_menu.addAction("Ordner importieren…", self._import_knxprod_folder)
         act.setToolTip(
@@ -183,23 +261,36 @@ class ProductSelectDialog(QDialog):
         filter_group.setLayout(filter_layout)
         layout.addWidget(filter_group)
 
-        # --- Ergebnis-Tabelle ---
+        # --- Typenbaum | Ergebnis-Tabelle + Infobereich ---
+        splitter = QSplitter(Qt.Horizontal)
+        self._type_tree = QTreeWidget()
+        self._type_tree.setHeaderHidden(True)
+        self._type_tree.setMinimumWidth(200)
+        self._type_tree.itemSelectionChanged.connect(self._on_type_selected)
+        splitter.addWidget(self._type_tree)
+
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
         result_row = QHBoxLayout()
         self._result_label = QLabel("0 Produkte gefunden")
         self._result_label.setObjectName("subtitle")
         result_row.addWidget(self._result_label)
         result_row.addStretch()
+        drop_hint = QLabel("KNXPROD hierher ziehen oder mit Strg+V einfügen")
+        drop_hint.setStyleSheet("color: #666;")
+        result_row.addWidget(drop_hint)
         self._online_label = QLabel()
         self._online_label.setStyleSheet("color: #666;")
         result_row.addWidget(self._online_label)
-        layout.addLayout(result_row)
+        right_layout.addLayout(result_row)
         self._update_online_label()
 
-        self._table = QTableWidget(0, 6)
-        self._table.setHorizontalHeaderLabels([
-            "Kategorie", "Typ", "Hersteller", "Bestellnummer", "Produktname", "Kanäle",
-        ])
-        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self._table = QTableWidget(0, len(_COLUMNS))
+        self._table.setHorizontalHeaderLabels(_COLUMNS)
+        self._table.horizontalHeader().setSectionResizeMode(_COL_NAME, QHeaderView.Stretch)
+        self._table.verticalHeader().setVisible(False)
+        self._set_column_widths(self._table)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -208,7 +299,19 @@ class ProductSelectDialog(QDialog):
         self._table.doubleClicked.connect(self._on_double_click)
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._show_table_context_menu)
-        layout.addWidget(self._table)
+        right_layout.addWidget(self._table)
+
+        self._details = QLabel()
+        self._details.setWordWrap(True)
+        self._details.setTextFormat(Qt.RichText)
+        self._details.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._details.setMinimumHeight(64)
+        self._details.setStyleSheet("padding: 6px; border-top: 1px solid #ddd;")
+        right_layout.addWidget(self._details)
+        splitter.addWidget(right)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([220, 760])
+        layout.addWidget(splitter, 1)
 
         # --- Menge ---
         qty_layout = QHBoxLayout()
@@ -261,16 +364,19 @@ class ProductSelectDialog(QDialog):
     # ------------------------------------------------------------------ Zuletzt verwendet
 
     def _populate_recent_table(self):
-        """Befüllt die 'Zuletzt verwendet'-Tabelle aus der gespeicherten Liste."""
-        recent = load_recent()
+        """Befüllt "Zuletzt verwendet": die gespeicherten Einträge aufgelöst
+        über den Katalog (aktueller Typ, Kanäle, KOs), ohne Doppelte (z.B.
+        derselbe Hersteller in zwei Schreibweisen)."""
+        from ...utils.manufacturers import product_key
         self._recent_table.setSortingEnabled(False)
         self._recent_table.setRowCount(0)
         _highlight = QColor("#fff9e6")  # zartes Gelb als Unterschied zur Haupttabelle
         bold = QFont()
         bold.setBold(True)
 
-        for row, entry in enumerate(recent):
-            prod = ProductSuggestion(
+        seen = set()
+        for entry in load_recent():
+            stored = ProductSuggestion(
                 manufacturer=entry.get("manufacturer", ""),
                 order_number=entry.get("order_number", ""),
                 product_name=entry.get("product_name", ""),
@@ -280,15 +386,20 @@ class ProductSelectDialog(QDialog):
                 sensor_type=entry.get("sensor_type", ""),
                 device_type=entry.get("device_type", ""),
             )
+            prod = self._catalog_product(stored) or stored
+            key = product_key(prod.manufacturer, prod.order_number, prod.product_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            row = self._recent_table.rowCount()
             self._recent_table.insertRow(row)
-            cat_text = _CAT_DISPLAY.get(prod.category, prod.category)
             items = [
-                QTableWidgetItem(cat_text),
                 QTableWidgetItem(prod.display_type()),
                 QTableWidgetItem(prod.manufacturer),
                 QTableWidgetItem(prod.order_number),
                 QTableWidgetItem(prod.product_name),
-                QTableWidgetItem(str(prod.channels) if prod.channels else "–"),
+                _NumberItem(prod.channels),
+                _NumberItem(prod.co_count),
             ]
             for col, item in enumerate(items):
                 item.setData(Qt.UserRole, prod)
@@ -311,17 +422,21 @@ class ProductSelectDialog(QDialog):
             # samt KOs verwenden (sonst ging z.B. das Revox ohne KOs ins Projekt)
             self._selected = self._catalog_product(prod) or prod
             self._btn_ok.setEnabled(True)
+            self._update_details(self._selected)
             # Selektion in Haupttabelle aufheben
             self._table.blockSignals(True)
             self._table.clearSelection()
             self._table.blockSignals(False)
 
     def _catalog_product(self, prod: ProductSuggestion) -> ProductSuggestion | None:
-        """Katalogeintrag (mit KOs) zu einem Eintrag aus "Zuletzt verwendet"."""
+        """Katalogeintrag (mit KOs) zu einem Eintrag aus "Zuletzt verwendet";
+        Hersteller in anderer Schreibweise gilt als derselbe."""
+        from ...utils.manufacturers import product_key
+        wanted = product_key(prod.manufacturer, prod.order_number, prod.product_name)
         return next((r for r in self._search_service.search_all(
                          prod.order_number, include_hidden=True)
-                     if r.manufacturer == prod.manufacturer
-                     and r.order_number == prod.order_number), None)
+                     if product_key(r.manufacturer, r.order_number, r.product_name)
+                     == wanted), None)
 
     def _on_recent_double_click(self):
         if self._selected:
@@ -347,24 +462,84 @@ class ProductSelectDialog(QDialog):
 
     def _refresh_results(self):
         query = self._search_edit.text().strip()
-        cat_display = self._cat_combo.currentText()
-        cat_filter = _CAT_FILTER_MAP.get(cat_display, "")
         mfr_filter = self._mfr_combo.currentText()
         if mfr_filter == "Alle":
             mfr_filter = ""
 
-        all_results = self._search_service.search_all(
+        results = self._search_service.search_all(
             query=query,
-            category_filter=cat_filter,
             preferred_manufacturers=self._preferred if self._preferred else None,
             include_hidden=self._show_hidden_action.isChecked(),
         )
-
         if mfr_filter:
-            all_results = [r for r in all_results if r.manufacturer == mfr_filter]
+            results = [r for r in results if r.manufacturer == mfr_filter]
 
-        self._all_results = all_results
-        self._populate_table(all_results)
+        # Der Typenbaum zählt Suche und Hersteller, aber nicht den Typ selbst
+        self._base_results = results
+        self._populate_type_tree(results)
+        self._apply_type_filter()
+
+    def _apply_type_filter(self):
+        kind, name = self._type_filter
+        results = self._base_results
+        if kind == "group":
+            results = [r for r in results if _group_of(r) == name]
+        elif kind == "type":
+            results = [r for r in results if r.display_type() == name]
+        self._all_results = results
+        self._populate_table(results)
+
+    def _populate_type_tree(self, results: list[ProductSuggestion]):
+        """Gruppen und Typen mit Anzahl; die Auswahl bleibt erhalten."""
+        counts: dict[str, dict[str, int]] = {}
+        for r in results:
+            group = counts.setdefault(_group_of(r), {})
+            group[r.display_type()] = group.get(r.display_type(), 0) + 1
+        tree = self._type_tree
+        tree.blockSignals(True)
+        tree.clear()
+        root = QTreeWidgetItem(tree, [f"Alle Produkte ({len(results)})"])
+        root.setData(0, Qt.UserRole, ("", ""))
+        selected = root
+        for group, _types in TYPE_GROUPS:
+            types = counts.get(group, {})
+            if not types and self._type_filter != ("group", group):
+                continue
+            g_item = QTreeWidgetItem(tree, [f"{group} ({sum(types.values())})"])
+            g_item.setData(0, Qt.UserRole, ("group", group))
+            if self._type_filter == ("group", group):
+                selected = g_item
+            order = {t: i for i, t in enumerate(_GROUP_TYPES.get(group, ()))}
+            for device_type in sorted(types, key=lambda t: (order.get(t, 99), t)):
+                t_item = QTreeWidgetItem(g_item, [f"{device_type} ({types[device_type]})"])
+                t_item.setData(0, Qt.UserRole, ("type", device_type))
+                if self._type_filter == ("type", device_type):
+                    selected = t_item
+                    g_item.setExpanded(True)
+            if self._type_filter == ("group", group):
+                g_item.setExpanded(True)
+        if self._type_filter[0] == "type" and selected is root:
+            # Typ ohne Treffer (z.B. nach Suche): als leere Zeile behalten
+            kind, name = self._type_filter
+            selected = QTreeWidgetItem(tree, [f"{name} (0)"])
+            selected.setData(0, Qt.UserRole, (kind, name))
+        tree.setCurrentItem(selected)
+        tree.blockSignals(False)
+
+    def _set_column_widths(self, table: QTableWidget) -> None:
+        table.setItemDelegate(_ReadableSelectionDelegate(table))
+        for col, width in ((_COL_TYPE, 170), (_COL_MFR, 120), (_COL_ORDER, 150),
+                           (_COL_CH, 60), (_COL_KO, 60)):
+            table.setColumnWidth(col, width)
+
+    def has_type_preselection(self) -> bool:
+        """Typ oder Gruppe im Typenbaum vorausgewählt (z.B. aus der Materialliste)."""
+        return bool(self._type_filter[0])
+
+    def _on_type_selected(self):
+        item = self._type_tree.currentItem()
+        self._type_filter = item.data(0, Qt.UserRole) if item else ("", "")
+        self._apply_type_filter()
 
     def _populate_table(self, results: list[ProductSuggestion]):
         self._table.setSortingEnabled(False)
@@ -376,7 +551,6 @@ class ProductSelectDialog(QDialog):
 
         for row, prod in enumerate(results):
             self._table.insertRow(row)
-            cat_text = _CAT_DISPLAY.get(prod.category, prod.category)
             device_type = prod.display_type()
             name_text = prod.product_name
             tooltip = ""
@@ -385,14 +559,18 @@ class ProductSelectDialog(QDialog):
                 tooltip = f"Ersetzt durch Bestellnummer: {prod.superseded_by}"
 
             items = [
-                QTableWidgetItem(cat_text),
                 QTableWidgetItem(device_type),
                 QTableWidgetItem(prod.manufacturer),
                 QTableWidgetItem(prod.order_number),
                 QTableWidgetItem(name_text),
-                QTableWidgetItem(str(prod.channels) if prod.channels else "–"),
+                _NumberItem(prod.channels),
+                _NumberItem(prod.co_count),
             ]
+            items[_COL_KO].setToolTip("Kommunikationsobjekte aus dem KNXPROD-Import"
+                                      if prod.co_count else
+                                      "Keine KOs – GAs entstehen aus dem Gewerk")
             for col, item in enumerate(items):
+                # Index in self._all_results, bleibt beim Sortieren erhalten
                 item.setData(Qt.UserRole, row)
                 self._table.setItem(row, col, item)
 
@@ -410,7 +588,7 @@ class ProductSelectDialog(QDialog):
             # Veraltete und ausgeblendete Produkte grau/kursiv absetzen
             if prod.superseded_by or prod.hidden:
                 if prod.hidden:
-                    items[4].setText(name_text + "  (ausgeblendet)")
+                    items[_COL_NAME].setText(name_text + "  (ausgeblendet)")
                     tooltip = "Ausgeblendet – Rechtsklick: wieder einblenden"
                 for item in items:
                     item.setFont(italic_grey)
@@ -424,6 +602,7 @@ class ProductSelectDialog(QDialog):
         )
         self._btn_ok.setEnabled(False)
         self._selected = None
+        self._update_details(None)
 
     # ------------------------------------------------------------------ Online-Katalog
 
@@ -483,18 +662,9 @@ class ProductSelectDialog(QDialog):
         self._recent_table.clearSelection()
         self._recent_table.blockSignals(False)
 
-        # Originalindex via UserRole
-        orig_row = self._table.item(rows[0].row(), 0).data(Qt.UserRole)
-        # Sortierung: orig_row stimmt nicht mehr nach Sortierung → besser über Bestellnummer
-        order_num = self._table.item(rows[0].row(), 3).text()
-        mfr = self._table.item(rows[0].row(), 2).text()
-
-        self._selected = next(
-            (r for r in self._all_results
-             if r.order_number == order_num and r.manufacturer == mfr),
-            None,
-        )
+        self._selected = self._product_at_row(rows[0].row())
         self._btn_ok.setEnabled(self._selected is not None)
+        self._update_details(self._selected)
 
     def _on_double_click(self):
         if self._selected:
@@ -503,15 +673,54 @@ class ProductSelectDialog(QDialog):
     # ------------------------------------------------------------------ Veraltet-Markierung
 
     def _product_at_row(self, row: int) -> ProductSuggestion | None:
-        """Löst die ProductSuggestion für eine Tabellenzeile auf (robust gegen
-        Sortierung: Abgleich über Hersteller + Bestellnummer, siehe _on_selection)."""
-        order_num = self._table.item(row, 3).text()
-        mfr = self._table.item(row, 2).text()
-        return next(
-            (r for r in self._all_results
-             if r.order_number == order_num and r.manufacturer == mfr),
-            None,
-        )
+        """ProductSuggestion einer Tabellenzeile (Index im UserRole, bleibt
+        beim Sortieren erhalten)."""
+        item = self._table.item(row, 0)
+        index = item.data(Qt.UserRole) if item else None
+        if index is None or not 0 <= index < len(self._all_results):
+            return None
+        return self._all_results[index]
+
+    def _update_details(self, prod: ProductSuggestion | None):
+        """Infobereich: Quelle, KOs, Kanäle in der Benennung des Herstellers,
+        ETS-Kennung, Secure, veraltet/ausgeblendet."""
+        if prod is None:
+            self._details.setText("<span style='color:#666'>Produkt wählen, um Details "
+                                  "zu sehen.</span>")
+            return
+        from html import escape
+        from ...services.product_zones import zone_label, zone_scheme, zones_of
+        parts = [f"<b>{escape(prod.product_name)}</b> · {escape(prod.manufacturer)} "
+                 f"{escape(prod.order_number)} · {escape(prod.display_type())}"]
+        facts = []
+        zones = []
+        if prod.co_count:
+            facts.append(f"KNXPROD-Import, {prod.co_count} KOs")
+            product = {"com_objects": prod.com_objects}
+            zones = zones_of(product)
+            if zones:
+                scheme = zone_scheme(product)
+                plural = {"Kanal": "Kanäle", "Ausgang": "Ausgänge", "Raum": "Räume",
+                          "Zone": "Zonen"}.get(scheme.label, scheme.label)
+                facts.append(f"{len(zones)} {plural} im Gerät: "
+                             f"{escape(zone_label(product, zones[0]))} – "
+                             f"{escape(zone_label(product, zones[-1]))}")
+        elif prod.online:
+            facts.append("Online-Katalog, ohne KOs")
+        else:
+            facts.append("ohne KOs – GAs entstehen aus dem Gewerk")
+        if prod.channels and not zones:
+            facts.append(f"{prod.channels} Kanäle laut Produktname")
+        if prod.secure_supported:
+            facts.append("KNX Secure")
+        if prod.superseded_by:
+            facts.append(f"veraltet, ersetzt durch {escape(prod.superseded_by)}")
+        if prod.hidden:
+            facts.append("ausgeblendet")
+        parts.append(" · ".join(facts))
+        if prod.product_ref_id:
+            parts.append(f"<span style='color:#666'>ETS: {escape(prod.product_ref_id)}</span>")
+        self._details.setText("<br>".join(parts))
 
     def _show_table_context_menu(self, pos):
         row = self._table.rowAt(pos.y())
@@ -618,70 +827,8 @@ class ProductSelectDialog(QDialog):
             self, "KNXPROD-Dateien importieren (Mehrfachauswahl möglich)", "",
             "KNX Produktdatenbankdateien (*.knxprod);;Alle Dateien (*.*)",
         )
-        if not filepaths:
-            return
-
-        svc = KnxprodCatalogService()
-        all_products: list[ProductSuggestion] = []
-        errors: list[tuple[str, str]] = []
-        empty: list[str] = []
-        for filepath in filepaths:
-            name = os.path.basename(filepath)
-            try:
-                products = svc.import_file(filepath)
-            except ValueError as e:
-                errors.append((name, str(e)))
-                continue
-            if not products:
-                empty.append(name)
-                continue
-            all_products.extend(products)
-
-        if not all_products:
-            problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
-            # Die Import-Schleife oben laeuft ohne UI-Feedback komplett
-            # synchron durch -- bei vielen Dateien kann das spuerbar dauern;
-            # ohne explizites Aktivieren bleibt der Dialog im Hintergrund,
-            # falls der Nutzer zwischenzeitlich das Fenster gewechselt hat.
-            self.raise_()
-            self.activateWindow()
-            QMessageBox.critical(
-                self, "Import-Fehler",
-                f"Keine der {len(filepaths)} ausgewählten Datei(en) konnte importiert werden:\n\n"
-                + "\n".join(problems),
-            )
-            return
-
-        # In den Katalog aufnehmen -- ein Schreibvorgang für alle Produkte,
-        # persistiert dauerhaft (%APPDATA%), nicht nur für diese Dialog-Instanz
-        self._search_service.add_products([p.to_catalog_dict() for p in all_products])
-
-        # Hersteller-Dropdown aktualisieren
-        current_mfrs = {
-            self._mfr_combo.itemText(i)
-            for i in range(self._mfr_combo.count())
-        }
-        for prod in all_products:
-            if prod.manufacturer not in current_mfrs:
-                self._mfr_combo.addItem(prod.manufacturer)
-                current_mfrs.add(prod.manufacturer)
-
-        self._refresh_results()
-
-        ok_count = len(filepaths) - len(errors) - len(empty)
-        summary = (
-            f"{len(all_products)} Produkte aus {ok_count} von {len(filepaths)} Datei(en) "
-            f"importiert und dem Katalog hinzugefügt."
-        )
-        if errors or empty:
-            problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
-            summary += "\n\nÜbersprungen:\n" + "\n".join(problems)
-        # Siehe Kommentar bei "Import-Fehler" oben: ohne explizites
-        # Aktivieren bleibt der Dialog im Hintergrund, falls der Nutzer
-        # zwischenzeitlich das Fenster gewechselt hat.
-        self.raise_()
-        self.activateWindow()
-        QMessageBox.information(self, "Import erfolgreich", summary)
+        if filepaths:
+            self._import_paths(filepaths)
 
     def _import_knxprod_folder(self):
         """
@@ -697,26 +844,31 @@ class ProductSelectDialog(QDialog):
         )
         if not folder:
             return
-
-        filepaths = []
-        for root, _dirs, files in os.walk(folder):
-            for fn in files:
-                if fn.lower().endswith(".knxprod"):
-                    filepaths.append(os.path.join(root, fn))
-        filepaths.sort()
-
+        filepaths = sorted(
+            os.path.join(root, fn)
+            for root, _dirs, files in os.walk(folder)
+            for fn in files if fn.lower().endswith(".knxprod")
+        )
         if not filepaths:
             QMessageBox.information(
                 self, "Keine Dateien gefunden",
                 f"Im Ordner \"{folder}\" wurden keine .knxprod-Dateien gefunden.",
             )
             return
+        self._import_paths(filepaths, folder)
 
-        progress = QProgressDialog(
-            "Importiere KNXPROD-Dateien…", "Abbrechen", 0, len(filepaths), self,
-        )
-        progress.setWindowModality(Qt.WindowModal)
-        progress.setMinimumDuration(0)
+    def _import_paths(self, filepaths: list[str], base_folder: str = "") -> int:
+        """Importiert KNXPROD-Dateien in den Katalog (Datei-/Ordnerauswahl,
+        Einfügen, Ziehen). Gibt die Anzahl importierter Produkte zurück.
+        Bereits vorhandene Produkte (gleicher Hersteller + Bestellnummer)
+        werden aktualisiert."""
+        progress = None
+        if len(filepaths) > 3:
+            progress = QProgressDialog(
+                "Importiere KNXPROD-Dateien…", "Abbrechen", 0, len(filepaths), self,
+            )
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(0)
 
         svc = KnxprodCatalogService()
         all_products = []
@@ -724,12 +876,14 @@ class ProductSelectDialog(QDialog):
         empty: list[str] = []
         processed = 0
         for filepath in filepaths:
-            name = os.path.relpath(filepath, folder)
-            progress.setLabelText(f"Importiere: {name}")
-            progress.setValue(processed)
-            QApplication.processEvents()
-            if progress.wasCanceled():
-                break
+            name = (os.path.relpath(filepath, base_folder) if base_folder
+                    else os.path.basename(filepath))
+            if progress is not None:
+                progress.setLabelText(f"Importiere: {name}")
+                progress.setValue(processed)
+                QApplication.processEvents()
+                if progress.wasCanceled():
+                    break
             try:
                 products = svc.import_file(filepath)
             except ValueError as e:
@@ -740,55 +894,80 @@ class ProductSelectDialog(QDialog):
                 else:
                     empty.append(name)
             processed += 1
-        progress.setValue(len(filepaths))
+        if progress is not None:
+            progress.setValue(len(filepaths))
 
+        problems = ([f"• {n}: {e}" for n, e in errors]
+                    + [f"• {n}: keine Produktdaten gefunden" for n in empty])
+        # Der Import kann dauern: ohne explizites Aktivieren bliebe der Dialog
+        # im Hintergrund, falls der Nutzer das Fenster gewechselt hat
+        self.raise_()
+        self.activateWindow()
         if not all_products:
-            problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
-            # Die Import-Schleife oben pumpt processEvents() ueber
-            # potenziell viele Dateien -- kann laenger dauern, ohne
-            # explizites Aktivieren bleibt der Dialog im Hintergrund, falls
-            # der Nutzer zwischenzeitlich das Fenster gewechselt hat.
-            self.raise_()
-            self.activateWindow()
             QMessageBox.critical(
                 self, "Import-Fehler",
-                f"Keine der {processed} verarbeiteten Datei(en) konnte importiert werden:\n\n"
+                f"Keine der {processed} Datei(en) konnte importiert werden:\n\n"
                 + "\n".join(problems),
             )
-            return
+            return 0
 
         # In den Katalog aufnehmen -- ein Schreibvorgang für alle Produkte,
         # persistiert dauerhaft (%APPDATA%), nicht nur für diese Dialog-Instanz
         self._search_service.add_products([p.to_catalog_dict() for p in all_products])
-
-        current_mfrs = {
-            self._mfr_combo.itemText(i)
-            for i in range(self._mfr_combo.count())
-        }
+        current_mfrs = {self._mfr_combo.itemText(i) for i in range(self._mfr_combo.count())}
         for prod in all_products:
             if prod.manufacturer not in current_mfrs:
                 self._mfr_combo.addItem(prod.manufacturer)
                 current_mfrs.add(prod.manufacturer)
-
         self._refresh_results()
 
         ok_count = processed - len(errors) - len(empty)
-        summary = (
-            f"{len(all_products)} Produkte aus {ok_count} von {processed} verarbeiteten "
-            f"Datei(en) importiert bzw. aktualisiert."
-        )
+        summary = (f"{len(all_products)} Produkte aus {ok_count} von {processed} "
+                   f"Datei(en) importiert bzw. aktualisiert.")
         if processed < len(filepaths):
-            summary += f"\n\nAbgebrochen nach {processed} von {len(filepaths)} gefundenen Datei(en)."
-        if errors or empty:
-            problems = [f"• {n}: {e}" for n, e in errors] + [f"• {n}: keine Produktdaten gefunden" for n in empty]
+            summary += f"\n\nAbgebrochen nach {processed} von {len(filepaths)} Datei(en)."
+        if problems:
             summary += "\n\nÜbersprungen:\n" + "\n".join(problems)
-        # Die Import-Schleife oben pumpt processEvents() ueber potenziell
-        # viele Dateien -- ohne explizites Aktivieren bleibt der Dialog im
-        # Hintergrund, falls der Nutzer zwischenzeitlich das Fenster
-        # gewechselt hat.
-        self.raise_()
-        self.activateWindow()
         QMessageBox.information(self, "Import erfolgreich", summary)
+        return len(all_products)
+
+    # ── Einfügen (Strg+V) und Ziehen ──
+
+    def _paste_knxprod(self) -> bool:
+        """Importiert .knxprod-Dateien aus der Zwischenablage (im Explorer
+        kopiert); False, wenn keine darin sind."""
+        paths = _knxprod_paths(QApplication.clipboard().mimeData())
+        if not paths:
+            return False
+        self._import_paths(paths)
+        return True
+
+    def keyPressEvent(self, event):
+        if event.matches(QKeySequence.Paste) and self._paste_knxprod():
+            return
+        super().keyPressEvent(event)
+
+    def eventFilter(self, obj, event):
+        # Im Suchfeld fügt Strg+V Text ein -- ausser es sind KNXPROD-Dateien kopiert
+        if (obj is self._search_edit and event.type() == QEvent.KeyPress
+                and event.matches(QKeySequence.Paste) and self._paste_knxprod()):
+            return True
+        return super().eventFilter(obj, event)
+
+    def dragEnterEvent(self, event):
+        if _knxprod_paths(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        self.dragEnterEvent(event)
+
+    def dropEvent(self, event):
+        paths = _knxprod_paths(event.mimeData())
+        if paths:
+            event.acceptProposedAction()
+            self._import_paths(paths)
 
     # ------------------------------------------------------------------ Ergebnis
 
