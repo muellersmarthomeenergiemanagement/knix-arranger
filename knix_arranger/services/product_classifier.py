@@ -79,8 +79,10 @@ _EARLY_RULES: tuple[tuple[re.Pattern, str, str], ...] = (
     (_r(r"\busb\b|ip[ /-]*(?:knx )?interface|ip\s?secure interface|ip[ -]?schnittstelle|"
         r"knx[ /-]*ip|smart connect"), INFRA, "KNX-Schnittstelle"),
     # "display" allein nicht: "RTR fan coil with display" ist ein Regler
-    (_r(r"domovea|visu|server|\btouch\b|écran"), INFRA, "Visualisierung / Server"),
-    (_r(r"\bac500\b|\bplc\b|\bsps\b"), INFRA, "Logik / Zeit"),
+    (_r(r"domovea|visu|server|\btouch\b|roomtouch|smarttouch|smart touch|écran"),
+     INFRA, "Visualisierung / Server"),
+    (_r(r"\bac500\b|\bplc\b|\bsps\b|application controller|bacnet|"
+        r"building automation controller"), INFRA, "Logik / Zeit"),
     (_r(r"gateway|passerelle"), INFRA, "KNX-Schnittstelle"),
     # Messen und Zähler
     (_r(r"meter|zähler|zaehler|energy analy|energie|compteur|consommation"),
@@ -88,13 +90,15 @@ _EARLY_RULES: tuple[tuple[re.Pattern, str, str], ...] = (
     # Sensoren und Bedienung
     (_r(r"weather|wetter|météo|meteo"), SENSOR, "Wetterstation"),
     (_r(r"presence|präsenz|praesenz|présence|compact (?:office|passage|passimo)|"
-        r"eco-ir|thepa|theronda|planocentro"), SENSOR, "Praesenzmelder"),
+        r"eco-ir|thepa|theronda|planocentro|pirios|quattro"), SENSOR, "Praesenzmelder"),
     (_r(r"motion|bewegung|wächter|waechter|watchdog|mouvement"), SENSOR, "Bewegungsmelder"),
     (_r(r"room temperature controller|raumtemperaturregler|thermostat|"
-        r"\brtr\b|hvac[\w/ ]{0,8}device|régulateur|regulateur"), SENSOR, "Raumthermostat"),
+        r"\brtr\b|hvac[\w/ ]{0,8}device|hvac-(?:slave-)?gerät|régulateur|regulateur"),
+     SENSOR, "Raumthermostat"),
     (_r(r"window contact|fensterkontakt|contact de fenêtre|d[ée]tecteur d.ouverture|"
         r"opening detector"), SENSOR, "Fensterkontakt"),
-    (_r(r"dämm?erung|daemm?erung|twilight|crépusculaire|leak|enthalpie|"
+    (_r(r"dämm?erung|daemm?erung|twilight|crépusculaire|leak|enthalpie|salva|"
+        r"humidity|feuchte|"
         r"luftqualität|air quality|co2|luminosit|helligkeitssensor|light sensor|"
         r"lichtsensor|brightness sensor|détecteur|detecteur"), SENSOR, "Sensor"),
     (_r(r"temperature sensor|temperaturfühler|temperaturfuehler|"
@@ -209,6 +213,6 @@ def classify(product_name: str, order_number: str = "", category_hint: str = "",
         from .product_zones import zone_scheme, zones_of
         product = {"com_objects": com_objects}
         scheme = zone_scheme(product)
-        if scheme is not None and scheme.label in ("Kanal", "Ausgang"):
+        if scheme is not None and scheme.label in ("Kanal", "Kanal C", "Ausgang", "Motor"):
             channels = len(zones_of(product))
     return Classification(category, device_type, channels)

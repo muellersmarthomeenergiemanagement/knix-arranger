@@ -36,6 +36,7 @@ class Circuit:
     channel: int                                   # aktueller Kanal (Belegungsplan)
     functions: list[tuple[str, str]] = field(default_factory=list)  # (Funktion, GA)
     element_text: str = ""                         # z.B. "Licht 1 «Decke»"
+    dpts: dict[str, str] = field(default_factory=dict)  # Funktion -> DPT der GA
 
     @property
     def label(self) -> str:
@@ -82,6 +83,15 @@ def device_channels(device, fallback_count: int = 0) -> list[DeviceChannel]:
     return [DeviceChannel(n, f"Kanal {n}") for n in range(1, count + 1)]
 
 
+def device_com_objects(device) -> list:
+    """Alle KOs des Geräts, je Nummer einer (echter Text vor Platzhalter) --
+    zur Auswahl von Hand, wenn die Kanäle nicht erkannt werden."""
+    from .knxprod_catalog_service import unique_com_objects
+    dicts = _co_dicts(device)
+    by_id = {id(d): co for co, d in zip(device.communication_objects, dicts)}
+    return [by_id[id(d)] for d in unique_com_objects(dicts)]
+
+
 def channel_names(device) -> dict[int, str]:
     """Kanalnummer -> Name, nur wenn die KOs Kanäle erkennen lassen."""
     from .product_zones import zone_scheme
@@ -119,6 +129,7 @@ def device_circuits(project, device) -> list[Circuit]:
                 element_text=_element_text(project, rooms.get(r.room_id),
                                            r.gewerk_code, r.element_number))
         circuits[key].functions.append((r.function_name, r.ga_address))
+        circuits[key].dpts[r.function_name] = r.dpt
     return sorted(circuits.values(), key=lambda c: (c.channel, c.label))
 
 
@@ -137,17 +148,38 @@ _EXTRA_KEYWORDS: dict[str, tuple[str, ...]] = {
     "STATUS POSITION HOEHE": ("height", "position"),
     "STATUS POSITION LAMELLEN": ("angle", "slat", "winkel"),
     "BESCHATTUNG": ("shading", "sun protection", "ombrage"),
-    "SPERREN": ("disable", "lock", "blocage"),
+    "SPERREN": ("disable", "lock", "blocage", "blocking"),
     "SZENE": ("scene", "scène"),
+    # Heizung (ABB VC/S "Actuating Value", Siemens "Positioning value")
+    "STELLGROESSE": ("stellgr", "actuating value", "positioning value", "control value",
+                     "valve", "vanne", "heating value"),
+    "IST": ("actual temperature", "ist-temperatur", "istwert", "actual value"),
+    "BASIS-SOLL": ("setpoint", "sollwert", "basic setpoint", "consigne"),
+    "STOERUNG": ("fault", "error", "malfunction", "störung", "défaut"),
 }
 _FEEDBACK_FUNCTION = re.compile(r"^(RM|STATUS)\b")
+_CAMEL = re.compile(r"(?<=[a-zäöü])(?=[A-ZÄÖÜ])")
+_NOT_ALNUM = re.compile(r"[^a-z0-9äöüéè]")
+
+
+def _norm(text: str) -> str:
+    """Programmnamen lesbar machen: "Obj_TravelUpDown" -> "obj travel up down"."""
+    return _CAMEL.sub(" ", text or "").replace("_", " ").lower()
+
+
+def _compact(text: str) -> str:
+    return _NOT_ALNUM.sub("", text)
 _WEAK_KEYWORDS = frozenset({"position", "wert", "value", "status", "meldung"})
 
 
 def _is_feedback(co) -> bool:
-    """Rückmeldung -- auch englisch/französisch ("Height feedback")."""
-    text = f"{co.object_function or ''} {co.name or ''}".lower()
-    return _is_feedback_co(co) or "feedback" in text or "état" in text
+    """Rückmeldung -- auch englisch/französisch ("Height feedback") oder,
+    ohne sprechenden Text, an den Flags (senden/lesen, nicht schreiben)."""
+    text = _norm(f"{co.object_function or ''} {co.name or ''}")
+    if _is_feedback_co(co) or "feedback" in text or "état" in text or "status" in text:
+        return True
+    flags = co.flags or ""
+    return bool(flags) and "Ü" not in flags and "W" not in flags and "S" in flags
 
 
 def suggest_co(channel_cos: list, function: str, used=frozenset()):
@@ -162,9 +194,12 @@ def suggest_co(channel_cos: list, function: str, used=frozenset()):
     for co in channel_cos:
         if co.object_number in used or _is_feedback(co) != feedback:
             continue
-        text = f"{co.object_function} {co.name}".lower()
-        # Allgemeine Wörter zählen halb: "Height" schlägt "Position"
-        score = sum(0.5 if kw in _WEAK_KEYWORDS else 1 for kw in keywords if kw in text)
+        text = _norm(f"{co.object_function} {co.name}")
+        compact = _compact(text)
+        # Allgemeine Wörter zählen halb: "Height" schlägt "Position";
+        # zusammengeschrieben zählt auch ("TravelUpDown" ~ "up/down")
+        score = sum(0.5 if kw in _WEAK_KEYWORDS else 1 for kw in keywords
+                    if kw in text or (len(_compact(kw)) >= 4 and _compact(kw) in compact))
         if score > best_score:
             best, best_score = co, score
     return best
@@ -181,7 +216,44 @@ def suggested_co_map(channel: DeviceChannel | None, circuit: Circuit) -> dict[st
         if co is not None:
             result[function] = co.object_number
             used.add(co.object_number)
+    # Rückfall Datenpunkttyp: Hersteller ohne Funktionstext (Hager: alle KOs
+    # heissen "Output 1") -- der erste freie KO mit dem DPT der GA
+    for function, _ga in circuit.functions:
+        if function in result or not circuit.dpts.get(function):
+            continue
+        co = _co_by_dpt(channel.com_objects, circuit.dpts[function],
+                        bool(_FEEDBACK_FUNCTION.match(function)), used)
+        if co is not None:
+            result[function] = co.object_number
+            used.add(co.object_number)
     return result
+
+
+_DPT_RE = re.compile(r"DPS?T-(\d+)(?:-(\d+))?")
+
+
+def _dpt_key(dpt: str) -> tuple[str, str]:
+    """("1", "8") aus "DPST-1-8" bzw. "DPT-1 DPST-1-8"; ("1", "") ohne Untertyp."""
+    found = _DPT_RE.findall(dpt or "")
+    if not found:
+        return "", ""
+    main, sub = max(found, key=lambda m: bool(m[1]))
+    return main, sub
+
+
+def _co_by_dpt(channel_cos: list, dpt: str, feedback: bool, used: set):
+    """Erster freier KO mit passendem DPT; Rückmeldung bevorzugt passend."""
+    main, sub = _dpt_key(dpt)
+    if not main:
+        return None
+
+    def fits(co) -> bool:
+        co_main, co_sub = _dpt_key(co.data_type)
+        return co_main == main and (not sub or not co_sub or co_sub == sub)
+
+    candidates = [co for co in channel_cos if co.object_number not in used and fits(co)]
+    preferred = [co for co in candidates if _is_feedback(co) == feedback]
+    return (preferred or candidates or [None])[0]
 
 
 def unneeded_functions(channel: DeviceChannel | None, circuit: Circuit,

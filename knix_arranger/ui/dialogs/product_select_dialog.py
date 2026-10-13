@@ -701,7 +701,7 @@ class ProductSelectDialog(QDialog):
             if zones:
                 scheme = zone_scheme(product)
                 plural = {"Kanal": "Kanäle", "Ausgang": "Ausgänge", "Raum": "Räume",
-                          "Zone": "Zonen"}.get(scheme.label, scheme.label)
+                          "Zone": "Zonen", "Kanal C": "Kanäle", "Motor": "Motoren"}.get(scheme.label, scheme.label)
                 facts.append(f"{len(zones)} {plural} im Gerät: "
                              f"{escape(zone_label(product, zones[0]))} – "
                              f"{escape(zone_label(product, zones[-1]))}")

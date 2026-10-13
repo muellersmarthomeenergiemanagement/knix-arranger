@@ -34,6 +34,7 @@ class ZoneScheme:
     pattern: re.Pattern     # Gruppe 1 = Nummer bzw. Buchstabe
     name_only: bool = False  # nur im KO-Namen suchen (Revox "R_3_…")
     letters: bool = False    # "Kanal A" = Zone 1
+    sep: str = " "           # zwischen Bezeichnung und Nummer ("Kanal C" + "1")
 
 
 _SCHEMES = (
@@ -42,7 +43,16 @@ _SCHEMES = (
     ZoneScheme("Zone", re.compile(r"\bZone\s*(\d+)\b", re.I)),
     ZoneScheme("Kanal", re.compile(r"\b(?:Kanal|Channel)\s*(\d+)\b", re.I)),
     ZoneScheme("Kanal", re.compile(r"\b(?:[Kk]anal|[Cc]hannel)\s+([A-Z])\b"), letters=True),
-    ZoneScheme("Ausgang", re.compile(r"\b(?:Ausgang|Output)\s*(\d+)\b", re.I)),
+    ZoneScheme("Ausgang", re.compile(r"\b(?:Ausgang|Output|Sortie|Voie)\s*(\d+)\b", re.I)),
+    # ABB/Busch-Jaeger "Output A - Direct", "Ausgang A" (nicht "Ausgang A-X")
+    ZoneScheme("Ausgang", re.compile(r"\b(?:[Aa]usgang|[Oo]utput|[Ss]ortie)\s+([A-Z])\b(?!-[A-Z])"),
+               letters=True),
+    # ABB VC/S: "Ch A Val A Status Actuating Value"
+    ZoneScheme("Kanal", re.compile(r"\bCh\.?\s+([A-Z])\b"), name_only=True, letters=True),
+    # Theben: "RMG 4 I  Kanal C1", "GM JMG4 S  C1"
+    ZoneScheme("Kanal C", re.compile(r"\bC(\d+)\b"), sep=""),
+    # Siemens: "A, Schalten", "A, Dimmwert 1"
+    ZoneScheme("Kanal", re.compile(r"^([A-Z]),\s"), letters=True),
     # Griesser JAX-9: "Operation of Blinds (M1), End position" (Motor 1)
     ZoneScheme("Motor", re.compile(r"\(M(\d+)\)")),
 )
@@ -133,7 +143,14 @@ def zone_label(product: dict | None, zone: int) -> str:
     if scheme is None or not zone:
         return ""
     value = chr(ord("A") + zone - 1) if scheme.letters else str(zone)
-    return f"{scheme.label} {value}"
+    if scheme.label == "Ausgang":
+        # Wort des Herstellers übernehmen: "Sortie 1", "Output A", "Ausgang A"
+        for co in _unique(product):
+            _f, m = _match(co, scheme)
+            if m and _zone_number(scheme, m) == zone:
+                word = m.group(0)[:m.start(1) - m.start(0)].strip()
+                return f"{word[:1].upper()}{word[1:]} {value}"
+    return f"{scheme.label}{scheme.sep}{value}"
 
 
 def zones_of(product: dict | None) -> list[int]:

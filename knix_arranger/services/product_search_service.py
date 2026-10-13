@@ -47,7 +47,7 @@ _USER_CATALOG_FORMAT = 3
 # Stand der Einordnung (product_classifier): eigene Produkte mit kleinerem
 # "classified" werden beim Laden neu eingeordnet -- ausser von Hand
 # bearbeitete ("user_edited").
-_CLASSIFY_VERSION = 1
+_CLASSIFY_VERSION = 2   # 2: Touch-Panels, Controller, pirios, Salva
 
 
 def _com_object_store_path() -> str:

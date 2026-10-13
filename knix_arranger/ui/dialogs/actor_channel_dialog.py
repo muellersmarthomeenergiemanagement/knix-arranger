@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QGroupBox,
+    QAbstractItemView, QCheckBox, QComboBox, QCompleter, QDialog, QDialogButtonBox, QGroupBox,
     QHBoxLayout, QHeaderView, QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
 from ...services.actor_channels import (
-    device_channels, device_circuits, omit_functions, suggested_co_map,
+    device_channels, device_circuits, device_com_objects, omit_functions, suggested_co_map,
     unneeded_functions,
 )
 
@@ -117,6 +117,7 @@ class ActorChannelDialog(QDialog):
                 co_sel[c.key] = (dict(saved) if saved is not None
                                  else suggested_co_map(by_number.get(channel_sel[c.key]), c))
             self._state[device.id] = {"circuits": circuits, "channels": channels,
+                                      "all_cos": device_com_objects(device),
                                       "by_number": by_number, "channel": channel_sel,
                                       "co": co_sel}
         return self._state[device.id]
@@ -228,26 +229,29 @@ class ActorChannelDialog(QDialog):
         self._co_group.setTitle(f"KOs: {circuit.label}"
                                 + (f" › {channel.label}" if channel else ""))
         cos = channel.com_objects if channel else []
-        if not cos:
+        # Immer auch die übrigen KOs des Geräts: von Hand wählbar, wenn die
+        # Kanäle oder Funktionen des Herstellers nicht erkannt werden
+        in_channel = {co.object_number for co in cos}
+        others = [co for co in state["all_cos"] if co.object_number not in in_channel]
+        if not cos and not others:
             self._co_hint.setText(
-                "Keine KOs für diesen Kanal bekannt (Produkt ohne KNXPROD-Daten) – die "
-                "KO-Verknüpfung schlägt wie bisher allgemeine Objekte vor.")
+                "Keine KOs bekannt (Produkt ohne KNXPROD-Daten) – die KO-Verknüpfung "
+                "schlägt wie bisher allgemeine Objekte vor.")
+        elif not cos:
+            self._co_hint.setText(
+                f"Kanal im Gerät nicht erkannt – alle {len(others)} KOs des Geräts zur "
+                "Auswahl. Tippen sucht (z.B. «Shutter» oder die KO-Nummer).")
         else:
             self._co_hint.setText(
-                "Je GA den KO des Kanals wählen; «nicht verknüpfen», wenn die GA hier "
-                f"nicht gebraucht wird. {len(cos)} KOs im Kanal, ungenutzte bleiben frei.")
+                "Je GA den KO wählen; «nicht verknüpfen», wenn die GA hier nicht gebraucht "
+                f"wird. Oben die {len(cos)} KOs des Kanals, darunter die übrigen des "
+                "Geräts; Tippen sucht.")
         selection = state["co"].setdefault(circuit.key, {})
         for row, (function, ga) in enumerate(circuit.functions):
             table.insertRow(row)
             table.setItem(row, 0, QTableWidgetItem(function))
             table.setItem(row, 1, QTableWidgetItem(ga))
-            combo = QComboBox()
-            combo.addItem("— nicht verknüpfen", _NOT_LINKED)
-            for co in cos:
-                text = co.name if co.object_function in co.name else \
-                    f"{co.name} – {co.object_function}".strip(" –")
-                combo.addItem(f"{co.object_number}: {text}", co.object_number)
-            combo.setEnabled(bool(cos))
+            combo = self._ko_combo(cos, others)
             current = selection.get(function)
             index = combo.findData(current) if current is not None else -1
             combo.setCurrentIndex(index if index >= 0 else 0)
@@ -255,6 +259,31 @@ class ActorChannelDialog(QDialog):
                 lambda _i, f=function, cb=combo, sel=selection: (
                     sel.__setitem__(f, cb.currentData()), self._update_omit_info()))
             table.setCellWidget(row, 2, combo)
+
+    @staticmethod
+    def _ko_text(co) -> str:
+        text = co.name if co.object_function in co.name else \
+            f"{co.name} – {co.object_function}".strip(" –")
+        return f"{co.object_number}: {text}"
+
+    def _ko_combo(self, cos: list, others: list) -> QComboBox:
+        """Auswahl: «nicht verknüpfen», die KOs des Kanals, dann die übrigen
+        des Geräts; durchsuchbar (Tippen filtert, auch mitten im Text)."""
+        combo = QComboBox()
+        combo.addItem("— nicht verknüpfen", _NOT_LINKED)
+        for co in cos:
+            combo.addItem(self._ko_text(co), co.object_number)
+        if others:
+            if cos:
+                combo.insertSeparator(combo.count())
+            for co in others:
+                combo.addItem(self._ko_text(co), co.object_number)
+        combo.setEnabled(bool(cos or others))
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
+        combo.completer().setFilterMode(Qt.MatchContains)
+        combo.completer().setCompletionMode(QCompleter.PopupCompletion)
+        return combo
 
     # ── Ergebnis ──
 
@@ -267,7 +296,7 @@ class ActorChannelDialog(QDialog):
         for device_id, state in self._state.items():
             device = by_id[device_id]
             device.channel_map = dict(state["channel"])
-            has_cos = any(ch.com_objects for ch in state["channels"])
+            has_cos = bool(state["all_cos"])
             device.co_map = ({key: dict(sel) for key, sel in state["co"].items()}
                              if has_cos else {})
             if not self._omit_check.isHidden() and self._omit_check.isChecked():

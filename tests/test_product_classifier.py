@@ -123,7 +123,9 @@ def test_existing_catalog_is_reclassified_once_but_not_edited_products():
         "sensor", "Tastereinheit", "Tastereinheit", "", 4)
     assert svc.find_product("ABB", "X1")["device_type"] == "Schaltaktor"   # von Hand
     raw = json.load(open(_user_catalog_path(), encoding="utf-8"))
-    assert all(p.get("classified") == 1 for p in raw["products"] if not p.get("user_edited"))
+    from knix_arranger.services.product_search_service import _CLASSIFY_VERSION
+    assert all(p.get("classified") == _CLASSIFY_VERSION
+               for p in raw["products"] if not p.get("user_edited"))
     # gespeichert: beim nächsten Laden keine erneute Einordnung
     mtime = os.path.getmtime(_user_catalog_path())
     ProductSearchService()

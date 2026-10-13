@@ -312,3 +312,88 @@ def test_room_sheet_shows_channel_names():
     from knix_arranger.services.room_sheet import _channel_text
     assert _channel_text(["Motor 3", "Motor 1"]) == "Motor 1, Motor 3"
     assert _channel_text(["1", "2", "Kanal C"]) == "K1–2, Kanal C"
+
+
+# ── Weitere Hersteller: Kanal-Schreibweisen, Programmnamen, Datenpunkttyp ──
+
+def _device(rows):
+    return Device(product="Aktor", communication_objects=[
+        CommunicationObject(object_number=n, name=name, object_function=text, data_type=dpt,
+                            flags=flags)
+        for n, name, text, dpt, flags in rows])
+
+
+@pytest.mark.parametrize("texts, labels", [
+    ([("Obj_UpDown", "Output A - Direct: {{0}}"), ("Obj_UpDown", "Output B - Direct: {{0}}")],
+     ["Output A", "Output B"]),                     # Wort des Herstellers
+    ([("Ch A Val A Status Actuating Value", "Channel - Valve A"),
+      ("Ch B Val A Status Actuating Value", "Channel - Valve A")], ["Kanal A", "Kanal B"]),
+    ([("Sortie 1", "Sortie 1"), ("Sortie 2", "Sortie 2")], ["Sortie 1", "Sortie 2"]),
+    ([("RMG 4 I  Kanal C1", "RMG 4 I channel C1"), ("RMG 4 I  Kanal C2", "x")],
+     ["Kanal C1", "Kanal C2"]),
+    ([("A, Schalten", "A, Schalten"), ("B, Schalten", "B, Schalten")], ["Kanal A", "Kanal B"]),
+])
+def test_channel_spellings_of_manufacturers(texts, labels):
+    device = _device([(i, name, text, "", "") for i, (name, text) in enumerate(texts)])
+    assert [ch.label for ch in device_channels(device)] == labels
+
+
+def test_output_a_x_is_central_not_channel_a():
+    device = _device([(1, "Ausgang A-X", "Output A-X", "", ""),
+                      (2, "Ausgang A", "Output A", "", ""), (3, "Ausgang B", "Output B", "", "")])
+    channels = device_channels(device)
+    assert [len(ch.com_objects) for ch in channels] == [1, 1]
+
+
+def test_program_names_are_split_for_matching():
+    from knix_arranger.services.actor_channels import suggest_co
+    cos = _device([(95, "Obj_TravelUpDown", "Channel A - Shutter: {{0}}", "DPST-1-8", ""),
+                   (97, "Obj_StopTravel", "Channel A - Shutter: {{0}}", "DPST-1-7", ""),
+                   (98, "Obj_HeightPosition", "Channel A - Shutter: {{0}}", "DPST-5-1", "")]
+                  ).communication_objects
+    assert suggest_co(cos, "AUF/AB").object_number == 95
+    assert suggest_co(cos, "STOPP").object_number == 97
+    assert suggest_co(cos, "POSITION HOEHE").object_number == 98
+
+
+def test_dpt_fallback_without_function_text():
+    """Hager: alle KOs eines Kanals heissen "Output 1" -- nur der DPT hilft."""
+    from knix_arranger.services.actor_channels import Circuit, suggested_co_map
+    device = _device([(1, "Output 1", "Output 1", "DPST-1-8", "KÜ"),
+                      (2, "Output 1", "Output 1", "DPST-1-7", "KÜ"),
+                      (3, "Output 1", "Output 1", "DPST-5-1", "KÜ"),
+                      (4, "Output 1", "Output 1", "DPST-5-1", "KÜ"),
+                      (5, "Output 1", "Output 1", "DPST-5-1", "KLS"),
+                      (6, "Output 2", "Output 2", "DPST-1-8", "KÜ")])
+    channel = device_channels(device)[0]
+    circuit = Circuit(key="x", room_number="", room_name="", gewerk_code="J",
+                      element_number=1, channel=1,
+                      functions=[(f, "") for f in ("AUF/AB", "STOPP", "POSITION HOEHE",
+                                                   "POSITION LAMELLEN", "STATUS POSITION HOEHE")],
+                      dpts={"AUF/AB": "DPST-1-8", "STOPP": "DPST-1-7",
+                            "POSITION HOEHE": "DPST-5-1", "POSITION LAMELLEN": "DPST-5-1",
+                            "STATUS POSITION HOEHE": "DPST-5-1"})
+    assert suggested_co_map(channel, circuit) == {
+        "AUF/AB": 1, "STOPP": 2, "POSITION HOEHE": 3, "POSITION LAMELLEN": 4,
+        "STATUS POSITION HOEHE": 5}
+
+
+def test_dialog_offers_all_device_kos_when_channel_unknown(project):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from knix_arranger.ui.dialogs.actor_channel_dialog import ActorChannelDialog
+    actor = _actor(project)
+    # KOs ohne erkennbare Kanäle (z.B. Busch-Jaeger Room Controller)
+    actor.communication_objects = [
+        CommunicationObject(object_number=n, name=f"M1_Objekt_{n:02d}_1Bit",
+                            object_function="") for n in range(1, 13)]
+    dlg = ActorChannelDialog(project, [actor])
+    dlg._circuit_table.selectRow(0)
+    assert "alle 12 KOs des Geräts" in dlg._co_hint.text()
+    combo = dlg._co_table.cellWidget(0, 2)
+    assert combo.isEnabled() and combo.count() == 13
+    combo.setCurrentIndex(combo.findData(7))
+    dlg.apply()
+    first = device_circuits(project, actor)[0]
+    function = dlg._co_table.item(0, 0).text()
+    assert actor.co_map[first.key][function] == 7
