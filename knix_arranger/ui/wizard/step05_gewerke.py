@@ -20,7 +20,9 @@ from ...services.address_generator import regenerate_addresses
 from ...services.product_sync import (
     ProductMismatch, apply_product_to, product_mismatches, shared_gateway_targets,
 )
-from ...services.product_zones import is_zoned, propose_zones, same_product_elements
+from ...services.product_zones import (
+    is_zoned, propose_zones, same_product_elements, zone_label,
+)
 from ..dialogs.gewerk_template_dialog import GewerkTemplateDialog
 from ..dialogs.extra_ga_dialog import ExtraGaDialog
 from ..dialogs.product_select_dialog import ProductSelectDialog
@@ -95,10 +97,12 @@ def _product_text(lp: dict) -> str:
 
 
 def _zone_text(lp: dict) -> str:
-    """" · Raum 3 im Gerät" bei Produkten mit KOs je Raum (product_zones)."""
+    """" · Raum 3 im Gerät" / " · Kanal C im Gerät" bei Produkten mit KOs
+    je Raum oder Kanal (product_zones)."""
     if not is_zoned(lp):
         return ""
-    text = f" · Raum {lp['zone']} im Gerät" if lp.get("zone") else " · alle Räume im Gerät"
+    text = (f" · {zone_label(lp, lp['zone'])} im Gerät" if lp.get("zone")
+            else " · alle KOs des Geräts")
     return text + (" + Systemobjekte" if lp.get("system_objects") else "")
 
 

@@ -1,12 +1,19 @@
 """
-Produkte mit Kommunikationsobjekten je Zone, z.B. Revox Multiuser 3.0:
-"R_1_ROOM_ON_OFF" … "R_15_VOLUME_VALUE" (15 Revox-Räume) plus
-Systemobjekte (SYSTEM_OFF, Szenen, KNX-Actions).
+Produkte mit Kommunikationsobjekten je Zone: ein Gerät bedient mehrere
+Räume oder Kanäle, z.B.
+- Revox Multiuser 3.0: "R_1_ROOM_ON_OFF" … "R_15_VOLUME_VALUE" (15 Räume)
+  plus Systemobjekte (SYSTEM_OFF, Szenen, KNX-Actions),
+- Theben KNX-OT-Box: "H1 Max. Stellgrösse Zone/Raum 5 …",
+- Aktoren und Ein-/Ausgabemodule: "Kanal 5, …", "Channel C …", "Ausgang 3 …".
 
-Ein Gateway bedient alle Räume. Ohne Zone erzeugte jeder KNiX-Raum mit dem
-Produkt die GAs aller ausgewählten Zonen -- bei 6 Räumen sechsmal dieselben
-(Projekt_23 Chalet Franziska: 780 statt 130 GAs). Mit Zone erzeugt ein Raum
-nur die KOs seiner Zone, die Systemobjekte nur der Raum, der sie trägt.
+Ohne Zone erzeugte jeder KNiX-Raum mit dem Produkt die GAs aller
+ausgewählten Zonen -- bei 6 Räumen sechsmal dieselben (Projekt_23 Chalet
+Franziska: 780 statt 130 GAs). Mit Zone erzeugt ein Raum nur die KOs seiner
+Zone, die Systemobjekte (KOs ohne Zone) nur der Raum, der sie trägt.
+
+Das Muster wird je Produkt bestimmt (zone_scheme): von den bekannten
+Schreibweisen diejenige, die die meisten KOs abdeckt. Eingänge, Tasten und
+kurze Kürzel ("R1:") zählen bewusst nicht -- zu mehrdeutig.
 
 Im Produkt (GewerkAssignment.linked_product / element_products):
   "zone": int            -- Zone dieses Raums (fehlt/0 = alle KOs wie bisher)
@@ -17,43 +24,120 @@ in irgendeiner Zone ausgewählt ist, gilt für alle Zonen.
 from __future__ import annotations
 
 import re
-
-_ZONE_NAME = re.compile(r"^R_(\d+)_(.+)$")
-_ZONE_TEXT = re.compile(r"\{\{0:Room (\d+)\}\}")
+from dataclasses import dataclass
 
 
-def co_zone(co: dict) -> int | None:
+@dataclass(frozen=True)
+class ZoneScheme:
+    """Schreibweise der Zone in den KOs eines Produkts."""
+    label: str              # "Raum", "Zone", "Kanal", "Ausgang"
+    pattern: re.Pattern     # Gruppe 1 = Nummer bzw. Buchstabe
+    name_only: bool = False  # nur im KO-Namen suchen (Revox "R_3_…")
+    letters: bool = False    # "Kanal A" = Zone 1
+
+
+_SCHEMES = (
+    ZoneScheme("Raum", re.compile(r"^R_(\d+)_"), name_only=True),
+    ZoneScheme("Raum", re.compile(r"\b(?:Zone/Raum|Raum|Room)\s*(\d+)\b", re.I)),
+    ZoneScheme("Zone", re.compile(r"\bZone\s*(\d+)\b", re.I)),
+    ZoneScheme("Kanal", re.compile(r"\b(?:Kanal|Channel)\s*(\d+)\b", re.I)),
+    ZoneScheme("Kanal", re.compile(r"\b(?:[Kk]anal|[Cc]hannel)\s+([A-Z])\b"), letters=True),
+    ZoneScheme("Ausgang", re.compile(r"\b(?:Ausgang|Output)\s*(\d+)\b", re.I)),
+)
+# Mindestens so viele KOs müssen eine Zone tragen (Anteil), und es braucht
+# mindestens zwei verschiedene Zonen
+_MIN_SHARE = 0.25
+
+
+def _match(co: dict, scheme: ZoneScheme):
+    """(Feld, Match) der ersten Fundstelle: zuerst im Namen, dann im Text."""
+    fields = ("name",) if scheme.name_only else ("name", "function_text")
+    for field_name in fields:
+        m = scheme.pattern.search(co.get(field_name, "") or "")
+        if m:
+            return field_name, m
+    return None, None
+
+
+def _zone_number(scheme: ZoneScheme, m) -> int:
+    value = m.group(1)
+    return ord(value) - ord("A") + 1 if scheme.letters else int(value)
+
+
+_scheme_cache: dict[int, tuple[list, ZoneScheme | None]] = {}
+
+
+def zone_scheme(product: dict | None) -> ZoneScheme | None:
+    """Muster des Produkts, None = keine Zonen."""
+    cos = (product or {}).get("com_objects") or []
+    if len(cos) < 2:
+        return None
+    cached = _scheme_cache.get(id(cos))
+    if cached and cached[0] is cos:
+        return cached[1]
+    best, best_count = None, 0
+    for scheme in _SCHEMES:
+        zones, count = set(), 0
+        for co in cos:
+            _f, m = _match(co, scheme)
+            if m:
+                zones.add(_zone_number(scheme, m))
+                count += 1
+        if len(zones) > 1 and count >= len(cos) * _MIN_SHARE and count > best_count:
+            best, best_count = scheme, count
+    if len(_scheme_cache) > 256:
+        _scheme_cache.clear()
+    _scheme_cache[id(cos)] = (cos, best)
+    return best
+
+
+def co_zone(co: dict, scheme: ZoneScheme | None) -> int | None:
     """Zone eines Kommunikationsobjekts, None = Systemobjekt (ohne Zone)."""
-    m = _ZONE_NAME.match(co.get("name", ""))
-    if m:
-        return int(m.group(1))
-    m = _ZONE_TEXT.search(co.get("function_text", ""))
-    return int(m.group(1)) if m else None
+    if scheme is None:
+        return None
+    _f, m = _match(co, scheme)
+    return _zone_number(scheme, m) if m else None
 
 
-def zone_function(co: dict) -> str:
-    """Funktion ohne Zone: "R_3_VOLUME_VALUE" -> "VOLUME_VALUE"."""
-    name = co.get("name", "")
-    m = _ZONE_NAME.match(name)
-    return m.group(2) if m else name
+def zone_function(co: dict, scheme: ZoneScheme | None) -> str:
+    """Funktion ohne Zone: "R_3_VOLUME_VALUE" -> "R_#_VOLUME_VALUE",
+    "Kanal 5, Jalousiesensor" -> "Kanal #, Jalousiesensor"."""
+    field_name, m = _match(co, scheme) if scheme else (None, None)
+    if not m:
+        return co.get("name", "")
+    text = co.get(field_name, "")
+    return f"{field_name}:{text[:m.start(1)]}#{text[m.end(1):]}"
+
+
+def zone_label(product: dict | None, zone: int) -> str:
+    """"Raum 3", "Kanal C", "Ausgang 5"."""
+    scheme = zone_scheme(product)
+    if scheme is None or not zone:
+        return ""
+    value = chr(ord("A") + zone - 1) if scheme.letters else str(zone)
+    return f"{scheme.label} {value}"
 
 
 def zones_of(product: dict | None) -> list[int]:
     """Alle Zonen des Produkts (leer = keine Zonen)."""
-    return sorted({z for co in (product or {}).get("com_objects") or []
-                   if (z := co_zone(co)) is not None})
+    scheme = zone_scheme(product)
+    if scheme is None:
+        return []
+    return sorted({z for co in product.get("com_objects") or []
+                   if (z := co_zone(co, scheme)) is not None})
 
 
 def is_zoned(product: dict | None) -> bool:
-    return len(zones_of(product)) > 1
+    return zone_scheme(product) is not None
 
 
 def selected_zones(product: dict) -> list[int]:
     """Zonen mit mindestens einem ausgewählten KO."""
+    scheme = zone_scheme(product)
     excluded = set(product.get("excluded_co_numbers") or [])
     return sorted({z for co in product.get("com_objects") or []
                    if co.get("number") not in excluded
-                   and (z := co_zone(co)) is not None})
+                   and (z := co_zone(co, scheme)) is not None})
 
 
 def zone_excluded_numbers(product: dict) -> set[int]:
@@ -62,18 +146,19 @@ def zone_excluded_numbers(product: dict) -> set[int]:
     cos = product.get("com_objects") or []
     excluded = set(product.get("excluded_co_numbers") or [])
     zone = product.get("zone") or 0
-    if not zone or not is_zoned(product):
+    scheme = zone_scheme(product)
+    if not zone or scheme is None:
         return excluded
-    functions = {zone_function(co) for co in cos
-                 if co_zone(co) is not None and co.get("number") not in excluded}
+    zoned = [(co, co_zone(co, scheme)) for co in cos]
+    functions = {zone_function(co, scheme) for co, z in zoned
+                 if z is not None and co.get("number") not in excluded}
     with_system = product.get("system_objects", False)
     result = set()
-    for co in cos:
-        z = co_zone(co)
+    for co, z in zoned:
         if z is None:
             keep = with_system and co.get("number") not in excluded
         else:
-            keep = z == zone and zone_function(co) in functions
+            keep = z == zone and zone_function(co, scheme) in functions
         if not keep:
             result.add(co.get("number"))
     return result

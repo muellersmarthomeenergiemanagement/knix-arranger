@@ -18,7 +18,7 @@ from knix_arranger.models.project import KnxProject
 from knix_arranger.services.address_generator import regenerate_addresses
 from knix_arranger.services.product_zones import (
     co_zone, is_zoned, propose_zones, same_product_elements, selected_zones,
-    zone_excluded_numbers, zone_function,
+    zone_excluded_numbers, zone_function, zone_label, zone_scheme, zones_of,
 )
 
 _FUNCTIONS = ["ROOM_ON_OFF", "ROOM_STATUS", "VOLUME_VALUE", "MUTE_ON_OFF"]
@@ -43,12 +43,67 @@ def _revox(zones=4) -> dict:
 
 
 def test_zone_of_com_objects():
-    assert co_zone({"name": "R_12_VOLUME_VALUE"}) == 12
-    assert co_zone({"name": "X", "function_text": "{{0:Room 3}}: Room On/Off"}) == 3
-    assert co_zone({"name": "SYSTEM_OFF"}) is None
-    assert zone_function({"name": "R_12_VOLUME_VALUE"}) == "VOLUME_VALUE"
-    assert is_zoned(_revox()) and not is_zoned({"com_objects": [_co(1, "SYSTEM_OFF")]})
-    assert selected_zones(_revox()) == [1]
+    revox = _revox()
+    scheme = zone_scheme(revox)
+    assert scheme.label == "Raum"
+    assert co_zone({"name": "R_12_VOLUME_VALUE"}, scheme) == 12
+    assert co_zone({"name": "SYSTEM_OFF"}, scheme) is None
+    assert (zone_function({"name": "R_12_VOLUME_VALUE"}, scheme)
+            == zone_function({"name": "R_3_VOLUME_VALUE"}, scheme))
+    assert is_zoned(revox) and not is_zoned({"com_objects": [_co(1, "SYSTEM_OFF")]})
+    assert selected_zones(revox) == [1]
+    assert zone_label(revox, 3) == "Raum 3"
+
+
+def _product(*texts, name_from_text=False):
+    cos = [{"number": i, "name": t if name_from_text else f"KO {i}", "function_text": t,
+            "datapoint_type": "", "communication_flag": True, "write_flag": True}
+           for i, t in enumerate(texts, 1)]
+    return {"manufacturer": "X", "order_number": "Y", "com_objects": cos}
+
+
+def test_schemes_of_other_products():
+    # Theben KNX-OT-Box: Zone/Raum, dazu Systemobjekte
+    ot_box = _product("H1 Basissollwert Vorlauf", "Aussentemperatur",
+                      "H1 Max. Stellgrösse Zone/Raum 1 bedarfsgesteuert",
+                      "H1 Max. Stellgrösse Zone/Raum 2 bedarfsgesteuert",
+                      "H2 Max. Stellgrösse Zone/Raum 11 Witterung + Bedarf")
+    assert zone_scheme(ot_box).label == "Raum" and zones_of(ot_box) == [1, 2, 11]
+    # ABB-Aktor: Kanal A, B, … (Buchstaben)
+    abb = _product("Kanal A: Schalten", "Kanal A: Status", "Kanal B: Schalten",
+                   "Kanal B: Status", "Zentral Schalten")
+    assert zones_of(abb) == [1, 2] and zone_label(abb, 2) == "Kanal B"
+    # Hager-Aktor: Ausgang n
+    hager = _product("Ausgang 1 Schalten", "Ausgang 2 Schalten", "Ausgang 3 Schalten")
+    assert zone_scheme(hager).label == "Ausgang" and zone_label(hager, 3) == "Ausgang 3"
+    # Name deutsch, Text englisch (ABB UK/S): dasselbe Muster
+    uks = _product("Channel 1, multiple operation", "Channel 2, multiple operation")
+    for co, name in zip(uks["com_objects"], ("Kanal 1, Mehrfachbetätigung",
+                                              "Kanal 2, Mehrfachbetätigung")):
+        co["name"] = name
+    assert zone_scheme(uks).label == "Kanal" and zones_of(uks) == [1, 2]
+
+
+def test_no_scheme_for_inputs_buttons_and_few_matches():
+    assert zone_scheme(_product("Eingang 1", "Eingang 2", "Eingang 3")) is None
+    assert zone_scheme(_product("Taste 1 Schalten", "Taste 2 Schalten")) is None
+    # nur ein Kanal: keine Zonen
+    assert zone_scheme(_product("Kanal 1 Schalten", "Kanal 1 Status")) is None
+    # zu wenige KOs mit Zone (unter einem Viertel)
+    few = _product("Kanal 1 Info", "Kanal 2 Info", *[f"Parameter {c}" for c in "abcdefghij"])
+    assert zone_scheme(few) is None
+
+
+def test_channel_zone_keeps_selected_functions():
+    abb = _product("Kanal A: Schalten", "Kanal A: Status", "Kanal B: Schalten",
+                   "Kanal B: Status", "Zentral Schalten")
+    abb["excluded_co_numbers"] = [2, 4]          # nur Schalten gewählt
+    abb["zone"] = 2
+    names = sorted(c["function_text"] for c in abb["com_objects"]
+                   if c["number"] not in zone_excluded_numbers(abb))
+    assert names == ["Kanal B: Schalten"]
+    abb["system_objects"] = True
+    assert len(abb["com_objects"]) - len(zone_excluded_numbers(abb)) == 2
 
 
 def _names(product):
@@ -128,16 +183,20 @@ def test_zone_dialog_apply_and_warnings():
     rows = [("Wohnen", {**_revox(), "zone": 1, "system_objects": True}),
             ("Bad", _revox())]
     dlg = ProductZoneDialog("Revox", rows)
+    assert dlg.windowTitle() == "Raum im Gerät zuordnen"
     assert dlg.values() == [(1, True), (0, False)]
-    dlg._spins[1].setValue(1)
+    combo = dlg._combos[1]
+    assert [combo.itemText(i) for i in range(combo.count())] == [
+        "alle", "Raum 1", "Raum 2", "Raum 3", "Raum 4"]
+    combo.setCurrentIndex(combo.findData(1))
     assert "mehreren KNiX-Räumen" in dlg._warning.text()
-    dlg._spins[1].setValue(4)
+    combo.setCurrentIndex(combo.findData(4))
     dlg._checks[1].setChecked(True)
     assert "Systemobjekte" in dlg._warning.text()
     dlg._checks[1].setChecked(False)
     assert dlg._warning.text() == ""
     dlg.apply()
     assert rows[1][1]["zone"] == 4 and rows[1][1]["system_objects"] is False
-    dlg._spins[1].setValue(0)
+    combo.setCurrentIndex(0)
     dlg.apply()
     assert "zone" not in rows[1][1]

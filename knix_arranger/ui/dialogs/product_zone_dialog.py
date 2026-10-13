@@ -1,61 +1,67 @@
 """
-Zonen eines Produkts mit KOs je Raum zuordnen (siehe services/product_zones),
-z.B. Revox Multiuser 3.0: welcher Revox-Raum gehört zu welchem KNiX-Raum,
-und welcher Raum trägt die Systemobjekte (System Off, Szenen, KNX-Actions).
+Zonen eines Produkts mit KOs je Raum oder Kanal zuordnen (siehe
+services/product_zones), z.B. Revox Multiuser 3.0: welcher Revox-Raum
+gehört zu welchem KNiX-Raum, und welcher Raum trägt die Systemobjekte
+(System Off, Szenen, KNX-Actions).
 """
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QHeaderView, QLabel,
-    QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHeaderView,
+    QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
-from ...services.product_zones import zones_of
+from ...services.product_zones import zone_label, zone_scheme, zones_of
 
 
 class ProductZoneDialog(QDialog):
-    """Tabelle Raum | Zone | Systemobjekte für alle Zuweisungen mit dem
-    Produkt. rows: (Beschriftung, Produkt-Dict); apply() schreibt "zone" und
-    "system_objects" in die Produkt-Dicts."""
+    """Tabelle Raum | Zone im Gerät | Systemobjekte für alle Zuweisungen mit
+    dem Produkt. rows: (Beschriftung, Produkt-Dict); apply() schreibt "zone"
+    und "system_objects" in die Produkt-Dicts."""
 
     def __init__(self, product_label: str, rows: list[tuple[str, dict]], parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Räume des Produkts zuordnen")
-        self.setMinimumSize(560, 320)
         self._rows = rows
-        zones = zones_of(rows[0][1]) if rows else []
-        max_zone = max(zones) if zones else 1
+        product = rows[0][1] if rows else {}
+        scheme = zone_scheme(product)
+        unit = scheme.label if scheme else "Raum"
+        zones = zones_of(product)
+        self.setWindowTitle(f"{unit} im Gerät zuordnen")
+        self.setMinimumSize(560, 320)
 
         layout = QVBoxLayout(self)
         hint = QLabel(
-            f"{product_label} hat Kommunikationsobjekte für {len(zones)} Räume.\n"
-            "Jeder KNiX-Raum erhält nur die KOs seines Raums im Gerät; die "
-            "ausgewählten Funktionen gelten für alle Räume.\n"
-            "Systemobjekte (z.B. System Off, Szenen) nur in einem Raum anlegen."
-        )
+            f"{product_label} hat Kommunikationsobjekte je {unit} "
+            f"({zone_label(product, zones[0])} … {zone_label(product, zones[-1])}).\n"
+            "Jeder KNiX-Raum erhält nur die KOs seiner Zuordnung "
+            f"(z.B. {zone_label(product, zones[0])}); die ausgewählten Funktionen "
+            "gelten für alle.\n"
+            "Systemobjekte (KOs ohne Zuordnung, z.B. System Off, Szenen) nur "
+            "in einem Raum anlegen."
+            if zones else f"{product_label}")
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
         self._table = QTableWidget(len(rows), 3)
-        self._table.setHorizontalHeaderLabels(["Raum", "Raum im Gerät", "Systemobjekte"])
+        self._table.setHorizontalHeaderLabels(["Raum", f"{unit} im Gerät", "Systemobjekte"])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self._table.setSelectionMode(QAbstractItemView.NoSelection)
         self._table.verticalHeader().setVisible(False)
-        self._spins: list[QSpinBox] = []
+        self._combos: list[QComboBox] = []
         self._checks: list[QCheckBox] = []
-        for row, (label, product) in enumerate(rows):
+        for row, (label, row_product) in enumerate(rows):
             self._table.setItem(row, 0, QTableWidgetItem(label))
-            spin = QSpinBox()
-            spin.setRange(0, max_zone)
-            spin.setSpecialValueText("alle")
-            spin.setPrefix("Raum ")
-            spin.setValue(int(product.get("zone") or 0))
-            spin.setToolTip("Raum im Gerät (z.B. Revox-Raum 3 = KOs R_3_…); "
-                            "«alle» = alle ausgewählten KOs")
-            self._table.setCellWidget(row, 1, spin)
-            self._spins.append(spin)
+            combo = QComboBox()
+            combo.addItem("alle", 0)
+            for zone in zones:
+                combo.addItem(zone_label(product, zone), zone)
+            combo.setCurrentIndex(max(0, combo.findData(int(row_product.get("zone") or 0))))
+            combo.setToolTip(f"{unit} im Gerät, dessen KOs dieser Raum erhält; "
+                             "«alle» = alle ausgewählten KOs")
+            self._table.setCellWidget(row, 1, combo)
+            self._combos.append(combo)
             check = QCheckBox()
-            check.setChecked(bool(product.get("system_objects")))
+            check.setChecked(bool(row_product.get("system_objects")))
             self._table.setCellWidget(row, 2, check)
             self._checks.append(check)
         layout.addWidget(self._table)
@@ -63,8 +69,9 @@ class ProductZoneDialog(QDialog):
         self._warning = QLabel()
         self._warning.setStyleSheet("color: #b26a00;")
         layout.addWidget(self._warning)
-        for spin in self._spins:
-            spin.valueChanged.connect(self._check)
+        self._unit = unit
+        for combo in self._combos:
+            combo.currentIndexChanged.connect(self._check)
         for check in self._checks:
             check.toggled.connect(self._check)
         self._check()
@@ -75,17 +82,17 @@ class ProductZoneDialog(QDialog):
         layout.addWidget(buttons)
 
     def _check(self) -> None:
-        zones = [s.value() for s in self._spins if s.value()]
+        zones = [z for z, _s in self.values() if z]
         problems = []
         if len(zones) != len(set(zones)):
-            problems.append("Ein Raum im Gerät ist mehreren KNiX-Räumen zugeordnet.")
-        n_system = sum(c.isChecked() for c in self._checks)
-        if n_system > 1:
+            problems.append(f"Ein {self._unit} im Gerät ist mehreren KNiX-Räumen zugeordnet.")
+        if sum(c.isChecked() for c in self._checks) > 1:
             problems.append("Systemobjekte sind in mehreren Räumen angelegt.")
         self._warning.setText("\n".join(problems))
 
     def values(self) -> list[tuple[int, bool]]:
-        return [(s.value(), c.isChecked()) for s, c in zip(self._spins, self._checks)]
+        return [(int(combo.currentData() or 0), check.isChecked())
+                for combo, check in zip(self._combos, self._checks)]
 
     def apply(self) -> None:
         for (_label, product), (zone, system) in zip(self._rows, self.values()):
