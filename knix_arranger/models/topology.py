@@ -142,6 +142,11 @@ class Device:
     # Solange dieses Flag gesetzt ist, wird die Teilnehmernummer nie automatisch
     # geändert – auch nicht bei Topologie-Neuberechnungen.
     is_programmed: bool = False
+    # Kanal- und KO-Zuordnung (Materialliste › «Kanäle und KOs zuordnen…»,
+    # services/actor_channels): Stromkreis "room_id|Gewerk|Element" -> Kanal
+    # im Gerät bzw. -> {GA-Funktion: KO-Nummer, -1 = nicht verknüpfen}
+    channel_map: dict[str, int] = field(default_factory=dict)
+    co_map: dict[str, dict[str, int]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # Hersteller als rohe ID ("M-0002", ETS-Import/aeltere Projekte) oder
@@ -188,6 +193,8 @@ class Device:
             "manually_added": self.manually_added,
             "manual_functions": self.manual_functions,
             "is_programmed": self.is_programmed,
+            "channel_map": self.channel_map,
+            "co_map": self.co_map,
         }
 
     @classmethod
@@ -215,6 +222,9 @@ class Device:
             manually_added=data.get("manually_added", False),
             manual_functions=data.get("manual_functions", []),
             is_programmed=data.get("is_programmed", False),
+            channel_map={k: int(v) for k, v in (data.get("channel_map") or {}).items()},
+            co_map={k: {f: int(n) for f, n in v.items()}
+                    for k, v in (data.get("co_map") or {}).items()},
         )
         d.communication_objects = [
             CommunicationObject.from_dict(co)

@@ -78,10 +78,14 @@ class CsvExportService:
                     ))
 
                     for ga in sorted(mg.group_addresses, key=lambda g: g.sub_group):
+                        # Reserven (FA-434, auch weggelassene Funktionen) nicht
+                        # exportieren: sie bleiben Lücken im Adressraum, die sich
+                        # später füllen lassen (z.B. Licht -> Licht dimmbar)
+                        if ga.is_placeholder:
+                            continue
                         # Untergruppe-Zeile (eigentliche GA)
                         sub_name = ga.designation if ga.designation != "--" else ""
-                        sub_name = sub_name if not ga.is_placeholder else ""
-                        dpt = ga.datapoint_type if not ga.is_placeholder else ""
+                        dpt = ga.datapoint_type
 
                         f.write(row(
                             " ",               # Main   (Leerzeichen)

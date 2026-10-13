@@ -159,7 +159,11 @@ class CoLinkingService:
                 (row.physical_address, row.function_name), set()
             )
 
-            real_co = self._match_real_co(device, row.function_name, row.co_function)
+            # Gewählter KO aus «Kanäle und KOs zuordnen…» (actor_channels)
+            chosen = self._chosen_co(device, row)
+            if chosen is False:
+                continue                 # bewusst nicht verknüpfen
+            real_co = chosen or self._match_real_co(device, row.function_name, row.co_function)
             if real_co is not None:
                 co_specs = [(
                     real_co.name or row.function_name,
@@ -361,6 +365,24 @@ class CoLinkingService:
                 if text and any(kw in text for kw in keywords):
                     return co
         return None
+
+    @staticmethod
+    def _chosen_co(device, row):
+        """KO laut Device.co_map für diesen Stromkreis und diese Funktion:
+        das CommunicationObject, False für «nicht verknüpfen», None ohne
+        Vorgabe (dann die bisherige Suche)."""
+        if device is None or not device.co_map or not row.room_id:
+            return None
+        from .actor_channels import circuit_key
+        selection = device.co_map.get(
+            circuit_key(row.room_id, row.gewerk_code, row.element_number))
+        if not selection or row.function_name not in selection:
+            return None
+        number = selection[row.function_name]
+        if number < 0:
+            return False
+        return next((co for co in device.communication_objects
+                     if co.object_number == number), None)
 
     def _direction_from_flags(self, flags: str) -> str:
         """Leitet 'empfangen'/'senden' aus den ETS-Flags eines realen COs ab

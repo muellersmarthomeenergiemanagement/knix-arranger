@@ -136,13 +136,18 @@ class ActorRow:
     # Angezeigt statt der fortlaufenden Kanalnummer, damit Belegungsplan,
     # Raumbuch und DALI-Konfiguration dieselbe Nummer zeigen.
     dali_group: int | None = None
+    room_id: str = ""           # bedienter Raum (Stromkreis-Schlüssel, actor_channels)
+    # Kanal in der Benennung des Herstellers, z.B. "Kanal C", "Ausgang 5"
+    # ("" = nur Nummer bekannt), siehe actor_channels.apply_channel_overrides
+    channel_name: str = ""
 
     @property
     def channel_label(self) -> str:
-        """Kanal zur Anzeige: "Gr. 3" bei DALI-Gateways, sonst die Kanalnummer."""
+        """Kanal zur Anzeige: "Gr. 3" bei DALI-Gateways, sonst der Name des
+        Herstellers (Kanal C) oder die Kanalnummer."""
         if self.dali_group is not None:
             return f"Gr. {self.dali_group}"
-        return self.channel_number
+        return self.channel_name or self.channel_number
 
 
 @dataclass
@@ -847,6 +852,7 @@ class BelegungsplanService:
                                 room_number=room.number,
                                 zone_name=zone_name,
                                 room_name=room.name,
+                                room_id=room_id,
                                 gewerk_code=gewerk_code,
                                 function_name=ga.function_name,
                                 ga_designation=ga.designation,
@@ -876,6 +882,10 @@ class BelegungsplanService:
             if key not in actor_channel_counters[addr]:
                 actor_channel_counters[addr][key] = str(len(actor_channel_counters[addr]) + 1)
             row.channel_number = actor_channel_counters[addr][key]
+
+        # Kanal-/KO-Zuordnung aus der Materialliste (actor_channels): gewählte
+        # Kanäle und Kanalnamen des Herstellers ("Kanal C" statt "3")
+        self._apply_channel_map(project, rows)
 
         # Fallback für ETS6-Importe: Aktoren ohne GA-Treffer über connected_gas der COs anzeigen
         ga_by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
@@ -963,6 +973,20 @@ class BelegungsplanService:
 
         logger.info(f"Belegungsplan: {len(rows)} Aktor-Zeilen generiert.")
         return rows
+
+    @staticmethod
+    def _apply_channel_map(project, rows: list[ActorRow]) -> None:
+        from .actor_channels import apply_channel_overrides, circuit_key
+        devices = {d.physical_address: d for area in project.topology.areas
+                   for line in area.lines for d in line.devices}
+        by_device: dict[str, dict[str, list[ActorRow]]] = {}
+        for row in rows:
+            key = circuit_key(row.room_id, row.gewerk_code, row.element_number)
+            by_device.setdefault(row.physical_address, {}).setdefault(key, []).append(row)
+        for addr, circuits in by_device.items():
+            device = devices.get(addr)
+            if device is not None and (device.channel_map or device.communication_objects):
+                apply_channel_overrides(device, circuits)
 
     def _collect_central_actor_rows(
         self, project, rooms_by_device_addr: dict[str, set[str]],

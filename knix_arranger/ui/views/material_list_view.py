@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QPushButton, QHeaderView, QAbstractItemView,
     QGroupBox, QComboBox, QSpinBox, QMessageBox, QLineEdit, QInputDialog,
-    QFileDialog, QMenu,
+    QFileDialog, QMenu, QDialog,
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -127,6 +127,13 @@ class MaterialListView(QWidget):
         )
         self._btn_ga = more_menu.addAction("GA-Bedarf festlegen…", self._set_ga_override)
         self._btn_ga.setEnabled(False)
+        self._btn_channels = more_menu.addAction("Kanäle und KOs zuordnen…",
+                                                 self._assign_channels_selected)
+        self._btn_channels.setEnabled(False)
+        self._btn_channels.setToolTip(
+            "Stromkreise den Kanälen des Aktors zuordnen (Benennung des Herstellers,\n"
+            "z.B. Kanal C) und je GA den KO wählen – nicht benötigte KOs bleiben frei"
+        )
         self._btn_ga.setToolTip(
             "GA-Bedarf je Gerät von Hand festlegen, z.B. für frei belegbare\n"
             "Gateways, deren KNXPROD nur generische Objektplätze enthält"
@@ -796,6 +803,7 @@ class MaterialListView(QWidget):
         self._btn_assign.setEnabled(is_wizard_auto)
         self._btn_split.setEnabled(can_split)
         self._btn_ga.setEnabled(bool(rows))
+        self._btn_channels.setEnabled(bool(self._channel_devices(self._selected_entry())))
 
     def _set_ga_override(self) -> None:
         """GA-Bedarf je Gerät für die ausgewählte Position von Hand festlegen.
@@ -1159,6 +1167,63 @@ class MaterialListView(QWidget):
         self._rebuild_table()
         self.list_changed.emit()
         self._offer_device_product(devices)
+        self._offer_channel_assignment(entry, devices)
+
+    # ── Kanäle und KOs (actor_channels) ──
+
+    def _channel_devices(self, entry: MaterialEntry | None) -> list:
+        """Aktoren/Gateways der Topologie hinter einem Eintrag."""
+        if entry is None or not self._project:
+            return []
+        addrs = set(entry.physical_addresses)
+        return [d for area in self._project.topology.areas for line in area.lines
+                for d in line.devices
+                if d.device_type in ("actor", "gateway")
+                and (d.physical_address in addrs
+                     or (entry.device_id and d.id == entry.device_id))]
+
+    def _selected_entry(self) -> MaterialEntry | None:
+        rows = self._table.selectionModel().selectedRows()
+        if not rows or not self._material_list:
+            return None
+        entry_id = self._table.item(rows[0].row(), 0).data(Qt.UserRole)
+        return next((e for e in self._material_list.entries if e.id == entry_id), None)
+
+    def _assign_channels_selected(self) -> None:
+        self._assign_channels(self._channel_devices(self._selected_entry()))
+
+    def _assign_channels(self, devices: list) -> None:
+        from ..dialogs.actor_channel_dialog import ActorChannelDialog
+        if not devices:
+            return
+        dlg = ActorChannelDialog(self._project, devices, parent=self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        if dlg.apply():
+            # Weggelassene Funktionen: GAs neu erzeugen (Plätze bleiben Reserve)
+            from ...services.address_generator import regenerate_addresses
+            regenerate_addresses(self._project)
+            bus = getattr(self, "_bus", None)
+            if bus:
+                bus.emit_functions_changed()
+        self.list_changed.emit()
+
+    def _offer_channel_assignment(self, entry: MaterialEntry, devices: list) -> None:
+        """Nach der Produktzuweisung: hat das Produkt KOs je Kanal, die
+        Zuordnung gleich anbieten."""
+        from ...services.actor_channels import channel_names
+        devices = [d for d in devices if d.device_type in ("actor", "gateway")
+                   and channel_names(d)]
+        if not devices:
+            return
+        names = list(channel_names(devices[0]).values())
+        answer = QMessageBox.question(
+            self, "Kanäle zuordnen",
+            f"{entry.product_name or entry.order_number} hat {len(names)} Kanäle "
+            f"({names[0]} – {names[-1]}).\nStromkreise und KOs jetzt zuordnen?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if answer == QMessageBox.Yes:
+            self._assign_channels(devices)
 
     def _update_device_product(self, entry: MaterialEntry,
                                prod: ProductSuggestion) -> list:
@@ -1187,6 +1252,10 @@ class MaterialListView(QWidget):
         }
 
         def _apply(device: Device) -> None:
+            if (device.manufacturer, device.order_number) != (prod.manufacturer,
+                                                              prod.order_number):
+                # Kanal-/KO-Zuordnung gehörte zum bisherigen Produkt
+                device.channel_map, device.co_map = {}, {}
             device.apply_product(prod)
             updated.append(device)
             if prod.com_objects:

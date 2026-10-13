@@ -273,7 +273,8 @@ class TopologyEngine:
                                 line.coupler_address, []
                             ).append(device)
                             continue
-                        if device.manufacturer and device.physical_address:
+                        if ((device.manufacturer or device.channel_map)
+                                and device.physical_address):
                             manual_assignments[device.physical_address] = {
                                 "manufacturer": device.manufacturer,
                                 "manufacturer_id": device.manufacturer_id,
@@ -281,6 +282,13 @@ class TopologyEngine:
                                 "hw2prog_id": device.hw2prog_id,
                                 "order_number": device.order_number,
                                 "product_name": device.product_name,
+                                # KOs des Produkts und Kanal-/KO-Zuordnung
+                                # (actor_channels); GA-Verknüpfungen nicht --
+                                # Adressen können sich inzwischen geändert haben
+                                "communication_objects": [
+                                    _without_links(co) for co in device.communication_objects],
+                                "channel_map": dict(device.channel_map),
+                                "co_map": {k: dict(v) for k, v in device.co_map.items()},
                             }
                     # Wenn die Linie manuell aufgeteilte (nicht-programmierte)
                     # Aktoren enthält, alle nicht-programmierten Aktoren sichern
@@ -608,12 +616,17 @@ class TopologyEngine:
                             continue
                         saved = manual_assignments.get(device.physical_address)
                         if saved:
-                            device.manufacturer = saved["manufacturer"]
-                            device.manufacturer_id = saved.get("manufacturer_id", "")
-                            device.product_ref_id = saved.get("product_ref_id", "")
-                            device.hw2prog_id = saved.get("hw2prog_id", "")
-                            device.order_number = saved["order_number"]
-                            device.product_name = saved["product_name"]
+                            if saved["manufacturer"]:
+                                device.manufacturer = saved["manufacturer"]
+                                device.manufacturer_id = saved.get("manufacturer_id", "")
+                                device.product_ref_id = saved.get("product_ref_id", "")
+                                device.hw2prog_id = saved.get("hw2prog_id", "")
+                                device.order_number = saved["order_number"]
+                                device.product_name = saved["product_name"]
+                            if saved.get("communication_objects") and not device.communication_objects:
+                                device.communication_objects = saved["communication_objects"]
+                            device.channel_map = saved.get("channel_map", {})
+                            device.co_map = saved.get("co_map", {})
 
     def assign_physical_addresses(self, topology: Topology,
                                   small_project: bool = False):
@@ -997,6 +1010,12 @@ class TopologyEngine:
 
 MAIN_LINE_SV_PRODUCT = "KNX-Spannungsversorgung Hauptlinie 640mA"
 BACKBONE_SV_PRODUCT = "KNX-Spannungsversorgung Bereichslinie 640mA"
+
+
+def _without_links(co):
+    """Kopie eines Kommunikationsobjekts ohne GA-Verknüpfungen."""
+    import dataclasses
+    return dataclasses.replace(co, connected_gas=[])
 
 
 def has_main_line(topology, area) -> bool:
