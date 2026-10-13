@@ -115,42 +115,86 @@ def test_dialog_context_menu_hides_and_shows_hidden(monkeypatch):
     assert dlg._table.rowCount() == 1
 
 
-# ── Kompaktes Format des eigenen Katalogs (Format 2) ──
+# ── Eigener Katalog: KOs in der Datenbank (Format 3) ──
+
+_CO = {"number": 3, "name": "R_1_VOLUME", "function_text": "Volume",
+       "datapoint_type": "DPT-5", "communication_flag": True, "read_flag": False,
+       "write_flag": True, "transmit_flag": False, "update_flag": True}
+
 
 def _write_user_catalog(data):
     with open(_user_catalog_path(), "w", encoding="utf-8") as f:
         json.dump(data, f)
 
 
-def test_old_format_is_read_and_upgraded_once():
-    co = {"number": 3, "name": "R_1_VOLUME", "function_text": "Volume",
-          "datapoint_type": "DPT-5", "communication_flag": True, "read_flag": False,
-          "write_flag": True, "transmit_flag": False, "update_flag": True}
-    _write_user_catalog({"products": [{**_NEW, "com_objects": [co]}]})
-    svc = ProductSearchService()
-    assert svc.find_product("Weinzierl", _NEW["order_number"])["com_objects"] == [co]
-    raw = json.load(open(_user_catalog_path(), encoding="utf-8"))
-    assert raw["format"] == 2
-    assert raw["products"][0]["com_objects"] == [[3, "R_1_VOLUME", "Volume", "DPT-5", 0b10101]]
-    # erneut geladen: gleiche KOs, keine weitere Umstellung nötig
+def _raw_user_catalog():
+    return json.load(open(_user_catalog_path(), encoding="utf-8"))
+
+
+def _assert_upgraded():
+    raw = _raw_user_catalog()
+    assert raw["format"] == 3
+    assert "com_objects" not in raw["products"][0]
+    assert raw["products"][0]["co_count"] == 1
     assert ProductSearchService().find_product(
-        "Weinzierl", _NEW["order_number"])["com_objects"] == [co]
+        "Weinzierl", _NEW["order_number"])["com_objects"] == [_CO]
 
 
-def test_packed_round_trip_keeps_extra_fields_and_default_flag():
+def test_format_1_is_moved_to_database():
+    _write_user_catalog({"products": [{**_NEW, "com_objects": [_CO]}]})
+    svc = ProductSearchService()
+    assert svc.find_product("Weinzierl", _NEW["order_number"])["com_objects"] == [_CO]
+    _assert_upgraded()
+
+
+def test_format_2_is_moved_to_database():
+    _write_user_catalog({"format": 2, "products": [
+        {**_NEW, "com_objects": [[3, "R_1_VOLUME", "Volume", "DPT-5", 0b10101]]}]})
+    ProductSearchService()
+    _assert_upgraded()
+
+
+def test_round_trip_is_lossless():
     extra = {"number": 1, "name": "X", "function_text": "", "datapoint_type": "",
              "communication_flag": True, "object_size": "1 Bit"}
     no_flag = {"number": 2, "name": "Y", "function_text": "", "datapoint_type": ""}
-    svc = ProductSearchService()
-    svc.add_product({**_NEW, "com_objects": [extra, no_flag]})
-    raw = json.load(open(_user_catalog_path(), encoding="utf-8"))
-    rows = raw["products"][0]["com_objects"]
-    assert rows[0] == extra                    # Zusatzfeld: bleibt Dict
-    assert rows[1] == [2, "Y", "", "", 1]      # fehlendes Flag = kommunizierend
+    given = {**_NEW, "com_objects": [extra, no_flag, _CO]}
+    ProductSearchService().add_product(given)
+    assert given["com_objects"] == [extra, no_flag, _CO]    # Eingabe unverändert
     cos = ProductSearchService().find_product("Weinzierl", _NEW["order_number"])["com_objects"]
-    assert cos[0] == extra
-    assert cos[1]["communication_flag"] is True and cos[1]["write_flag"] is False
+    assert cos == [extra, no_flag, _CO]
     assert not os.path.exists(_user_catalog_path() + ".tmp")
+
+
+def test_search_loads_com_objects_only_on_access():
+    ProductSearchService().add_product({**_NEW, "com_objects": [_CO]})
+    svc = ProductSearchService()
+    assert all("com_objects" not in p for p in svc._user_products)   # nur co_count
+    calls = []
+    store_get = svc._store.get
+    svc._store.get = lambda key: calls.append(key) or store_get(key)
+    result = svc.search_all("Revox")
+    assert len(result) == 1 and not calls
+    assert result[0].com_objects == [_CO]
+    assert result[0].com_objects == [_CO] and len(calls) == 1          # einmal geladen
+
+
+def test_edit_with_new_order_number_moves_com_objects():
+    svc = ProductSearchService()
+    svc.add_product({**_NEW, "com_objects": [_CO]})
+    svc.edit_product("Weinzierl", _NEW["order_number"], {"order_number": "MU-3.0"})
+    reloaded = ProductSearchService()
+    assert reloaded.find_product("Weinzierl", "MU-3.0")["com_objects"] == [_CO]
+    from knix_arranger.utils.manufacturers import product_key
+    assert reloaded._store.get(product_key("Weinzierl", _NEW["order_number"])) == []
+
+
+def test_missing_database_gives_empty_com_objects():
+    ProductSearchService().add_product({**_NEW, "com_objects": [_CO]})
+    os.remove(os.path.join(os.path.dirname(_user_catalog_path()),
+                           "product_com_objects.sqlite"))
+    assert ProductSearchService().find_product(
+        "Weinzierl", _NEW["order_number"])["com_objects"] == []
 
 
 def test_dialog_uses_session_catalog():

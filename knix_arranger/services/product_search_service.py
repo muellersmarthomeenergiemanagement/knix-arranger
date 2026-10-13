@@ -8,7 +8,10 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
+import sqlite3
 from typing import TYPE_CHECKING
+
+from .com_object_store import ComObjectStore, unpack_com_object
 
 from ..utils.manufacturers import (
     canonicalize_product, manufacturer_display_name, normalize_order_number, product_key,
@@ -34,42 +37,16 @@ def _user_catalog_path() -> str:
     return os.path.join(data_dir, "product_catalog_user.json")
 
 
-# Eigener Katalog, Format 2: KOs als Zeile [Nummer, Name, Funktionstext,
-# Datenpunkttyp, Flags-Bits] statt Dict -- 33 statt 111 MB bei ~520'000 KOs
-# der KNXPROD-Importe. Format 1 (KOs als Dict) wird weiterhin gelesen.
-_USER_CATALOG_FORMAT = 2
-_CO_FIELDS = ("number", "name", "function_text", "datapoint_type")
-_CO_FLAGS = ("communication_flag", "read_flag", "write_flag", "transmit_flag",
-             "update_flag")
-_CO_KEYS = frozenset(_CO_FIELDS + _CO_FLAGS)
+# Eigener Katalog: Format 1 = KOs als Dict in der JSON-Datei, Format 2 = KOs
+# als Zeile, Format 3 = KOs in product_com_objects.sqlite (com_object_store),
+# in der JSON-Datei nur "co_count". Ältere Formate werden beim Laden
+# einmalig übernommen.
+_USER_CATALOG_FORMAT = 3
 
 
-def _pack_com_object(co):
-    """KO als Zeile; ein KO mit weiteren Feldern bleibt ein Dict."""
-    if not isinstance(co, dict) or not co.keys() <= _CO_KEYS:
-        return co
-    bits = 0
-    for i, flag in enumerate(_CO_FLAGS):
-        if co.get(flag, flag == "communication_flag"):
-            bits |= 1 << i
-    return [co.get("number", 0), co.get("name", ""), co.get("function_text", ""),
-            co.get("datapoint_type", ""), bits]
-
-
-def _unpack_com_object(row):
-    if not isinstance(row, list):
-        return row
-    co = dict(zip(_CO_FIELDS, row))
-    bits = row[4] if len(row) > 4 else 1
-    for i, flag in enumerate(_CO_FLAGS):
-        co[flag] = bool(bits >> i & 1)
-    return co
-
-
-def _packed_product(product: dict) -> dict:
-    if not product.get("com_objects"):
-        return product
-    return {**product, "com_objects": [_pack_com_object(c) for c in product["com_objects"]]}
+def _com_object_store_path() -> str:
+    return os.path.join(os.path.dirname(_user_catalog_path()),
+                        "product_com_objects.sqlite")
 
 
 @dataclass
@@ -92,7 +69,9 @@ class ProductSuggestion:
     device_type: str = ""     # Infrastruktur: "Linienkoppler", "Netzteil", etc.
     url: str = ""             # Hersteller-URL (optional)
     price_hint: str = ""      # Unverbindliche Preisangabe
-    # ComObjects aus KNXPROD-Import (liste von dicts, kompatibel mit ComObjectInfo.to_dict())
+    # ComObjects aus KNXPROD-Import (liste von dicts, kompatibel mit
+    # ComObjectInfo.to_dict()); aus dem Katalog erst beim ersten Zugriff
+    # geladen (com_objects_loader, siehe unten)
     com_objects: list = field(default_factory=list)
     ga_min: int = 0           # Minimaler GA-Bedarf (Basis-ComObjects)
     ga_max: int = 0           # Maximaler GA-Bedarf (alle aktiven ComObjects)
@@ -103,10 +82,28 @@ class ProductSuggestion:
     online: bool = False
     # Vom Nutzer ausgeblendet (nur sichtbar mit "Ausgeblendete anzeigen")
     hidden: bool = False
+    # Lädt die KOs beim ersten Zugriff auf com_objects (eigener Katalog)
+    com_objects_loader: object = field(default=None, repr=False, compare=False)
 
     def display_type(self) -> str:
         """Gibt den anzuzeigenden Gerätetyp zurück (kategorie-unabhängig)."""
         return self.device_type or self.actor_type or self.sensor_type or "–"
+
+
+def _get_com_objects(self) -> list:
+    loader = self.__dict__.get("com_objects_loader")
+    if loader is not None:
+        self.__dict__["com_objects_loader"] = None
+        self.__dict__["_com_objects"] = loader()
+    return self.__dict__.setdefault("_com_objects", [])
+
+
+def _set_com_objects(self, value) -> None:
+    self.__dict__["_com_objects"] = value
+
+
+# Nach @dataclass: __init__ setzt com_objects über die Property
+ProductSuggestion.com_objects = property(_get_com_objects, _set_com_objects)
 
 
 class ProductSearchService:
@@ -123,6 +120,10 @@ class ProductSearchService:
         self._hidden: set[tuple[str, str]] = set()
         # Schlüssel -> Position je Liste (_upsert), siehe _index_for
         self._indexes: dict[int, tuple[list, dict, int]] = {}
+        # KOs der eigenen Produkte (com_object_store); noch nicht
+        # gespeicherte KOs je Schlüssel ([] = Eintrag entfernen)
+        self._store = ComObjectStore(_com_object_store_path())
+        self._pending_com_objects: dict[tuple[str, str], list] = {}
         self._load_catalog()
 
     def _load_catalog(self):
@@ -152,10 +153,10 @@ class ProductSearchService:
                 with open(user_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 loaded = data.get("products", [])
-                if data.get("format", 1) >= 2:
+                if data.get("format", 1) == 2:
                     for prod in loaded:
                         if prod.get("com_objects"):
-                            prod["com_objects"] = [_unpack_com_object(r)
+                            prod["com_objects"] = [unpack_com_object(r)
                                                    for r in prod["com_objects"]]
                 self._hidden = {tuple(k) for k in data.get("hidden", []) if len(k) == 2}
             except (json.JSONDecodeError, OSError) as e:
@@ -166,14 +167,16 @@ class ProductSearchService:
             # Vereinheitlichen fallen solche Dubletten zusammen.
             self._user_products = []
             for prod in loaded:
-                self._upsert(self._user_products, canonicalize_product(prod))
+                prod = canonicalize_product(prod)
+                self._detach_com_objects(prod)   # Format 1/2: KOs in die Datenbank
+                self._upsert(self._user_products, prod)
             for prod in self._user_products:
                 self._upsert(self._catalog, prod)
                 self._online_keys.discard(self._key(prod))
             if self._user_products:
                 logger.info(f"Nutzereigener Produktkatalog geladen: {len(self._user_products)} Produkte")
                 if loaded and data.get("format", 1) < _USER_CATALOG_FORMAT:
-                    self._save_user_catalog()   # einmalig ins kompakte Format
+                    self._save_user_catalog()   # einmalig: KOs in die Datenbank
 
     @staticmethod
     def _key(product: dict) -> tuple[str, str]:
@@ -225,23 +228,52 @@ class ProductSearchService:
         target.append(product)
         self._indexes[id(target)] = (target, index, len(target))
 
+    # ------------------------------------------------------------------
+    # Kommunikationsobjekte (eigene Produkte: com_object_store)
+
+    def _detach_com_objects(self, product: dict) -> None:
+        """KOs eines eigenen Produkts zum Speichern vormerken; im Katalog
+        bleibt nur die Anzahl ("co_count")."""
+        if "com_objects" not in product:
+            return
+        com_objects = product.pop("com_objects") or []
+        product["co_count"] = len(com_objects)
+        self._pending_com_objects[self._key(product)] = com_objects
+
+    def com_objects_of(self, product: dict) -> list[dict]:
+        """KOs eines Katalogeintrags (bei eigenen Produkten aus der Datenbank)."""
+        if "com_objects" in product:
+            return list(product["com_objects"] or [])
+        if not product.get("co_count"):
+            return []
+        key = self._key(product)
+        if key in self._pending_com_objects:
+            return list(self._pending_com_objects[key])
+        return self._store.get(key)
+
+    def _co_loader(self, product: dict):
+        return lambda: self.com_objects_of(product)
+
     def _save_user_catalog(self) -> None:
         from .product_sync import set_shared_catalog
         set_shared_catalog(self)   # dieser Stand gilt für die ganze Sitzung
+        for product in self._user_products:
+            self._detach_com_objects(product)   # z.B. nach edit_product
         path = _user_catalog_path()
         try:
-            # Ohne Einrückung und mit KOs als Zeilen (Format 2): die KOs der
-            # KNXPROD-Importe machten die Datei 183 MB gross
+            # Zuerst die KOs: die JSON-Datei verweist per co_count darauf
+            self._store.put_many(self._pending_com_objects)
+            self._pending_com_objects = {}
             # Erst vollständig in eine Zwischendatei, dann ersetzen: ein
             # Abbruch beim Schreiben lässt den bisherigen Katalog intakt
             tmp = path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump({"format": _USER_CATALOG_FORMAT,
-                           "products": [_packed_product(p) for p in self._user_products],
+                           "products": self._user_products,
                            "hidden": sorted(list(k) for k in self._hidden)},
                           f, ensure_ascii=False, separators=(",", ":"))
             os.replace(tmp, path)
-        except OSError as e:
+        except (OSError, sqlite3.Error) as e:
             logger.error(f"Nutzereigener Produktkatalog konnte nicht gespeichert werden: {e}")
 
     def search_actors(self, actor_type: str,
@@ -277,7 +309,7 @@ class ProductSearchService:
                 actor_type=prod.get("actor_type", ""),
                 url=prod.get("url", ""),
                 price_hint=prod.get("price_hint", ""),
-                com_objects=prod.get("com_objects", []),
+                com_objects_loader=self._co_loader(prod),
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
                 superseded_by=prod.get("superseded_by", ""),
@@ -327,7 +359,7 @@ class ProductSearchService:
                 sensor_type=prod.get("sensor_type", ""),
                 url=prod.get("url", ""),
                 price_hint=prod.get("price_hint", ""),
-                com_objects=prod.get("com_objects", []),
+                com_objects_loader=self._co_loader(prod),
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
                 superseded_by=prod.get("superseded_by", ""),
@@ -376,7 +408,7 @@ class ProductSearchService:
                 device_type=prod.get("device_type", ""),
                 url=prod.get("url", ""),
                 price_hint=prod.get("price_hint", ""),
-                com_objects=prod.get("com_objects", []),
+                com_objects_loader=self._co_loader(prod),
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
                 superseded_by=prod.get("superseded_by", ""),
@@ -455,7 +487,7 @@ class ProductSearchService:
                 device_type=prod.get("device_type", ""),
                 url=prod.get("url", ""),
                 price_hint=prod.get("price_hint", ""),
-                com_objects=prod.get("com_objects", []),
+                com_objects_loader=self._co_loader(prod),
                 ga_min=prod.get("ga_min", 0),
                 ga_max=prod.get("ga_max", 0),
                 superseded_by=prod.get("superseded_by", ""),
@@ -506,7 +538,8 @@ class ProductSearchService:
         steht damit nach App-Neustart und in jedem Projekt zur Verfügung.
         Für mehrere Produkte auf einmal: add_products() (ein Schreibvorgang
         statt einem pro Produkt)."""
-        product = canonicalize_product(product)
+        product = canonicalize_product(dict(product))
+        self._detach_com_objects(product)
         self._upsert(self._catalog, product)
         self._upsert(self._user_products, product)
         self._online_keys.discard(self._key(product))
@@ -518,7 +551,8 @@ class ProductSearchService:
         ein einziger Schreibvorgang statt einem pro Produkt (z.B. beim
         Import einer KNXPROD-Datei mit hunderten Produkten)."""
         for product in products:
-            product = canonicalize_product(product)
+            product = canonicalize_product(dict(product))
+            self._detach_com_objects(product)
             self._upsert(self._catalog, product)
             self._upsert(self._user_products, product)
             self._online_keys.discard(self._key(product))
@@ -630,11 +664,15 @@ class ProductSearchService:
             self._online_keys.discard(old_key)
             # Käme sonst als Online-/Basisprodukt zurück
             self._hidden.add(old_key)
+            self._pending_com_objects[old_key] = []   # KOs ziehen mit um
+        self._detach_com_objects(product)
         self._upsert(self._catalog, product)
         self._upsert(self._user_products, product)
         self._online_keys.discard(new_key)
         self._save_user_catalog()
-        return product
+        return self.find_product(product.get("manufacturer", ""),
+                                 product.get("order_number", ""),
+                                 product.get("product_name", ""))
 
     def products_for_manufacturer(self, manufacturer: str) -> list[dict]:
         """Gibt alle Katalogeinträge eines Herstellers zurück (für die
@@ -645,12 +683,14 @@ class ProductSearchService:
     def find_product(self, manufacturer: str, order_number: str,
                      product_name: str = "") -> dict | None:
         """Sucht einen Katalogeintrag nach (Hersteller, Bestellnummer); bei
-        Platzhalter-Bestellnummern ("Dummy") zusaetzlich nach Produktname."""
+        Platzhalter-Bestellnummern ("Dummy") zusaetzlich nach Produktname.
+        Gibt eine Kopie mit den Kommunikationsobjekten zurück."""
         key = product_key(manufacturer, order_number, product_name)
-        for prod in self._catalog:
-            if self._key(prod) == key:
-                return prod
-        return None
+        i = self._index_for(self._catalog).get(key)
+        if i is None:
+            return None
+        prod = self._catalog[i]
+        return {**prod, "com_objects": self.com_objects_of(prod)}
 
     def online_catalog_status(self):
         """Stand des zwischengespeicherten Online-Katalogs (OnlineCatalogResult)."""
