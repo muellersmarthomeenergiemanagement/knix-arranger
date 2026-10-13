@@ -76,7 +76,12 @@ def pruefen(path: Path) -> int:
 
 def uebernehmen(path: Path, hersteller: list[str]) -> int:
     user_path = Path(_user_catalog_path())
-    own = [canonicalize_product(p) for p in _load(user_path).get("products", [])]
+    user_data = _load(user_path)
+    hidden = {tuple(k) for k in user_data.get("hidden", [])}
+    # Ausgeblendete Produkte nicht veröffentlichen
+    own = [p for p in (canonicalize_product(p) for p in user_data.get("products", []))
+           if product_key(p.get("manufacturer", ""), p.get("order_number", ""),
+                          p.get("product_name", "")) not in hidden]
     if hersteller:
         wanted = {manufacturer_display_name(h).lower() for h in hersteller}
         own = [p for p in own if p.get("manufacturer", "").lower() in wanted]

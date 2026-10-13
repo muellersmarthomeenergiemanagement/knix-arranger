@@ -17,7 +17,10 @@ from ...models.building import GewerkAssignment
 from ...models.device import GEWERK_TO_SENSOR_TYPE
 from ...services.gewerk_service import GewerkService
 from ...services.address_generator import regenerate_addresses
-from ...services.product_sync import ProductMismatch, product_mismatches
+from ...services.product_sync import (
+    ProductMismatch, apply_product_to, product_mismatches, shared_gateway_targets,
+)
+from ...services.product_zones import is_zoned, propose_zones, same_product_elements
 from ..dialogs.gewerk_template_dialog import GewerkTemplateDialog
 from ..dialogs.extra_ga_dialog import ExtraGaDialog
 from ..dialogs.product_select_dialog import ProductSelectDialog
@@ -89,6 +92,14 @@ def _product_text(lp: dict) -> str:
     """"Elsner 70316 – Leak KNX 2.0" für Auswahl und Tooltip."""
     head = " ".join(p for p in (lp.get("manufacturer", ""), lp.get("order_number", "")) if p)
     return " – ".join(p for p in (head, lp.get("product_name", "")) if p)
+
+
+def _zone_text(lp: dict) -> str:
+    """" · Raum 3 im Gerät" bei Produkten mit KOs je Raum (product_zones)."""
+    if not is_zoned(lp):
+        return ""
+    text = f" · Raum {lp['zone']} im Gerät" if lp.get("zone") else " · alle Räume im Gerät"
+    return text + (" + Systemobjekte" if lp.get("system_objects") else "")
 
 
 def _device_product_text(device) -> str:
@@ -574,9 +585,11 @@ class Step05Gewerke(QWidget):
                     lines = []
                     if ga.linked_product:
                         prefix = "Alle Elemente: " if ga.count > 1 else ""
-                        lines.append(prefix + _product_text(ga.linked_product))
+                        lines.append(prefix + _product_text(ga.linked_product)
+                                     + _zone_text(ga.linked_product))
                     for nr, lp in ga.own_element_products().items():
-                        lines.append(f"{_element_text(ga, nr)}: {_product_text(lp)}")
+                        lines.append(f"{_element_text(ga, nr)}: {_product_text(lp)}"
+                                     + _zone_text(lp))
                     btn_product.setToolTip(
                         "Verknüpft:\n" + "\n".join(lines) + "\nKlicken um Produkt zu ändern.")
                 else:
@@ -1033,6 +1046,9 @@ class Step05Gewerke(QWidget):
                     self._pick_new_product(room, ga, element_nr)
                 return
             lp["excluded_co_numbers"] = sorted(co_dlg.excluded_numbers())
+            if not element_nr:
+                self._offer_shared_gateway_product(ga)
+            self._assign_zones(lp)
             self._regenerate_gas()
             self._refresh_table()
             return
@@ -1130,8 +1146,55 @@ class Step05Gewerke(QWidget):
             ga.element_products[element_nr] = product
         else:
             ga.linked_product = product
+            self._offer_shared_gateway_product(ga)
+        self._assign_zones(product)
         self._regenerate_gas()
         self._refresh_table()
+
+    def _offer_shared_gateway_product(self, ga: GewerkAssignment) -> None:
+        """Gewerk mit gemeinsamem Gateway (z.B. Revox für alle Lautsprecher):
+        Produkt auch für die anderen Räume mit diesem Gewerk übernehmen?"""
+        targets = shared_gateway_targets(self._project, ga)
+        if not targets:
+            return
+        names = ", ".join(room.name for room, _a in targets)
+        answer = QMessageBox.question(
+            self, "Gemeinsames Gateway",
+            f"Gewerk {ga.gewerk_code} hat ein gemeinsames Gateway für das Projekt.\n"
+            f"{_product_text(ga.linked_product)} auch für die anderen "
+            f"{len(targets)} Räume übernehmen?\n\n{names}",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if answer == QMessageBox.Yes:
+            apply_product_to(targets, ga.linked_product)
+
+    def _assign_zones(self, product: dict) -> None:
+        """Produkt mit KOs je Raum (z.B. Revox): Räume im Gerät den
+        KNiX-Räumen zuordnen -- sonst erzeugt jeder Raum die GAs aller
+        Räume (product_zones)."""
+        from ..dialogs.product_zone_dialog import ProductZoneDialog
+        if not is_zoned(product):
+            return
+        elements = same_product_elements(self._project, product)
+        products = [a.linked_product if nr is None else a.element_products[nr]
+                    for _room, a, nr in elements]
+        if not products:
+            return
+        # Neue Räume der Reihe nach vorschlagen, Abbrechen verwirft den Vorschlag
+        proposal = [dict(p) for p in products]
+        propose_zones(proposal)
+        rows = []
+        for (room, a, nr), p in zip(elements, proposal):
+            label = room.name + (f" – {_element_text(a, nr)}" if nr else "")
+            rows.append((label, p))
+        dlg = ProductZoneDialog(_product_text(product), rows, parent=self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        dlg.apply()
+        for target, p in zip(products, proposal):
+            target["zone"] = p.get("zone", 0)
+            if not target["zone"]:
+                target.pop("zone")
+            target["system_objects"] = p.get("system_objects", False)
 
     def _assign_channel(self, room, ga: GewerkAssignment):
         """Verknüpft eine Zuweisung mit einem bestehenden Aktor-Kanal (FA-521f).

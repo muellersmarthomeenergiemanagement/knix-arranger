@@ -185,3 +185,46 @@ def apply_device_product(mismatches: list[ProductMismatch], product: dict) -> No
             m.assignment.linked_product = dict(product)
         else:
             m.assignment.element_products[m.element_nr] = dict(product)
+
+
+def _same_planned_product(a: dict | None, b: dict | None) -> bool:
+    """Gleiches Produkt mit gleichen Kommunikationsobjekten und gleicher
+    Auswahl (Hersteller in verschiedenen Schreibweisen gelten als gleich)."""
+    from ..utils.manufacturers import product_key
+    if not a or not b:
+        return False
+    return (product_key(a.get("manufacturer", ""), a.get("order_number", ""),
+                        a.get("product_name", ""))
+            == product_key(b.get("manufacturer", ""), b.get("order_number", ""),
+                           b.get("product_name", ""))
+            and len(a.get("com_objects") or []) == len(b.get("com_objects") or [])
+            and sorted(a.get("excluded_co_numbers") or [])
+            == sorted(b.get("excluded_co_numbers") or []))
+
+
+def shared_gateway_targets(project, assignment) -> list[tuple]:
+    """(Raum, GewerkAssignment) der anderen Räume mit demselben Gewerk, wenn
+    es ein gemeinsames Gateway hat (z.B. Revox: ein Gateway für alle
+    Lautsprecher-Zonen) und dort noch ein anderes oder kein Produkt steht."""
+    if project.topology.is_imported or assignment.gewerk_code not in project.shared_gateways():
+        return []
+    product = assignment.linked_product
+    return [(room, a) for room in project.all_rooms for a in room.gewerk_assignments
+            if a is not assignment and a.gewerk_code == assignment.gewerk_code
+            and not _same_planned_product(a.linked_product, product)]
+
+
+def apply_product_to(targets: list[tuple], product: dict) -> None:
+    """Produkt für alle Elemente der Zuweisungen übernehmen (Kopie je
+    Zuweisung). Zone und Systemobjekte gehören zum Raum (product_zones):
+    vorhandene bleiben, sonst ohne -- die Zuordnung folgt danach."""
+    import copy
+    for _room, assignment in targets:
+        old = assignment.linked_product or {}
+        new = copy.deepcopy(product)
+        new.pop("zone", None)
+        new.pop("system_objects", None)
+        for name in ("zone", "system_objects"):
+            if name in old:
+                new[name] = old[name]
+        assignment.linked_product = new

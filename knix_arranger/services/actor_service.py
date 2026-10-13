@@ -16,14 +16,22 @@ from ..models.gewerk import GewerkCatalog
 logger = logging.getLogger("knix_arranger.actor_service")
 
 
+# Gateways mit begrenzter Kapazität: auch gemeinsam für das Projekt nach
+# Kanalgrössen aufteilen (actor_channels), alle anderen sind ein Gerät
+CAPACITY_GATEWAY_TYPES = frozenset({"DALI-Gateway", "DMX-KNX-Gateway"})
+
+
 class ActorRequirement:
     """Benötigter Aktor-Typ mit Kanalanzahl."""
 
     def __init__(self, actor_type: str, channels_needed: int,
-                 gewerk_codes: list[str] = None):
+                 gewerk_codes: list[str] = None, single_device: bool = False):
         self.actor_type = actor_type
         self.channels_needed = channels_needed
         self.gewerk_codes = gewerk_codes or []
+        # Gemeinsames Gateway: ein Gerät für alle Elemente (z.B. Revox teilt
+        # die Zonen selbst ein), nicht nach Kanalgrössen aufteilen
+        self.single_device = single_device
 
     def __repr__(self):
         return f"ActorRequirement({self.actor_type}, {self.channels_needed} Kanäle)"
@@ -106,6 +114,10 @@ class ActorService:
         actors = []
 
         for req in requirements:
+            if req.single_device:
+                actors.append(Actor(actor_type=req.actor_type,
+                                    channels=req.channels_needed))
+                continue
             available = self.channel_options.get(req.actor_type, [4, 8, 12])
             remaining = req.channels_needed
 
@@ -173,6 +185,9 @@ class ActorService:
                 rooms, catalog, only_codes={code})), None) if rooms else None
             if requirement is None:
                 continue
+            # Ein Gerät für das ganze System -- ausser bei Gateways mit
+            # echter Kapazität (DALI-Gruppen, DMX-Kanäle)
+            requirement.single_device = requirement.actor_type not in CAPACITY_GATEWAY_TYPES
             target = self.shared_gateway_line(topology, all_rooms, code, line_id)
             if target is None:
                 continue

@@ -810,14 +810,16 @@ class AddressGenerator:
         generische/gewerk-spezifische Schema-Fallback.
 
         `linked_product["excluded_co_numbers"]` (optional, siehe
-        ComObjectSelectDialog) nimmt einzelne ComObjects gezielt von der
+        ComObjectSelectDialog, mit "zone" siehe product_zones) nimmt einzelne ComObjects gezielt von der
         GA-Erzeugung aus, auch wenn sie `needs_ga` erfüllen – der Integrator
         wählt so bei grossen Produkten (Gateways mit hunderten ComObjects)
         gezielt aus, was tatsächlich eine GA braucht.
         """
         from .knxprod_catalog_service import unique_com_objects
+        from .product_zones import zone_excluded_numbers
         com_objects = unique_com_objects(linked_product.get("com_objects") or [])
-        excluded = set(linked_product.get("excluded_co_numbers") or [])
+        # Mit Zone (z.B. Revox-Raum): nur die KOs dieser Zone, siehe product_zones
+        excluded = zone_excluded_numbers(linked_product)
         entries: list[BlockEntry] = []
         for co in com_objects:
             if not _com_object_needs_ga(co):

@@ -63,6 +63,8 @@ class ProductSuggestion:
     superseded_by: str = ""
     # True, wenn der Eintrag aus dem Online-Katalog stammt (FA-1303/1402)
     online: bool = False
+    # Vom Nutzer ausgeblendet (nur sichtbar mit "Ausgeblendete anzeigen")
+    hidden: bool = False
 
     def display_type(self) -> str:
         """Gibt den anzuzeigenden Gerätetyp zurück (kategorie-unabhängig)."""
@@ -78,6 +80,9 @@ class ProductSearchService:
         self._user_products: list[dict] = []  # nur Nutzer-Importe, für Persistenz
         self._online = online_service or OnlineCatalogService()
         self._online_keys: set[tuple[str, str]] = set()
+        # Vom Nutzer ausgeblendete Produkte (Schlüssel wie _key), z.B. ein
+        # Vorgängermodell, das nicht mehr verbaut wird
+        self._hidden: set[tuple[str, str]] = set()
         self._load_catalog()
 
     def _load_catalog(self):
@@ -105,7 +110,9 @@ class ProductSearchService:
         if os.path.exists(user_path):
             try:
                 with open(user_path, "r", encoding="utf-8") as f:
-                    loaded = json.load(f).get("products", [])
+                    data = json.load(f)
+                loaded = data.get("products", [])
+                self._hidden = {tuple(k) for k in data.get("hidden", []) if len(k) == 2}
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Nutzereigener Produktkatalog konnte nicht gelesen werden: {e}")
                 loaded = []
@@ -161,7 +168,9 @@ class ProductSearchService:
         path = _user_catalog_path()
         try:
             with open(path, "w", encoding="utf-8") as f:
-                json.dump({"products": self._user_products}, f, ensure_ascii=False, indent=2)
+                json.dump({"products": self._user_products,
+                           "hidden": sorted(list(k) for k in self._hidden)},
+                          f, ensure_ascii=False, indent=2)
         except OSError as e:
             logger.error(f"Nutzereigener Produktkatalog konnte nicht gespeichert werden: {e}")
 
@@ -175,6 +184,8 @@ class ProductSearchService:
         """
         results = []
         for prod in self._catalog:
+            if self.is_hidden(prod):
+                continue
             if prod.get("category") != "actor":
                 continue
             if actor_type and actor_type.lower() not in prod.get("actor_type", "").lower():
@@ -225,6 +236,8 @@ class ProductSearchService:
         """
         results = []
         for prod in self._catalog:
+            if self.is_hidden(prod):
+                continue
             if prod.get("category") != "sensor":
                 continue
             if sensor_type and sensor_type.lower() not in prod.get("sensor_type", "").lower():
@@ -272,6 +285,8 @@ class ProductSearchService:
         """
         results = []
         for prod in self._catalog:
+            if self.is_hidden(prod):
+                continue
             if prod.get("category") != "infrastructure":
                 continue
             if device_type and device_type.lower() not in prod.get("device_type", "").lower():
@@ -315,6 +330,7 @@ class ProductSearchService:
         query: str = "",
         category_filter: str = "",
         preferred_manufacturers: list[str] | None = None,
+        include_hidden: bool = False,
     ) -> list[ProductSuggestion]:
         """
         Sucht über alle Kategorien (FA-2303).
@@ -322,12 +338,16 @@ class ProductSearchService:
         Args:
             query: Freitextsuche über Produktname und Bestellnummer.
             category_filter: "actor", "sensor", "infrastructure" oder "" für alle.
+            include_hidden: auch ausgeblendete Produkte (hidden=True).
         """
         results = []
         q = query.lower()
         q_order = normalize_order_number(query)
 
         for prod in self._catalog:
+            hidden = self.is_hidden(prod)
+            if hidden and not include_hidden:
+                continue
             cat = prod.get("category", "")
             if category_filter and cat != category_filter:
                 continue
@@ -370,6 +390,7 @@ class ProductSearchService:
                 ga_max=prod.get("ga_max", 0),
                 superseded_by=prod.get("superseded_by", ""),
                 online=self._is_online(prod),
+                hidden=hidden,
             ))
 
         if preferred_manufacturers:
@@ -419,6 +440,7 @@ class ProductSearchService:
         self._upsert(self._catalog, product)
         self._upsert(self._user_products, product)
         self._online_keys.discard(self._key(product))
+        self._hidden.discard(self._key(product))   # Neuimport blendet wieder ein
         self._save_user_catalog()
 
     def add_products(self, products: list[dict]) -> None:
@@ -430,6 +452,7 @@ class ProductSearchService:
             self._upsert(self._catalog, product)
             self._upsert(self._user_products, product)
             self._online_keys.discard(self._key(product))
+            self._hidden.discard(self._key(product))
         if products:
             self._save_user_catalog()
 
@@ -484,6 +507,64 @@ class ProductSearchService:
         logger.warning(
             f"mark_superseded: Produkt {manufacturer} / {order_number} nicht im Katalog gefunden."
         )
+
+    # ------------------------------------------------------------------
+    # Katalogpflege: ausblenden, bearbeiten
+
+    def is_hidden(self, product: dict) -> bool:
+        return self._key(product) in self._hidden
+
+    def set_hidden(self, manufacturer: str, order_number: str, hidden: bool,
+                   product_name: str = "") -> None:
+        """Blendet ein Produkt in der Produktsuche aus bzw. wieder ein. Der
+        Eintrag bleibt erhalten (auch Online- und Basisprodukte, die sonst bei
+        der nächsten Aktualisierung zurückkämen); bestehende Zuweisungen in
+        Projekten bleiben unverändert."""
+        key = product_key(manufacturer, order_number, product_name)
+        if hidden:
+            self._hidden.add(key)
+        else:
+            self._hidden.discard(key)
+        self._save_user_catalog()
+
+    EDITABLE_FIELDS = ("manufacturer", "order_number", "product_name", "actor_type",
+                       "sensor_type", "device_type", "channels", "price_hint", "url")
+
+    def edit_product(self, manufacturer: str, order_number: str, changes: dict,
+                     product_name: str = "") -> dict | None:
+        """Ändert Stammdaten eines Produkts (EDITABLE_FIELDS); Kommunikations-
+        objekte und ETS-Kennungen bleiben. Der geänderte Eintrag wird als
+        eigener Eintrag gespeichert (überschreibt Online-/Basisprodukt).
+        Ändert sich Hersteller oder Bestellnummer, verschwindet der alte
+        Eintrag (bleibt ausgeblendet, falls er als Online-/Basisprodukt
+        wiederkäme). Gibt den neuen Eintrag zurück (None = nicht gefunden)."""
+        old = self.find_product(manufacturer, order_number, product_name)
+        if old is None:
+            return None
+        old_key = self._key(old)
+        product = dict(old)
+        for name, value in changes.items():
+            if name in self.EDITABLE_FIELDS:
+                product[name] = value
+        if product.get("manufacturer") != old.get("manufacturer"):
+            product.pop("manufacturer_id", None)   # neu aus dem Namen bestimmen
+        product = canonicalize_product(product)
+        new_key = self._key(product)
+        if new_key != old_key:
+            if any(self._key(p) == new_key for p in self._catalog):
+                raise ValueError("Ein Produkt mit diesem Hersteller und dieser "
+                                 "Bestellnummer steht bereits im Katalog.")
+            self._user_products = [p for p in self._user_products
+                                   if self._key(p) != old_key]
+            self._catalog = [p for p in self._catalog if self._key(p) != old_key]
+            self._online_keys.discard(old_key)
+            # Käme sonst als Online-/Basisprodukt zurück
+            self._hidden.add(old_key)
+        self._upsert(self._catalog, product)
+        self._upsert(self._user_products, product)
+        self._online_keys.discard(new_key)
+        self._save_user_catalog()
+        return product
 
     def products_for_manufacturer(self, manufacturer: str) -> list[dict]:
         """Gibt alle Katalogeinträge eines Herstellers zurück (für die

@@ -63,7 +63,7 @@ def test_defaults():
 def test_revox_one_gateway_on_hv_line_dali_per_line():
     gateways = _gateways(_project())
     # MM gemeinsam: ein Gateway mit 2 Zonen auf der Linie mit der HV (Wohnung)
-    assert gateways["Wohnung"] == ["DALI-Gateway 16-fach", "KNX-Schnittstelle 2-fach"]
+    assert gateways["Wohnung"] == ["DALI-Gateway 16-fach", "KNX-Schnittstelle"]
     # DALI bleibt je Linie
     assert gateways["Studio"] == ["DALI-Gateway 16-fach"]
 
@@ -76,12 +76,42 @@ def test_per_line_on_request():
     assert "KNX-Schnittstelle 1-fach" in gateways["Wohnung"]
 
 
+def test_shared_gateway_is_one_device_for_all_zones():
+    """6 Lautsprecher-Zonen ergaben 4-fach + 2-fach, also zwei Gateways --
+    ein Revox-Gateway bedient alle Zonen (Projekt_23 Chalet Franziska)."""
+    project = _project()
+    for room in project.all_rooms:
+        for a in room.gewerk_assignments:
+            if a.gewerk_code == "MM":
+                a.count = 3
+    gateways = _gateways(project)
+    assert gateways["Wohnung"].count("KNX-Schnittstelle") == 1
+    assert not any(g.startswith("KNX-Schnittstelle") for g in gateways["Studio"])
+    result = next(r for r in ActorService().determine_actors_per_line(
+        project.topology, project.all_rooms, project.gewerk_catalog,
+        shared=project.shared_gateways()) if r.line_name == "Wohnung")
+    gateway = next(a for a in result.actors if a.actor_type == "KNX-Schnittstelle")
+    assert gateway.channels == 6
+
+
+def test_shared_dali_still_split_by_capacity():
+    """DALI gemeinsam: 20 Elemente brauchen weiterhin zwei 16-fach-Gateways."""
+    project = _project()
+    project.config.gateway_scope["LDA"] = "project"
+    for room in project.all_rooms:
+        for a in room.gewerk_assignments:
+            if a.gewerk_code == "LDA":
+                a.count = 10
+    gateways = _gateways(project)
+    assert gateways["Wohnung"].count("DALI-Gateway 16-fach") == 2
+
+
 def test_chosen_line_and_fallback_without_hv():
     project = _project()
     studio_line = next(ln for a in project.topology.areas for ln in a.lines
                        if ln.name == "Studio")
     project.config.gateway_line["MM"] = studio_line.id
-    assert "KNX-Schnittstelle 2-fach" in _gateways(project)["Studio"]
+    assert "KNX-Schnittstelle" in _gateways(project)["Studio"]
 
     # ohne HV: erste Linie mit Räumen des Gewerks
     project = _project(hv=False)
@@ -98,7 +128,7 @@ def test_shared_gateway_only_counts_its_gewerk():
         if any(a.gewerk_code == "MM" for a in room.gewerk_assignments):
             room.gewerk_assignments.insert(0, GewerkAssignment(gewerk_code="L", count=3))
     gateways = _gateways(project)
-    assert gateways["Wohnung"] == ["DALI-Gateway 16-fach", "KNX-Schnittstelle 2-fach"]
+    assert gateways["Wohnung"] == ["DALI-Gateway 16-fach", "KNX-Schnittstelle"]
     actors = {line.name: sorted(d.product for d in line.devices if d.device_type == "actor")
               for area in project.topology.areas for line in area.lines}
     # Licht nur einmal je Linie, nicht zusätzlich als "MM"-Schaltaktor
@@ -131,3 +161,49 @@ def test_step_shows_choice_and_changes_recalculate():
     app.processEvents()
     assert project.config.gateway_scope == {}
     assert len(combos) >= 4
+
+
+_REVOX = {"manufacturer": "Weinzierl", "order_number": "Revox Multiuser 3.0 KNX Gateway",
+          "product_name": "Revox Multiuser 3.0", "excluded_co_numbers": [5],
+          "com_objects": [{"number": 1, "name": "SYSTEM_OFF"}, {"number": 5, "name": "X"}]}
+
+
+def _mm_assignments(project):
+    return [a for r in project.all_rooms for a in r.gewerk_assignments if a.gewerk_code == "MM"]
+
+
+def test_product_for_other_rooms_with_shared_gateway():
+    from knix_arranger.services.product_sync import apply_product_to, shared_gateway_targets
+    project = _project()
+    first, second = _mm_assignments(project)
+    first.linked_product = dict(_REVOX)
+    # Gleiches Produkt, andere Schreibweise des Herstellers, aber ohne KOs:
+    # muss trotzdem übernommen werden (Projekt_23 Schlafzimmer)
+    second.linked_product = {**_REVOX, "manufacturer": "Weinzierl Engineering GmbH",
+                             "com_objects": []}
+    targets = shared_gateway_targets(project, first)
+    assert [a for _r, a in targets] == [second]
+    apply_product_to(targets, first.linked_product)
+    assert second.linked_product == first.linked_product
+    assert second.linked_product is not first.linked_product
+    assert shared_gateway_targets(project, first) == []
+    # Je Linie: keine Übernahme anbieten
+    project.config.gateway_scope["MM"] = "line"
+    second.linked_product = None
+    assert shared_gateway_targets(project, first) == []
+
+
+def test_step05_offers_product_for_other_rooms(monkeypatch):
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    QApplication.instance() or QApplication([])
+    from knix_arranger.ui.wizard import step05_gewerke
+    project = _project()
+    first, second = _mm_assignments(project)
+    first.linked_product = dict(_REVOX)
+    step = step05_gewerke.Step05Gewerke(project)
+    asked = []
+    monkeypatch.setattr(step05_gewerke.QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or QMessageBox.Yes)
+    step._offer_shared_gateway_product(first)
+    assert len(asked) == 1 and asked[0].endswith("\n\nWohnen")
+    assert second.linked_product["order_number"] == _REVOX["order_number"]

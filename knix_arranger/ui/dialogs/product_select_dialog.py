@@ -160,6 +160,13 @@ class ProductSelectDialog(QDialog):
             "aktualisiert – so lässt sich der Katalog nach einem Parser-Update auffrischen."
         )
         catalog_menu.addSeparator()
+        self._show_hidden_action = catalog_menu.addAction("Ausgeblendete anzeigen")
+        self._show_hidden_action.setCheckable(True)
+        self._show_hidden_action.setToolTip(
+            "Ausgeblendete Produkte grau anzeigen, um sie wieder einzublenden"
+        )
+        self._show_hidden_action.toggled.connect(lambda _on: self._refresh_results())
+        catalog_menu.addSeparator()
         act = catalog_menu.addAction("Online-Katalog aktualisieren", self._update_online_catalog)
         act.setToolTip(
             "Lädt die aktuelle Produktliste von KNiX Arranger aus dem Internet\n"
@@ -339,6 +346,7 @@ class ProductSelectDialog(QDialog):
             query=query,
             category_filter=cat_filter,
             preferred_manufacturers=self._preferred if self._preferred else None,
+            include_hidden=self._show_hidden_action.isChecked(),
         )
 
         if mfr_filter:
@@ -388,8 +396,11 @@ class ProductSelectDialog(QDialog):
                     item.setForeground(_ONLINE_COLOR)
                     item.setToolTip("Aus dem Online-Katalog")
 
-            # Veraltete Produkte grau/kursiv absetzen
-            if prod.superseded_by:
+            # Veraltete und ausgeblendete Produkte grau/kursiv absetzen
+            if prod.superseded_by or prod.hidden:
+                if prod.hidden:
+                    items[4].setText(name_text + "  (ausgeblendet)")
+                    tooltip = "Ausgeblendet – Rechtsklick: wieder einblenden"
                 for item in items:
                     item.setFont(italic_grey)
                     item.setForeground(QColor("#757575"))
@@ -501,11 +512,22 @@ class ProductSelectDialog(QDialog):
             return
 
         menu = QMenu(self)
+        act_edit = menu.addAction("Bearbeiten…")
+        act_hide = menu.addAction("Wieder einblenden" if prod.hidden else "Ausblenden")
+        menu.addSeparator()
         if prod.superseded_by:
             action = menu.addAction("Veraltet-Markierung entfernen")
         else:
             action = menu.addAction("Als veraltet markieren…")
         chosen = menu.exec(self._table.viewport().mapToGlobal(pos))
+        if chosen == act_edit:
+            self._edit_product(prod)
+            return
+        if chosen == act_hide:
+            self._search_service.set_hidden(prod.manufacturer, prod.order_number,
+                                            not prod.hidden, prod.product_name)
+            self._refresh_results()
+            return
         if chosen != action:
             return
 
@@ -516,6 +538,26 @@ class ProductSelectDialog(QDialog):
             return
 
         self._mark_product_superseded(prod)
+
+    def _edit_product(self, prod: ProductSuggestion):
+        """Stammdaten des Produkts bearbeiten (ProductEditDialog)."""
+        from .product_edit_dialog import ProductEditDialog
+        entry = self._search_service.find_product(
+            prod.manufacturer, prod.order_number, prod.product_name)
+        if entry is None:
+            return
+        dlg = ProductEditDialog(entry, parent=self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        try:
+            product = self._search_service.edit_product(
+                prod.manufacturer, prod.order_number, dlg.changes(), prod.product_name)
+        except ValueError as e:
+            QMessageBox.warning(self, "Produkt bearbeiten", str(e))
+            return
+        if product and self._mfr_combo.findText(product["manufacturer"]) < 0:
+            self._mfr_combo.addItem(product["manufacturer"])
+        self._refresh_results()
 
     def _mark_product_superseded(self, prod: ProductSuggestion):
         """Fragt das Nachfolgeprodukt ab (gleicher Hersteller) und markiert
