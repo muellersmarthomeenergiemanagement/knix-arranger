@@ -211,13 +211,16 @@ def _same_planned_product(a: dict | None, b: dict | None) -> bool:
 def shared_gateway_targets(project, assignment) -> list[tuple]:
     """(Raum, GewerkAssignment) der anderen Räume mit demselben Gewerk, wenn
     es ein gemeinsames Gateway hat (z.B. Revox: ein Gateway für alle
-    Lautsprecher-Zonen) und dort noch ein anderes oder kein Produkt steht."""
+    Lautsprecher-Zonen) und dort noch ein anderes oder kein Produkt steht.
+    Ein Produkt ohne KOs überschreibt nie eines mit KOs."""
     if project.topology.is_imported or assignment.gewerk_code not in project.shared_gateways():
         return []
     product = assignment.linked_product
+    without_cos = not (product or {}).get("com_objects")
     return [(room, a) for room in project.all_rooms for a in room.gewerk_assignments
             if a is not assignment and a.gewerk_code == assignment.gewerk_code
-            and not _same_planned_product(a.linked_product, product)]
+            and not _same_planned_product(a.linked_product, product)
+            and not (without_cos and (a.linked_product or {}).get("com_objects"))]
 
 
 def apply_product_to(targets: list[tuple], product: dict) -> None:

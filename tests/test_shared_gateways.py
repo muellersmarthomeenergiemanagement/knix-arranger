@@ -207,3 +207,14 @@ def test_step05_offers_product_for_other_rooms(monkeypatch):
     step._offer_shared_gateway_product(first)
     assert len(asked) == 1 and asked[0].endswith("\n\nWohnen")
     assert second.linked_product["order_number"] == _REVOX["order_number"]
+
+
+def test_product_without_com_objects_never_overwrites_one_with():
+    from knix_arranger.services.product_sync import shared_gateway_targets
+    project = _project()
+    first, second = _mm_assignments(project)
+    second.linked_product = dict(_REVOX)
+    first.linked_product = {**_REVOX, "com_objects": [], "excluded_co_numbers": []}
+    assert shared_gateway_targets(project, first) == []
+    second.linked_product = None
+    assert [a for _r, a in shared_gateway_targets(project, first)] == [second]

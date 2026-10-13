@@ -206,3 +206,21 @@ def test_dialog_uses_session_catalog():
     svc.add_product(dict(_NEW))                 # gespeichert -> Sitzungskatalog
     assert shared_catalog() is svc
     assert ProductSelectDialog()._search_service is svc
+
+
+def test_recent_product_comes_with_com_objects(monkeypatch, tmp_path):
+    """"Zuletzt verwendet" speichert nur Stammdaten -- gewählt wurde das
+    Revox deshalb ohne KOs (Projekt_23, 13.10.2026)."""
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from knix_arranger.services import recent_products
+    from knix_arranger.ui.dialogs.product_select_dialog import ProductSelectDialog
+    monkeypatch.setattr(recent_products, "_RECENT_FILE", str(tmp_path / "recent.json"))
+    ProductSearchService().add_product({**_NEW, "com_objects": [_CO]})
+    recent_products.add_recent({k: _NEW[k] for k in ("manufacturer", "order_number",
+                                                     "product_name", "category")})
+    dlg = ProductSelectDialog()
+    assert dlg._recent_table.rowCount() == 1
+    dlg._recent_table.selectRow(0)
+    assert dlg._selected.order_number == _NEW["order_number"]
+    assert dlg._selected.com_objects == [_CO]

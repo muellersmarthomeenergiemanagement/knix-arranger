@@ -307,12 +307,21 @@ class ProductSelectDialog(QDialog):
             return
         prod: ProductSuggestion = self._recent_table.item(rows[0].row(), 0).data(Qt.UserRole)
         if prod:
-            self._selected = prod
+            # "Zuletzt verwendet" speichert nur Stammdaten: das Katalogprodukt
+            # samt KOs verwenden (sonst ging z.B. das Revox ohne KOs ins Projekt)
+            self._selected = self._catalog_product(prod) or prod
             self._btn_ok.setEnabled(True)
             # Selektion in Haupttabelle aufheben
             self._table.blockSignals(True)
             self._table.clearSelection()
             self._table.blockSignals(False)
+
+    def _catalog_product(self, prod: ProductSuggestion) -> ProductSuggestion | None:
+        """Katalogeintrag (mit KOs) zu einem Eintrag aus "Zuletzt verwendet"."""
+        return next((r for r in self._search_service.search_all(
+                         prod.order_number, include_hidden=True)
+                     if r.manufacturer == prod.manufacturer
+                     and r.order_number == prod.order_number), None)
 
     def _on_recent_double_click(self):
         if self._selected:
