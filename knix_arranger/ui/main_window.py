@@ -136,10 +136,19 @@ class MainWindow(QMainWindow):
         # Startdialoge nacheinander: erst "Was ist neu" (nach Update), dann
         # Willkommensbildschirm. Bewusst EIN Timer – ein modaler Dialog startet
         # eine eigene Ereignisschleife, ein zweiter Timer würde darüber aufgehen.
-        QTimer.singleShot(0, self._show_startup_dialogs)
+        self._start_timer(0, self._show_startup_dialogs)
 
         # Automatischer Update-Check nach 4 Sekunden (NFA-111, blockiert nicht)
-        QTimer.singleShot(4000, self._auto_check_updates)
+        self._start_timer(4000, self._auto_check_updates)
+
+    def _start_timer(self, msec: int, slot) -> None:
+        """Einmaliger Timer als Kind des Fensters: wird das Fenster vorher
+        gelöscht (Selbsttest baut es nur auf), entfällt er mit ihm."""
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(slot)
+        timer.timeout.connect(timer.deleteLater)
+        timer.start(msec)
 
     def _create_menu(self):
         """Erstellt die Menueleiste."""
