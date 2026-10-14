@@ -50,7 +50,8 @@ def _setup():
 
 def test_gas_des_melders():
     project, melder = _setup()
-    links = {link.ga_address: link for link in sensor_links(project, melder)}
+    links = {link.ga_address: link for link in sensor_links(project, melder)
+             if not link.role}
     assert set(links) == {"4/0/1", "4/5/1"}  # Licht schalten, eigenes Element (A)
     assert links["4/5/1"].channel == "Gewerk A 1"
     assert links["4/0/1"].channel.startswith("Kanal") and not links["4/0/1"].feedback
@@ -60,7 +61,8 @@ def test_vorschlag_nach_name_und_ausgang():
     project, melder = _setup()
     links = sensor_links(project, melder)
     selection = suggested_sensor_co_map(melder, links, device_com_objects(melder))
-    by_address = {link.ga_address: selection.get(link.key) for link in links}
+    by_address = {link.ga_address: selection.get(link.key) for link in links
+                  if not link.role}
     assert by_address["4/5/1"] == 10        # «P1: Bewegung» = KO 10 (Master)
     # Licht schalten: derselbe sendende Ausgang, nicht «Externer Taster»
     # (empfängt nur) oder «Bewegung (Slave)»
@@ -125,3 +127,33 @@ def test_zweites_element_auf_zweiten_kanal():
     links = [SensorLink(f"k{n}", f"Gewerk A {n}", "P1: Bewegung", f"3/3/{n}", "",
                         "P1: Bewegung", "DPST-1-1", False) for n in (1, 2)]
     assert suggested_sensor_co_map(None, links, cos) == {"k1": 10, "k2": 26}
+
+
+def test_rollen_an_vorhandene_gas():
+    """Der Melder schaltet L «Deckenlicht»: «Aktorstatus» hört auf dessen RM,
+    «Externer Taster» auf dessen E/A -- keine eigenen GAs."""
+    project, melder = _setup()
+    melder.communication_objects.append(CommunicationObject(
+        object_number=4, name="Obj_InputOnOff", object_function="P1: Aktorstatus",
+        data_type="DPST-1-1", flags="K-Ü-U"))
+    links = sensor_links(project, melder)
+    roles = {link.role: link for link in links if link.role}
+    assert set(roles) == {"aktorstatus", "extern"}
+    assert (roles["aktorstatus"].ga_address, roles["aktorstatus"].feedback) == ("4/0/2", True)
+    assert roles["extern"].ga_address == "4/0/1"
+    selection = suggested_sensor_co_map(melder, links, device_com_objects(melder))
+    assert selection[roles["aktorstatus"].key] == 4
+    assert selection[roles["extern"].key] == 13
+    # KO-Verknüpfung: E/A an KO 10 (senden) und KO 13 (hören)
+    melder.co_map = {SENSOR_CO_KEY: selection}
+    service = CoLinkingService()
+    service.apply_proposals(project, service.generate_proposals(project))
+    linked = {co.object_number: co.connected_gas for co in melder.communication_objects}
+    assert "4/0/1" in linked[10] and linked[13] == ["4/0/1"] and linked[4] == ["4/0/2"]
+
+
+def test_ohne_rollen_ko_keine_rolle():
+    project, melder = _setup()
+    melder.communication_objects = [co for co in melder.communication_objects
+                                    if co.object_number != 13]
+    assert not [link for link in sensor_links(project, melder) if link.role]

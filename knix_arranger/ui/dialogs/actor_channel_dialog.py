@@ -18,6 +18,7 @@ from ...services.actor_channels import (
     device_channels, device_circuits, device_com_objects, omit_functions, suggested_co_map,
     unneeded_functions,
 )
+from ...services.ko_templates import actor_signature, load_template, save_template
 
 _NOT_LINKED = -1   # KO-Nummern beginnen teils bei 0
 
@@ -137,16 +138,31 @@ class ActorChannelDialog(QDialog):
             by_number = {ch.number: ch for ch in channels}
             channel_sel = {c.key: (device.channel_map or {}).get(c.key) or c.channel
                            for c in circuits}
+            all_cos = device_com_objects(device)
+            template = load_template(device)
+            known = {co.object_number for co in all_cos}
             co_sel = {}
             for c in circuits:
                 saved = (device.co_map or {}).get(c.key)
-                co_sel[c.key] = (dict(saved) if saved is not None
-                                 else suggested_co_map(by_number.get(channel_sel[c.key]), c))
+                co_sel[c.key] = (dict(saved) if saved is not None else self._proposal(
+                    by_number.get(channel_sel[c.key]), c, channel_sel[c.key], template, known))
             self._state[device.id] = {"circuits": circuits, "channels": channels,
-                                      "all_cos": device_com_objects(device),
+                                      "all_cos": all_cos, "template": template,
+                                      "known": known,
                                       "by_number": by_number, "channel": channel_sel,
                                       "co": co_sel}
         return self._state[device.id]
+
+    @staticmethod
+    def _proposal(channel, circuit, number: int, template: dict, known: set) -> dict:
+        """Vorschlag für einen Stromkreis auf Kanal number: die gemerkte
+        Zuordnung des Produkts (ko_templates) vor dem Vorschlag nach Texten."""
+        selection = suggested_co_map(channel, circuit)
+        for function, _ga in circuit.functions:
+            remembered = template.get(actor_signature(number, function))
+            if remembered is not None and (remembered < 0 or remembered in known):
+                selection[function] = remembered
+        return selection
 
     def _on_device_changed(self):
         index = max(0, self._device_combo.currentIndex())
@@ -192,7 +208,8 @@ class ActorChannelDialog(QDialog):
         state = self._state_for(self._device)
         state["channel"][circuit.key] = number
         # Neuer Kanal: KOs neu vorschlagen
-        state["co"][circuit.key] = suggested_co_map(state["by_number"].get(number), circuit)
+        state["co"][circuit.key] = self._proposal(state["by_number"].get(number), circuit,
+                                                  number, state["template"], state["known"])
         self._update_channel_info()
         if self._circuit is circuit:
             self._show_cos()
@@ -301,11 +318,19 @@ class ActorChannelDialog(QDialog):
             # Funktionen ohne gewählten KO ausdrücklich «nicht verknüpfen»:
             # sonst legte die KO-Verknüpfung dafür einen generischen KO an
             # (Schaltaktor: «Dimmen relativ», den es am Gerät nicht gibt)
-            functions = {c.key: [f for f, _ga in c.functions] for c in state["circuits"]}
-            device.co_map = ({key: {**{f: _NOT_LINKED for f in functions.get(key, [])},
+            circuit_functions = {c.key: [f for f, _ga in c.functions]
+                                 for c in state["circuits"]}
+            device.co_map = ({key: {**{f: _NOT_LINKED for f in circuit_functions.get(key, [])},
                                     **sel}
                               for key, sel in state["co"].items()}
                              if has_cos else {})
+            if has_cos:
+                # Für gleiche Geräte merken: Kanal und Funktion -> KO
+                save_template(device, {
+                    actor_signature(state["channel"][key], function): number
+                    for key, selection in device.co_map.items()
+                    if key in state["channel"]
+                    for function, number in selection.items()})
             if not self._omit_check.isHidden() and self._omit_check.isChecked():
                 for key, functions in self._unneeded(device).items():
                     omitted += omit_functions(self._project, key, functions)

@@ -3,19 +3,25 @@ KOs eines Tasters/Sensors den Gruppenadressen zuordnen (Materialliste ›
 «Kanäle und KOs zuordnen…» bei Bedienelementen und Sensoren).
 
 Je Gerät jede GA, die es sendet, empfängt oder selbst trägt, mit dem KO des
-Geräts -- oder «nicht verknüpfen». Siehe services/sensor_channels.
+Geräts -- oder «nicht verknüpfen». Siehe services/sensor_channels. Die
+Zuordnung wird je Produkt gemerkt (services/ko_templates) und lässt sich auf
+die übrigen Geräte des Eintrags übertragen.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView,
-    QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QLabel, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
 from ...services.actor_channels import device_com_objects
+from ...services.ko_templates import (
+    apply_sensor_template, load_template, save_template, sensor_template_entries,
+)
 from ...services.sensor_channels import (
-    SENSOR_CO_KEY, _channel_cos, sensor_co_map, sensor_links, suggested_sensor_co_map,
+    SENSOR_CO_KEY, _channel_cos, sensor_co_map, sensor_links, sensor_plan,
+    suggested_sensor_co_map,
 )
 from .actor_channel_dialog import ko_combo
 
@@ -32,6 +38,7 @@ class SensorKoDialog(QDialog):
         self._devices = devices
         self._state: dict[str, dict] = {}
         self._device = None
+        self._plan = sensor_plan(project)   # einmal für alle Geräte
 
         layout = QVBoxLayout(self)
         top = QHBoxLayout()
@@ -41,6 +48,13 @@ class SensorKoDialog(QDialog):
             self._device_combo.addItem(self._device_text(device), device.id)
         self._device_combo.currentIndexChanged.connect(self._on_device_changed)
         top.addWidget(self._device_combo, 1)
+        self._copy_button = QPushButton("Auf gleiche Geräte übertragen")
+        self._copy_button.setToolTip(
+            "Die Zuordnung dieses Geräts für alle übrigen Geräte dieses Eintrags\n"
+            "übernehmen (gleiche Taste/Kanal und Funktion)")
+        self._copy_button.clicked.connect(self._copy_to_others)
+        self._copy_button.setVisible(len(devices) > 1)
+        top.addWidget(self._copy_button)
         layout.addLayout(top)
 
         self._hint = QLabel()
@@ -73,12 +87,15 @@ class SensorKoDialog(QDialog):
 
     def _state_for(self, device) -> dict:
         if device.id not in self._state:
-            links = sensor_links(self._project, device)
+            links = sensor_links(self._project, device, self._plan)
             all_cos = device_com_objects(device)
             saved = sensor_co_map(device)
+            # Vorrang: Auswahl am Gerät, gemerkte Zuordnung des Produkts, Vorschlag
+            template = apply_sensor_template(load_template(device), links,
+                                             {co.object_number for co in all_cos})
             suggested = suggested_sensor_co_map(device, links, all_cos)
-            selection = {link.key: saved.get(link.key, suggested.get(link.key, -1))
-                         for link in links}
+            selection = {link.key: saved.get(link.key, template.get(
+                link.key, suggested.get(link.key, -1))) for link in links}
             self._state[device.id] = {"links": links, "all_cos": all_cos,
                                       "selection": selection, "saved": saved}
         return self._state[device.id]
@@ -123,9 +140,25 @@ class SensorKoDialog(QDialog):
                 lambda _i, k=link.key, cb=combo, sel=selection: sel.__setitem__(k, cb.currentData()))
             table.setCellWidget(row, 3, combo)
 
+    def _copy_to_others(self):
+        """Zuordnung des gewählten Geräts auf die übrigen übertragen."""
+        if self._device is None:
+            return
+        state = self._state_for(self._device)
+        entries = sensor_template_entries(state["links"], state["selection"])
+        for device in self._devices:
+            if device is self._device:
+                continue
+            other = self._state_for(device)
+            other["selection"].update(apply_sensor_template(
+                entries, other["links"], {co.object_number for co in other["all_cos"]}))
+        self._hint.setText(self._hint.text().split("<br>")[0]
+                           + f"<br>Übertragen auf {len(self._devices) - 1} weitere Geräte.")
+
     def apply(self) -> None:
-        """Schreibt die KO-Auswahl in die bearbeiteten Geräte; Einträge für
-        GAs, die das Gerät nicht mehr hat, bleiben erhalten."""
+        """Schreibt die KO-Auswahl in die bearbeiteten Geräte und merkt sie
+        für das Produkt; Einträge für GAs, die das Gerät nicht mehr hat,
+        bleiben erhalten."""
         by_id = {d.id: d for d in self._devices}
         for device_id, state in self._state.items():
             if not state["all_cos"]:
@@ -136,3 +169,4 @@ class SensorKoDialog(QDialog):
             co_map = dict(device.co_map or {})
             co_map[SENSOR_CO_KEY] = merged
             device.co_map = co_map
+            save_template(device, sensor_template_entries(state["links"], state["selection"]))

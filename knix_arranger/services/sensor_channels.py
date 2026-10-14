@@ -42,6 +42,35 @@ class SensorLink:
     ga_function: str      # Funktion der GA, z.B. "E/A", "RM", "P1: Bewegung"
     dpt: str
     feedback: bool        # GA wird empfangen (LED, Status)
+    role: str = ""        # Querverknüpfung (SENSOR_ROLES), z.B. "aktorstatus"
+
+
+@dataclass(frozen=True)
+class SensorRole:
+    """KO eines Sensors, der an eine vorhandene GA des Elements gehört, das
+    der Sensor bedient -- statt einer eigenen GA."""
+    code: str
+    label: str
+    target: str                  # "befehl" = Befehls-GA (E/A), "rueckmeldung" = RM
+    keywords: tuple[str, ...]    # zusammengeschrieben, klein
+
+
+# Projekt_23 6131/40 schaltet L «Deckenlicht»: «P1: Aktorstatus» hört auf
+# die RM des Lichts (Melder weiss, dass jemand von Hand geschaltet hat),
+# «P1: Externer Taster» auf dessen E/A (Taster an der Wand)
+SENSOR_ROLES: tuple[SensorRole, ...] = (
+    SensorRole("aktorstatus", "Aktorstatus", "rueckmeldung",
+               ("aktorstatus", "actuatorstatus", "statusaktor", "inputonoff")),
+    SensorRole("extern", "Externer Taster", "befehl",
+               ("externertaster", "externalswitch", "externalpushbutton",
+                "externerschalter", "nebenstelle")),
+)
+
+
+def _role_cos(cos: list, role: SensorRole) -> list:
+    return [co for co in cos
+            if any(kw in re.sub(r"[^a-z0-9äöü]", "", f"{co.name} {co.object_function}".lower())
+                   for kw in role.keywords)]
 
 
 def ga_key(ga) -> str:
@@ -90,6 +119,9 @@ def sensor_links(project, device, plan=None) -> list[SensorLink]:
             label = row.taste_label + (f" {row.action_type}" if row.action_type else "")
             add(ga, label.strip(), row.function or ga.function_name, row.is_feedback)
 
+    # Rollen: vorhandene GAs der bedienten Elemente (Aktor-Gewerke)
+    _add_role_links(device, links, gas, by_address, sensor_owns_gewerk)
+
     # Eigenes Element (Gewerk ohne Aktor)
     for _room, assignment, nr in device_elements(project, device):
         if not sensor_owns_gewerk(assignment.gewerk_code):
@@ -105,7 +137,44 @@ def sensor_links(project, device, plan=None) -> list[SensorLink]:
         for ga in gas:
             if ga.assignment_id == f"be:{be.id}":
                 add(ga, "Zusatzfunktion", ga.function_name, _receives(ga, device))
+    # Je Taste/Kanal beisammen (Kanal 1: Licht schalten, Aktorstatus, ...)
+    links.sort(key=lambda link: [int(part) if part.isdigit() else part
+                                 for part in re.split(r"(\d+)", link.channel)])
     return links
+
+
+def _add_role_links(device, links: list[SensorLink], gas: list, by_address: dict,
+                    sensor_owns_gewerk) -> None:
+    """Je Befehls-GA eines bedienten Elements (Kanal 1 -> L E/A) die Rollen,
+    für die das Gerät einen KO hat; die Rückmeldung nur, wenn das Gerät sie
+    nicht schon empfängt (Taster-LED)."""
+    from .sensor_service import GEWERK_FEEDBACK_FUNCTIONS, GEWERK_PRIMARY_FUNCTIONS
+    roles = [role for role in SENSOR_ROLES if _role_cos(device.communication_objects, role)]
+    if not roles:
+        return
+    by_function = {(ga.room_id, ga.gewerk_code, ga.element_number, ga.function_name): ga
+                   for ga in gas if ga.room_id}
+    received = {link.ga_address for link in links if link.feedback}
+    for link in list(links):
+        ga = by_address.get(link.ga_address)
+        if link.feedback or link.role or ga is None or not ga.room_id:
+            continue
+        primary = [fn for _l, fn, *_rest in GEWERK_PRIMARY_FUNCTIONS.get(ga.gewerk_code, [])[:1]]
+        if sensor_owns_gewerk(ga.gewerk_code) or ga.function_name not in primary:
+            continue
+        feedback = [fn for _l, fn, _d in GEWERK_FEEDBACK_FUNCTIONS.get(ga.gewerk_code, [])[:1]]
+        for role in roles:
+            if role.target == "befehl":
+                target = ga
+            else:
+                target = by_function.get((ga.room_id, ga.gewerk_code, ga.element_number,
+                                          feedback[0])) if feedback else None
+                if target is None or target.address in received:
+                    continue
+            links.append(SensorLink(
+                f"{ga_key(target)}#{role.code}", link.channel, role.label, target.address,
+                target.designation, target.function_name, target.datapoint_type,
+                True, role.code))
 
 
 def _receives(ga, device) -> bool:
@@ -193,6 +262,9 @@ def suggested_sensor_co_map(device, links: list[SensorLink], all_cos: list) -> d
     occurrences: dict[str, int] = {}
     rest = []
     for link in links:
+        if link.role:
+            rest.append(link)
+            continue
         free = [c for c in all_cos if c.object_number not in named_used]
         # Zweites Element mit denselben Namen (Garage: A ×2 an einem 6131/40,
         # beide «P1: Bewegung») -> der zweite Kanal des Geräts «P2: …»
@@ -211,9 +283,12 @@ def suggested_sensor_co_map(device, links: list[SensorLink], all_cos: list) -> d
         candidates = [c for c in _channel_cos(all_cos, link.channel)
                       if c.object_number not in used]
         co = None
+        role = next((r for r in SENSOR_ROLES if r.code == link.role), None)
+        if role is not None:
+            co = next(iter(_role_cos(candidates, role)), None)
         # Den Befehl sendet der Sensor (S-Flag), die Rückmeldung empfängt er
         # (LED, Status)
-        if not link.feedback:
+        elif not link.feedback:
             sending = [c for c in candidates if _sends(c) and not _is_status(c)]
             for kw in _SEND_KEYWORDS.get(link.ga_function, ()):
                 co = next((c for c in sending
@@ -224,7 +299,7 @@ def suggested_sensor_co_map(device, links: list[SensorLink], all_cos: list) -> d
                 co = suggest_co(sending, link.ga_function, used)
         else:
             co = suggest_co(candidates, link.ga_function, used)
-        if co is None and link.dpt:
+        if co is None and link.dpt and role is None:
             co = _co_by_dpt(candidates, link.dpt, link.feedback, used)
         if co is not None:
             result[link.key] = co.object_number
