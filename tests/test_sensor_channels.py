@@ -157,3 +157,53 @@ def test_ohne_rollen_ko_keine_rolle():
     melder.communication_objects = [co for co in melder.communication_objects
                                     if co.object_number != 13]
     assert not [link for link in sensor_links(project, melder) if link.role]
+
+
+def _with_weather_station(project, melder):
+    """Wetterstation (Gewerk W) mit Helligkeit Ost/Süd und ein Melder-KO
+    «P1: Externe Helligkeit»."""
+    from knix_arranger.models.group_address import GroupAddress, MiddleGroup
+    hg = next(h for h in project.group_addresses.main_groups if h.number == 4)
+    hg.middle_groups.append(MiddleGroup(number=4, name="Wetter", group_addresses=[
+        GroupAddress(main_group=4, middle_group=4, sub_group=1, designation="W HELLIGKEIT OST",
+                     gewerk_code="W", function_name="HELLIGKEIT OST", datapoint_type="DPST-9-4"),
+        GroupAddress(main_group=4, middle_group=4, sub_group=2, designation="W HELLIGKEIT SUED",
+                     gewerk_code="W", function_name="HELLIGKEIT SUED", datapoint_type="DPST-9-4"),
+        # Lichtwert (DPT 5) ist keine Helligkeit in Lux
+        GroupAddress(main_group=4, middle_group=4, sub_group=3, designation="LC HELLIGKEIT",
+                     gewerk_code="LC", function_name="HELLIGKEIT", datapoint_type="DPST-5-1"),
+    ]))
+    melder.communication_objects.append(CommunicationObject(
+        object_number=6, name="Obj_BrightnessExternal", object_function="P1: Externe Helligkeit",
+        data_type="DPT-9", flags="K-Ü-U"))
+
+
+def test_externe_helligkeit_von_der_wetterstation():
+    from knix_arranger.services.sensor_channels import SOURCE_KEY, brightness_sources
+    project, melder = _setup()
+    _with_weather_station(project, melder)
+    assert [ga.function_name for ga in brightness_sources(project, melder)] == [
+        "HELLIGKEIT SUED", "HELLIGKEIT OST"]
+    links = [link for link in sensor_links(project, melder) if link.role == "helligkeit"]
+    # je Kanal des Melders ein Link, Vorgabe Süd
+    assert {(link.channel, link.ga_function, link.feedback) for link in links} == {
+        ("Gewerk A 1", "HELLIGKEIT SUED", True), ("Kanal 2", "HELLIGKEIT SUED", True)}
+    own = next(link for link in links if link.channel == "Gewerk A 1")
+    selection = suggested_sensor_co_map(melder, links, device_com_objects(melder))
+    assert selection[own.key] == 6
+    # Andere Quelle gewählt (Dialog): die Verknüpfung folgt ihr
+    ost = brightness_sources(project, melder)[1]
+    selection = {own.key: 6}
+    melder.co_map = {SENSOR_CO_KEY: selection, SOURCE_KEY: {own.key: ga_key(ost)}}
+    service = CoLinkingService()
+    service.apply_proposals(project, service.generate_proposals(project))
+    co = next(c for c in melder.communication_objects if c.object_number == 6)
+    assert co.connected_gas == ["4/4/1"]
+
+
+def test_ohne_quelle_keine_externe_helligkeit():
+    project, melder = _setup()
+    melder.communication_objects.append(CommunicationObject(
+        object_number=6, name="Obj_BrightnessExternal", object_function="P1: Externe Helligkeit",
+        data_type="DPT-9", flags="K-Ü-U"))
+    assert not [link for link in sensor_links(project, melder) if link.role == "helligkeit"]

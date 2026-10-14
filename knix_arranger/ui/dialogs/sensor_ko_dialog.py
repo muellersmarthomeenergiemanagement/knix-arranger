@@ -20,8 +20,8 @@ from ...services.ko_templates import (
     apply_sensor_template, load_template, save_template, sensor_template_entries,
 )
 from ...services.sensor_channels import (
-    SENSOR_CO_KEY, _channel_cos, sensor_co_map, sensor_links, sensor_plan,
-    suggested_sensor_co_map,
+    BRIGHTNESS_ROLE, SENSOR_CO_KEY, SOURCE_KEY, _channel_cos, brightness_sources, ga_key,
+    sensor_co_map, sensor_links, sensor_plan, suggested_sensor_co_map,
 )
 from .actor_channel_dialog import ko_combo
 
@@ -67,7 +67,7 @@ class SensorKoDialog(QDialog):
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(3, QHeaderView.Stretch)
         self._table.setColumnWidth(0, 120)
-        self._table.setColumnWidth(2, 70)
+        self._table.setColumnWidth(2, 150)
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self._table, 1)
@@ -97,7 +97,10 @@ class SensorKoDialog(QDialog):
             selection = {link.key: saved.get(link.key, template.get(
                 link.key, suggested.get(link.key, -1))) for link in links}
             self._state[device.id] = {"links": links, "all_cos": all_cos,
-                                      "selection": selection, "saved": saved}
+                                      "selection": selection, "saved": saved,
+                                      "sources": dict((device.co_map or {}).get(SOURCE_KEY)
+                                                      or {}),
+                                      "brightness": brightness_sources(self._project, device)}
         return self._state[device.id]
 
     def _on_device_changed(self):
@@ -128,7 +131,10 @@ class SensorKoDialog(QDialog):
             function = QTableWidgetItem(f"{arrow} {link.function}")
             function.setToolTip(link.ga_designation)
             table.setItem(row, 1, function)
-            table.setItem(row, 2, QTableWidgetItem(link.ga_address))
+            if link.role == BRIGHTNESS_ROLE.code and len(state["brightness"]) > 1:
+                table.setCellWidget(row, 2, self._source_combo(state, link))
+            else:
+                table.setItem(row, 2, QTableWidgetItem(link.ga_address))
             own = _channel_cos(all_cos, link.channel)
             own = own if len(own) < len(all_cos) else []
             own_numbers = {co.object_number for co in own}
@@ -152,8 +158,25 @@ class SensorKoDialog(QDialog):
             other = self._state_for(device)
             other["selection"].update(apply_sensor_template(
                 entries, other["links"], {co.object_number for co in other["all_cos"]}))
+            # Gleiche Helligkeitsquelle je Kanal
+            other["sources"].update(state["sources"])
         self._hint.setText(self._hint.text().split("<br>")[0]
                            + f"<br>Übertragen auf {len(self._devices) - 1} weitere Geräte.")
+
+    @staticmethod
+    def _source_combo(state: dict, link) -> QComboBox:
+        """Quelle der externen Helligkeit: Wetterstation Süd/Ost/West oder
+        die Helligkeit eines anderen Melders."""
+        combo = QComboBox()
+        for ga in state["brightness"]:
+            combo.addItem(f"{ga.address}  {ga.function_name}", ga_key(ga))
+            combo.setItemData(combo.count() - 1, ga.designation, Qt.ToolTipRole)
+        current = next((ga_key(ga) for ga in state["brightness"]
+                        if ga.address == link.ga_address), None)
+        combo.setCurrentIndex(max(0, combo.findData(current)))
+        combo.currentIndexChanged.connect(
+            lambda _i, k=link.key, cb=combo: state["sources"].__setitem__(k, cb.currentData()))
+        return combo
 
     def apply(self) -> None:
         """Schreibt die KO-Auswahl in die bearbeiteten Geräte und merkt sie
@@ -168,5 +191,7 @@ class SensorKoDialog(QDialog):
             merged.update(state["selection"])
             co_map = dict(device.co_map or {})
             co_map[SENSOR_CO_KEY] = merged
+            if state["sources"]:
+                co_map[SOURCE_KEY] = dict(state["sources"])
             device.co_map = co_map
             save_template(device, sensor_template_entries(state["links"], state["selection"]))

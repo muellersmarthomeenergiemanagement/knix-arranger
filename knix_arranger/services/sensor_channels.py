@@ -67,6 +67,59 @@ SENSOR_ROLES: tuple[SensorRole, ...] = (
 )
 
 
+# «Externe Helligkeit»: der Melder misst selbst, kann aber die Helligkeit
+# einer Wetterstation (W: HELLIGKEIT SUED/OST/WEST) oder eines anderen
+# Melders («BR: Helligkeit») übernehmen -- je Kanal eine Quelle; Vorgabe Süd
+# vor Ost/West vor anderen Meldern, im Dialog wählbar (Device.co_map
+# [SOURCE_KEY] = {Link-Schlüssel: ga_key der Quelle})
+BRIGHTNESS_ROLE = SensorRole("helligkeit", "Externe Helligkeit", "quelle",
+                             ("externehelligkeit", "externalbrightness", "helligkeitextern"))
+SOURCE_KEY = "GA-Quelle"
+_BRIGHTNESS = re.compile(r"helligkeit|brightness|\blux\b", re.IGNORECASE)
+_NOT_BRIGHTNESS = re.compile(r"schwelle|threshold|extern|anpassung|unabh", re.IGNORECASE)
+_DIRECTION_ORDER = ("SUED", "SÜD", "OST", "WEST")
+
+
+def brightness_sources(project, device) -> list:
+    """GAs, die eine Helligkeit in Lux melden (DPT 9), ohne die eigenen des
+    Geräts: Wetterstation zuerst (Süd, Ost, West), dann andere Melder."""
+    from .actor_channels import _dpt_key
+    from .product_sync import device_elements
+    own = {a.id for _room, a, _nr in device_elements(project, device)}
+    found = [ga for ga in project.group_addresses.all_addresses()
+             if not ga.is_placeholder and ga.assignment_id not in own
+             and _dpt_key(ga.datapoint_type)[0] == "9"
+             and _BRIGHTNESS.search(ga.function_name or "")
+             and not _NOT_BRIGHTNESS.search(ga.function_name or "")]
+
+    def order(ga):
+        upper = (ga.function_name or "").upper()
+        direction = next((i for i, d in enumerate(_DIRECTION_ORDER) if d in upper),
+                         len(_DIRECTION_ORDER))
+        return (ga.gewerk_code != "W", direction, ga.main_group, ga.middle_group, ga.sub_group)
+    return sorted(found, key=order)
+
+
+def _add_brightness_links(project, device, links: list) -> None:
+    """Je Kanal des Melders ein Link «Externe Helligkeit» zur gewählten bzw.
+    vorgegebenen Quelle -- nur, wenn das Gerät einen solchen KO hat."""
+    if not _role_cos(device.communication_objects, BRIGHTNESS_ROLE):
+        return
+    sources = brightness_sources(project, device)
+    if not sources:
+        return
+    by_key = {ga_key(ga): ga for ga in sources}
+    chosen = (device.co_map or {}).get(SOURCE_KEY) or {}
+    channels = sorted({link.channel for link in links if not link.role
+                       and re.match(r"^(?:Kanal|Gewerk \S+) \d+$", link.channel)}) or ["Gerät"]
+    for channel in channels:
+        key = f"{channel}#{BRIGHTNESS_ROLE.code}"
+        ga = by_key.get(chosen.get(key, "")) or sources[0]
+        links.append(SensorLink(key, channel, BRIGHTNESS_ROLE.label, ga.address,
+                                ga.designation, ga.function_name, ga.datapoint_type,
+                                True, BRIGHTNESS_ROLE.code))
+
+
 def _role_cos(cos: list, role: SensorRole) -> list:
     return [co for co in cos
             if any(kw in re.sub(r"[^a-z0-9äöü]", "", f"{co.name} {co.object_function}".lower())
@@ -137,6 +190,7 @@ def sensor_links(project, device, plan=None) -> list[SensorLink]:
         for ga in gas:
             if ga.assignment_id == f"be:{be.id}":
                 add(ga, "Zusatzfunktion", ga.function_name, _receives(ga, device))
+    _add_brightness_links(project, device, links)
     # Je Taste/Kanal beisammen (Kanal 1: Licht schalten, Aktorstatus, ...)
     links.sort(key=lambda link: [int(part) if part.isdigit() else part
                                  for part in re.split(r"(\d+)", link.channel)])
@@ -225,7 +279,7 @@ def _channel_cos(cos: list, channel: str) -> list:
     if not found:
         return cos
     n = found.group(1)
-    pattern = re.compile(rf"(?:taste|kanal|button|channel|wippe|rocker|t|k|p|ch)\s*{n}\b",
+    pattern = re.compile(rf"\b(?:taste|kanal|button|channel|wippe|rocker|t|k|p|ch)\s*{n}\b",
                          re.IGNORECASE)
     own = [co for co in cos if pattern.search(f"{co.name} {co.object_function}")]
     return own or cos
@@ -283,7 +337,8 @@ def suggested_sensor_co_map(device, links: list[SensorLink], all_cos: list) -> d
         candidates = [c for c in _channel_cos(all_cos, link.channel)
                       if c.object_number not in used]
         co = None
-        role = next((r for r in SENSOR_ROLES if r.code == link.role), None)
+        role = next((r for r in SENSOR_ROLES + (BRIGHTNESS_ROLE,) if r.code == link.role),
+                    None)
         if role is not None:
             co = next(iter(_role_cos(candidates, role)), None)
         # Den Befehl sendet der Sensor (S-Flag), die Rückmeldung empfängt er
