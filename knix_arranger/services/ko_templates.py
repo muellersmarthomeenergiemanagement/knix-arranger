@@ -12,7 +12,8 @@ Schlüssel ohne Gerätebezug:
   "Kanal 1|#aktorstatus", "Gewerk A 2|P1: Bewegung";
 - Aktoren: "Kanal-Nr.|Funktion", z.B. "1|E/A", "1|RM".
 
-Gespeichert als JSON in ~/.knix_arranger/ko_templates.json:
+Gespeichert als JSON in Bibliothek/Vorlagen/ko_templates.json (ohne
+Bibliothek in %APPDATA%/KNiX Arranger, siehe utils/workspace):
 {Produktschlüssel: {Schlüssel: KO-Nummer, -1 = nicht verknüpfen}}, dazu
 {Produktschlüssel + "#GA-Auswahl": [KO-Nummern ohne eigene GA]} -- welche KOs
 eines Sensor-Produkts eigene GAs bekommen (product_sync_dialog).
@@ -25,7 +26,13 @@ import os
 
 logger = logging.getLogger("knix_arranger.ko_templates")
 
-_TEMPLATE_FILE = os.path.join(os.path.expanduser("~"), ".knix_arranger", "ko_templates.json")
+# Fester Pfad nur für Tests (conftest); sonst Bibliothek/Vorlagen bzw. %APPDATA%
+_TEMPLATE_FILE: str | None = None
+
+
+def _template_file() -> str:
+    from ..utils.workspace import template_path
+    return _TEMPLATE_FILE or template_path("ko_templates.json")
 
 
 def _product(device) -> str:
@@ -38,8 +45,8 @@ def _product(device) -> str:
 
 def _load_all() -> dict:
     try:
-        if os.path.exists(_TEMPLATE_FILE):
-            with open(_TEMPLATE_FILE, "r", encoding="utf-8") as f:
+        if os.path.exists(_template_file()):
+            with open(_template_file(), "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return data if isinstance(data, dict) else {}
     except Exception:
@@ -87,8 +94,8 @@ def save_ga_selection(device, excluded: set[int]) -> None:
 
 def _write_all(data: dict) -> None:
     try:
-        os.makedirs(os.path.dirname(_TEMPLATE_FILE), exist_ok=True)
-        with open(_TEMPLATE_FILE, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(_template_file()), exist_ok=True)
+        with open(_template_file(), "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=1)
     except Exception:
         logger.warning("ko_templates: Konnte Datei nicht schreiben.", exc_info=True)

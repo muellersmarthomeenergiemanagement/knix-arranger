@@ -113,7 +113,10 @@ class ProjectService:
             raise FileExistsError(project_dir)
         os.makedirs(os.path.join(project_dir, "Revisionen"), exist_ok=True)
         os.makedirs(os.path.join(project_dir, "Berichte"), exist_ok=True)
-        os.makedirs(os.path.join(project_dir, "Datenblätter"), exist_ok=True)
+        # Mit Bibliothek liegen die Datenblätter dort (utils/workspace)
+        from ..utils.workspace import datasheets_folder
+        if not datasheets_folder():
+            os.makedirs(os.path.join(project_dir, "Datenblätter"), exist_ok=True)
         return knxarr_path
 
     BACKUP_FOLDER = "Sicherungen"

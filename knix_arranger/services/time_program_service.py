@@ -302,10 +302,11 @@ def duplicate_program(project, tp: TimeProgram) -> TimeProgram:
 
 
 def _user_templates_path() -> str:
-    """Eigene Vorlagen im Benutzerprofil, nicht im (schreibgeschützten)
-    Programmordner -- wie die GA-Vorlagen-Bibliothek."""
-    appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
-    return os.path.join(appdata, "KNiX Arranger", "time_program_templates.json")
+    """Eigene Vorlagen in Bibliothek/Vorlagen (ohne Bibliothek im
+    Benutzerprofil), nicht im schreibgeschützten Programmordner -- wie die
+    GA-Vorlagen-Bibliothek (siehe utils/workspace)."""
+    from ..utils.workspace import template_path
+    return template_path("time_program_templates.json")
 
 
 def _load_user_templates() -> list[dict]:

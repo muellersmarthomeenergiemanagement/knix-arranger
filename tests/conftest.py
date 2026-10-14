@@ -26,9 +26,11 @@ def isolate_appdata(monkeypatch, tmp_path):
     product_catalog_user.json-Verschmutzung durch add_product()-Tests).
     """
     monkeypatch.setenv("APPDATA", str(tmp_path))
-    # Gemerkte KO-Zuordnungen liegen unter ~/.knix_arranger
+    # Gemerkte KO-Zuordnungen (Vorlagen) und der frühere Ordner ~/.knix_arranger
     from knix_arranger.services import ko_templates
+    from knix_arranger.utils import workspace
     monkeypatch.setattr(ko_templates, "_TEMPLATE_FILE", str(tmp_path / "ko_templates.json"))
+    monkeypatch.setattr(workspace, "_home_dir", lambda: str(tmp_path / "home_knix"))
     # Der in der Sitzung geladene Produktkatalog gehört zum alten APPDATA
     from knix_arranger.services.product_sync import reset_shared_catalog
     reset_shared_catalog()

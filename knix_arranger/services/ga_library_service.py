@@ -1,8 +1,8 @@
 """
 GA-Vorlagen-Bibliothek: Speichert benutzerdefinierte GA-Vorlagen projektübergreifend.
-Ablageort: %APPDATA%/KNiX Arranger/custom_ga_library.json -- nicht im
-Installationsordner, der bei der installierten App schreibgeschützt ist und
-bei Updates ersetzt wird.
+Ablageort: Bibliothek/Vorlagen/custom_ga_library.json, ohne Bibliothek
+%APPDATA%/KNiX Arranger -- nicht im Installationsordner, der bei der
+installierten App schreibgeschützt ist und bei Updates ersetzt wird.
 """
 from __future__ import annotations
 
@@ -15,8 +15,10 @@ _LEGACY_PATH = Path(__file__).parent.parent / "config" / "custom_ga_library.json
 
 
 def _library_path() -> Path:
-    appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
-    return Path(appdata) / "KNiX Arranger" / "custom_ga_library.json"
+    """Bibliothek/Vorlagen (mit allen Rechnern geteilt), ohne Bibliothek
+    %APPDATA%/KNiX Arranger (siehe utils/workspace)."""
+    from ..utils.workspace import template_path
+    return Path(template_path("custom_ga_library.json"))
 
 
 def load_library() -> list[dict]:

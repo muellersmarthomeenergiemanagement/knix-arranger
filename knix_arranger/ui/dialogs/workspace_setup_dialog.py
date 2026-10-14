@@ -35,11 +35,14 @@ class WorkspaceSetupDialog(QDialog):
         layout = QVBoxLayout(self)
 
         intro = QLabel(
-            "<b>Arbeitsverzeichnis für Projekte</b><br><br>"
-            "Neue Projekte werden künftig in diesem Ordner angelegt – jeweils in "
-            "einem eigenen Unterordner mit einheitlicher Struktur "
-            "(Projektdatei, Revisionen, Berichte). So bleiben Projekte und "
-            "Dokumentationen übersichtlich an einem Ort."
+            "<b>Arbeitsverzeichnis</b><br><br>"
+            "KNiX Arranger legt darin zwei Ordner an:<br>"
+            "• <b>Projekte</b> – je Projekt ein Unterordner (Projektdatei, Berichte, "
+            "Revisionen)<br>"
+            "• <b>Bibliothek</b> – Herstellerdateien (Produkte KNX), Datenblätter und "
+            "Vorlagen, für alle Projekte<br><br>"
+            "Liegt das Arbeitsverzeichnis in einer Cloud (z.B. Dropbox), stehen "
+            "Projekte und Bibliothek auf allen Rechnern zur Verfügung."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -80,11 +83,8 @@ class WorkspaceSetupDialog(QDialog):
             self._path_edit.setText(chosen)
 
     def _confirm(self):
+        # Projekte/ und Bibliothek/ legt utils/workspace.setup_workspace an
         os.makedirs(self._path, exist_ok=True)
-        # Standardordner für gesammelte Hersteller-KNXPROD-Dateien (siehe
-        # ProductSelectDialog._import_knxprod_folder) - erspart das manuelle
-        # Anlegen und liefert dem Ordner-Import einen naheliegenden Startpfad.
-        os.makedirs(os.path.join(self._path, "Produkte KNX"), exist_ok=True)
         self.accept()
 
     @property

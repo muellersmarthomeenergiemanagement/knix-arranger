@@ -3,6 +3,7 @@ Einstellungen-Dialog (NFA-040, FA-851–857)
 Firmenprofil, Logo, Stundensätze, Projektstandards.
 """
 from __future__ import annotations
+import os
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QGroupBox, QFormLayout, QComboBox, QTabWidget,
@@ -61,15 +62,30 @@ class SettingsDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        workspace_group = QGroupBox("Arbeitsverzeichnis")
-        workspace_layout = QHBoxLayout()
+        # Ordnerstruktur siehe utils/workspace: Projekte und Bibliothek
+        from ...utils.workspace import library_folder
+        workspace_group = QGroupBox("Ordner")
+        workspace_form = QFormLayout()
+        projects_row = QHBoxLayout()
         self._workspace_edit = QLineEdit(self._workspace_root_path)
         self._workspace_edit.setReadOnly(True)
-        workspace_layout.addWidget(self._workspace_edit, 1)
+        projects_row.addWidget(self._workspace_edit, 1)
         btn_workspace = QPushButton("Ändern…")
         btn_workspace.clicked.connect(self._choose_workspace)
-        workspace_layout.addWidget(btn_workspace)
-        workspace_group.setLayout(workspace_layout)
+        projects_row.addWidget(btn_workspace)
+        workspace_form.addRow("Projekte:", projects_row)
+        library_row = QHBoxLayout()
+        self._library_edit = QLineEdit(library_folder() or "– noch nicht eingerichtet –")
+        self._library_edit.setReadOnly(True)
+        self._library_edit.setToolTip(
+            "Herstellerdateien (Produkte KNX), Datenblätter und Vorlagen für alle\n"
+            "Projekte; in einer Cloud auf allen Rechnern verfügbar")
+        library_row.addWidget(self._library_edit, 1)
+        self._btn_library = QPushButton("Ändern…" if library_folder() else "Einrichten…")
+        self._btn_library.clicked.connect(self._choose_library)
+        library_row.addWidget(self._btn_library)
+        workspace_form.addRow("Bibliothek:", library_row)
+        workspace_group.setLayout(workspace_form)
         layout.addWidget(workspace_group)
 
         update_group = QGroupBox("Updates")
@@ -319,9 +335,40 @@ class SettingsDialog(QDialog):
 
     # ─── Arbeitsverzeichnis ───────────────────────────────────────────────────
 
+    def _choose_library(self):
+        """Bibliothek einrichten bzw. wechseln (utils/workspace.setup_library):
+        bisherige Herstellerdateien hinein verschieben, Vorlagen kopieren."""
+        from ...utils.workspace import (
+            legacy_products_folder, library_folder, setup_library, suggested_library,
+        )
+        start = library_folder() or suggested_library(self._workspace_root_path)
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Ordner für die Bibliothek wählen (oder neu anlegen)",
+            os.path.dirname(start) if start and not os.path.isdir(start) else start)
+        if not chosen:
+            return
+        old = legacy_products_folder()
+        details = (f"\n\nDie Herstellerdateien aus «{old}» werden in die Bibliothek "
+                   f"verschoben." if old else "")
+        answer = QMessageBox.question(
+            self, "Bibliothek einrichten",
+            f"Bibliothek: {chosen}\n\nDarin entstehen «Produkte KNX», «Datenblätter» "
+            f"und «Vorlagen»; die eigenen Vorlagen (KO-Zuordnungen, GA-Bibliothek, "
+            f"Zeitprogramme) werden hinein kopiert.{details}\n\nEinrichten?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if answer != QMessageBox.Yes:
+            return
+        result = setup_library(chosen)
+        self._library_edit.setText(chosen)
+        self._btn_library.setText("Ändern…")
+        QMessageBox.information(
+            self, "Bibliothek eingerichtet",
+            f"{result['products']} Herstellerdateien verschoben, "
+            f"{result['templates']} Vorlagen kopiert.")
+
     def _choose_workspace(self):
         chosen = QFileDialog.getExistingDirectory(
-            self, "Arbeitsverzeichnis wählen", self._workspace_root_path
+            self, "Projektordner wählen", self._workspace_root_path
         )
         if chosen:
             self._workspace_root_path = chosen

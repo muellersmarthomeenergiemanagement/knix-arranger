@@ -2,8 +2,9 @@
 Produktordner: die Sammlung der Herstellerdateien (.knxprod), aus der der
 eigene Produktkatalog entsteht.
 
-Standard ist <Arbeitsverzeichnis>/Produkte KNX (WorkspaceSetupDialog legt ihn
-an, der ETS-Import legt die Produktdaten dort ab); in den Einstellungen
+Standard ist Bibliothek/Produkte KNX (utils/workspace), bei älteren
+Installationen ohne Bibliothek <Arbeitsverzeichnis>/Produkte KNX; der
+ETS-Import legt die Produktdaten dort ab; in den Einstellungen
 "products_folder" änderbar. Liegt das Arbeitsverzeichnis in einer Cloud
 (Dropbox), haben alle Rechner dieselbe Sammlung.
 
@@ -28,9 +29,12 @@ SETTING = "products_folder"
 
 
 def products_folder() -> str:
-    """Pfad des Produktordners ("" ohne Arbeitsverzeichnis und Einstellung)."""
+    """Pfad des Produktordners: eigene Einstellung, sonst Bibliothek/Produkte
+    KNX, sonst (ältere Installation) <Arbeitsverzeichnis>/Produkte KNX;
+    "" ohne Arbeitsverzeichnis (siehe utils/workspace)."""
     from ..utils.app_settings import get_setting
-    folder = get_setting(SETTING, "") or ""
+    from ..utils.workspace import library_subfolder
+    folder = get_setting(SETTING, "") or library_subfolder(FOLDER_NAME)
     if folder:
         return folder
     workspace = get_setting("workspace_root_path", "") or ""

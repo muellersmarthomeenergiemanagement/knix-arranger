@@ -1099,9 +1099,9 @@ class MainWindow(QMainWindow):
             return False
         from ..services.project_service import ProjectService
         project_service = ProjectService()
+        from ..utils.workspace import projects_folder
         suggestion = project_service.suggest_save_path(
-            self._project._file_path, self._project.name,
-            self._load_app_setting("workspace_root_path", ""),
+            self._project._file_path, self._project.name, projects_folder(),
         )
         path, _ = QFileDialog.getSaveFileName(
             self, "Projekt speichern", suggestion,
@@ -2093,8 +2093,9 @@ class MainWindow(QMainWindow):
             self._set_dirty(True)
 
     def _show_settings(self):
+        from ..utils.workspace import projects_folder
         profile = self._app.project_service.load_company_profile()
-        workspace = self._load_app_setting("workspace_root_path", "")
+        workspace = projects_folder()
         dialog = SettingsDialog(profile=profile, parent=self, workspace_root_path=workspace,
                                 auto_update_check=self._load_app_setting("auto_update_check", True),
                                 log_level=self._load_app_setting("log_level", "INFO"))
@@ -2105,10 +2106,12 @@ class MainWindow(QMainWindow):
             self._save_app_setting("log_level", dialog.log_level)
             from ..utils.logging_setup import set_log_level
             set_log_level(dialog.log_level)
-            new_workspace = dialog.workspace_root_path
+            new_workspace = dialog.workspace_root_path      # Projektordner
             if new_workspace != workspace:
                 os.makedirs(new_workspace, exist_ok=True)
-                self._save_app_setting("workspace_root_path", new_workspace)
+                self._save_app_setting("projects_folder", new_workspace)
+                if not self._load_app_setting("workspace_root_path", ""):
+                    self._save_app_setting("workspace_root_path", new_workspace)
 
     def _show_help(self):
         """Zeigt das Hilfesystem kontextsensitiv (FA-1101, FA-1102)."""
@@ -2249,24 +2252,30 @@ class MainWindow(QMainWindow):
         self._save_app_settings(s)
 
     def _ensure_workspace(self) -> str:
-        """Liefert den konfigurierten Workspace-Pfad; fragt bei Erststart danach.
+        """Liefert den Projektordner; richtet bei Erststart das
+        Arbeitsverzeichnis ein (Projekte/ und Bibliothek/, utils/workspace).
 
         Neue Projekte werden verbindlich in diesem Ordner angelegt (FA-1601).
         """
+        from ..services.product_folder import products_folder
+        from ..utils.workspace import projects_folder, setup_workspace
         path = self._load_app_setting("workspace_root_path", "")
         if path and os.path.isdir(path):
             # Auch bei bereits konfiguriertem Workspace sicherstellen (z.B. für
             # Bestandsnutzer, die den Ordner vor dessen Einführung eingerichtet haben).
-            os.makedirs(os.path.join(path, "Produkte KNX"), exist_ok=True)
-            return path
+            os.makedirs(projects_folder(), exist_ok=True)
+            os.makedirs(products_folder(), exist_ok=True)
+            return projects_folder()
         while True:
             dialog = WorkspaceSetupDialog(self)
             if dialog.exec():
-                path = dialog.workspace_path
-                self._save_app_setting("workspace_root_path", path)
-                return path
+                setup_workspace(dialog.workspace_path)
+                return projects_folder()
 
     def _show_startup_dialogs(self):
+        # ~/.knix_arranger einmalig auflösen (utils/workspace)
+        from ..utils.workspace import migrate_home_dir
+        migrate_home_dir()
         self._show_whats_new_after_update()
         self._show_welcome()
 

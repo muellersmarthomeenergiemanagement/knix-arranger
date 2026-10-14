@@ -332,7 +332,11 @@ class DatasheetView(QWidget):
         self._refresh_devices()
 
     def _datasheets_folder(self) -> str:
-        """Gibt den Datenblätter-Unterordner des Projekts zurück (leer wenn unbekannt)."""
+        """Datenblätter der Bibliothek (herstellerweit, utils/workspace), sonst
+        der Unterordner des Projekts (leer wenn unbekannt)."""
+        from ...utils.workspace import datasheets_folder
+        if datasheets_folder():
+            return datasheets_folder()
         if self._project and self._project.folder_path:
             return os.path.join(self._project.folder_path, "Datenblätter")
         return ""

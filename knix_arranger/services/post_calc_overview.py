@@ -61,11 +61,11 @@ class ProjectResult:
 
 
 def default_project_files() -> list[str]:
-    """Projekte im Arbeitsverzeichnis (App-Einstellung workspace_root_path)
-    und die zuletzt geöffneten."""
+    """Projekte im Projektordner (utils/workspace.projects_folder) und die
+    zuletzt geöffneten."""
     from .project_service import ProjectService
-    from ..utils.app_settings import get_setting
-    workspace = get_setting("workspace_root_path", "")
+    from ..utils.workspace import projects_folder
+    workspace = projects_folder()
     try:
         recent = ProjectService().get_recent_projects()
     except (OSError, ValueError):
