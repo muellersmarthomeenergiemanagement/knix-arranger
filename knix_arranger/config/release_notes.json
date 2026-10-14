@@ -2,6 +2,31 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.3.0",
+      "date": "2026-10-14",
+      "neu": [
+        "Neue Ordnerstruktur: Das Arbeitsverzeichnis enthält «Projekte» und «Bibliothek» (Produkte KNX, Datenblätter, Vorlagen). Liegt es in einer Cloud, haben alle Rechner dieselben Projekte, Herstellerdateien und Vorlagen. Bestehende Installationen bleiben unverändert – Einstellungen › Allgemein › Bibliothek «Einrichten…» übernimmt Herstellerdateien und Vorlagen.",
+        "Produktordner: .knxprod-Dateien einfach in «Bibliothek/Produkte KNX» legen. Die Produktauswahl meldet neue und geänderte Dateien und liest sie auf Klick ein; Dateien aus Import, Ziehen oder Strg+V landen ebenfalls dort.",
+        "Taster und Sensoren: «Kanäle und KOs zuordnen…» gibt es jetzt auch je Bedienelement bzw. Melder – jede GA erhält den KO des Geräts, mit Vorschlag und «nicht verknüpfen».",
+        "Rollen Sensor ↔ Aktor: Ein Melder, der ein Licht schaltet, hört mit «Aktorstatus» auf dessen RM und mit «Externer Taster» auf dessen E/A; «Externe Helligkeit» kommt von der Wetterstation (Süd/Ost/West wählbar) oder einem anderen Melder – ohne zusätzliche GAs.",
+        "Materialliste › «KOs aller Geräte zuordnen…»: alle Aktoren, Taster und Sensoren auf einmal, danach nur die unsicheren Fälle prüfen; nicht benötigte Funktionen (z.B. DIM/WERT am Schaltaktor) lassen sich gleich weglassen.",
+        "KO-Zuordnungen werden je Produkt gemerkt und für gleiche Geräte vorgeschlagen, auch in künftigen Projekten; im Dialog «Auf gleiche Geräte übertragen».",
+        "GA-Übersicht neu: je GA Gewerk, Raum, Aktor mit Kanal und Verteiler sowie bedienende Taster/Sensoren; Zentral- und Szenen-GAs mit betroffenen Gewerken; Übersicht Gewerk × Hauptgruppe und Prüfliste der GAs ohne Verbindung."
+      ],
+      "verbessert": [
+        "Produktauswahl zeigt Aktoren, Sensoren und DALI-Gateways nur noch mit KOs (aus einer KNXPROD) und nennt die Hersteller, deren Datei fehlt; «Katalog › Auch Geräte ohne KOs zeigen» blendet die übrigen ein. Erkannte Geräte tragen den deutschen Namen («Heizungsaktor 6-fach 230V REG»).",
+        "Sensor-Produkt in der Materialliste bestimmt die GAs seiner Gewerke ohne Rückfrage; vorausgewählt ist nur, was der Sensor meldet (6131/40: 6 statt 40 KOs). Ein Melder mit zwei Elementen erhält P1 und P2 getrennt.",
+        "Aktor mit zu wenig Kanälen (z.B. 12 Heizkreise, Aktor 6-fach): «Auf 2 Geräte aufteilen» bei der Produktzuweisung; die Adressen der übrigen Positionen werden nachgeführt.",
+        "Gemeinsames Gateway (Revox) bedient die Räume aller Linien in Belegungsplan, Aktorenbericht und Matrix."
+      ],
+      "behoben": [
+        "Ein Bewegungsmelder-Produkt ersetzte die GAs des Lichts (E/A, RM) durch die KOs des Melders; Rückstände werden in der Materialliste erkannt und gemeldet (Validierung FA-621).",
+        "Doppelte Katalogeinträge ohne KOs (z.B. ABB VAA/S6.230.2.1 neben «2CDG 110 116 R0011») werden erkannt: Validierung FA-622 und «Produkte mit KOs übernehmen…».",
+        "KO-Verknüpfung: Bei gleichnamigen KOs eines Ausgangs (ABB RM/S) landete die RM am Schalt-KO.",
+        "DPT «DPT-19-1» wird als 19.001 angezeigt."
+      ]
+    },
+    {
       "version": "1.2.8",
       "date": "2026-10-14",
       "neu": [
