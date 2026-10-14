@@ -142,3 +142,53 @@ def test_validierung_warnt():
               if i.rule_id == "FA-621"]
     assert len(issues) == 1 and issues[0].level == "warning"
     assert "1.2.113" in issues[0].message and "Standard des Gewerks" in issues[0].message
+
+
+_MELDER_COS = [
+    {"number": 10, "name": "Obj_SwitchOnOff", "function_text": "P1: Bewegung (Master)",
+     "datapoint_type": "DPST-1-1", "communication_flag": True, "transmit_flag": True},
+    {"number": 1, "name": "Obj_Enable", "function_text": "P1: Freigabe Bewegung",
+     "datapoint_type": "DPST-1-1", "communication_flag": True, "write_flag": True,
+     "update_flag": True},
+    {"number": 13, "name": "Obj_ExternalSwitch", "function_text": "P1: Externer Taster",
+     "datapoint_type": "DPST-1-1", "communication_flag": True, "write_flag": True},
+    {"number": 11, "name": "Obj_TimedStartStop", "function_text": "P1: Bewegung (Slave)",
+     "datapoint_type": "DPST-1-1", "communication_flag": True, "write_flag": True,
+     "transmit_flag": True},
+]
+
+
+def test_vorauswahl_was_der_sensor_meldet():
+    """6131/40: eigene GA nur für «Bewegung (Master)» -- Eingänge nicht."""
+    from knix_arranger.services.product_sync import default_excluded_numbers
+    assert default_excluded_numbers(_MELDER_COS) == {1, 13, 11}
+    # Meldet das Produkt nichts, bleibt alles ausgewählt
+    assert default_excluded_numbers([_MELDER_COS[1]]) == set()
+
+
+def test_produkt_ohne_rueckfrage_und_auswahl_gemerkt():
+    """Eine Quelle fürs Produkt: keine Ja/Nein-Frage mehr, die KO-Auswahl
+    startet mit der Vorauswahl bzw. der gemerkten Auswahl des Produkts."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from unittest.mock import patch
+    from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+    QApplication.instance() or QApplication([])
+    from knix_arranger.services.ko_templates import load_ga_selection
+    from knix_arranger.ui.dialogs import com_object_select_dialog as dialog_module
+    from knix_arranger.ui.dialogs.product_sync_dialog import offer_device_product
+    project, _room, assignment, wasser = _project()
+    wasser.communication_objects = communication_objects_of(_LEAK_COS)
+    seen = []
+
+    def accept(dlg):
+        seen.append(dlg.excluded_numbers())
+        return QDialog.Accepted
+    with patch.object(dialog_module.ComObjectSelectDialog, "exec", accept), \
+            patch.object(QMessageBox, "question",
+                         side_effect=AssertionError("keine Rückfrage")), \
+            patch("knix_arranger.services.product_sync.shared_catalog", return_value=None):
+        assert offer_device_product(None, project, [wasser]) is True
+    assert seen == [set()]                       # Leak: beide KOs melden
+    assert assignment.element_products[2]["order_number"] == "70316"
+    assert load_ga_selection(wasser) == set()

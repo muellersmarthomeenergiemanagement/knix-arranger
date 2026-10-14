@@ -1350,7 +1350,8 @@ class MaterialListView(QWidget):
 
     def _offer_device_product(self, devices: list) -> None:
         """Sensor-Produkt auch für die GAs seiner Gewerk-Elemente übernehmen
-        (Rückfrage); danach Aktoren/Sensoren und GAs neu berechnen."""
+        (Auswahl der KOs mit eigener GA); danach Aktoren/Sensoren und GAs neu
+        berechnen."""
         from ..dialogs.product_sync_dialog import offer_device_product
         if self._project and offer_device_product(self, self._project, devices):
             bus = getattr(self, "_bus", None)

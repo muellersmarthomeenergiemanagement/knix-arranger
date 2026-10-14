@@ -13,7 +13,9 @@ Schlüssel ohne Gerätebezug:
 - Aktoren: "Kanal-Nr.|Funktion", z.B. "1|E/A", "1|RM".
 
 Gespeichert als JSON in ~/.knix_arranger/ko_templates.json:
-{Produktschlüssel: {Schlüssel: KO-Nummer, -1 = nicht verknüpfen}}.
+{Produktschlüssel: {Schlüssel: KO-Nummer, -1 = nicht verknüpfen}}, dazu
+{Produktschlüssel + "#GA-Auswahl": [KO-Nummern ohne eigene GA]} -- welche KOs
+eines Sensor-Produkts eigene GAs bekommen (product_sync_dialog).
 """
 from __future__ import annotations
 
@@ -60,6 +62,30 @@ def save_template(device, entries: dict[str, int]) -> None:
     template = dict(data.get(product) or {})
     template.update(entries)
     data[product] = template
+    _write_all(data)
+
+
+_GA_SELECTION = "#GA-Auswahl"
+
+
+def load_ga_selection(device) -> set[int] | None:
+    """Gemerkte Auswahl, welche KOs des Produkts keine eigene GA bekommen
+    (excluded_co_numbers); None, wenn noch keine gemerkt ist."""
+    product = _product(device)
+    entry = _load_all().get(product + _GA_SELECTION) if product else None
+    return set(entry) if isinstance(entry, list) else None
+
+
+def save_ga_selection(device, excluded: set[int]) -> None:
+    product = _product(device)
+    if not product:
+        return
+    data = _load_all()
+    data[product + _GA_SELECTION] = sorted(excluded)
+    _write_all(data)
+
+
+def _write_all(data: dict) -> None:
     try:
         os.makedirs(os.path.dirname(_TEMPLATE_FILE), exist_ok=True)
         with open(_TEMPLATE_FILE, "w", encoding="utf-8") as f:

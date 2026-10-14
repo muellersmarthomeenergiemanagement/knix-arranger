@@ -241,6 +241,23 @@ def device_product(device, catalog=_DEFAULT) -> dict:
     }
 
 
+def default_excluded_numbers(com_objects: list[dict]) -> set[int]:
+    """Vorauswahl der KOs, die eine eigene GA bekommen: was der Sensor meldet
+    (sendet, ohne Schreiben). Eingänge -- Freigabe, Nachlaufzeit, Schwellen,
+    Externer Taster, Aktorstatus -- bleiben ohne eigene GA; sie hängen an
+    vorhandenen GAs (sensor_channels.SENSOR_ROLES) oder werden bei Bedarf
+    angehakt. Projekt_23 6131/40: 6 statt 40 KOs (P1/P2 Bewegung (Master),
+    Status Manuell, BR Helligkeit, BR Alarm). Meldet das Produkt nichts,
+    bleibt alles ausgewählt."""
+    from .knxprod_catalog_service import ComObjectInfo, unique_com_objects
+    infos = [ComObjectInfo.from_dict(co) for co in unique_com_objects(com_objects)]
+    relevant = [i for i in infos if i.needs_ga]
+    reports = {i.number for i in relevant if i.transmit_flag and not i.write_flag}
+    if not reports:
+        return set()
+    return {i.number for i in relevant if i.number not in reports}
+
+
 def apply_device_product(mismatches: list[ProductMismatch], product: dict) -> None:
     """Geräteprodukt für die GAs der Elemente übernehmen: bei einem Element
     als Produkt für alle, sonst als Produkt dieses Elements."""

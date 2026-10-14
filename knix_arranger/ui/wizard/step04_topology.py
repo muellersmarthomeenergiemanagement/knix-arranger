@@ -1085,7 +1085,7 @@ class Step04Topology(QWidget):
         if prod.com_objects:
             from ...services.product_sync import communication_objects_of
             device.communication_objects = communication_objects_of(prod.com_objects)
-        # Sensor: Produkt auch für die GAs seiner Elemente? Die GAs entstehen
+        # Sensor: das Produkt bestimmt die GAs seiner Elemente (KO-Auswahl). Die GAs entstehen
         # im Schritt Gruppenadressen neu.
         from ..dialogs.product_sync_dialog import offer_device_product
         offer_device_product(self, self._project, [device])
