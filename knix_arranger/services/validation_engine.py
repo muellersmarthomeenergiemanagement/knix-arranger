@@ -199,6 +199,20 @@ class ValidationEngine:
                 details={"device": device.physical_address, "product": product,
                          "planned": planned_text},
             ))
+        from .product_sync import sensor_products_on_actor_gewerke
+        for m in sensor_products_on_actor_gewerke(project):
+            device = m.device
+            product = " ".join(p for p in (device.manufacturer, device.order_number) if p)
+            issues.append(ValidationIssue(
+                "warning", "FA-621",
+                f"Die GAs von {m.element_text} ({m.room.number} {m.room.name}) folgen "
+                f"{product} von {device.physical_address} {device.product}, gehören "
+                f"aber dem Aktor",
+                device.physical_address,
+                "In Schritt 5 «Produkt…» das Produkt des Elements entfernen",
+                details={"device": device.physical_address, "product": product,
+                         "planned": product},
+            ))
         return issues
 
     def _check_unoperated(self, project) -> list[ValidationIssue]:

@@ -1196,6 +1196,7 @@ class MaterialListView(QWidget):
         from ..dialogs.actor_channel_dialog import ActorChannelDialog
         if not devices:
             return
+        self._release_sensor_products(devices)
         dlg = ActorChannelDialog(self._project, devices, parent=self)
         if dlg.exec() != QDialog.Accepted:
             return
@@ -1207,6 +1208,36 @@ class MaterialListView(QWidget):
             if bus:
                 bus.emit_functions_changed()
         self.list_changed.emit()
+
+    def _release_sensor_products(self, devices: list) -> None:
+        """Bedient der Aktor Elemente, deren GAs dem Produkt eines Sensors
+        folgen (z.B. «P1: Bewegung» statt E/A), vor der KO-Zuordnung anbieten,
+        sie auf den Standard des Gewerks zurückzusetzen."""
+        from ...services.product_sync import (
+            release_sensor_products, sensor_products_on_actor_gewerke,
+        )
+        found = sensor_products_on_actor_gewerke(self._project, devices)
+        if not found:
+            return
+        lines = "\n".join(
+            f"• {m.element_text} ({m.room.number} {m.room.name}): "
+            f"{m.device.physical_address} {m.device.manufacturer} {m.device.order_number}"
+            for m in found)
+        answer = QMessageBox.question(
+            self, "GAs nach dem Sensor",
+            f"Die GAs dieser Elemente folgen dem Produkt ihres Sensors, gehören "
+            f"aber dem Aktor:\n\n{lines}\n\nProdukt entfernen und die GAs nach dem "
+            f"Standard des Gewerks erzeugen (E/A, RM …)? Der Sensor sendet auf "
+            f"die Schalt-GA.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if answer != QMessageBox.Yes:
+            return
+        from ...services.address_generator import regenerate_addresses
+        release_sensor_products(found)
+        regenerate_addresses(self._project)
+        bus = getattr(self, "_bus", None)
+        if bus:
+            bus.emit_functions_changed()
 
     def _offer_channel_assignment(self, entry: MaterialEntry, devices: list) -> None:
         """Nach der Produktzuweisung: hat das Produkt KOs je Kanal, die

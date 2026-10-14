@@ -92,7 +92,7 @@ class ReportsDialog(QDialog):
         buttons = [
             ("Validierungsbericht Gruppenadressen", "Prüfergebnis aller GA-Regeln als PDF",
              self._gen_validation),
-            ("GA-Übersicht", "Alle Gruppenadressen mit Details als PDF",
+            ("GA-Übersicht", "Alle Gruppenadressen mit Gewerken, Aktoren und Bedienung als PDF",
              self._gen_ga_report),
             ("Projektzusammenfassung", "Kompakte Übersicht aller Projektdaten",
              self._gen_summary),

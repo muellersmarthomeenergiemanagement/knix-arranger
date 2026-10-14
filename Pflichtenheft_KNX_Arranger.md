@@ -1231,7 +1231,7 @@ Nach einem Import (KNXPROJ oder XLSX-Reports) soll das Projekt im Wizard weiterg
 | 2 | Inhaltsverzeichnis | Automatisch | Uebersicht aller enthaltenen Dokumente |
 | 3 | Anlagenbeschreibung | FA-903 | Projektzusammenfassung, Statistik, Systemuebersicht |
 | 4 | Topologie-Prinzipschema | FA-904 | Grafische Darstellung der KNX-Topologie |
-| 5 | Gruppenadress-Liste | FA-801 | Vollstaendige GA-Struktur mit Bezeichnungen und DPTs |
+| 5 | Gruppenadress-Liste | FA-801 | Vollstaendige GA-Struktur mit Bezeichnungen und DPTs; je GA betroffene Gewerke, Aktor bzw. Geraet (Kanal, Verteiler) und bedienende Taster/Sensoren; Uebersicht Gewerk x Hauptgruppe und Pruefliste der GAs ohne Verbindung |
 | 6 | Geraete-Liste | FA-1306, FA-1405 | Alle Aktoren und Sensoren mit Hersteller, Bestellnummer, Einbauort |
 | 7 | Funktionszuordnung | FA-1506 | Welcher Sensor steuert welche Funktion |
 | 8 | Szenen-Uebersicht | FA-1806 | Alle definierten Szenen pro Raum |

@@ -14,6 +14,11 @@ GAs und Gerät nicht zusammen -- product_mismatches() findet das,
 apply_device_product() übernimmt das Geräteprodukt für die GAs.
 Aktoren bedienen viele Räume und Gewerke, dort bleibt Schritt 5 eine
 eigene Entscheidung.
+
+Bedient ein Sensor ein Gewerk mit Aktor (z.B. Projekt_23 Waschen:
+Bewegungsmelder 1.2.105 schaltet L «Deckenlicht» und LDA), gehören die GAs
+dem Aktor (Schalten E/A, Rückmeldung) -- der Sensor sendet nur auf die
+Schalt-GA. Solche Elemente gleicht product_mismatches() nicht ab.
 """
 from __future__ import annotations
 
@@ -85,6 +90,13 @@ def _same_product(planned: dict | None, device) -> bool:
         == (device.manufacturer, device.order_number))
 
 
+def sensor_owns_gewerk(gewerk_code: str) -> bool:
+    """Gehören die GAs des Gewerks dem Sensor? Nicht bei Gewerken mit Aktor
+    oder Gateway (L, LDA, J, H ...): dort bestimmt der Aktor die GAs."""
+    from ..models.device import GEWERK_TO_ACTOR_TYPE
+    return gewerk_code not in GEWERK_TO_ACTOR_TYPE
+
+
 def device_elements(project, device) -> list[tuple]:
     """(Raum, GewerkAssignment, Element-Nr.) der Gewerk-Elemente, die ein
     Sensor-Gerät trägt (über die Funktionen seines Bedienelements)."""
@@ -114,7 +126,8 @@ _DEFAULT = object()
 def product_mismatches(project, devices=None, catalog=_DEFAULT) -> list[ProductMismatch]:
     """Elemente, deren Sensor-Gerät ein Produkt mit Kommunikationsobjekten
     hat, das nicht dem Produkt der GA-Planung entspricht. Nur geplante
-    Projekte -- importierte haben ihre GAs aus der ETS."""
+    Projekte -- importierte haben ihre GAs aus der ETS. Gewerke mit Aktor
+    zählen nicht (sensor_owns_gewerk)."""
     if project.topology.is_imported:
         return []
     if catalog is _DEFAULT:
@@ -128,11 +141,56 @@ def product_mismatches(project, devices=None, catalog=_DEFAULT) -> list[ProductM
             continue
         elements = [(room, assignment, nr)
                     for room, assignment, nr in device_elements(project, device)
-                    if not _same_product(assignment.product_for_element(nr), device)]
+                    if sensor_owns_gewerk(assignment.gewerk_code)
+                    and not _same_product(assignment.product_for_element(nr), device)]
         if elements and _has_com_objects(device, catalog):
             result += [ProductMismatch(device, room, assignment, nr)
                        for room, assignment, nr in elements]
     return result
+
+
+def sensor_products_on_actor_gewerke(project, devices=None) -> list[ProductMismatch]:
+    """Elemente eines Gewerks mit Aktor, deren GAs dem Produkt des Sensors
+    folgen, der sie bedient -- Rückstand der früheren Übernahme ohne
+    sensor_owns_gewerk (Projekt_23 Waschen: L «Deckenlicht» und LDA nach dem
+    Bewegungsmelder 6131/40, der Aktor 1.2.13 erhielt «P1: Bewegung» statt
+    E/A). devices: nur Elemente, die einer dieser Aktoren bedient."""
+    if project.topology.is_imported:
+        return []
+    circuits = None
+    if devices is not None:
+        from .actor_channels import device_circuits
+        circuits = {c.key for d in devices for c in device_circuits(project, d)}
+    from .actor_channels import circuit_key
+    result, seen = [], set()
+    for area in project.topology.areas:
+        for line in area.lines:
+            for device in line.devices:
+                if device.device_type != "sensor" or not device.order_number:
+                    continue
+                for room, assignment, nr in device_elements(project, device):
+                    key = (assignment.id, nr)
+                    if (key in seen or sensor_owns_gewerk(assignment.gewerk_code)
+                            or not _same_product(assignment.product_for_element(nr), device)):
+                        continue
+                    if circuits is not None and circuit_key(
+                            room.id, assignment.gewerk_code, nr) not in circuits:
+                        continue
+                    seen.add(key)
+                    result.append(ProductMismatch(device, room, assignment, nr))
+    return result
+
+
+def release_sensor_products(found: list[ProductMismatch]) -> None:
+    """Produkt des Sensors von den Elementen entfernen: die GAs folgen wieder
+    dem Standard des Gewerks (danach regenerate_addresses)."""
+    for m in found:
+        assignment = m.assignment
+        if m.element_nr in assignment.element_products:
+            del assignment.element_products[m.element_nr]
+        else:
+            # Produkt für alle Elemente (_same_product hat es geprüft)
+            assignment.linked_product = None
 
 
 def communication_objects_of(com_objects: list[dict]) -> list:

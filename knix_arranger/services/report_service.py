@@ -579,14 +579,27 @@ class ReportService:
                       col_widths=widths, align=align)
 
     def generate_ga_report(self, filepath: str):
-        """Erzeugt eine GA-Übersicht als PDF/Text."""
+        """Erzeugt die GA-Übersicht als PDF im Querformat.
+
+        Statistik, Übersicht Gewerk × Hauptgruppe, Prüfliste der GAs ohne
+        Aktor/Gerät und Bedienung, dann die Zentral- und Szenenadressen (HG 0)
+        mit den betroffenen Gewerken und der Anzahl Aktoren, danach je
+        Haupt-/Mittelgruppe jede GA mit Gewerk, Raum, Aktor (Kanal,
+        Verteiler) und bedienenden Tastern/Sensoren (siehe ga_links).
+        """
+        from .ga_links import ga_links
+
         structure = self.project.group_addresses
         mg_names = (MIDDLE_GROUP_NAMES_B if structure.variant == "B"
                     else MIDDLE_GROUP_NAMES_A)
+        links = ga_links(self.project)
 
-        pdf = self._make_pdf("Gruppenadress-Übersicht")
+        title = "Gruppenadress-Übersicht"
+        pdf = self._make_pdf(title)
+        pdf.landscape = True
+        pdf.subtitle = "Gewerke, Aktoren und Bedienung je Gruppenadresse"
 
-        pdf.add_heading("Gruppenadress-Übersicht", level=1)
+        pdf.add_heading(title, level=1)
         pdf.add_paragraph(
             f"Variante: {structure.variant} | "
             f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
@@ -607,39 +620,134 @@ class ReportService:
         pdf.add_paragraph(
             f"davon Reserve (für Erweiterungen freigehalten): {placeholders}")
         pdf.add_paragraph(f"Zentraladressen (HG 0): {central}")
+        connected = sum(1 for link in links.values() if link.connected)
+        pdf.add_paragraph(
+            f"mit Aktor, Gerät oder Bedienung verbunden: {connected} "
+            f"von {total_gas - placeholders}")
         pdf.add_separator()
 
-        # Pro Hauptgruppe
-        for hg in sorted(structure.main_groups, key=lambda h: h.number):
+        main_groups = sorted(structure.main_groups, key=lambda h: h.number)
+        used = [ga for ga in all_gas if not ga.is_placeholder]
+        self._ga_gewerk_overview(pdf, main_groups, used)
+        self._ga_unconnected(pdf, used, links)
+
+        def dpt(ga) -> str:
+            return dpt_number(ga.datapoint_type) or ga.datapoint_type or "-"
+
+        def lines(items: list[str]) -> str:
+            return "\n".join(items) or "-"
+
+        for hg in main_groups:
             hg_gas = sum(len(mg.group_addresses) for mg in hg.middle_groups)
+            if not hg_gas:
+                continue
+            pdf.add_page_break()
             pdf.add_heading(f"HG {hg.number}: {hg.name} ({hg_gas} GAs)", level=2)
+            if hg.number == 0:
+                pdf.add_note("Hinweis:", "Zentral- und Szenenadressen wirken auf die "
+                             "Stromkreise mehrerer Aktoren; aufgeführt sind die "
+                             "betroffenen Gewerke und die Aktoren.")
 
             for mg in sorted(hg.middle_groups, key=lambda m: m.number):
                 if not mg.group_addresses:
                     continue
-                mg_name = mg_names.get(mg.number, mg.name)
-                pdf.add_heading(
-                    f"MG {mg.number}: {mg_name} ({len(mg.group_addresses)} GAs)",
-                    level=3,
-                )
-
-                headers = ["Adresse", "Bezeichnung", "DPT", "Gewerk"]
+                central_hg = hg.number == 0
+                # Die Namen der Variante gelten für die Stockwerke, HG 0 hat eigene
+                mg_name = (mg.name if central_hg else mg_names.get(mg.number, mg.name))
+                # Reserven nur als Anzahl: die Lücken zeigen die Adressen
+                gas = sorted((ga for ga in mg.group_addresses if not ga.is_placeholder),
+                             key=lambda g: g.sub_group)
+                reserves = len(mg.group_addresses) - len(gas)
+                count = f"{len(gas)} GAs" + (f", {reserves} Reserve" if reserves else "")
+                pdf.add_heading(f"MG {mg.number}: {mg_name} ({count})", level=3)
+                if not gas:
+                    continue
                 rows = []
-                for ga in sorted(mg.group_addresses, key=lambda g: g.sub_group):
-                    gewerk_label = (
-                        self._gewerk_label(ga.gewerk_code)
-                        if ga.gewerk_code else "-"
-                    )
+                for ga in gas:
+                    designation = ga.designation or "-"
+                    link = links.get(ga.address)
+                    if central_hg:
+                        actors = link.actor_addresses if link else []
+                        n = len(actors)
+                        rows.append([
+                            ga.address, designation, dpt(ga),
+                            ", ".join(link.gewerke) if link and link.gewerke else "-",
+                            (f"{n} Aktor{'en' if n != 1 else ''}", ", ".join(actors))
+                            if n else lines(link.outputs if link else []),
+                            lines(link.operators if link else []),
+                        ])
+                        continue
                     rows.append([
-                        ga.address,
-                        ga.designation[:50] if ga.designation else "-",
-                        ga.datapoint_type or "-",
-                        gewerk_label,
+                        ga.address, designation, dpt(ga),
+                        ", ".join(link.gewerke) if link and link.gewerke else "-",
+                        (link.room[0] if link else "") or "-",
+                        lines(link.outputs if link else []),
+                        lines(link.operators if link else []),
                     ])
-                pdf.add_table(headers, rows)
+                if central_hg:
+                    pdf.add_table(
+                        ["Adresse", "Bezeichnung", "DPT", "Betroffene Gewerke",
+                         "Aktoren", "Bedient von"],
+                        rows, col_widths=[0.07, 0.28, 0.06, 0.17, 0.27, 0.15])
+                else:
+                    pdf.add_table(
+                        ["Adresse", "Bezeichnung", "DPT", "Gewerk", "Raum",
+                         "Aktor / Gerät", "Bedient von"],
+                        rows, col_widths=[0.06, 0.34, 0.055, 0.06, 0.065, 0.26, 0.16])
 
         pdf.save(filepath)
         logger.info(f"GA-Bericht erstellt: {filepath}")
+
+    def _ga_gewerk_overview(self, pdf, main_groups: list, gas: list) -> None:
+        """Übersicht der GA-Übersicht: belegte GAs je Gewerk und Hauptgruppe."""
+        catalog = self.project.gewerk_catalog
+        hg_numbers = [hg.number for hg in main_groups
+                      if any(mg.group_addresses for mg in hg.middle_groups)]
+        counts: dict[str, Counter] = defaultdict(Counter)
+        for ga in gas:
+            counts[ga.gewerk_code][ga.main_group] += 1
+
+        def sort_key(code: str) -> tuple:
+            gewerk = catalog.get(code) if code else None
+            return (gewerk is None, _gewerk_category_sort_key(gewerk.category if gewerk else ""),
+                    code)
+
+        rows = []
+        for code in sorted(counts, key=sort_key):
+            label = self._gewerk_label(code) if code else "ohne Gewerk"
+            per_hg = counts[code]
+            rows.append([label] + [str(per_hg[n]) if per_hg[n] else "" for n in hg_numbers]
+                        + [str(sum(per_hg.values()))])
+        rows.append(["Total"] + [
+            str(sum(counts[c][n] for c in counts)) for n in hg_numbers] + [str(len(gas))])
+        names = {hg.number: hg.name for hg in main_groups}
+        headers = ["Gewerk"] + [f"HG {n}" for n in hg_numbers] + ["Total"]
+        n_cols = len(hg_numbers) + 1
+        first = 0.34
+        pdf.add_heading("Gruppenadressen je Gewerk und Hauptgruppe", level=2)
+        pdf.add_paragraph("  ".join(f"HG {n}: {names[n]}" for n in hg_numbers))
+        pdf.add_table(headers, rows,
+                      col_widths=[first] + [(1 - first) / n_cols] * n_cols,
+                      align=["left"] + ["right"] * n_cols)
+
+    def _ga_unconnected(self, pdf, gas: list, links: dict) -> None:
+        """Prüfliste: GAs ohne Aktor, Gerät und Bedienung -- vor der Übertragung
+        in die ETS klären (fehlender Aktor, nicht verknüpfte Funktion)."""
+        rows = [[ga.address, ga.designation or "-",
+                 ga.gewerk_code or "-"]
+                for ga in sorted(gas, key=lambda g: (g.main_group, g.middle_group, g.sub_group))
+                if not (links.get(ga.address) and links[ga.address].connected)]
+        pdf.add_heading("Prüfliste: Gruppenadressen ohne Verbindung", level=2)
+        if not rows:
+            pdf.add_paragraph("Alle Gruppenadressen sind mit einem Aktor, Gerät "
+                              "oder Taster/Sensor verbunden.")
+            return
+        pdf.add_paragraph(f"{len(rows)} Gruppenadressen ohne Aktor, Gerät und "
+                          "Bedienung – Aktor fehlt oder Funktion nicht verknüpft. "
+                          "Systemadressen (z.B. Astro) sendet eine Zeitschaltuhr "
+                          "oder Logik ausserhalb der Planung.")
+        pdf.add_table(["Adresse", "Bezeichnung", "Gewerk"], rows,
+                      col_widths=[0.10, 0.75, 0.15])
 
     def _room_gewerk_groups(self):
         """Ordnet die Gruppenadressen Räumen und Elementen zu.

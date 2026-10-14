@@ -13,7 +13,7 @@ from knix_arranger.models.project import KnxProject
 from knix_arranger.models.topology import Area, Device, Line
 from knix_arranger.services.product_sync import (
     apply_device_product, communication_objects_of, device_elements, device_product,
-    product_mismatches,
+    product_mismatches, release_sensor_products, sensor_products_on_actor_gewerke,
 )
 from knix_arranger.services.validation_engine import ValidationEngine
 
@@ -94,6 +94,41 @@ def test_kommunikationsobjekte_aus_dem_katalog():
     assert product_mismatches(project, catalog=None) == []
     assert len(product_mismatches(project, catalog=Catalog())) == 1
     assert [co["number"] for co in device_product(wasser, Catalog())["com_objects"]] == [2, 3]
+
+
+def test_gewerk_mit_aktor_bleibt_beim_aktor():
+    """Projekt_23 Waschen: der Bewegungsmelder 1.2.105 schaltet L
+    «Deckenlicht» und LDA -- deren GAs (E/A, RM) gehören dem Aktor, das
+    Produkt des Melders darf sie nicht ersetzen."""
+    project, room, assignment, wasser = _project()
+    licht = GewerkAssignment(gewerk_code="L", count=1)
+    dali = GewerkAssignment(gewerk_code="LDA", count=1)
+    room.gewerk_assignments += [licht, dali]
+    room.bedienelemente[1].funktionen += [SensorFunktion(gewerk_code="L", element_number=1),
+                                          SensorFunktion(gewerk_code="LDA", element_number=1)]
+    assert [(a.gewerk_code, nr) for _r, a, nr in device_elements(project, wasser)] == [
+        ("A", 2), ("L", 1), ("LDA", 1)]
+    assert [(m.assignment.gewerk_code, m.element_nr)
+            for m in product_mismatches(project)] == [("A", 2)]
+
+
+def test_rueckstand_sensorprodukt_auf_aktor_gewerk():
+    """Projekt_23 Waschen: L «Deckenlicht» trug noch das Produkt des
+    Bewegungsmelders -- der Aktor 1.2.13 erhielt «P1: Bewegung» statt E/A.
+    Erkennen, warnen, entfernen."""
+    project, room, _assignment, wasser = _project()
+    licht = GewerkAssignment(gewerk_code="L", count=2)
+    licht.element_products[1] = device_product(wasser, catalog=None)
+    room.gewerk_assignments.append(licht)
+    room.bedienelemente[1].funktionen.append(SensorFunktion(gewerk_code="L", element_number=1))
+    found = sensor_products_on_actor_gewerke(project)
+    assert [(m.assignment.gewerk_code, m.element_nr) for m in found] == [("L", 1)]
+    issues = [i for i in ValidationEngine().validate(GroupAddressStructure(), project)
+              if i.rule_id == "FA-621" and "gehören aber dem Aktor" in i.message]
+    assert len(issues) == 1 and "Element 1" in issues[0].message
+    release_sensor_products(found)
+    assert licht.element_products == {}
+    assert sensor_products_on_actor_gewerke(project) == []
 
 
 def test_importiert_ohne_abgleich():

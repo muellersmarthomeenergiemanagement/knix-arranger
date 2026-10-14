@@ -60,8 +60,8 @@ def dpt_label(dpst: str) -> str:
 
 
 def dpt_number(dpst: str) -> str:
-    """'DPST-1-22' -> '1.022', 'DPT-9' -> '9.xxx'; Unbekanntes unverändert."""
-    m = re.fullmatch(r"DPST-(\d+)-(\d+)", dpst or "")
+    """'DPST-1-22' (auch 'DPT-1-22') -> '1.022', 'DPT-9' -> '9.xxx'; Unbekanntes unverändert."""
+    m = re.fullmatch(r"DPS?T-(\d+)-(\d+)", dpst or "")
     if m:
         return f"{int(m.group(1))}.{int(m.group(2)):03d}"
     m = re.fullmatch(r"DPT-(\d+)", dpst or "")

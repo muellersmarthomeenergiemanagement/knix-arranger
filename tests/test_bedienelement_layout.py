@@ -95,6 +95,7 @@ def test_links_rechts_im_raster():
 def test_dpt_number():
     assert dpt_number("DPST-1-22") == "1.022"
     assert dpt_number("DPT-9") == "9.xxx"
+    assert dpt_number("DPT-19-1") == "19.001"   # Astro-GAs Projekt_23
     assert dpt_number("") == ""
 
 

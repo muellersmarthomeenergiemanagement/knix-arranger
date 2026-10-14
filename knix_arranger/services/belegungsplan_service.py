@@ -766,6 +766,12 @@ class BelegungsplanService:
         # phys. Adresse -> Menge bedienter room_ids (fuer Szenen-Geltungsbereichs-
         # Filterung weiter unten -- welcher Aktor bedient welchen Raum).
         rooms_by_device_addr: dict[str, set[str]] = {}
+        # Gemeinsames Gateway (z.B. Revox: ein Gateway für alle Lautsprecher-
+        # Zonen) bedient die Räume aller Linien, nicht nur seiner eigenen --
+        # das erste Gerät der Gewerk-Gruppe übernimmt sie
+        shared_codes = set(project.shared_gateways())
+        all_room_ids = [r.id for r in project.all_rooms]
+        shared_claimed: set[frozenset] = set()
 
         for area in project.topology.areas:
             for line in area.lines:
@@ -794,7 +800,13 @@ class BelegungsplanService:
                     # in deterministischer Reihenfolge sammeln.
                     circuits: list[tuple] = []  # (room_id, room, gewerk_code, elem_nr, list[GA])
                     seen_circuits: set[tuple] = set()
-                    for room_id in line.assigned_room_ids:
+                    room_ids = line.assigned_room_ids
+                    if gewerke_set <= shared_codes:
+                        if gewerke_set in shared_claimed:
+                            continue
+                        shared_claimed.add(gewerke_set)
+                        room_ids = all_room_ids
+                    for room_id in room_ids:
                         room = room_index.get(room_id)
                         if not room:
                             continue
