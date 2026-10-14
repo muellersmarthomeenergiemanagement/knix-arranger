@@ -326,7 +326,7 @@ class ProductSearchService:
         """
         results = []
         for prod in self._catalog:
-            if self.is_hidden(prod):
+            if self.is_hidden(prod) or self.is_shadowed(prod):
                 continue
             if prod.get("category") != "actor":
                 continue
@@ -379,7 +379,7 @@ class ProductSearchService:
         """
         results = []
         for prod in self._catalog:
-            if self.is_hidden(prod):
+            if self.is_hidden(prod) or self.is_shadowed(prod):
                 continue
             if prod.get("category") != "sensor":
                 continue
@@ -429,7 +429,7 @@ class ProductSearchService:
         """
         results = []
         for prod in self._catalog:
-            if self.is_hidden(prod):
+            if self.is_hidden(prod) or self.is_shadowed(prod):
                 continue
             if prod.get("category") != "infrastructure":
                 continue
@@ -491,7 +491,7 @@ class ProductSearchService:
 
         for prod in self._catalog:
             hidden = self.is_hidden(prod)
-            if hidden and not include_hidden:
+            if (hidden or self.is_shadowed(prod)) and not include_hidden:
                 continue
             cat = prod.get("category", "")
             if category_filter and cat != category_filter:
@@ -726,6 +726,67 @@ class ProductSearchService:
         Nachfolgerauswahl beim Markieren als veraltet)."""
         name = manufacturer_display_name(manufacturer)
         return [p for p in self._catalog if p.get("manufacturer", "") == name]
+
+    def duplicate_variants(self) -> dict[tuple[str, str], dict]:
+        """Produktschlüssel eines Eintrags ohne KOs -> Katalogeintrag desselben
+        Geräts mit KOs (gleicher Hersteller, Typbezeichnung im Namen bzw. in
+        der Bestellnummer), z.B. ABB «VAA/S6.230.2.1» (0 KOs) -> «2CDG 110
+        116 R0011 – VAA/S6.230.2.1 Valve Drive Actuator» (82 KOs). Der
+        Katalog kennt solche Geräte doppelt: aus der Basis-Datenbank und aus
+        der KNXPROD; unerkannt eingebaut fehlen die KOs (FA-622)."""
+        stamp = (len(self._catalog), id(self._catalog))
+        cached = getattr(self, "_duplicates", None)
+        if cached and cached[0] == stamp:
+            return cached[1]
+        with_kos: dict[str, list[tuple[str, dict]]] = {}
+        for prod in self._catalog:
+            if self._co_count(prod) and not self.is_hidden(prod):
+                text = f"{prod.get('order_number', '')} {prod.get('product_name', '')}".lower()
+                with_kos.setdefault(prod.get("manufacturer", ""), []).append((text, prod))
+        result = {}
+        for prod in self._catalog:
+            if self._co_count(prod):
+                continue
+            token = (prod.get("order_number") or "").strip().lower()
+            if len(token) < 4 or token == "dummy":   # Platzhalter (Feller «Dummy»)
+                continue
+            for text, other in with_kos.get(prod.get("manufacturer", ""), []):
+                if token in text and other.get("order_number") != prod.get("order_number"):
+                    result[self._key(prod)] = other
+                    break
+        self._duplicates = (stamp, result)
+        return result
+
+    def is_shadowed(self, product: dict) -> bool:
+        """Eintrag ohne KOs, den der Katalog auch mit KOs kennt: in der
+        Produktsuche nicht anbieten (bestehende Zuweisungen bleiben, die
+        Validierung meldet sie, FA-622). Entsteht, weil die Basis-Datenbank
+        die Typbezeichnung als Bestellnummer führt (ABB «VAA/S6.230.2.1»),
+        die KNXPROD die echte Bestellnummer («2CDG 110 116 R0011»)."""
+        return not self._co_count(product) and self._key(product) in self.duplicate_variants()
+
+    def duplicate_of(self, manufacturer: str, order_number: str,
+                     product_name: str = "") -> dict | None:
+        """Katalogeintrag mit KOs zu einem Produkt ohne KOs (siehe
+        duplicate_variants), sonst None."""
+        return self.duplicate_variants().get(product_key(manufacturer, order_number,
+                                                         product_name))
+
+    def variant_with_com_objects(self, prod: ProductSuggestion) -> ProductSuggestion | None:
+        """Gleiches Gerät mit KOs aus der KNXPROD, wenn prod keine hat: der
+        Katalog kennt manche Geräte doppelt, z.B. ABB «VAA/S6.230.2.1 –
+        Heizungsaktor 6-fach» (ohne KOs) und «2CDG 110 116 R0011 –
+        VAA/S6.230.2.1 Valve Drive Actuator» (82 KOs), siehe
+        duplicate_variants."""
+        if prod.co_count or prod.com_objects or not prod.order_number:
+            return None
+        duplicate = self.duplicate_of(prod.manufacturer, prod.order_number, prod.product_name)
+        if duplicate is None:
+            return None
+        return next((c for c in self.search_all(query=duplicate.get("order_number", ""))
+                     if self._key({"manufacturer": c.manufacturer, "order_number": c.order_number,
+                                   "product_name": c.product_name}) == self._key(duplicate)),
+                    None)
 
     def find_product(self, manufacturer: str, order_number: str,
                      product_name: str = "") -> dict | None:

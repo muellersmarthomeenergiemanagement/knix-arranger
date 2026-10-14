@@ -401,6 +401,14 @@ class ProductSelectDialog(QDialog):
                 _NumberItem(prod.channels),
                 _NumberItem(prod.co_count),
             ]
+            duplicate = self._duplicate_of(prod)
+            if duplicate:
+                items[_COL_NAME].setText(f"{prod.product_name}  ⚠ doppelt, mit KOs: "
+                                         f"{duplicate.get('order_number', '')}")
+                for item in items:
+                    item.setForeground(QColor("#BF360C"))
+                    item.setToolTip("Dieser Eintrag hat keine KOs – vermutlich dasselbe Gerät "
+                                    f"wie «{duplicate.get('order_number', '')}» aus der KNXPROD.")
             for col, item in enumerate(items):
                 item.setData(Qt.UserRole, prod)
                 item.setBackground(_highlight)
@@ -557,6 +565,13 @@ class ProductSelectDialog(QDialog):
             if prod.superseded_by:
                 name_text += "  ⚠ veraltet"
                 tooltip = f"Ersetzt durch Bestellnummer: {prod.superseded_by}"
+            duplicate = self._duplicate_of(prod)
+            if duplicate:
+                name_text += f"  ⚠ doppelt, mit KOs: {duplicate.get('order_number', '')}"
+                tooltip = (f"Vermutlich dasselbe Gerät wie «{duplicate.get('order_number', '')} – "
+                           f"{duplicate.get('product_name', '')}» aus der KNXPROD "
+                           f"({self._search_service._co_count(duplicate)} KOs). "
+                           "Dieser Eintrag hat keine KOs – den anderen wählen.")
 
             items = [
                 QTableWidgetItem(device_type),
@@ -585,8 +600,8 @@ class ProductSelectDialog(QDialog):
                     item.setForeground(_ONLINE_COLOR)
                     item.setToolTip("Aus dem Online-Katalog")
 
-            # Veraltete und ausgeblendete Produkte grau/kursiv absetzen
-            if prod.superseded_by or prod.hidden:
+            # Veraltete, doppelte und ausgeblendete Produkte grau/kursiv absetzen
+            if prod.superseded_by or prod.hidden or duplicate:
                 if prod.hidden:
                     items[_COL_NAME].setText(name_text + "  (ausgeblendet)")
                     tooltip = "Ausgeblendet – Rechtsklick: wieder einblenden"
@@ -715,12 +730,23 @@ class ProductSelectDialog(QDialog):
             facts.append("KNX Secure")
         if prod.superseded_by:
             facts.append(f"veraltet, ersetzt durch {escape(prod.superseded_by)}")
+        duplicate = self._duplicate_of(prod)
+        if duplicate:
+            facts.append("<span style='color:#b26a00'>⚠ vermutlich doppelt: "
+                         f"{escape(duplicate.get('order_number', ''))} mit KOs wählen</span>")
         if prod.hidden:
             facts.append("ausgeblendet")
         parts.append(" · ".join(facts))
         if prod.product_ref_id:
             parts.append(f"<span style='color:#666'>ETS: {escape(prod.product_ref_id)}</span>")
         self._details.setText("<br>".join(parts))
+
+    def _duplicate_of(self, prod: ProductSuggestion) -> dict | None:
+        """Eintrag mit KOs desselben Geräts, wenn prod keine hat (FA-622)."""
+        if prod.co_count or prod.online:
+            return None
+        finder = getattr(self._search_service, "duplicate_of", None)
+        return finder(prod.manufacturer, prod.order_number, prod.product_name) if finder else None
 
     def _show_table_context_menu(self, pos):
         row = self._table.rowAt(pos.y())

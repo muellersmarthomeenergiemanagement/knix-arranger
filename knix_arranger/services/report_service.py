@@ -201,6 +201,15 @@ VALIDATION_RULES = {
         "Raum). Wird das Element anders bedient (z.B. Visualisierung, Logik), "
         "kann der Hinweis bleiben.",
     ),
+    "FA-622": (
+        "Produkt ohne KOs",
+        "Das Produkt eines Geräts hat im Katalog keine Kommunikationsobjekte. "
+        "Warnung: der Katalog kennt vermutlich dasselbe Gerät aus der KNXPROD mit "
+        "KOs (doppelter Eintrag). Hinweis: ohne KOs ist keine Kanal-/KO-Zuordnung "
+        "und keine KO-Verknüpfung möglich.",
+        "Materialliste › «Produkte mit KOs übernehmen…» bzw. die KNXPROD des "
+        "Herstellers importieren.",
+    ),
     "FA-620": (
         "GA-Generierung",
         "Fehler: eine Mittelgruppe ist voll, Gruppenadressen eines Gewerks "

@@ -81,6 +81,7 @@ class ValidationEngine:
             issues.extend(self._check_time_programs(project))
             issues.extend(self._check_unoperated(project))
             issues.extend(self._check_product_mismatch(project))
+            issues.extend(self._check_products_without_kos(project))
             issues.extend(self._check_scene_numbers(project))
             # FA-609, FA-611 bis FA-613: Topologie
             from .topology_validation import check_topology
@@ -213,6 +214,53 @@ class ValidationEngine:
                 details={"device": device.physical_address, "product": product,
                          "planned": product},
             ))
+        return issues
+
+    def _check_products_without_kos(self, project) -> list[ValidationIssue]:
+        """FA-622: Geräte, deren Produkt im Katalog keine KOs hat -- Warnung,
+        wenn der Katalog dasselbe Gerät mit KOs kennt (Projekt_23: ABB
+        VAA/S6.230.2.1 ohne KOs, «2CDG 110 116 R0011» mit 82 KOs), sonst
+        Hinweis: ohne KOs keine Kanal-/KO-Zuordnung."""
+        from .product_sync import shared_catalog
+        catalog = shared_catalog()
+        if catalog is None or project.topology.is_imported:
+            return []
+        issues = []
+        for area in project.topology.areas:
+            for line in area.lines:
+                for device in line.devices:
+                    if not device.order_number or device.device_type not in (
+                            "actor", "gateway", "sensor"):
+                        continue
+                    found = catalog.find_product(device.manufacturer, device.order_number,
+                                                 device.product_name)
+                    if found is None or found.get("com_objects"):
+                        continue
+                    product = " ".join(p for p in (device.manufacturer, device.order_number)
+                                       if p)
+                    duplicate = catalog.duplicate_of(device.manufacturer, device.order_number,
+                                                     device.product_name)
+                    if duplicate:
+                        issues.append(ValidationIssue(
+                            "warning", "FA-622",
+                            f"{device.physical_address} {device.product}: {product} hat keine "
+                            f"KOs – vermutlich dasselbe Gerät wie "
+                            f"{duplicate.get('order_number', '')} (KNXPROD, mit KOs)",
+                            device.physical_address,
+                            "Materialliste › «Produkte mit KOs übernehmen…»",
+                            details={"device": device.physical_address, "product": product,
+                                     "planned": duplicate.get("order_number", "")},
+                        ))
+                    else:
+                        issues.append(ValidationIssue(
+                            "info", "FA-622",
+                            f"{device.physical_address} {device.product}: {product} hat keine "
+                            f"KOs – keine Kanal-/KO-Zuordnung möglich",
+                            device.physical_address,
+                            "KNXPROD des Herstellers in den Produktkatalog importieren",
+                            details={"device": device.physical_address, "product": product,
+                                     "planned": ""},
+                        ))
         return issues
 
     def _check_unoperated(self, project) -> list[ValidationIssue]:

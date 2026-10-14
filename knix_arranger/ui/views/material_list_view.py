@@ -57,6 +57,21 @@ _COL_SOURCE    = 12
 _NUM_COLS      = 13
 
 
+def _copy_product(source: Device, target: Device) -> None:
+    """Produkt eines aufgeteilten Aktors auf ein neues Gerät übernehmen
+    (Hersteller, Bestellnummer, ETS-Kennungen, KOs ohne Verknüpfungen)."""
+    import copy
+    if not source.order_number:
+        return
+    for name in ("manufacturer", "manufacturer_id", "product_ref_id", "hw2prog_id",
+                 "secure_supported", "order_number", "product_name", "application_program"):
+        setattr(target, name, getattr(source, name))
+    target.datasheets = list(source.datasheets)
+    target.communication_objects = copy.deepcopy(source.communication_objects)
+    for co in target.communication_objects:
+        co.connected_gas = []
+
+
 class MaterialListView(QWidget):
     """Haupt-Ansicht der Materialliste (FA-2302)."""
 
@@ -130,6 +145,11 @@ class MaterialListView(QWidget):
         self._btn_channels = more_menu.addAction("Kanäle und KOs zuordnen…",
                                                  self._assign_channels_selected)
         self._btn_channels.setEnabled(False)
+        self._btn_replace_dup = more_menu.addAction("Produkte mit KOs übernehmen…",
+                                                    self._replace_duplicate_products)
+        self._btn_replace_dup.setToolTip(
+            "Produkte ohne KOs, die der Katalog auch aus der KNXPROD mit KOs kennt\n"
+            "(doppelte Einträge, z.B. ABB VAA/S6.230.2.1), durch den Eintrag mit KOs ersetzen")
         self._btn_ko_batch = more_menu.addAction("KOs aller Geräte zuordnen…",
                                                  self._assign_all_kos)
         self._btn_ko_batch.setToolTip(
@@ -536,6 +556,7 @@ class MaterialListView(QWidget):
         self._table.setSortingEnabled(False)
         self._table.blockSignals(True)
         self._table.setRowCount(0)
+        duplicates = {entry.id: variant for entry, variant in self.duplicate_replacements()}
 
         for entry in entries:
             row = self._table.rowCount()
@@ -647,6 +668,17 @@ class MaterialListView(QWidget):
                             "Wizard-Platzhalter: noch kein Produkt zugewiesen.\n"
                             "Doppelklick oder \"Produkt zuweisen\" verwenden."
                         )
+
+            # Doppelter Katalogeintrag ohne KOs (FA-622)
+            variant = duplicates.get(entry.id)
+            if variant is not None:
+                name_item = items[_COL_PRODNAME]
+                name_item.setText(f"{name_item.text()}  ⚠ ohne KOs")
+                name_item.setForeground(QColor("#BF360C"))
+                name_item.setToolTip(
+                    f"Dieses Produkt hat keine KOs. Vermutlich dasselbe Gerät: "
+                    f"{variant.order_number} – {variant.product_name} ({variant.co_count} KOs).\n"
+                    f"Weitere › «Produkte mit KOs übernehmen…»")
 
             # Vollständige Raumliste als Tooltip der Gewerk-Spalte (ersetzt
             # in dieser Zelle den Status-Tooltip der Zeile)
@@ -940,15 +972,22 @@ class MaterialListView(QWidget):
         self._rebuild_table()
         self.list_changed.emit()
 
-    def _split_actor_by_channels(self, entry: MaterialEntry) -> None:
+    def _split_actor_by_channels(self, entry: MaterialEntry,
+                                 n: int | None = None) -> list[MaterialEntry]:
         """
         Teilt einen einzelnen Aktor-Platzhalter kanalweise auf.
 
         Beispiel: "Schaltaktor 16-fach" → 2× "Schaltaktor 8-fach"
         Die Topologie wird entsprechend aktualisiert und physikalische
-        Adressen werden neu vergeben.
+        Adressen werden neu vergeben -- auch in den übrigen Einträgen der
+        Materialliste. Hat das Gerät schon ein Produkt (Projekt_23 1.1.10:
+        «Heizungsaktor 12-fach» = ABB VAA/S6, 6 Kanäle), erhalten es die
+        neuen Geräte ebenfalls. n: Anzahl Einheiten (sonst Rückfrage).
+        Gibt die neuen Einträge zurück ([] = abgebrochen).
         """
         required = entry.required_channels
+        if n is not None:
+            return self._split_actor(entry, n)
 
         n, ok = QInputDialog.getInt(
             self,
@@ -958,8 +997,12 @@ class MaterialListView(QWidget):
             2, 2, required, 1,
         )
         if not ok:
-            return
+            return []
+        return self._split_actor(entry, n)
 
+    def _split_actor(self, entry: MaterialEntry, n: int) -> list[MaterialEntry]:
+        """Aufteilen in n Einheiten (siehe _split_actor_by_channels)."""
+        required = entry.required_channels
         channels_per_unit = math.ceil(required / n)
         new_device_type = split_device_type(entry.device_type, channels_per_unit)
 
@@ -988,7 +1031,12 @@ class MaterialListView(QWidget):
                 "Das Gerät konnte in der Topologie nicht gefunden werden.\n"
                 "Bitte die Topologie neu synchronisieren.",
             )
-            return
+            return []
+
+        # Die Adressen verschieben sich: übrige Einträge über das Gerät nachführen
+        device_by_address = {
+            dev.physical_address: dev for area in self._project.topology.areas
+            for line in area.lines for dev in line.devices if dev.physical_address}
 
         # Originales Gerät entfernen; Einfügeposition merken (Aktoren vor Sensoren)
         insert_at = target_line.devices.index(target_device)
@@ -1004,6 +1052,7 @@ class MaterialListView(QWidget):
                 installation_location=target_device.installation_location,
                 manually_split=True,
             )
+            _copy_product(target_device, new_dev)
             target_line.devices.insert(insert_at + i, new_dev)
             new_devices.append(new_dev)
 
@@ -1016,10 +1065,17 @@ class MaterialListView(QWidget):
             small_project=(self._project.topology.topology_mode == "TP-64"),
         )
 
+        for other in self._material_list.entries:
+            if other is not entry:
+                other.physical_addresses = [
+                    device_by_address[pa].physical_address if pa in device_by_address else pa
+                    for pa in other.physical_addresses]
+
         # Materiallisten-Eintrag ersetzen
         idx = self._material_list.entries.index(entry)
         self._material_list.entries.pop(idx)
 
+        new_entries: list[MaterialEntry] = []
         for i, dev in enumerate(new_devices):
             new_entry = MaterialEntry(
                 quantity=1,
@@ -1038,13 +1094,87 @@ class MaterialListView(QWidget):
                 device_id=dev.id,
                 required_channels=channels_per_unit,
                 assigned_channels=entry.assigned_channels,
+                secure_supported=entry.secure_supported,
+                ga_min=entry.ga_min,
+                ga_max=entry.ga_max,
             )
             self._material_list.entries.insert(idx + i, new_entry)
+            new_entries.append(new_entry)
 
         self._populate_line_filter()
         self._rebuild_table()
         self.list_changed.emit()
         self.topology_changed.emit()   # Topologie-Views benachrichtigen
+        return new_entries
+
+    def duplicate_replacements(self) -> list[tuple[MaterialEntry, ProductSuggestion]]:
+        """(Eintrag, Produkt mit KOs) für Einträge, deren Produkt keine KOs hat,
+        der Katalog dasselbe Gerät aber mit KOs kennt (FA-622)."""
+        from ...services.product_sync import shared_catalog
+        catalog = shared_catalog()
+        if catalog is None or not self._material_list:
+            return []
+        result = []
+        for entry in self._material_list.entries:
+            if not entry.order_number:
+                continue
+            variant = catalog.variant_with_com_objects(ProductSuggestion(
+                manufacturer=entry.manufacturer, order_number=entry.order_number,
+                product_name=entry.product_name))
+            if variant is not None:
+                result.append((entry, variant))
+        return result
+
+    def _replace_duplicate_products(self) -> None:
+        """Doppelte Produkte ohne KOs durch den Eintrag mit KOs ersetzen."""
+        pairs = self.duplicate_replacements()
+        if not pairs:
+            QMessageBox.information(self, "Produkte mit KOs übernehmen",
+                                    "Keine Produkte ohne KOs mit doppeltem Katalogeintrag.")
+            return
+        lines = "\n".join(
+            f"• {', '.join(entry.physical_addresses) or entry.device_type}: "
+            f"{entry.order_number} → {variant.order_number} ({variant.co_count} KOs)"
+            for entry, variant in pairs)
+        answer = QMessageBox.question(
+            self, "Produkte mit KOs übernehmen",
+            f"Diese Produkte haben keine KOs; der Katalog kennt vermutlich dasselbe "
+            f"Gerät aus der KNXPROD mit KOs:\n\n{lines}\n\nErsetzen?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if answer != QMessageBox.Yes:
+            return
+        self.apply_replacements(pairs)
+
+    def apply_replacements(self, pairs: list[tuple[MaterialEntry, ProductSuggestion]]) -> None:
+        for entry, variant in pairs:
+            entry.manufacturer = variant.manufacturer
+            entry.order_number = variant.order_number
+            entry.product_name = variant.product_name
+            entry.assigned_channels = variant.channels or entry.assigned_channels
+            entry.secure_supported = variant.secure_supported
+            entry.ga_min, entry.ga_max = variant.ga_min, variant.ga_max
+            if self._project:
+                self._update_device_product(entry, variant)
+        self._rebuild_table()
+        self.list_changed.emit()
+
+    def _prefer_variant_with_kos(self, prod: ProductSuggestion) -> ProductSuggestion:
+        """Produkt ohne KOs gewählt, der Katalog kennt das Gerät aber auch aus
+        der KNXPROD (ABB VAA/S6.230.2.1 = 2CDG 110 116 R0011, 82 KOs): den
+        Eintrag mit KOs anbieten -- ohne KOs keine Kanal-/KO-Zuordnung."""
+        from ...services.product_sync import shared_catalog
+        catalog = shared_catalog()
+        variant = catalog.variant_with_com_objects(prod) if catalog else None
+        if variant is None:
+            return prod
+        answer = QMessageBox.question(
+            self, "Produkt mit KOs",
+            f"«{prod.order_number} – {prod.product_name}» hat im Katalog keine KOs.\n"
+            f"Dasselbe Gerät gibt es aus der KNXPROD mit {variant.co_count} KOs:\n\n"
+            f"{variant.order_number} – {variant.product_name}\n\n"
+            f"Diesen Eintrag verwenden (empfohlen, sonst keine Kanal-/KO-Zuordnung)?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        return variant if answer == QMessageBox.Yes else prod
 
     def _suggested_search_text(self, entry: MaterialEntry) -> str:
         """Best-Effort-Vorschlag für die Produktsuche: Bestellnummer eines in
@@ -1130,6 +1260,7 @@ class MaterialListView(QWidget):
         prod = dialog.selected_product
         if not prod:
             return
+        prod = self._prefer_variant_with_kos(prod)
 
         # MaterialEntry aktualisieren
         entry.manufacturer = prod.manufacturer
@@ -1141,9 +1272,41 @@ class MaterialListView(QWidget):
         entry.ga_max = prod.ga_max
         entry.ga_override = None  # gehörte zum bisherigen Produkt
 
+        # Kanaldefizit bei einem einzelnen Aktor: auf mehrere Geräte aufteilen
+        # (Projekt_23 1.1.10: «Heizungsaktor 12-fach» = 2× ABB VAA/S6, 6 Kanäle)
+        # -- mehr Stück in der Materialliste ergäben kein zweites Gerät in der
+        # Topologie, die Kreise 7–12 lägen auf Kanälen, die es nicht gibt
+        units = -(-entry.required_channels // prod.channels) if prod.channels else 0
+        if (entry.channel_deficit > 0 and units > 1 and entry.category == "Aktor"
+                and entry.quantity == 1 and len(entry.physical_addresses) <= 1):
+            box = QMessageBox(
+                QMessageBox.Question, "Kanaldefizit",
+                f"«{prod.product_name or prod.order_number}» hat {prod.channels} Kanäle, "
+                f"«{entry.device_type}» braucht {entry.required_channels}.\n\n"
+                f"Auf {units} Geräte à {prod.channels} Kanäle aufteilen? Die physikalischen "
+                f"Adressen der Linie werden dabei neu vergeben.", parent=self)
+            btn_split = box.addButton(f"Auf {units} Geräte aufteilen", QMessageBox.AcceptRole)
+            btn_keep = box.addButton("Ein Gerät (Defizit)", QMessageBox.DestructiveRole)
+            box.addButton("Abbrechen", QMessageBox.RejectRole)
+            box.setDefaultButton(btn_split)
+            box.exec()
+            if box.clickedButton() is btn_split:
+                new_entries = self._split_actor(entry, units)
+                if not new_entries:
+                    return
+                devices = [d for new_entry in new_entries
+                           for d in self._update_device_product(new_entry, prod)]
+                self._rebuild_table()
+                self.list_changed.emit()
+                self._offer_channel_assignment(new_entries[0], devices)
+                return
+            if box.clickedButton() is not btn_keep:
+                entry.manufacturer = entry.order_number = entry.product_name = ""
+                entry.assigned_channels = 0
+                return
         # Kanaldefizit prüfen und Benutzer warnen
         # channel_deficit berücksichtigt bereits quantity × assigned_channels
-        if entry.channel_deficit > 0:
+        elif entry.channel_deficit > 0:
             total_assigned = entry.quantity * prod.channels
             reply = QMessageBox.warning(
                 self,
@@ -1424,6 +1587,7 @@ class MaterialListView(QWidget):
         prod = dialog.selected_product
         if not prod:
             return
+        prod = self._prefer_variant_with_kos(prod)
 
         # Kanaldefizit prüfen (am Typ, da alle Einträge denselben Typ haben)
         required = parse_channel_count(chosen_type)
