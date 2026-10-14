@@ -22,22 +22,15 @@ from ...services.product_search_service import ProductSearchService, ProductSugg
 from ...services.knxprod_catalog_service import KnxprodCatalogService
 from ...services.product_classifier import TYPE_GROUPS, type_group
 from ...services.recent_products import load_recent, add_recent
+from ...services.product_folder import (
+    add_to_folder, is_bus_device, mark_imported, missing_manufacturers, pending_files,
+    products_folder, set_products_folder,
+)
 from ...models.material_list import MaterialEntry, MATERIAL_CATEGORIES
 from ...models.topology import Topology, Line
 
 logger = logging.getLogger("knix_arranger.product_select_dialog")
 
-
-def _default_products_folder() -> str:
-    """Liefert den Standardordner für gesammelte KNXPROD-Dateien
-    (<Arbeitsverzeichnis>/Produkte KNX, siehe WorkspaceSetupDialog), falls
-    ein Arbeitsverzeichnis konfiguriert ist und der Ordner existiert."""
-    from ...utils.app_settings import get_setting
-    workspace_root = get_setting("workspace_root_path", "")
-    if not workspace_root:
-        return ""
-    candidate = os.path.join(workspace_root, "Produkte KNX")
-    return candidate if os.path.isdir(candidate) else ""
 
 # Mapping: interne catalog-Kategorie → Anzeigename
 _CAT_DISPLAY = {
@@ -240,6 +233,20 @@ class ProductSelectDialog(QDialog):
             "aktualisiert – so lässt sich der Katalog nach einem Parser-Update auffrischen."
         )
         catalog_menu.addSeparator()
+        act = catalog_menu.addAction("Produktordner einlesen", self._import_products_folder)
+        act.setToolTip("Neue und geänderte .knxprod-Dateien im Produktordner einlesen")
+        act = catalog_menu.addAction("Produktordner öffnen", self._open_products_folder)
+        act.setToolTip("Herstellerdateien hier ablegen – die Produktauswahl meldet neue Dateien")
+        catalog_menu.addAction("Produktordner wählen…", self._choose_products_folder)
+        catalog_menu.addSeparator()
+        self._show_without_kos_action = catalog_menu.addAction("Auch Geräte ohne KOs zeigen")
+        self._show_without_kos_action.setCheckable(True)
+        self._show_without_kos_action.setToolTip(
+            "Aktoren, Sensoren und Gateways ohne KOs (nicht aus einer KNXPROD) anzeigen.\n"
+            "Ohne KOs ist keine Kanal-/KO-Zuordnung möglich – besser die KNXPROD des\n"
+            "Herstellers in den Produktordner legen. Infrastruktur ohne Applikation\n"
+            "(Netzteile, Koppler, Zubehör) ist immer sichtbar.")
+        self._show_without_kos_action.toggled.connect(lambda _on: self._refresh_results())
         self._show_hidden_action = catalog_menu.addAction("Ausgeblendete anzeigen")
         self._show_hidden_action.setCheckable(True)
         self._show_hidden_action.setToolTip(
@@ -285,6 +292,23 @@ class ProductSelectDialog(QDialog):
         result_row.addWidget(self._online_label)
         right_layout.addLayout(result_row)
         self._update_online_label()
+
+        # Produktordner: neue Dateien melden; fehlende Herstellerdateien
+        folder_row = QHBoxLayout()
+        self._folder_label = QLabel()
+        self._folder_label.setWordWrap(True)
+        self._folder_label.setStyleSheet("color: #b26a00;")
+        folder_row.addWidget(self._folder_label, 1)
+        self._folder_button = QPushButton("Jetzt einlesen")
+        self._folder_button.setObjectName("secondary")
+        self._folder_button.clicked.connect(self._import_products_folder)
+        folder_row.addWidget(self._folder_button)
+        right_layout.addLayout(folder_row)
+        self._missing_label = QLabel()
+        self._missing_label.setWordWrap(True)
+        self._missing_label.setStyleSheet("color: #666;")
+        right_layout.addWidget(self._missing_label)
+        self._update_folder_label()
 
         self._table = QTableWidget(0, len(_COLUMNS))
         self._table.setHorizontalHeaderLabels(_COLUMNS)
@@ -450,9 +474,23 @@ class ProductSelectDialog(QDialog):
         if self._selected:
             self.accept()
 
+    def _german_name(self, prod: ProductSuggestion) -> str:
+        """Deutscher Name der Basis-Datenbank für ein KNXPROD-Produkt
+        («Heizungsaktor 6-fach 230V REG» statt «Valve Drive Actuator, 6f»)."""
+        if not prod.co_count:
+            return ""
+        finder = getattr(self._search_service, "base_name_of", None)
+        return finder(prod.manufacturer, prod.order_number, prod.product_name) if finder else ""
+
     def accept(self):
-        """Speichert die Auswahl als 'zuletzt verwendet' und schliesst den Dialog."""
+        """Speichert die Auswahl als 'zuletzt verwendet' und schliesst den
+        Dialog. Kennt die Basis-Datenbank einen deutschen Namen, geht dieser
+        in Materialliste, Geräte und Offerte."""
         if self._selected:
+            german = self._german_name(self._selected)
+            if german and german != self._selected.product_name:
+                import dataclasses
+                self._selected = dataclasses.replace(self._selected, product_name=german)
             prod = self._selected
             add_recent({
                 "order_number": prod.order_number,
@@ -481,6 +519,15 @@ class ProductSelectDialog(QDialog):
         )
         if mfr_filter:
             results = [r for r in results if r.manufacturer == mfr_filter]
+
+        # Busgeräte nur mit KOs (aus der KNXPROD), Infrastruktur immer
+        self._without_kos: list[ProductSuggestion] = []
+        if not self._show_without_kos_action.isChecked():
+            kept = []
+            for r in results:
+                (self._without_kos if is_bus_device(r) and not r.co_count else kept).append(r)
+            results = kept
+        self._update_missing_label()
 
         # Der Typenbaum zählt Suche und Hersteller, aber nicht den Typ selbst
         self._base_results = results
@@ -561,6 +608,9 @@ class ProductSelectDialog(QDialog):
             self._table.insertRow(row)
             device_type = prod.display_type()
             name_text = prod.product_name
+            german = self._german_name(prod)
+            if german:
+                name_text = f"{german}  ({prod.product_name})"
             tooltip = ""
             if prod.superseded_by:
                 name_text += "  ⚠ veraltet"
@@ -618,6 +668,67 @@ class ProductSelectDialog(QDialog):
         self._btn_ok.setEnabled(False)
         self._selected = None
         self._update_details(None)
+
+    # ------------------------------------------------------------------ Produktordner
+
+    def _update_folder_label(self):
+        """Hinweis auf neue/geänderte Dateien im Produktordner."""
+        folder = products_folder()
+        pending = pending_files(folder) if folder else []
+        if pending:
+            n = len(pending)
+            self._folder_label.setText(
+                f"{n} neue bzw. geänderte Herstellerdatei{'en' if n != 1 else ''} im "
+                f"Produktordner ({', '.join(os.path.basename(p) for p in pending[:3])}"
+                f"{' …' if n > 3 else ''})")
+        self._folder_label.setVisible(bool(pending))
+        self._folder_button.setVisible(bool(pending))
+
+    def _update_missing_label(self):
+        """Ausgeblendete Busgeräte ohne KOs: welche Herstellerdateien fehlen."""
+        missing = missing_manufacturers(self._without_kos)
+        if not missing:
+            self._missing_label.setVisible(False)
+            return
+        n = sum(missing.values())
+        names = ", ".join(f"{m} ({c})" for m, c in list(missing.items())[:6])
+        self._missing_label.setText(
+            f"{n} Gerät{'e' if n != 1 else ''} ohne KOs ausgeblendet – KNXPROD fehlt für: "
+            f"{names}. Datei in den Produktordner legen oder Katalog › «Auch Geräte "
+            f"ohne KOs zeigen».")
+        self._missing_label.setVisible(True)
+
+    def _import_products_folder(self):
+        folder = products_folder()
+        if not folder or not os.path.isdir(folder):
+            QMessageBox.information(
+                self, "Produktordner",
+                "Kein Produktordner vorhanden. Katalog › «Produktordner wählen…»")
+            return
+        pending = pending_files(folder)
+        if not pending:
+            QMessageBox.information(self, "Produktordner",
+                                    "Alle Herstellerdateien sind eingelesen.")
+            return
+        self._import_paths(pending, folder)
+        self._update_folder_label()
+
+    def _open_products_folder(self):
+        folder = products_folder()
+        if not folder:
+            self._choose_products_folder()
+            return
+        os.makedirs(folder, exist_ok=True)
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+
+    def _choose_products_folder(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, "Produktordner wählen (Sammlung der .knxprod-Dateien)", products_folder())
+        if folder:
+            set_products_folder(folder)
+            self._update_folder_label()
 
     # ------------------------------------------------------------------ Online-Katalog
 
@@ -866,7 +977,7 @@ class ProductSelectDialog(QDialog):
         """
         folder = QFileDialog.getExistingDirectory(
             self, "Ordner mit KNXPROD-Dateien wählen (inkl. Unterordner)",
-            _default_products_folder(),
+            products_folder() if os.path.isdir(products_folder()) else "",
         )
         if not folder:
             return
@@ -900,6 +1011,7 @@ class ProductSelectDialog(QDialog):
         all_products = []
         errors: list[tuple[str, str]] = []
         empty: list[str] = []
+        imported: dict[str, int] = {}   # Datei -> Anzahl Produkte
         processed = 0
         for filepath in filepaths:
             name = (os.path.relpath(filepath, base_folder) if base_folder
@@ -917,6 +1029,7 @@ class ProductSelectDialog(QDialog):
             else:
                 if products:
                     all_products.extend(products)
+                    imported[filepath] = len(products)
                 else:
                     empty.append(name)
             processed += 1
@@ -940,6 +1053,12 @@ class ProductSelectDialog(QDialog):
         # In den Katalog aufnehmen -- ein Schreibvorgang für alle Produkte,
         # persistiert dauerhaft (%APPDATA%), nicht nur für diese Dialog-Instanz
         self._search_service.add_products([p.to_catalog_dict() for p in all_products])
+        # Der Produktordner ist die Sammlung: importierte Dateien dort ablegen
+        # und als eingelesen vermerken
+        sources = list(imported)
+        copies = add_to_folder(sources)
+        mark_imported(copies, {copy: imported[src] for src, copy in zip(sources, copies)})
+        self._update_folder_label()
         current_mfrs = {self._mfr_combo.itemText(i) for i in range(self._mfr_combo.count())}
         for prod in all_products:
             if prod.manufacturer not in current_mfrs:

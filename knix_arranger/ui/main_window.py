@@ -1663,15 +1663,24 @@ class MainWindow(QMainWindow):
         from ..services.product_search_service import ProductSearchService
         from ..services.product_sync import shared_catalog
 
+        from ..services.product_folder import mark_imported
+
         svc = KnxprodCatalogService()
         all_products = []
+        counts: dict[str, int] = {}
         for path in filepaths:
             try:
-                all_products.extend(svc.import_file(path))
+                products = svc.import_file(path)
             except ValueError as e:
                 logger.warning(f"KNXPROD-Auto-Katalogisierung: {path} übersprungen ({e}).")
+                continue
+            all_products.extend(products)
+            counts[path] = len(products)
         if all_products:
             (shared_catalog() or ProductSearchService()).add_products([p.to_catalog_dict() for p in all_products])
+        # Im Produktordner als eingelesen vermerken (sonst meldete ihn die
+        # Produktauswahl erneut)
+        mark_imported(list(counts), counts)
         return len(all_products)
 
     def _with_knxproj_password(self, filepath: str, action, busy_text: str,
@@ -1899,21 +1908,19 @@ class MainWindow(QMainWindow):
 
         self._update_views()
 
-        # Im KNXPROJ eingebettete Hersteller-Produktdaten als .knxprod in die
-        # workspace-weite "Produkte KNX"-Bibliothek extrahieren und direkt in
-        # den Produktkatalog übernehmen (FA-...) -- nur wenn ein Workspace
-        # konfiguriert ist (kein Setup-Dialog erzwingen, rein lesender Check
-        # wie _default_products_folder()).
+        # Im KNXPROJ eingebettete Hersteller-Produktdaten als .knxprod in den
+        # Produktordner (services/product_folder) extrahieren und direkt in
+        # den Produktkatalog übernehmen -- nur wenn der Ordner existiert (kein
+        # Setup-Dialog erzwingen)
+        from ..services.product_folder import products_folder
         n_products_extracted = 0
         n_products_cataloged = 0
-        workspace = self._load_app_setting("workspace_root_path", "")
-        if workspace:
-            products_folder = os.path.join(workspace, "Produkte KNX")
-            if os.path.isdir(products_folder):
-                written = importer.extract_product_libraries(filepath, products_folder)
-                n_products_extracted = len(written)
-                if written:
-                    n_products_cataloged = self._sync_knxprod_files_to_catalog(written)
+        folder = products_folder()
+        if folder and os.path.isdir(folder):
+            written = importer.extract_product_libraries(filepath, folder)
+            n_products_extracted = len(written)
+            if written:
+                n_products_cataloged = self._sync_knxprod_files_to_catalog(written)
 
         ga_count = len(project.group_addresses.all_addresses())
         n_areas = len(project.topology.areas)

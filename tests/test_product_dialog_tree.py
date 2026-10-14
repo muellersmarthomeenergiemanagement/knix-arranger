@@ -87,6 +87,8 @@ def test_preselection_from_material_list_and_gateway_gewerk(dialog_factory):
     assert dlg._type_filter == ("group", "Gateways & Schnittstellen")
     assert _orders(dlg) == ["TEST Revox MU 3.0"]
     dlg = dialog_factory(initial_category_filter="actor")
+    assert _orders(dlg) == ["TEST SA/S4.16"]      # Aktor ohne KOs ausgeblendet
+    dlg._show_without_kos_action.setChecked(True)
     assert _orders(dlg) == ["TEST SA/S4.16", "TEST UD/S2"]
     assert not dialog_factory()._type_filter[0]
 
@@ -101,7 +103,8 @@ def test_columns_and_details_with_manufacturer_channel_names(dialog_factory):
     dlg._table.selectRow(row)
     text = dlg._details.text()
     assert "4 KOs" in text and "4 Kanäle im Gerät: Kanal A – Kanal D" in text
-    # ohne KOs
+    # ohne KOs (nur mit «Auch Geräte ohne KOs zeigen»)
+    dlg._show_without_kos_action.setChecked(True)
     row = next(r for r in range(dlg._table.rowCount())
                if dlg._table.item(r, _COL_ORDER).text() == "TEST UD/S2")
     assert dlg._table.item(row, _COL_KO).text() == "–"

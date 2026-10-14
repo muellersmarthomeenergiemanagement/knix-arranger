@@ -757,6 +757,23 @@ class ProductSearchService:
         self._duplicates = (stamp, result)
         return result
 
+    def base_name_of(self, manufacturer: str, order_number: str,
+                     product_name: str = "") -> str:
+        """Deutscher Name aus der Basis-Datenbank für ein KNXPROD-Produkt,
+        das sie ohne KOs auch führt («2CDG 110 116 R0011» -> «Heizungsaktor
+        6-fach 230V REG»); "" sonst. Für Anzeige, Materialliste und Offerte --
+        die KNXPROD von ABB kennt nur «Valve Drive Actuator, 6f»."""
+        key = product_key(manufacturer, order_number, product_name)
+        names = getattr(self, "_base_names", None)
+        stamp = (len(self._catalog), id(self._catalog))
+        if names is None or names[0] != stamp:
+            index = {self._key(p): p for p in self._catalog}
+            names = (stamp, {self._key(other): index[base].get("product_name", "")
+                             for base, other in self.duplicate_variants().items()
+                             if base in index})
+            self._base_names = names
+        return names[1].get(key, "")
+
     def is_shadowed(self, product: dict) -> bool:
         """Eintrag ohne KOs, den der Katalog auch mit KOs kennt: in der
         Produktsuche nicht anbieten (bestehende Zuweisungen bleiben, die
