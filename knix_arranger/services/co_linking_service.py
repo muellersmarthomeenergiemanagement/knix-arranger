@@ -40,6 +40,9 @@ class CoLinkingProposal:
     confidence: str = "sicher"  # "sicher" | "manuell pruefen"
     selected: bool = True
     already_linked: bool = False  # GA bereits in connected_gas vorhanden
+    # Nummer des realen KOs (-1 = generischer KO): gleichnamige KOs eines
+    # Kanals (ABB RM/S4.1: alle "Ausgang A (6 A)") unterscheidet nur sie
+    co_number: int = -1
 
 
 # Mapping: GA-Funktion → Liste von (CO-Name, DPT, Flags, Richtung)
@@ -206,14 +209,58 @@ class CoLinkingService:
                     confidence=confidence,
                     selected=not already,
                     already_linked=already,
+                    co_number=real_co.object_number if real_co is not None else -1,
                 ))
 
+        proposals += self._sensor_proposals(project, device_map)
         proposals = self._dedupe_proposals(proposals)
 
         logger.info(
             f"CO-Auto-Linking: {len(proposals)} Vorschlaege generiert "
             f"({sum(1 for p in proposals if p.already_linked)} bereits verknuepft)"
         )
+        return proposals
+
+    def _sensor_proposals(self, project, device_map: dict) -> list[CoLinkingProposal]:
+        """Vorschläge aus der KO-Auswahl der Taster/Sensoren (sensor_channels):
+        nur ausdrücklich gewählte KOs, ohne Auswahl schlägt die Verknüpfung
+        für Sensoren nichts vor."""
+        from .sensor_channels import sensor_co_map, sensor_links, sensor_plan
+        sensors = [d for d in device_map.values()
+                   if d.device_type == "sensor" and sensor_co_map(d)]
+        if not sensors:
+            return []
+        plan = sensor_plan(project)
+        proposals = []
+        for device in sensors:
+            selection = sensor_co_map(device)
+            by_number = {}
+            for co in device.communication_objects:
+                by_number.setdefault(co.object_number, co)
+            for link in sensor_links(project, device, plan):
+                co = by_number.get(selection.get(link.key, -1))
+                if co is None:
+                    continue
+                already = link.ga_address in co.connected_gas
+                proposals.append(CoLinkingProposal(
+                    device_id=device.id,
+                    physical_address=device.physical_address,
+                    co_name=co.name or co.object_function,
+                    co_dpt=co.data_type,
+                    co_flags=co.flags or "K",
+                    direction="empfangen" if link.feedback else "senden",
+                    function_name=link.ga_function,
+                    gewerk_code="",
+                    ga_address=link.ga_address,
+                    ga_designation=link.ga_designation,
+                    ga_dpt=link.dpt,
+                    room_name="",
+                    confidence=("sicher" if _dpt_compatible(co.data_type, link.dpt)
+                                else "manuell pruefen"),
+                    selected=not already,
+                    already_linked=already,
+                    co_number=co.object_number,
+                ))
         return proposals
 
     def _dedupe_proposals(
@@ -236,7 +283,7 @@ class CoLinkingService:
         result: list[CoLinkingProposal] = []
         dropped: list[tuple] = []
         for p in proposals:
-            key = (p.physical_address, p.ga_address, p.co_name, p.direction)
+            key = (p.physical_address, p.ga_address, p.co_name, p.direction, p.co_number)
             if key in seen:
                 dropped.append(key)
                 continue
@@ -397,6 +444,10 @@ class CoLinkingService:
         self, device, proposal: CoLinkingProposal, co_class
     ):
         """Findet ein bestehendes CO oder legt ein neues an."""
+        if proposal.co_number >= 0:
+            for co in device.communication_objects:
+                if co.object_number == proposal.co_number:
+                    return co
         for co in device.communication_objects:
             if co.name == proposal.co_name and co.data_type == proposal.co_dpt:
                 return co

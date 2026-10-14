@@ -131,8 +131,9 @@ class MaterialListView(QWidget):
                                                  self._assign_channels_selected)
         self._btn_channels.setEnabled(False)
         self._btn_channels.setToolTip(
-            "Stromkreise den Kanälen des Aktors zuordnen (Benennung des Herstellers,\n"
-            "z.B. Kanal C) und je GA den KO wählen – nicht benötigte KOs bleiben frei"
+            "Aktoren: Stromkreise den Kanälen zuordnen (Benennung des Herstellers,\n"
+            "z.B. Kanal C) und je GA den KO wählen – nicht benötigte KOs bleiben frei.\n"
+            "Taster und Sensoren: je Gerät jeder GA ihren KO zuordnen"
         )
         self._btn_ga.setToolTip(
             "GA-Bedarf je Gerät von Hand festlegen, z.B. für frei belegbare\n"
@@ -1172,13 +1173,15 @@ class MaterialListView(QWidget):
     # ── Kanäle und KOs (actor_channels) ──
 
     def _channel_devices(self, entry: MaterialEntry | None) -> list:
-        """Aktoren/Gateways der Topologie hinter einem Eintrag."""
+        """Aktoren/Gateways bzw. Taster/Sensoren der Topologie hinter einem
+        Eintrag (Sensoren nur mit KOs aus dem Produkt)."""
         if entry is None or not self._project:
             return []
         addrs = set(entry.physical_addresses)
         return [d for area in self._project.topology.areas for line in area.lines
                 for d in line.devices
-                if d.device_type in ("actor", "gateway")
+                if (d.device_type in ("actor", "gateway")
+                    or (d.device_type == "sensor" and d.communication_objects))
                 and (d.physical_address in addrs
                      or (entry.device_id and d.id == entry.device_id))]
 
@@ -1195,6 +1198,14 @@ class MaterialListView(QWidget):
     def _assign_channels(self, devices: list) -> None:
         from ..dialogs.actor_channel_dialog import ActorChannelDialog
         if not devices:
+            return
+        sensors = [d for d in devices if d.device_type == "sensor"]
+        if sensors:
+            from ..dialogs.sensor_ko_dialog import SensorKoDialog
+            dlg = SensorKoDialog(self._project, sensors, parent=self)
+            if dlg.exec() == QDialog.Accepted:
+                dlg.apply()
+                self.list_changed.emit()
             return
         self._release_sensor_products(devices)
         dlg = ActorChannelDialog(self._project, devices, parent=self)

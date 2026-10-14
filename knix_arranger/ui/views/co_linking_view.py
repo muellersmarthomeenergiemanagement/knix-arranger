@@ -68,8 +68,8 @@ _HEADERS = [
 ]
 
 # Farbe fuer Richtung-Spalte
-_COLOR_EMPFANGEN = QColor("#E8F5E9")   # Hellgruen: Aktor empfaengt Befehl
-_COLOR_SENDEN    = QColor("#FFF3E0")   # Hellorange: Aktor sendet Rueckmeldung
+_COLOR_EMPFANGEN = QColor("#E8F5E9")   # Hellgruen: Geraet empfaengt (Befehl, LED)
+_COLOR_SENDEN    = QColor("#FFF3E0")   # Hellorange: Geraet sendet (Rueckmeldung, Taste)
 
 
 class CoLinkingView(QWidget):
@@ -123,7 +123,8 @@ class CoLinkingView(QWidget):
         desc = QLabel(
             "Das System erkennt anhand der generierten Gruppenadressen (Funktion, "
             "Gewerk, Raum) automatisch, welche Kommunikationsobjekte der Aktoren "
-            "mit welchen GAs verknüpft werden sollen. Vorschläge prüfen und mit "
+            "mit welchen GAs verknüpft werden sollen; bei Tastern und Sensoren gilt "
+            "die KO-Auswahl der Materialliste. Vorschläge prüfen und mit "
             "\"Verknüpfungen übernehmen\" in die Topologie schreiben."
         )
         desc.setWordWrap(True)
