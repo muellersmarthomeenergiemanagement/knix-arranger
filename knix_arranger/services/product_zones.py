@@ -55,6 +55,9 @@ _SCHEMES = (
     ZoneScheme("Kanal", re.compile(r"^([A-Z]),\s"), letters=True),
     # Griesser JAX-9: "Operation of Blinds (M1), End position" (Motor 1)
     ZoneScheme("Motor", re.compile(r"\(M(\d+)\)")),
+    # Busch-Watchdog Sky 6131/40: "P1: Bewegung (Master)", "P2: Aktorstatus"
+    # (Erfassungskanal), "BR: Helligkeit" = Systemobjekt
+    ZoneScheme("P", re.compile(r"^P(\d+):"), sep=""),
 )
 # Mindestens so viele KOs müssen eine Zone tragen (Anteil), und es braucht
 # mindestens zwei verschiedene Zonen

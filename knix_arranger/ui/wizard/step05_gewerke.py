@@ -18,7 +18,8 @@ from ...models.device import GEWERK_TO_ACTOR_TYPE, GEWERK_TO_SENSOR_TYPE
 from ...services.gewerk_service import GewerkService
 from ...services.address_generator import regenerate_addresses
 from ...services.product_sync import (
-    ProductMismatch, apply_product_to, product_mismatches, shared_gateway_targets,
+    ProductMismatch, apply_product_to, device_zone_products, product_mismatches,
+    sensor_of_element, shared_gateway_targets,
 )
 from ...services.product_zones import (
     is_zoned, propose_zones, same_product_elements, zone_label,
@@ -1003,7 +1004,7 @@ class Step05Gewerke(QWidget):
                 self._remove_product(ga, element_nr)
                 return
             if isinstance(action, ProductMismatch):
-                if take_over_device_product(self, [action]):
+                if take_over_device_product(self, [action], self._project):
                     self._regenerate_gas()
                     self._refresh_table()
                 return
@@ -1018,7 +1019,7 @@ class Step05Gewerke(QWidget):
             if answer == QMessageBox.Cancel:
                 return
             if answer == QMessageBox.Yes:
-                if take_over_device_product(self, mismatches):
+                if take_over_device_product(self, mismatches, self._project):
                     self._regenerate_gas()
                     self._refresh_table()
                 return
@@ -1052,7 +1053,7 @@ class Step05Gewerke(QWidget):
             lp["excluded_co_numbers"] = sorted(co_dlg.excluded_numbers())
             if not element_nr:
                 self._offer_shared_gateway_product(ga)
-            self._assign_zones(lp)
+            self._assign_zones(lp, ga, element_nr)
             self._regenerate_gas()
             self._refresh_table()
             return
@@ -1155,7 +1156,7 @@ class Step05Gewerke(QWidget):
         else:
             ga.linked_product = product
             self._offer_shared_gateway_product(ga)
-        self._assign_zones(product)
+        self._assign_zones(product, ga, element_nr)
         self._regenerate_gas()
         self._refresh_table()
 
@@ -1175,16 +1176,28 @@ class Step05Gewerke(QWidget):
         if answer == QMessageBox.Yes:
             apply_product_to(targets, ga.linked_product)
 
-    def _assign_zones(self, product: dict) -> None:
+    def _assign_zones(self, product: dict, ga: GewerkAssignment | None = None,
+                      element_nr: int | None = None) -> None:
         """Produkt mit KOs je Raum (z.B. Revox): Räume im Gerät den
         KNiX-Räumen zuordnen -- sonst erzeugt jeder Raum die GAs aller
-        Räume (product_zones)."""
+        Räume (product_zones). Gehört das Element einem Sensor (Melder mit
+        Kanälen P1/P2), nur die Elemente dieses Geräts: die Kanäle gehören
+        zum einzelnen Gerät, nicht zum Projekt."""
         from ..dialogs.product_zone_dialog import ProductZoneDialog
         if not is_zoned(product):
             return
-        elements = same_product_elements(self._project, product)
-        products = [a.linked_product if nr is None else a.element_products[nr]
-                    for _room, a, nr in elements]
+        pairs = []
+        if ga is not None:
+            sensor = sensor_of_element(self._project, ga, element_nr or 1)
+            if sensor is not None:
+                pairs = device_zone_products(self._project, sensor)
+        if pairs:
+            elements = [element for element, _product in pairs]
+            products = [product for _element, product in pairs]
+        else:
+            elements = same_product_elements(self._project, product)
+            products = [a.linked_product if nr is None else a.element_products[nr]
+                        for _room, a, nr in elements]
         if not products:
             return
         # Neue Räume der Reihe nach vorschlagen, Abbrechen verwirft den Vorschlag

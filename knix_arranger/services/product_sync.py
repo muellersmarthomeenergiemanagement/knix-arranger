@@ -268,6 +268,54 @@ def apply_device_product(mismatches: list[ProductMismatch], product: dict) -> No
             m.assignment.element_products[m.element_nr] = dict(product)
 
 
+def device_zone_elements(project, device) -> list[tuple]:
+    """(Raum, GewerkAssignment, Element-Nr.) der eigenen Elemente eines
+    Sensors (Gewerke ohne Aktor), deren GAs seinem Produkt folgen."""
+    return [(room, a, nr) for room, a, nr in device_elements(project, device)
+            if sensor_owns_gewerk(a.gewerk_code)
+            and _same_product(a.product_for_element(nr), device)]
+
+
+def sensor_of_element(project, assignment, element_nr: int):
+    """Sensor, der dieses Element trägt (Gewerk ohne Aktor), sonst None."""
+    if sensor_owns_gewerk(assignment.gewerk_code):
+        for area in project.topology.areas:
+            for line in area.lines:
+                for device in line.devices:
+                    if device.device_type == "sensor" and any(
+                            a is assignment and nr == element_nr
+                            for _r, a, nr in device_elements(project, device)):
+                        return device
+    return None
+
+
+def zone_device_products(project, device) -> None:
+    """Kanäle eines Sensors auf seine Elemente verteilen (product_zones):
+    Garage, ein 6131/40 trägt A ×2 -> Element 1 die KOs von P1, Element 2
+    die von P2, die Systemobjekte (BR: Helligkeit …) das erste. Ohne
+    Aufteilung erzeugte jedes Element die GAs beider Kanäle. Vorhandene
+    Zuordnungen bleiben; ein Produkt für alle Elemente wird dafür je Element
+    kopiert."""
+    from .product_zones import is_zoned, propose_zones
+    elements = device_zone_elements(project, device)
+    if not elements or not is_zoned(elements[0][1].product_for_element(elements[0][2])):
+        return
+    propose_zones([product for _element, product in device_zone_products(project, device)])
+
+
+def device_zone_products(project, device) -> list[tuple]:
+    """((Raum, Zuweisung, Nr.), Produkt-Dict) je eigenem Element des Sensors;
+    ein Produkt für alle Elemente wird je Element kopiert, damit jedes seine
+    eigene Zone tragen kann."""
+    import copy
+    result = []
+    for room, a, nr in device_zone_elements(project, device):
+        if a.count > 1 and nr not in a.element_products and a.linked_product:
+            a.element_products[nr] = copy.deepcopy(a.linked_product)
+        result.append(((room, a, nr), a.product_for_element(nr)))
+    return result
+
+
 def _same_planned_product(a: dict | None, b: dict | None) -> bool:
     """Gleiches Produkt mit gleichen Kommunikationsobjekten und gleicher
     Auswahl (Hersteller in verschiedenen Schreibweisen gelten als gleich)."""

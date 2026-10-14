@@ -192,3 +192,48 @@ def test_produkt_ohne_rueckfrage_und_auswahl_gemerkt():
     assert seen == [set()]                       # Leak: beide KOs melden
     assert assignment.element_products[2]["order_number"] == "70316"
     assert load_ga_selection(wasser) == set()
+
+
+def _zoned_melder_cos():
+    cos = []
+    for p, base in ((1, 10), (2, 26)):
+        cos.append({"number": base, "name": "Obj_SwitchOnOff",
+                    "function_text": f"P{p}: Bewegung (Master)", "datapoint_type": "DPST-1-1",
+                    "communication_flag": True, "transmit_flag": True})
+        cos.append({"number": base - 9, "name": "Obj_Enable",
+                    "function_text": f"P{p}: Freigabe Bewegung", "datapoint_type": "DPST-1-1",
+                    "communication_flag": True, "write_flag": True})
+    cos.append({"number": 33, "name": "Obj_Brightness", "function_text": "BR: Helligkeit",
+                "datapoint_type": "DPT-9", "communication_flag": True, "transmit_flag": True})
+    return cos
+
+
+def test_kanaele_des_melders_auf_elemente_verteilen():
+    """Garage: ein 6131/40 trägt A ×2 -- Element 1 bekommt P1 und die
+    Systemobjekte (BR), Element 2 P2; vorher beide alles."""
+    from knix_arranger.services.address_generator import regenerate_addresses
+    from knix_arranger.services.product_sync import (
+        default_excluded_numbers, sensor_of_element, zone_device_products,
+    )
+    from knix_arranger.services.product_zones import zone_scheme
+    project, room, assignment, wasser = _project()
+    # Der Melder 1.2.113 trägt beide Elemente
+    room.bedienelemente[0].funktionen = []
+    room.bedienelemente[1].funktionen = [SensorFunktion(gewerk_code="A", element_number=1),
+                                         SensorFunktion(gewerk_code="A", element_number=2)]
+    wasser.manufacturer, wasser.order_number = "Busch-Jaeger", "6131/40"
+    wasser.communication_objects = communication_objects_of(_zoned_melder_cos())
+    product = device_product(wasser, catalog=None)
+    assert zone_scheme(product).label == "P"
+    product["excluded_co_numbers"] = sorted(default_excluded_numbers(product["com_objects"]))
+    apply_device_product(product_mismatches(project, catalog=None), product)
+    zone_device_products(project, wasser)
+    zones = {nr: (lp.get("zone"), lp.get("system_objects"))
+             for nr, lp in assignment.element_products.items()}
+    assert zones == {1: (1, True), 2: (2, None)}
+    assert sensor_of_element(project, assignment, 2) is wasser
+    regenerate_addresses(project)
+    functions = {nr: sorted(g.function_name for g in project.group_addresses.all_addresses()
+                            if g.assignment_id == assignment.id and g.element_number == nr
+                            and not g.is_placeholder) for nr in (1, 2)}
+    assert functions == {1: ["BR: Helligkeit", "P1: Bewegung"], 2: ["P2: Bewegung"]}

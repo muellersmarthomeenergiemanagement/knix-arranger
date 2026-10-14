@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QDialog
 from ...services.ko_templates import load_ga_selection, save_ga_selection
 from ...services.product_sync import (
     apply_device_product, default_excluded_numbers, device_product, product_mismatches,
+    zone_device_products,
 )
 from .com_object_select_dialog import ComObjectSelectDialog
 
@@ -21,12 +22,14 @@ def product_label(product: dict) -> str:
     return " – ".join(p for p in (head, product.get("product_name", "")) if p)
 
 
-def take_over_device_product(parent, mismatches) -> bool:
+def take_over_device_product(parent, mismatches, project=None) -> bool:
     """Geräteprodukt mit Auswahl der Kommunikationsobjekte für die GAs der
     Elemente übernehmen. True, wenn übernommen (GAs neu berechnen).
 
     Vorausgewählt ist die gemerkte Auswahl des Produkts, sonst was der
-    Sensor meldet (default_excluded_numbers); die Auswahl wird gemerkt."""
+    Sensor meldet (default_excluded_numbers); die Auswahl wird gemerkt. Mit
+    project werden die Kanäle des Sensors auf seine Elemente verteilt
+    (zone_device_products)."""
     if not mismatches:
         return False
     device = mismatches[0].device
@@ -50,6 +53,9 @@ def take_over_device_product(parent, mismatches) -> bool:
     product["excluded_co_numbers"] = sorted(dlg.excluded_numbers())
     save_ga_selection(device, set(product["excluded_co_numbers"]))
     apply_device_product(mismatches, product)
+    if project is not None:
+        for sensor in {id(m.device): m.device for m in mismatches}.values():
+            zone_device_products(project, sensor)
     return True
 
 
@@ -64,4 +70,4 @@ def offer_device_product(parent, project, devices) -> bool:
     mismatches = [m for m in mismatches
                   if (m.device.manufacturer, m.device.order_number)
                   == (first.manufacturer, first.order_number)]
-    return take_over_device_product(parent, mismatches)
+    return take_over_device_product(parent, mismatches, project)
