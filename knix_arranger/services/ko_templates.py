@@ -76,6 +76,18 @@ def actor_signature(channel: int, function: str) -> str:
     return f"{channel}|{function}"
 
 
+def actor_proposal(channel, circuit, number: int, template: dict, known: set) -> dict:
+    """KO-Vorschlag für einen Aktor-Stromkreis auf Kanal number: die gemerkte
+    Zuordnung des Produkts vor dem Vorschlag nach Texten (suggested_co_map)."""
+    from .actor_channels import suggested_co_map
+    selection = suggested_co_map(channel, circuit)
+    for function, _ga in circuit.functions:
+        remembered = template.get(actor_signature(number, function))
+        if remembered is not None and (remembered < 0 or remembered in known):
+            selection[function] = remembered
+    return selection
+
+
 def apply_sensor_template(template: dict[str, int], links: list, known: set[int]) -> dict[str, int]:
     """ga_key -> KO-Nummer aus der Vorlage, nur KOs, die das Gerät hat."""
     result = {}

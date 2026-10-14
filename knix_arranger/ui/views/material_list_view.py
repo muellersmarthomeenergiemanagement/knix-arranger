@@ -130,6 +130,12 @@ class MaterialListView(QWidget):
         self._btn_channels = more_menu.addAction("Kanäle und KOs zuordnen…",
                                                  self._assign_channels_selected)
         self._btn_channels.setEnabled(False)
+        self._btn_ko_batch = more_menu.addAction("KOs aller Geräte zuordnen…",
+                                                 self._assign_all_kos)
+        self._btn_ko_batch.setToolTip(
+            "Alle Aktoren, Taster und Sensoren mit KOs aus dem Produkt, die noch\n"
+            "keine Zuordnung haben, auf einmal zuordnen (gemerkte Zuordnung gleicher\n"
+            "Produkte vor Vorschlag) – danach nur die unsicheren Fälle prüfen")
         self._btn_channels.setToolTip(
             "Aktoren: Stromkreise den Kanälen zuordnen (Benennung des Herstellers,\n"
             "z.B. Kanal C) und je GA den KO wählen – nicht benötigte KOs bleiben frei.\n"
@@ -1212,6 +1218,31 @@ class MaterialListView(QWidget):
         if dlg.exec() != QDialog.Accepted:
             return
         if dlg.apply():
+            # Weggelassene Funktionen: GAs neu erzeugen (Plätze bleiben Reserve)
+            from ...services.address_generator import regenerate_addresses
+            regenerate_addresses(self._project)
+            bus = getattr(self, "_bus", None)
+            if bus:
+                bus.emit_functions_changed()
+        self.list_changed.emit()
+
+    def _assign_all_kos(self) -> None:
+        """Sammelvorschlag: KOs aller Geräte ohne Zuordnung (FA-3009)."""
+        from ...services.ko_batch import apply_plan, plan_all
+        from ..dialogs.ko_batch_dialog import KoBatchDialog
+        if not self._project:
+            return
+        batch = plan_all(self._project)
+        if not batch.plans and not batch.kept:
+            QMessageBox.information(
+                self, "KOs aller Geräte zuordnen",
+                "Kein Gerät mit KOs aus dem Produkt gefunden – zuerst Produkte mit "
+                "KNXPROD-Daten zuweisen.")
+            return
+        dlg = KoBatchDialog(self._project, batch, parent=self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        if apply_plan(self._project, batch, omit=dlg.omit):
             # Weggelassene Funktionen: GAs neu erzeugen (Plätze bleiben Reserve)
             from ...services.address_generator import regenerate_addresses
             regenerate_addresses(self._project)

@@ -15,10 +15,12 @@ from PySide6.QtWidgets import (
 )
 
 from ...services.actor_channels import (
-    device_channels, device_circuits, device_com_objects, omit_functions, suggested_co_map,
+    device_channels, device_circuits, device_com_objects, omit_functions,
     unneeded_functions,
 )
-from ...services.ko_templates import actor_signature, load_template, save_template
+from ...services.ko_templates import (
+    actor_proposal, actor_signature, load_template, save_template,
+)
 
 _NOT_LINKED = -1   # KO-Nummern beginnen teils bei 0
 
@@ -144,7 +146,7 @@ class ActorChannelDialog(QDialog):
             co_sel = {}
             for c in circuits:
                 saved = (device.co_map or {}).get(c.key)
-                co_sel[c.key] = (dict(saved) if saved is not None else self._proposal(
+                co_sel[c.key] = (dict(saved) if saved is not None else actor_proposal(
                     by_number.get(channel_sel[c.key]), c, channel_sel[c.key], template, known))
             self._state[device.id] = {"circuits": circuits, "channels": channels,
                                       "all_cos": all_cos, "template": template,
@@ -152,17 +154,6 @@ class ActorChannelDialog(QDialog):
                                       "by_number": by_number, "channel": channel_sel,
                                       "co": co_sel}
         return self._state[device.id]
-
-    @staticmethod
-    def _proposal(channel, circuit, number: int, template: dict, known: set) -> dict:
-        """Vorschlag für einen Stromkreis auf Kanal number: die gemerkte
-        Zuordnung des Produkts (ko_templates) vor dem Vorschlag nach Texten."""
-        selection = suggested_co_map(channel, circuit)
-        for function, _ga in circuit.functions:
-            remembered = template.get(actor_signature(number, function))
-            if remembered is not None and (remembered < 0 or remembered in known):
-                selection[function] = remembered
-        return selection
 
     def _on_device_changed(self):
         index = max(0, self._device_combo.currentIndex())
@@ -208,7 +199,7 @@ class ActorChannelDialog(QDialog):
         state = self._state_for(self._device)
         state["channel"][circuit.key] = number
         # Neuer Kanal: KOs neu vorschlagen
-        state["co"][circuit.key] = self._proposal(state["by_number"].get(number), circuit,
+        state["co"][circuit.key] = actor_proposal(state["by_number"].get(number), circuit,
                                                   number, state["template"], state["known"])
         self._update_channel_info()
         if self._circuit is circuit:
