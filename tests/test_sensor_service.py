@@ -944,3 +944,39 @@ class TestAutoBedienelementKeepsIdentity:
         service.auto_assign_functions([room], GroupAddressStructure())
 
         assert [(b.id, b.suppressed) for b in room.bedienelemente] == [(tombstone_id, True)]
+
+
+class TestSensorProductGas:
+    """Gewerk ohne Aktor (A) mit Melder-Produkt: die GAs heissen nach den KOs,
+    der Melderkanal findet sie trotzdem (Projekt_23: Bewegungsmelder
+    Haupteingang, Garage, Eingang ohne GA)."""
+
+    def test_melderkanal_findet_produkt_gas_mit_richtung(self, gewerk_catalog):
+        product = {"manufacturer": "ABB", "order_number": "6131/40-500",
+                   "product_name": "Busch-Watchdog Sky", "com_objects": [
+                       {"number": 1, "function_text": "P1: Bewegung", "datapoint_type": "DPST-1-1",
+                        "communication_flag": True, "transmit_flag": True},
+                       {"number": 2, "function_text": "P1: Freigabe Bewegung",
+                        "datapoint_type": "DPST-1-1", "communication_flag": True,
+                        "write_flag": True},
+                   ]}
+        room, structure = TestAutoAssignFunctions()._make_room_with_gas(
+            [GewerkAssignment(gewerk_code="A", count=1, linked_product=product)],
+            gewerk_catalog)
+
+        SensorService().auto_assign_functions([room], structure)
+
+        fas = room.bedienelemente[0].function_assignments
+        roles = {fa.description: fa.role for fa in fas}
+        assert roles == {"P1: Bewegung": "befehl", "P1: Freigabe Bewegung": "rueckmeldung"}
+
+    def test_aktor_gewerk_bleibt_beim_standard(self, gewerk_catalog):
+        """Licht gehört dem Aktor: kein Ersatz über Produkt-GAs."""
+        from knix_arranger.models.building import SensorFunktion
+        from knix_arranger.services.sensor_service import _product_element_fas
+        room = Room(number="E01", name="Wohnen")
+        room.gewerk_assignments = [GewerkAssignment(
+            gewerk_code="L", count=1, linked_product={"com_objects": [{"number": 1}]})]
+        sf = SensorFunktion(gewerk_code="L", element_number=1)
+        lookup = {("L", room.id, 1, "P1: Bewegung"): "L_E01_01 P1: Bewegung"}
+        assert _product_element_fas(sf, room, room.id, lookup, "Taste") == []

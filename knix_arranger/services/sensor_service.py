@@ -681,6 +681,7 @@ class SensorService:
                 feedback_fns = []
             base_by_id[sf.id] = f"{word} {global_channel}" if use_numbers else word
 
+            found_primary = False
             for btn_label, fn_name, desc, action_type, bedienart in primary_fns:
                 key = (sf.gewerk_code, src_room_id, sf.element_number, fn_name)
                 ga_designation = ga_lookup.get(key)
@@ -700,6 +701,17 @@ class SensorService:
                     bedienart=bedienart,
                 ))
                 total += 1
+                found_primary = True
+
+            if not found_primary:
+                label = primary_fns[0][0] if primary_fns else word
+                channel_name = f"{label} {global_channel}" if use_numbers else label
+                product_fas = _product_element_fas(
+                    sf, room, src_room_id, ga_lookup, channel_name)
+                fas.extend(product_fas)
+                total += len(product_fas)
+                if product_fas:
+                    continue
 
             for fb_label, fb_fn_name, fb_desc in feedback_fns:
                 key = (sf.gewerk_code, src_room_id, sf.element_number, fb_fn_name)
@@ -790,6 +802,38 @@ SENSOR_TYPE_CHOICES = [
     "Magnetkontakt", "Fensterkontakt", "Türkontakt", "Riegelkontakt",
     "Temperaturfuehler", "Sensor",
 ]
+
+
+def _product_element_fas(sf: SensorFunktion, room: Room, src_room_id: str,
+                         ga_lookup: dict, channel_name: str) -> list[FunctionAssignment]:
+    """Kanal eines Sensors an einem Gewerk ohne Aktor (A, FK …), dessen GAs
+    aus dem Melder-Produkt entstanden (product_sync): die GAs seines Elements
+    heissen nach den KOs («P1: Bewegung»), nicht «E/A» -- vorher fand der
+    Kanal keine GA (Projekt_23: Bewegungsmelder Haupteingang, Garage,
+    Eingang ohne GA). Richtung aus den KO-Flags: sendet der Sensor, ist es
+    ein Befehl, empfängt er (Freigabe, Nachlaufzeit …), eine Rückmeldung."""
+    from .product_sync import sensor_owns_gewerk
+    # Ein Melder meldet aus seinem eigenen Raum
+    if src_room_id != room.id or not sensor_owns_gewerk(sf.gewerk_code):
+        return []
+    assignment = next((a for a in room.gewerk_assignments
+                       if a.gewerk_code == sf.gewerk_code), None)
+    product = assignment.product_for_element(sf.element_number) if assignment else None
+    if not product or not product.get("com_objects"):
+        return []
+    from .address_generator import _com_object_function_name
+    receives = {_com_object_function_name(co) for co in product["com_objects"]
+                if co.get("write_flag") and not co.get("transmit_flag")}
+    room_keys = {src_room_id, room.number}
+    return [FunctionAssignment(
+        button_channel=channel_name,
+        function_ga=designation,
+        description=fn_name,
+        role="rueckmeldung" if fn_name in receives else "befehl",
+        sf_id=sf.id,
+    ) for (code, room_key, element, fn_name), designation in ga_lookup.items()
+        if code == sf.gewerk_code and room_key in room_keys
+        and element == sf.element_number]
 
 
 def _inherit(be: Bedienelement, old: Bedienelement) -> None:
