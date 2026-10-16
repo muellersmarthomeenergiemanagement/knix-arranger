@@ -836,3 +836,54 @@ class TestTastereinheiten:
         assert len(auto_bes) == 1, "TE2 soll ein auto-BE erhalten"
         manual_bes = [b for b in room.bedienelemente if not b.is_auto]
         assert len(manual_bes) == 1, "Manuelles BE auf TE1 soll erhalten bleiben"
+
+
+class TestStaleAutoBedienelement:
+    """Automatisches Bedienelement ohne Gewerk-Gruppe (Projekt_23 Technik)."""
+
+    def _room_with_stale_be(self):
+        from knix_arranger.models.building import Bedienelement, SensorFunktion
+        room = Room(number="CUG02", name="Technik")
+        room.gewerk_assignments = [GewerkAssignment(gewerk_code="H", count=1)]
+        room.bedienelemente = [Bedienelement(
+            element_type="Wassermelder", channels=1, is_auto=True,
+            participant_number="1.2.113",
+            funktionen=[SensorFunktion(gewerk_code="A", element_number=2)])]
+        return room
+
+    def test_planned_project_drops_stale_auto_be(self):
+        """Geplant: kein Gerät mehr dahinter -- verwerfen, sonst steht im
+        Gebäude «Wassermelder 1.2.113», obwohl die Adresse dem
+        Raumthermostat gehört."""
+        from knix_arranger.models.group_address import GroupAddressStructure
+        room = self._room_with_stale_be()
+        SensorService().auto_assign_functions([room], GroupAddressStructure(),
+                                              topology=self._topology(room))
+        assert [be.element_type for be in room.bedienelemente] == ["Raumthermostat"]
+
+    def test_planned_project_keeps_be_of_existing_device(self):
+        """Steht ein Wassermelder mit dieser Adresse im Raum, bleibt er."""
+        from knix_arranger.models.group_address import GroupAddressStructure
+        room = self._room_with_stale_be()
+        SensorService().auto_assign_functions(
+            [room], GroupAddressStructure(),
+            topology=self._topology(room, product="Wassermelder"))
+        assert "Wassermelder" in [be.element_type for be in room.bedienelemente]
+
+    def test_imported_project_keeps_device_without_gewerk_group(self):
+        """Importiert: das Gerät ist real vorhanden (Chalet Bibliothek 1.1.52)."""
+        from knix_arranger.models.group_address import GroupAddressStructure
+        room = self._room_with_stale_be()
+        topology = self._topology(room)
+        topology.is_imported = True
+        SensorService().auto_assign_functions([room], GroupAddressStructure(),
+                                              topology=topology)
+        assert "Wassermelder" in [be.element_type for be in room.bedienelemente]
+
+    @staticmethod
+    def _topology(room, product="Raumthermostat"):
+        """Linie mit dem Sensor 1.2.113 im Raum (Standard: Raumthermostat)."""
+        from knix_arranger.models.topology import Area, Device, Line, Topology
+        return Topology(areas=[Area(area_number=1, lines=[Line(line_number=2, devices=[
+            Device(physical_address="1.2.113", device_type="sensor",
+                   room_id=room.id, product=product)])])])

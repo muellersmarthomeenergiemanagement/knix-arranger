@@ -146,7 +146,8 @@ class Step09Functions(QWidget):
         all_rooms = self._project.all_rooms
 
         # Basis-Zuweisung aus Gewerken (auto_assign_functions)
-        count = service.auto_assign_functions(all_rooms, gas)
+        count = service.auto_assign_functions(
+            all_rooms, gas, topology=self._project.topology)
         self._guard.mark_done(self._project, KEY_FUNCTIONS)
 
         # auto_assign_functions behandelt bereits sowohl Auto- als auch Manual-BEs

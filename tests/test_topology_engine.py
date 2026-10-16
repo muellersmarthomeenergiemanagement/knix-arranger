@@ -997,3 +997,37 @@ class TestSensorRoomOrdering:
         assert sensors[0].room_id == room_a_id
         assert sensors[1].room_id == room_a_id
         assert sensors[2].room_id == room_b_id
+
+
+class TestManualProductFollowsSensor:
+    """Produkt eines Sensors bleibt beim Gerät, wenn sich Adressen
+    verschieben (Projekt_23: Präsenzmelder in Waschen eingefügt, der Elsner
+    Leak des Liftschachts landete auf dem Raumthermostat)."""
+
+    def test_product_stays_with_sensor_when_addresses_shift(self, gewerk_catalog):
+        from knix_arranger.models.building import Bedienelement
+        areal = TestSensorRoomOrdering()._make_two_room_areal(
+            room_a_indices=[1], room_b_indices=[1])
+        room_a, room_b = areal.all_rooms
+        engine = TopologyEngine()
+        topology = engine.calculate_topology(areal)
+        engine.populate_devices(topology, areal.all_rooms, gewerk_catalog)
+
+        def sensors():
+            return [d for d in topology.areas[0].lines[0].devices
+                    if d.device_type == "sensor"]
+
+        target = next(d for d in sensors() if d.room_id == room_b.id)
+        old_address = target.physical_address
+        target.manufacturer, target.order_number = "Elsner", "70316"
+
+        # Zweiter Taster in Raum A schiebt Raum B eine Adresse weiter
+        room_a.bedienelemente.append(Bedienelement(
+            element_type="Tastereinheit", channels=1, is_auto=False, taster_index=2))
+        engine.populate_devices(topology, areal.all_rooms, gewerk_catalog,
+                                preserve_manual=True)
+
+        moved = next(d for d in sensors() if d.room_id == room_b.id)
+        assert moved.physical_address != old_address
+        assert moved.order_number == "70316"
+        assert [d.order_number for d in sensors() if d.room_id == room_a.id] == ["", ""]

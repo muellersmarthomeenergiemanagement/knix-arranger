@@ -83,7 +83,8 @@ class RecalcService:
             # neu berechnet werden, damit Gebäudeansicht, Verknüpfungsmatrix und
             # Berichte sofort konsistente Daten zeigen (ohne dass Schritt 8 besucht
             # werden muss).
-            SensorService().auto_assign_functions(all_rooms, project.group_addresses)
+            SensorService().auto_assign_functions(all_rooms, project.group_addresses,
+                                                 topology=project.topology)
             logger.info("RecalcService: function_assignments aktualisiert.")
 
             # DALI-Gruppen folgen der Zuteilung im Belegungsplan (neue Gateways,

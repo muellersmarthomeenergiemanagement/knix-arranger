@@ -244,8 +244,10 @@ class TopologyEngine:
         # Ihre Teilnehmernummer ist fest und darf nie überschrieben werden.
         programmed_by_line: dict[str, list] = {}
 
-        # Manuelle Produktzuweisungen (Hersteller/Bestellnr. nach Adresse)
+        # Manuelle Produktzuweisungen (Hersteller/Bestellnr.): Sensoren nach
+        # Raum und Typ (_SensorKeys), alle anderen nach Adresse
         manual_assignments: dict = {}
+        sensor_keys = _SensorKeys()
         # Manuell aufgeteilte Aktoren (manually_split) pro Linie
         manual_actor_devices: dict[str, list] = {}
         # Manuell hinzugefügte Geräte (manually_added) pro Linie
@@ -273,9 +275,10 @@ class TopologyEngine:
                                 line.coupler_address, []
                             ).append(device)
                             continue
+                        key = sensor_keys.key(device)
                         if ((device.manufacturer or device.channel_map)
                                 and device.physical_address):
-                            manual_assignments[device.physical_address] = {
+                            manual_assignments[key] = {
                                 "manufacturer": device.manufacturer,
                                 "manufacturer_id": device.manufacturer_id,
                                 "product_ref_id": device.product_ref_id,
@@ -609,12 +612,13 @@ class TopologyEngine:
         # Programmierte Geräte brauchen keinen Restore – ihre Daten sind im
         # gesicherten Device-Objekt bereits enthalten.
         if preserve_manual and manual_assignments:
+            sensor_keys = _SensorKeys()
             for area in topology.areas:
                 for line in area.lines:
                     for device in line.devices:
-                        if device.is_programmed:
+                        if device.is_programmed or device.manually_added:
                             continue
-                        saved = manual_assignments.get(device.physical_address)
+                        saved = manual_assignments.get(sensor_keys.key(device))
                         if saved:
                             if saved["manufacturer"]:
                                 device.manufacturer = saved["manufacturer"]
@@ -1016,6 +1020,26 @@ def _without_links(co):
     """Kopie eines Kommunikationsobjekts ohne GA-Verknüpfungen."""
     import dataclasses
     return dataclasses.replace(co, connected_gas=[])
+
+
+class _SensorKeys:
+    """Schlüssel, unter dem populate_devices das Produkt eines Geräts über die
+    Neuberechnung rettet. Sensoren: Raum, Typ und laufende Nummer dieses Typs
+    im Raum -- ihre Adressen rücken nach, sobald irgendwo ein Sensor dazukommt
+    oder wegfällt (Projekt_23: Präsenzmelder in Waschen eingefügt, der Elsner
+    Leak von 1.2.117 landete auf dem Raumthermostat). Alle anderen Geräte:
+    Adresse. Je Durchgang eine Instanz, Geräte in Topologie-Reihenfolge."""
+
+    def __init__(self):
+        self._seen: dict[tuple, int] = {}
+
+    def key(self, device):
+        if device.device_type != "sensor" or not device.room_id:
+            return device.physical_address
+        base = ("sensor", device.room_id, device.product)
+        n = self._seen.get(base, 0)
+        self._seen[base] = n + 1
+        return base + (n,)
 
 
 def has_main_line(topology, area) -> bool:

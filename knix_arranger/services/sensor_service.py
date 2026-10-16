@@ -303,6 +303,7 @@ class SensorService:
     def auto_assign_functions(
         self, rooms: list[Room],
         group_addresses: GroupAddressStructure,
+        topology=None,
     ) -> int:
         """
         Ordnet Sensoren automatisch die passenden Gruppenadressen zu (FA-1410).
@@ -310,6 +311,15 @@ class SensorService:
         Für gewerk-basierte Sensorfunktionen werden alle Primär- und
         Rückmelde-GAs automatisch expandiert.  Direkte GA-Referenzen werden
         unverändert als FunctionAssignment übernommen.
+
+        Automatische Bedienelemente, die in einem Raum mit Gewerken keiner
+        Gewerk-Gruppe entsprechen, bleiben nur, wenn ihr Gerät real vorhanden
+        ist. Mit topology eines geplanten Projekts heisst das: ein Sensor im
+        Raum mit dieser Adresse und ohne anderen Typ (_has_own_device) --
+        sonst blieb ein früherer Sensor ohne auflösbare GA mit seiner alten
+        Adresse stehen (Projekt_23 Technik: «Wassermelder 1.2.113», die
+        Adresse hatte inzwischen der Raumthermostat). Ohne topology oder bei
+        importierten Projekten bleiben alle (Chalet Bibliothek 1.1.52).
 
         Gibt die Anzahl erstellter FunctionAssignment-Einträge zurück.
         """
@@ -496,7 +506,9 @@ class SensorService:
             # sind trotzdem real vorhanden -- nicht verwerfen (Chalet
             # Bibliothek: zwei Taster, eine Gewerk-Gruppe -> 1.1.52 fehlte)
             for leftover in _import_queue.values():
-                room.bedienelemente.extend(be for be in leftover if be.participant_number)
+                room.bedienelemente.extend(
+                    be for be in leftover if be.participant_number
+                    and _has_own_device(topology, room, be))
 
             # Keine Gewerke → import-erzeugte Bedienelemente wiederherstellen
             if not room.bedienelemente and saved_import_bes:
@@ -766,6 +778,18 @@ SENSOR_TYPE_CHOICES = [
 ]
 
 
+def _has_own_device(topology, room: Room, be: Bedienelement) -> bool:
+    """Steht hinter dem Bedienelement ein Sensor der Topologie? Siehe
+    SensorService.auto_assign_functions. Ein Gerät ohne Typ (z.B. aus der
+    ETS) zählt, eines mit anderem Typ gehört einem anderen Bedienelement."""
+    if topology is None or topology.is_imported:
+        return True
+    return any(d.device_type == "sensor" and d.room_id == room.id
+               and d.physical_address == be.participant_number
+               and d.product in ("", be.element_type)
+               for area in topology.areas for line in area.lines for d in line.devices)
+
+
 def sensor_assignments(room: Room, be: Bedienelement) -> list:
     """Gewerk-Zuweisungen, aus denen der Sensor be abgeleitet ist."""
     result = []
@@ -825,7 +849,8 @@ def refresh_bedienelemente(project) -> None:
         apply_listen_roles(project)
     except Exception:
         logger.exception("Mehrfach verknüpfte Tasten-KOs nicht prüfbar")
-    SensorService().auto_assign_functions(project.all_rooms, project.group_addresses)
+    SensorService().auto_assign_functions(project.all_rooms, project.group_addresses,
+                                          topology=project.topology)
 
 
 def project_for_export(project):

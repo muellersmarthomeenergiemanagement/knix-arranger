@@ -562,7 +562,8 @@ class Step08Sensors(QWidget):
         # Funktionszuordnung aktualisieren (nicht nach manuellem Edit – BE.funktionen schon gesetzt)
         if run_auto_assign:
             service = SensorService()
-            service.auto_assign_functions(all_rooms, self._project.group_addresses)
+            service.auto_assign_functions(all_rooms, self._project.group_addresses,
+                                          topology=self._project.topology)
             self._guard.mark_done(self._project, KEY_FUNCTIONS)
 
         self._tree.clear()

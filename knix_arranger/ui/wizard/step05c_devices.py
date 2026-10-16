@@ -309,7 +309,8 @@ class Step05cDevices(QWidget):
         if (any(r.gewerk_assignments for r in rooms)
                 and self._guard.is_stale(self._project, KEY_FUNCTIONS)):
             service = SensorService()
-            service.auto_assign_functions(rooms, self._project.group_addresses)
+            service.auto_assign_functions(rooms, self._project.group_addresses,
+                                          topology=self._project.topology)
             self._guard.mark_done(self._project, KEY_FUNCTIONS)
         self._refresh_tree()
 
@@ -547,7 +548,8 @@ class Step05cDevices(QWidget):
                 be.suppressed = False
         service = SensorService()
         service.auto_assign_functions(
-            self._project.all_rooms, self._project.group_addresses
+            self._project.all_rooms, self._project.group_addresses,
+            topology=self._project.topology,
         )
         self._topology_hint.setVisible(True)
         self._refresh_tree()
@@ -572,7 +574,8 @@ class Step05cDevices(QWidget):
         """auto_assign_functions ausführen und Baum aktualisieren."""
         service = SensorService()
         service.auto_assign_functions(
-            self._project.all_rooms, self._project.group_addresses
+            self._project.all_rooms, self._project.group_addresses,
+            topology=self._project.topology,
         )
         self._topology_hint.setVisible(True)
         self._refresh_tree()
