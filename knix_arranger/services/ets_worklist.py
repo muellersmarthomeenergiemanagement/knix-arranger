@@ -23,6 +23,10 @@ from datetime import date
 logger = logging.getLogger("knix_arranger.ets_worklist")
 
 PRIO_MUST, PRIO_CHECK, PRIO_DOCS = 1, 2, 3
+
+# Befunde, die in KNiX behoben werden, nicht in der ETS: Verweise (FA-623),
+# widersprüchliche Zuteilungen (FA-625)
+KNIX_ONLY_RULES = frozenset({"FA-623", "FA-625"})
 PRIORITIES = {
     PRIO_MUST: ("Muss behoben werden", "Wirkt auf den Bus – nach der Korrektur programmieren."),
     PRIO_CHECK: ("Prüfen", "Verdächtig, aber nicht eindeutig falsch."),
@@ -157,6 +161,8 @@ def current_items(project) -> list[WorkItem]:
     items: dict[str, WorkItem] = {}
     for issue in issues:
         if issue.level == "info" and issue.rule_id != "FA-616":
+            continue
+        if issue.rule_id in KNIX_ONLY_RULES:
             continue
         for item in _items_from_issue(issue, project):
             items.setdefault(item.key, item)

@@ -99,7 +99,7 @@ class ChangelogEntry:
     Solo-Planungswerkzeug wäre das reines Rauschen ohne Mehrwert.
     """
     timestamp: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M"))
-    category: str = "Notiz"   # "Projekt", "Import", "Re-Import", "Revision", "Notiz"
+    category: str = "Notiz"   # "Projekt", "Import", "Re-Import", "Revision", "Notiz", "Bereinigung"
     message: str = ""
 
     def to_dict(self) -> dict:

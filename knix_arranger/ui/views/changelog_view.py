@@ -28,6 +28,7 @@ _CAT_COLORS = {
     "Re-Import": "#EF6C00",
     "Revision": "#6A1B9A",
     "Notiz": "#455A64",
+    "Bereinigung": "#00838F",
 }
 
 

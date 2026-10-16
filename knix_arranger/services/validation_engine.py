@@ -83,6 +83,8 @@ class ValidationEngine:
             issues.extend(self._check_product_mismatch(project))
             issues.extend(self._check_products_without_kos(project))
             issues.extend(self._check_scene_numbers(project))
+            issues.extend(self._check_references(project))
+            issues.extend(self._check_structure(project))
             # FA-609, FA-611 bis FA-613: Topologie
             from .topology_validation import check_topology
             issues.extend(check_topology(project))
@@ -136,6 +138,79 @@ class ValidationEngine:
                 "In Schritt 1 jedem Stockwerk eine eigene Hauptgruppe geben",
                 details={"hg": hg, "floors": names},
             ))
+        return issues
+
+    #: Massnahme je Art eines gebrochenen Verweises (FA-623)
+    _REFERENCE_HINTS = {
+        "Bedienelement: Gerät fehlt": "Projekt neu berechnen (Gebäude oder Gewerke ändern) "
+                                      "oder das Bedienelement entfernen",
+        "Bedienelement: ohne Gerät": "Projekt neu berechnen; bleibt es, das Bedienelement "
+                                     "entfernen und neu einsetzen",
+        "Bedienelement: anderer Gerätetyp": "Projekt neu berechnen",
+        "DALI: Gateway fehlt": "DALI-Konfiguration öffnen: Gateway neu wählen oder "
+                               "die Konfiguration entfernen",
+        "Secure: FDSK ohne Gerät": "FDSK im KNX-Secure-Archiv dem richtigen Gerät "
+                                   "zuordnen oder bewusst im Archiv belassen",
+    }
+
+    def _check_references(self, project) -> list[ValidationIssue]:
+        """FA-623: Verweise, die die Bereinigung beim Öffnen (FA-624) nicht
+        auflösen kann -- z.B. eine DALI-Konfiguration ohne Gateway oder ein
+        eine Taste auf eine gelöschte GA."""
+        from .integrity_check import check_integrity
+        return [ValidationIssue(
+            "warning", "FA-623", f"{issue.kind}: {issue.detail}", "",
+            self._REFERENCE_HINTS.get(issue.kind, "Verweis prüfen und neu zuordnen"),
+            details={"kind": issue.kind})
+            for issue in check_integrity(project)]
+
+    def _check_structure(self, project) -> list[ValidationIssue]:
+        """FA-625: Zuteilungen, die einander widersprechen. Geplant: Warnung
+        (KNiX leitet daraus Geräte und GAs ab); importiert: Hinweis, die ETS
+        ist massgebend (Korrekturschicht, FA-616)."""
+        planned = not project.topology.is_imported
+        level = "warning" if planned else "info"
+        issues: list[ValidationIssue] = []
+        line_names: dict[str, list[str]] = {}
+        for area in project.topology.areas:
+            for line in area.lines:
+                for rid in line.assigned_room_ids:
+                    line_names.setdefault(rid, []).append(f"{area.area_number}.{line.line_number}")
+        for room in project.all_rooms:
+            label = f"{room.number} {room.name}".strip()
+            if planned and len(line_names.get(room.id, [])) > 1:
+                issues.append(ValidationIssue(
+                    level, "FA-625",
+                    f"Raum {label} ist mehreren Linien zugeteilt: "
+                    + ", ".join(line_names[room.id]), room.number,
+                    "In Schritt 4 einer Linie zuteilen"))
+            if planned and room.gewerk_assignments and room.id not in line_names:
+                issues.append(ValidationIssue(
+                    level, "FA-625",
+                    f"Raum {label} hat Gewerke, ist aber keiner Linie zugeteilt "
+                    "(keine Aktoren und Sensoren)", room.number,
+                    "In Schritt 4 einer Linie zuteilen"))
+            codes: dict[str, int] = {}
+            for a in room.gewerk_assignments:
+                codes[a.gewerk_code] = codes.get(a.gewerk_code, 0) + 1
+            for code, n in codes.items():
+                if n > 1:
+                    issues.append(ValidationIssue(
+                        level, "FA-625",
+                        f"Raum {label}: Gewerk {code} ist {n}-mal zugewiesen", room.number,
+                        "In Schritt 5 zusammenfassen (Anzahl erhöhen)" if planned
+                        else "Gewerk der GAs über «Gewerk zuordnen» korrigieren"))
+        names: dict[str, list[str]] = {}
+        for ga in project.group_addresses.all_addresses():
+            if ga.designation and ga.designation != "--" and not ga.is_placeholder:
+                names.setdefault(ga.designation, []).append(ga.address)
+        for name, addresses in names.items():
+            if len(addresses) > 1:
+                issues.append(ValidationIssue(
+                    level, "FA-625",
+                    f"GA-Bezeichnung mehrfach: {', '.join(addresses)}", addresses[0],
+                    "Bezeichnungen eindeutig machen" if planned
+                    else "In der ETS eindeutig benennen", designation=name))
         return issues
 
     def _check_ets_deviations(self, project) -> list[ValidationIssue]:

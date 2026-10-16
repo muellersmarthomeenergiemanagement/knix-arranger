@@ -230,8 +230,9 @@ class DocumentationService:
                 (i.be_type, i.be_number, i.check_type, i.function_ga)
                 for i in existing_cl.items
             }
-            # be_id-Lookup: vorhandene UUID für (be_type, be_number) übernehmen,
-            # da auto_assign_functions bei jedem Aufruf neue UUIDs vergibt.
+            # be_id-Lookup: vorhandene UUID für (be_type, be_number) übernehmen
+            # (bis 2026-10-16 vergab auto_assign_functions bei jedem Aufruf
+            # neue UUIDs; ältere Prüfpunkte verbindet reference_cleanup neu).
             known_be_ids: dict[tuple, str] = {
                 (i.be_type, i.be_number): i.be_id
                 for i in existing_cl.items

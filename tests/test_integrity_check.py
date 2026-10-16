@@ -81,3 +81,71 @@ def test_fdsk_stays_with_its_device(gewerk_catalog):
                  if project.knx_secure.device_infos.get(d.id)
                  and project.knx_secure.device_infos[d.id].fdsk]
     assert [(d.room_id, d.product) for d in with_fdsk] == [(room_id, product)]
+
+
+# ── Bereinigung beim Öffnen (FA-624) und Validierung (FA-623, FA-625) ─────
+
+def test_cleanup_relinks_or_releases_without_losing_entries(gewerk_catalog):
+    """Tote Verweise aus früheren Versionen: Checklistenpunkt wieder mit
+    seinem Bedienelement verbinden, Materialliste und Gewerk-Verknüpfung
+    lösen -- Einträge und Prüfergebnisse bleiben."""
+    from knix_arranger.models.documentation import ChecklistItem, CommissioningChecklist
+    from knix_arranger.models.material_list import MaterialEntry
+    from knix_arranger.services.reference_cleanup import clean_references
+    project, waschen, _technik = _project(gewerk_catalog)
+    taster = waschen.bedienelemente[0]
+    project.checklists = [CommissioningChecklist(room_id=waschen.id, room_name="Waschen", items=[
+        ChecklistItem(be_id="alt", be_type=taster.element_type,
+                      be_number=taster.participant_number, result="ok"),
+        ChecklistItem(be_id="weg", be_type="Rauchmelder", be_number="9.9.9", result="ok"),
+    ])]
+    project.material_list.entries = [MaterialEntry(device_id="weg", product_name="Aktor")]
+    waschen.gewerk_assignments[0].linked_ga_ids = {"E/A": "gibt-es-nicht"}
+
+    messages = clean_references(project)
+
+    items = project.checklists[0].items
+    assert [(i.be_id, i.result) for i in items] == [(taster.id, "ok"), ("", "ok")]
+    assert project.material_list.entries[0].device_id == ""
+    assert waschen.gewerk_assignments[0].linked_ga_ids == {}
+    assert messages and clean_references(project) == []
+    assert check_integrity(project) == []
+
+
+def test_cleanup_indexes_sensors_of_older_files(gewerk_catalog):
+    """Dateien vor 2026-10-16: Sensoren ohne Index werden ihrem Bedienelement
+    zugeordnet, wie es die Neuberechnung tut."""
+    from knix_arranger.services.reference_cleanup import clean_references
+    project, _waschen, technik = _project(gewerk_catalog)
+    sensors = [d for a in project.topology.areas for l in a.lines for d in l.devices
+               if d.device_type == "sensor"]
+    expected = {d.id: d.taster_index for d in sensors}
+    thermostat = next(be for be in technik.bedienelemente if be.element_type == "Raumthermostat")
+    address = thermostat.participant_number
+    for d in sensors:
+        d.taster_index = 0
+    thermostat.participant_number = ""
+
+    clean_references(project)
+
+    assert {d.id: d.taster_index for d in sensors} == expected
+    assert thermostat.participant_number == address
+
+
+def test_validation_reports_references_and_structure(gewerk_catalog):
+    """FA-623 meldet, was die Bereinigung nicht lösen kann; FA-625 Gewerk
+    doppelt im Raum. Beide gehören nicht auf die ETS-Arbeitsliste."""
+    from knix_arranger.models.dali_config import DaliGateway
+    from knix_arranger.services.ets_worklist import current_items
+    from knix_arranger.services.validation_engine import ValidationEngine
+    project, waschen, _technik = _project(gewerk_catalog)
+    project.dali_configs["weg"] = DaliGateway(gateway_device_id="weg", gateway_address="1.1.2")
+    waschen.gewerk_assignments.append(GewerkAssignment(gewerk_code="L", count=1))
+
+    issues = ValidationEngine(gewerk_catalog).validate(project.group_addresses, project)
+
+    found = {(i.rule_id, i.level, i.message.split(":")[0]) for i in issues
+             if i.rule_id in ("FA-623", "FA-625")}
+    assert ("FA-623", "warning", "DALI") in found
+    assert ("FA-625", "warning", "Raum CUG01 Waschen") in found
+    assert not any(item.rule in ("FA-623", "FA-625") for item in current_items(project))

@@ -1020,8 +1020,16 @@ class MainWindow(QMainWindow):
             # gespeicherte Werte veraltet sein können (z.B. GAs wurden nach
             # letztem Speichern umbenannt oder neu generiert).
             self._refresh_bedienelemente()
+            # Tote Verweise aus früheren Versionen bereinigen (FA-624)
+            from ..services.reference_cleanup import clean_references
+            cleaned = clean_references(self._project)
+            if cleaned:
+                self._project.add_changelog_entry(
+                    "Bereinigung", "Tote Verweise bereinigt: " + "; ".join(cleaned))
             self._update_views()
-            self._status_bar.set_status(f"Projekt '{self._project.name}' geladen.")
+            self._status_bar.set_status(
+                f"Projekt '{self._project.name}' geladen."
+                + (" Tote Verweise bereinigt, siehe Änderungsprotokoll." if cleaned else ""))
             self._sidebar.select("overview")
             self._navigate("overview")
             # Erst nach den Ansichten: sie leiten beim Anzeigen noch Daten ab

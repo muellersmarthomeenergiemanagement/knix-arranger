@@ -218,6 +218,23 @@ VALIDATION_RULES = {
         "mehr gefunden oder Szenennummer mehrfach vergeben.",
         "Anzahl des Gewerks prüfen bzw. Hinweis der Generierung befolgen.",
     ),
+    "FA-623": (
+        "Verweis ins Leere",
+        "Ein Teil des Projekts verweist auf etwas, das es nicht mehr gibt: "
+        "Bedienelement ohne Gerät, Taste auf eine gelöschte GA, DALI-"
+        "Konfiguration ohne Gateway, FDSK ohne Gerät. Was sich eindeutig "
+        "auflösen lässt, bereinigt KNiX beim Öffnen selbst (Änderungsprotokoll).",
+        "Massnahme der Meldung befolgen; meist genügt eine Neuberechnung.",
+    ),
+    "FA-625": (
+        "Zuteilung widersprüchlich",
+        "Raum auf mehreren Linien oder mit Gewerken ohne Linie, Gewerk mehrfach "
+        "im Raum, GA-Bezeichnung mehrfach. Geplante Projekte: Warnung, KNiX "
+        "leitet daraus Geräte und GAs ab. Importierte Projekte: Hinweis, "
+        "massgebend ist die ETS.",
+        "Geplant in Schritt 4/5 bereinigen; importiert über die Korrekturschicht "
+        "oder in der ETS.",
+    ),
     "FA-1813": (
         "Szenennummer am Aktor mehrfach belegt",
         "Eine Szenen-GA überträgt nur die Nummer 1–64; was sie bewirkt, steht im "

@@ -33,8 +33,6 @@ def check_integrity(project) -> list[IntegrityIssue]:
     devices += [sv for sv in [a.backbone_power_supply for a in project.topology.areas]
                 + [project.topology.backbone_power_supply] if sv is not None]
     device_ids = {d.id for d in devices}
-    addresses = Counter(d.physical_address for d in devices
-                        if d.physical_address and not d.physical_address.endswith("-"))
     gas = project.group_addresses.all_addresses()
     ga_ids = {g.id for g in gas}
     ga_addresses = {g.address for g in gas}
@@ -45,19 +43,14 @@ def check_integrity(project) -> list[IntegrityIssue]:
             return True
         return text.split()[0] in ga_addresses or text in ga_designations
 
-    for address, n in addresses.items():
-        if n > 1:
-            bad("Topologie: Adresse doppelt", address)
+    # Nicht hier, weil die Validierung sie schon meldet: doppelte Adressen
+    # (FA-612), KO auf fehlende GA (FA-611), Zeitprogramm auf fehlende GA (FA-3306)
     for g in gas:
         if g.room_id and g.room_id not in rooms:
             bad("GA: Raum fehlt", g.address)
     for d in devices:
         if d.room_id and d.room_id not in rooms:
             bad("Gerät: Raum fehlt", d.physical_address)
-        for co in d.communication_objects:
-            for ga in co.connected_gas:
-                if ga not in ga_addresses:
-                    bad("KO: GA fehlt", f"{d.physical_address} KO {co.object_number} → {ga}")
     line_of_room = Counter(rid for l in lines.values() for rid in l.assigned_room_ids)
     for l in lines.values():
         for rid in l.assigned_room_ids:
@@ -120,11 +113,6 @@ def check_integrity(project) -> list[IntegrityIssue]:
         # FDSK bleibt er im Archiv, gehört aber zu keinem Gerät mehr
         if device_id not in device_ids and info.fdsk:
             bad("Secure: FDSK ohne Gerät", f"{info.physical_address} {info.device_name}".strip())
-    for tp in project.time_programs:
-        for dp in tp.day_profiles:
-            for sp in dp.switch_points:
-                if sp.target_ga_id and sp.target_ga_id not in ga_ids:
-                    bad("Zeitprogramm: GA fehlt", tp.name)
     for e in project.material_list.entries:
         if e.device_id and e.device_id not in device_ids:
             bad("Materialliste: Gerät fehlt", e.product_name or e.device_type)
