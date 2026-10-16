@@ -244,10 +244,11 @@ class TopologyEngine:
         # Ihre Teilnehmernummer ist fest und darf nie überschrieben werden.
         programmed_by_line: dict[str, list] = {}
 
-        # Manuelle Produktzuweisungen (Hersteller/Bestellnr.): Sensoren nach
-        # Raum und Typ (_SensorKeys), alle anderen nach Adresse
-        manual_assignments: dict = {}
-        sensor_keys = _SensorKeys()
+        # Bisherige Geräte nach _DeviceKeys: ihre ID (sonst bekäme jedes Gerät
+        # bei jeder Neuberechnung eine neue -- Secure-Archiv, Materialliste und
+        # DALI verloren ihr Gerät) und mit preserve_manual das zugewiesene
+        # Produkt. Adressen taugen nicht als Schlüssel, sie rücken nach.
+        previous = _previous_devices(topology, preserve_manual)
         # Manuell aufgeteilte Aktoren (manually_split) pro Linie
         manual_actor_devices: dict[str, list] = {}
         # Manuell hinzugefügte Geräte (manually_added) pro Linie
@@ -266,33 +267,10 @@ class TopologyEngine:
                         programmed_by_line[line.coupler_address] = prog
 
                     for device in line.devices:
-                        if device.is_programmed:
-                            # Hersteller-Daten werden über is_programmed erhalten,
-                            # nicht extra in manual_assignments (device bleibt erhalten)
-                            continue
-                        if device.manually_added:
+                        if device.manually_added and not device.is_programmed:
                             manual_added_by_line.setdefault(
                                 line.coupler_address, []
                             ).append(device)
-                            continue
-                        key = sensor_keys.key(device)
-                        if ((device.manufacturer or device.channel_map)
-                                and device.physical_address):
-                            manual_assignments[key] = {
-                                "manufacturer": device.manufacturer,
-                                "manufacturer_id": device.manufacturer_id,
-                                "product_ref_id": device.product_ref_id,
-                                "hw2prog_id": device.hw2prog_id,
-                                "order_number": device.order_number,
-                                "product_name": device.product_name,
-                                # KOs des Produkts und Kanal-/KO-Zuordnung
-                                # (actor_channels); GA-Verknüpfungen nicht --
-                                # Adressen können sich inzwischen geändert haben
-                                "communication_objects": [
-                                    _without_links(co) for co in device.communication_objects],
-                                "channel_map": dict(device.channel_map),
-                                "co_map": {k: dict(v) for k, v in device.co_map.items()},
-                            }
                     # Wenn die Linie manuell aufgeteilte (nicht-programmierte)
                     # Aktoren enthält, alle nicht-programmierten Aktoren sichern
                     if any(d.manually_split and not d.is_programmed
@@ -536,6 +514,7 @@ class TopologyEngine:
                                     installation_location=room_label,
                                     datasheets=list(sensor.product.datasheets),
                                     room_id=sensor.room_id,
+                                    taster_index=sensor.taster_index,
                                 ))
                         else:  # "manual"
                             mroom, be = entry[2], entry[3]
@@ -545,6 +524,7 @@ class TopologyEngine:
                                 product=be.element_type,
                                 room_id=mroom.id,
                                 installation_location=room_label,
+                                taster_index=be.taster_index,
                             ))
 
                     # Programmierte Devices ohne passenden sensor_result-Eintrag
@@ -586,6 +566,7 @@ class TopologyEngine:
                                 installation_location=room_label,
                                 datasheets=list(s.product.datasheets),
                                 room_id=s.room_id,
+                                taster_index=s.taster_index,
                             ))
                         else:  # "manual"
                             mroom, be = entry[2], entry[3]
@@ -595,6 +576,7 @@ class TopologyEngine:
                                 product=be.element_type,
                                 room_id=mroom.id,
                                 installation_location=room_label,
+                                taster_index=be.taster_index,
                             ))
 
                 # Manuell hinzugefügte Geräte (Schnittstellen, Konnektbausteine …)
@@ -608,17 +590,24 @@ class TopologyEngine:
         self.assign_physical_addresses(topology, small_project)
         self.assign_participant_numbers(topology, all_rooms)
 
-        # Manuelle Produktzuweisungen wiederherstellen (nach Adressvergabe).
-        # Programmierte Geräte brauchen keinen Restore – ihre Daten sind im
-        # gesicherten Device-Objekt bereits enthalten.
-        if preserve_manual and manual_assignments:
-            sensor_keys = _SensorKeys()
+        # ID und manuelle Produktzuweisung vom Vorgänger übernehmen (nach der
+        # Adressvergabe). Programmierte und von Hand hinzugefügte Geräte sind
+        # die gesicherten Objekte selbst.
+        if previous:
+            device_keys = _DeviceKeys()
+            taken: set[int] = set()
             for area in topology.areas:
                 for line in area.lines:
                     for device in line.devices:
                         if device.is_programmed or device.manually_added:
                             continue
-                        saved = manual_assignments.get(sensor_keys.key(device))
+                        entry = next((previous[k] for k in device_keys.keys(device, line)
+                                      if k in previous and id(previous[k]) not in taken), None)
+                        if entry is None:
+                            continue
+                        taken.add(id(entry))
+                        device.id = entry["id"]
+                        saved = entry["product"]
                         if saved:
                             if saved["manufacturer"]:
                                 device.manufacturer = saved["manufacturer"]
@@ -1022,24 +1011,77 @@ def _without_links(co):
     return dataclasses.replace(co, connected_gas=[])
 
 
-class _SensorKeys:
-    """Schlüssel, unter dem populate_devices das Produkt eines Geräts über die
-    Neuberechnung rettet. Sensoren: Raum, Typ und laufende Nummer dieses Typs
-    im Raum -- ihre Adressen rücken nach, sobald irgendwo ein Sensor dazukommt
-    oder wegfällt (Projekt_23: Präsenzmelder in Waschen eingefügt, der Elsner
-    Leak von 1.2.117 landete auf dem Raumthermostat). Alle anderen Geräte:
-    Adresse. Je Durchgang eine Instanz, Geräte in Topologie-Reihenfolge."""
+class _DeviceKeys:
+    """Schlüssel, unter denen populate_devices ein neu erzeugtes Gerät seinem
+    Vorgänger zuordnet. Adressen taugen nicht: sie rücken nach, sobald irgendwo
+    ein Gerät dazukommt oder wegfällt (Projekt_23: Präsenzmelder in Waschen
+    eingefügt, der Elsner Leak von 1.2.117 landete auf dem Raumthermostat).
+
+    - Sensor: Raum, Typ und Index des Bedienelements (Device.taster_index);
+      ältere Dateien ohne Index: laufende Nummer dieses Typs im Raum
+    - Aktor/Gateway: Linie, Typ, Einbauort, laufende Nummer
+    - übrige (Koppler, Spannungsversorgung): Adresse, die steht fest
+
+    Je Durchgang eine Instanz, Geräte in Topologie-Reihenfolge."""
 
     def __init__(self):
         self._seen: dict[tuple, int] = {}
 
-    def key(self, device):
-        if device.device_type != "sensor" or not device.room_id:
-            return device.physical_address
-        base = ("sensor", device.room_id, device.product)
+    def _next(self, base: tuple) -> int:
         n = self._seen.get(base, 0)
         self._seen[base] = n + 1
-        return base + (n,)
+        return n
+
+    def keys(self, device, line) -> list[tuple]:
+        """Schlüssel in Vorrang-Reihenfolge."""
+        if device.device_type == "sensor" and device.room_id:
+            base = ("sensor", device.room_id, device.product)
+            ordinal = base + (self._next(base),)
+            if not device.taster_index:
+                return [ordinal]
+            with_index = base + ("index", device.taster_index)
+            return [with_index + (self._next(with_index),), ordinal]
+        if device.device_type in ("actor", "gateway"):
+            base = ("actor", line.coupler_address, device.device_type, device.product,
+                    device.installation_location)
+            return [base + (self._next(base),)]
+        return [("address", device.physical_address)] if device.physical_address else []
+
+
+def _previous_devices(topology, with_products: bool) -> dict:
+    """Bisherige Geräte nach _DeviceKeys -> {"id", "product"}; "product" nur
+    mit with_products (preserve_manual) und zugewiesenem Produkt. Ein Gerät
+    mit Index steht nur unter diesem Schlüssel -- sonst könnte ein neues
+    Gerät über die laufende Nummer ein entferntes beerben."""
+    keys = _DeviceKeys()
+    previous: dict = {}
+    for area in topology.areas:
+        for line in area.lines:
+            for device in line.devices:
+                if device.is_programmed or device.manually_added:
+                    continue
+                product = None
+                if with_products and (device.manufacturer or device.channel_map) \
+                        and device.physical_address:
+                    product = {
+                        "manufacturer": device.manufacturer,
+                        "manufacturer_id": device.manufacturer_id,
+                        "product_ref_id": device.product_ref_id,
+                        "hw2prog_id": device.hw2prog_id,
+                        "order_number": device.order_number,
+                        "product_name": device.product_name,
+                        # KOs des Produkts und Kanal-/KO-Zuordnung
+                        # (actor_channels); GA-Verknüpfungen nicht --
+                        # Adressen können sich inzwischen geändert haben
+                        "communication_objects": [
+                            _without_links(co) for co in device.communication_objects],
+                        "channel_map": dict(device.channel_map),
+                        "co_map": {k: dict(v) for k, v in device.co_map.items()},
+                    }
+                found = keys.keys(device, line)
+                if found:
+                    previous.setdefault(found[0], {"id": device.id, "product": product})
+    return previous
 
 
 def has_main_line(topology, area) -> bool:

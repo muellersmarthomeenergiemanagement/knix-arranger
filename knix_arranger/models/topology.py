@@ -147,6 +147,11 @@ class Device:
     # im Gerät bzw. -> {GA-Funktion: KO-Nummer, -1 = nicht verknüpfen}
     channel_map: dict[str, int] = field(default_factory=dict)
     co_map: dict[str, dict[str, int]] = field(default_factory=dict)
+    # Sensor eines geplanten Projekts: Index des Bedienelements im Raum, aus
+    # dem er entstand (Bedienelement.taster_index, 0 = unbekannt/ältere Datei).
+    # Mit room_id und product die Verbindung Gerät <-> Bedienelement, die
+    # über Adressänderungen hinweg hält (link_bedienelemente_to_devices).
+    taster_index: int = 0
 
     def __post_init__(self) -> None:
         # Hersteller als rohe ID ("M-0002", ETS-Import/aeltere Projekte) oder
@@ -195,6 +200,7 @@ class Device:
             "is_programmed": self.is_programmed,
             "channel_map": self.channel_map,
             "co_map": self.co_map,
+            "taster_index": self.taster_index,
         }
 
     @classmethod
@@ -225,6 +231,7 @@ class Device:
             channel_map={k: int(v) for k, v in (data.get("channel_map") or {}).items()},
             co_map={k: {f: int(n) for f, n in v.items()}
                     for k, v in (data.get("co_map") or {}).items()},
+            taster_index=int(data.get("taster_index", 0) or 0),
         )
         d.communication_objects = [
             CommunicationObject.from_dict(co)

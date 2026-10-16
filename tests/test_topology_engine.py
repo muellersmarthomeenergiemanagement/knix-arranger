@@ -1020,6 +1020,7 @@ class TestManualProductFollowsSensor:
         target = next(d for d in sensors() if d.room_id == room_b.id)
         old_address = target.physical_address
         target.manufacturer, target.order_number = "Elsner", "70316"
+        ids_before = {d.id for d in topology.areas[0].lines[0].devices}
 
         # Zweiter Taster in Raum A schiebt Raum B eine Adresse weiter
         room_a.bedienelemente.append(Bedienelement(
@@ -1031,3 +1032,10 @@ class TestManualProductFollowsSensor:
         assert moved.physical_address != old_address
         assert moved.order_number == "70316"
         assert [d.order_number for d in sensors() if d.room_id == room_a.id] == ["", ""]
+        # Alle bisherigen Geräte behalten ihre ID (Secure-Archiv, Materialliste,
+        # DALI verweisen darauf), nur der neue Taster bekommt eine neue
+        ids_after = {d.id for d in topology.areas[0].lines[0].devices}
+        assert ids_before <= ids_after
+        assert len(ids_after - ids_before) == 1
+        new = next(d for d in sensors() if d.id not in ids_before)
+        assert (new.room_id, new.taster_index) == (room_a.id, 2)

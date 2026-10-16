@@ -880,6 +880,23 @@ class TestStaleAutoBedienelement:
                                               topology=topology)
         assert "Wassermelder" in [be.element_type for be in room.bedienelemente]
 
+    def test_bedienelement_takes_address_of_its_device(self):
+        """Geplant: das Bedienelement trägt die Adresse seines Geräts (Raum,
+        Typ, Index), nicht seine alte -- Adressen rücken nach."""
+        from knix_arranger.models.group_address import GroupAddressStructure
+        room = Room(number="CUG02", name="Technik")
+        room.gewerk_assignments = [GewerkAssignment(gewerk_code="H", count=1)]
+        service = SensorService()
+        service.auto_assign_functions([room], GroupAddressStructure())
+        be = room.bedienelemente[0]
+        be.participant_number = "1.2.110"   # alte Adresse
+        topology = self._topology(room)      # Raumthermostat jetzt 1.2.113
+        topology.areas[0].lines[0].devices[0].taster_index = be.taster_index
+
+        service.auto_assign_functions([room], GroupAddressStructure(), topology=topology)
+
+        assert [b.participant_number for b in room.bedienelemente] == ["1.2.113"]
+
     @staticmethod
     def _topology(room, product="Raumthermostat"):
         """Linie mit dem Sensor 1.2.113 im Raum (Standard: Raumthermostat)."""
@@ -887,3 +904,43 @@ class TestStaleAutoBedienelement:
         return Topology(areas=[Area(area_number=1, lines=[Line(line_number=2, devices=[
             Device(physical_address="1.2.113", device_type="sensor",
                    room_id=room.id, product=product)])])])
+
+
+class TestAutoBedienelementKeepsIdentity:
+    """Ein automatisch abgeleitetes Bedienelement bleibt bei der Neuberechnung
+    dasselbe: ID, Tasten-IDs und Anmerkung des Bauherrn (Checklisten, Sprung
+    aus der Verknüpfungsmatrix)."""
+
+    def test_id_tasten_und_anmerkung_bleiben(self):
+        from knix_arranger.models.group_address import GroupAddressStructure
+        room = Room(number="E01", name="Wohnen")
+        room.gewerk_assignments = [GewerkAssignment(gewerk_code="L", count=2)]
+        service = SensorService()
+        service.auto_assign_functions([room], GroupAddressStructure())
+        be = room.bedienelemente[0]
+        be.bauherr_annotation = "Taster neben der Tür"
+        ids = (be.id, [sf.id for sf in be.funktionen])
+
+        service.auto_assign_functions([room], GroupAddressStructure())
+
+        again = room.bedienelemente[0]
+        assert again.is_auto
+        assert (again.id, [sf.id for sf in again.funktionen]) == ids
+        assert again.bauherr_annotation == "Taster neben der Tür"
+
+    def test_loeschmarkierung_bleibt_dieselbe(self):
+        """Gelöschter Auto-Taster: dieselbe Markierung, nur einmal im Raum,
+        auch wenn mehrere Gewerke zum Taster gehören."""
+        from knix_arranger.models.group_address import GroupAddressStructure
+        from knix_arranger.services.button_move import remove_bedienelement
+        room = Room(number="E01", name="Technik")
+        room.gewerk_assignments = [GewerkAssignment(gewerk_code="L", count=1),
+                                   GewerkAssignment(gewerk_code="J", count=1)]
+        service = SensorService()
+        service.auto_assign_functions([room], GroupAddressStructure())
+        remove_bedienelement(room, room.bedienelemente[0])
+        tombstone_id = room.bedienelemente[0].id
+
+        service.auto_assign_functions([room], GroupAddressStructure())
+
+        assert [(b.id, b.suppressed) for b in room.bedienelemente] == [(tombstone_id, True)]

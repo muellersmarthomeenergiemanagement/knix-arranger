@@ -358,6 +358,15 @@ class SensorService:
                 if _ibe.is_auto:
                     _import_queue.setdefault(_ibe.element_type, []).append(_ibe)
 
+            # Bisherige automatische Bedienelemente: das neu abgeleitete
+            # übernimmt ID, Tasten-IDs und Anmerkung (_inherit) -- sonst
+            # verwiesen Checklisten und Matrix-Sprünge nach jeder Neuberechnung
+            # ins Leere, und die Anmerkung des Bauherrn ging verloren
+            previous_auto: dict[tuple, list] = {}
+            for be in room.bedienelemente:
+                if be.is_auto and not be.suppressed:
+                    previous_auto.setdefault((be.element_type, be.taster_index), []).append(be)
+
             room.bedienelemente.clear()
 
             # Gewerk-Zuweisungen nach (effektiver Element-Typ, Taster-Index) gruppieren.
@@ -420,19 +429,19 @@ class SensorService:
             for (element_type, taster_idx, _asgn_id), assignments in sorted_groups:
                 # Unterdrücktes BE: Tombstone wiederherstellen, auto-BE NICHT neu erstellen
                 if element_type in suppressed_types:
-                    tombstone = next(
-                        (b for b in room.bedienelemente
-                         if b.element_type == element_type and b.suppressed),
-                        None,
-                    )
-                    if tombstone is None:
-                        tombstone = Bedienelement(
+                    # Die bisherige Markierung (gesichert vor dem Leeren der
+                    # Liste) weiterverwenden, je Typ nur einmal
+                    if element_type not in handled_suppressed_types:
+                        tombstone = next(
+                            (b for b in suppressed_bes if b.element_type == element_type),
+                            None,
+                        ) or Bedienelement(
                             element_type=element_type,
                             is_auto=False,
                             suppressed=True,
                         )
-                    room.bedienelemente.append(tombstone)
-                    handled_suppressed_types.add(element_type)
+                        room.bedienelemente.append(tombstone)
+                        handled_suppressed_types.add(element_type)
                     continue
 
                 total_channels = sum(a.count for a, _, _et in assignments)
@@ -466,6 +475,9 @@ class SensorService:
                                 element_number=elem_nr,
                                 source_room_id="",
                             ))
+                    olds = previous_auto.get((element_type, taster_idx))
+                    if olds:
+                        _inherit(be, olds.pop(0))
                     # Physikalische Adresse + Produktdaten aus Import wiederherstellen
                     _ibes = _import_queue.get(element_type, [])
                     if _ibes:
@@ -527,6 +539,8 @@ class SensorService:
                 if not be.participant_number and free.get(be.element_type):
                     be.participant_number = free[be.element_type].pop(0)
 
+        if topology is not None:
+            link_bedienelemente_to_devices(topology, rooms)
         return total
 
     @staticmethod
@@ -778,6 +792,50 @@ SENSOR_TYPE_CHOICES = [
 ]
 
 
+def _inherit(be: Bedienelement, old: Bedienelement) -> None:
+    """Neu abgeleitetes automatisches Bedienelement übernimmt vom bisherigen
+    die ID, die Anmerkung und je Taste (gleiches Gewerk-Element) die ID."""
+    be.id = old.id
+    be.bauherr_annotation = be.bauherr_annotation or old.bauherr_annotation
+    old_ids = {(sf.gewerk_code, sf.element_number, sf.source_room_id): sf.id
+               for sf in old.funktionen if sf.gewerk_code and not sf.press_of}
+    for sf in be.funktionen:
+        sf.id = old_ids.pop((sf.gewerk_code, sf.element_number, sf.source_room_id), sf.id)
+
+
+def link_bedienelemente_to_devices(topology, rooms) -> None:
+    """Geplantes Projekt: jedes Bedienelement trägt die Adresse des Sensors,
+    der aus ihm entstand -- gleicher Raum, Typ und Index (Device.taster_index,
+    siehe TopologyEngine.populate_devices). Vorher behielt es seine alte
+    Adresse, auch wenn das Gerät inzwischen eine andere hatte, und der
+    Abgleich mit der Topologie legte fürs Gerät ein zweites an (Projekt_23
+    Technik: «Wassermelder 1.2.113», die Adresse gehörte dem Raumthermostat).
+    Importierte Projekte und Geräte älterer Dateien ohne Index: unverändert."""
+    if topology is None or topology.is_imported:
+        return
+    by_key: dict[tuple, list] = {}
+    indexed_rooms: set[str] = set()
+    without_index: set[str] = set()   # z.B. von Hand in der Topologie eingefügt
+    for area in topology.areas:
+        for line in area.lines:
+            for d in line.devices:
+                if d.device_type != "sensor" or not d.room_id:
+                    continue
+                if d.taster_index:
+                    by_key.setdefault((d.room_id, d.product, d.taster_index), []).append(d)
+                    indexed_rooms.add(d.room_id)
+                elif d.physical_address:
+                    without_index.add(d.physical_address)
+    for room in rooms:
+        if room.id not in indexed_rooms:
+            continue
+        for be in room.bedienelemente:
+            if be.suppressed or be.participant_number in without_index:
+                continue
+            devices = by_key.get((room.id, be.element_type, be.taster_index))
+            be.participant_number = devices.pop(0).physical_address if devices else ""
+
+
 def _has_own_device(topology, room: Room, be: Bedienelement) -> bool:
     """Steht hinter dem Bedienelement ein Sensor der Topologie? Siehe
     SensorService.auto_assign_functions. Ein Gerät ohne Typ (z.B. aus der
@@ -837,6 +895,9 @@ def refresh_bedienelemente(project) -> None:
     from .ets_corrections import apply_ets_corrections
     # Korrekturen zur ETS nach Öffnen/Import/Neuaufbau wieder anwenden
     apply_ets_corrections(project)
+    # Geplant: zuerst Bedienelement <-> Gerät über Raum/Typ/Index, sonst legt
+    # der Abgleich für jedes Gerät mit neuer Adresse ein zweites an
+    link_bedienelemente_to_devices(project.topology, project.all_rooms)
     try:
         KnxprojImportService._create_bedienelemente_from_topology(
             project.topology, project.areal
