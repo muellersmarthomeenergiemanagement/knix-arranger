@@ -134,6 +134,16 @@ class KnxSecureService:
             if entry.device_id:
                 mat_map[entry.device_id] = entry
 
+        # Einträge entfernter Geräte ohne FDSK fallen weg; mit FDSK bleiben
+        # sie im Archiv (der Schlüssel darf nicht verloren gehen). Gesperrt
+        # sind die FDSKs nicht sichtbar -- dann nichts entfernen.
+        if not config.is_locked:
+            current = {d.id for area in project.topology.areas
+                       for line in area.lines for d in line.devices}
+            for device_id in [k for k, info in config.device_infos.items()
+                              if k not in current and not info.fdsk]:
+                del config.device_infos[device_id]
+
         for area in project.topology.areas:
             for line in area.lines:
                 for device in line.devices:
