@@ -1023,6 +1023,8 @@ class MainWindow(QMainWindow):
             # Tote Verweise aus früheren Versionen bereinigen (FA-624)
             from ..services.reference_cleanup import clean_references
             cleaned = clean_references(self._project)
+            if self._devices_follow_rooms_on_open():
+                cleaned.append("Geräte an die Bedienelemente angepasst (Neuberechnung)")
             if cleaned:
                 self._project.add_changelog_entry(
                     "Bereinigung", "Tote Verweise bereinigt: " + "; ".join(cleaned))
@@ -1038,6 +1040,22 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Fehler", f"Projekt konnte nicht geladen werden:\n{e}")
             return
         QTimer.singleShot(0, self._check_plaintext_secrets)
+
+    def _devices_follow_rooms_on_open(self) -> bool:
+        """Geplantes Projekt, noch nicht in die ETS übertragen: haben
+        Bedienelemente kein passendes Gerät (z.B. Gewerk A leitet den
+        Sensortyp seit 2026-10-16 aus der Bezeichnung ab), Topologie einmal
+        neu berechnen. True, wenn neu berechnet wurde."""
+        from ..services.integrity_check import check_integrity
+        project = self._project
+        if project.topology.is_imported or project.ets_transferred:
+            return False
+        if not any(issue.kind.startswith("Bedienelement:")
+                   for issue in check_integrity(project)):
+            return False
+        result = self._recalc.recalc_actors_and_addresses(project)
+        self._refresh_bedienelemente()
+        return bool(result.get("ok"))
 
     def _ask_secure_master_password(self, reason: str) -> bool:
         """Bietet an, ein Master-Passwort für das KNX-Secure-Archiv festzulegen.

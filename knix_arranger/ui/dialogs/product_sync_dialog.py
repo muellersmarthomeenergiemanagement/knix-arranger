@@ -22,6 +22,30 @@ def product_label(product: dict) -> str:
     return " – ".join(p for p in (head, product.get("product_name", "")) if p)
 
 
+def _without_unfitting(parent, mismatches, product: dict) -> list:
+    """Elemente, zu denen das Produkt nicht passt (FA-626, z.B. Watchdog an
+    «Rauchmelder» nach einem Typ-Batch), nur auf ausdrückliche Bestätigung
+    übernehmen -- Standard ist Nein."""
+    from PySide6.QtWidgets import QMessageBox
+    from ...services.product_sync import element_sensor_type, kinds_conflict
+    unfitting = [m for m in mismatches if kinds_conflict(
+        element_sensor_type(m.room, m.assignment, m.element_nr),
+        product.get("product_name", ""), product.get("com_objects"))]
+    if not unfitting:
+        return mismatches
+    lines = "\n".join(
+        f"• {m.element_text} ({m.room.number} {m.room.name}): "
+        f"{element_sensor_type(m.room, m.assignment, m.element_nr)}" for m in unfitting)
+    answer = QMessageBox.warning(
+        parent, "Produkt passt nicht",
+        f"{product_label(product)} passt nicht zu:\n\n{lines}\n\n"
+        "Für diese Elemente trotzdem übernehmen?",
+        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+    if answer == QMessageBox.Yes:
+        return mismatches
+    return [m for m in mismatches if m not in unfitting]
+
+
 def take_over_device_product(parent, mismatches, project=None) -> bool:
     """Geräteprodukt mit Auswahl der Kommunikationsobjekte für die GAs der
     Elemente übernehmen. True, wenn übernommen (GAs neu berechnen).
@@ -34,6 +58,9 @@ def take_over_device_product(parent, mismatches, project=None) -> bool:
         return False
     device = mismatches[0].device
     product = device_product(device)
+    mismatches = _without_unfitting(parent, mismatches, product)
+    if not mismatches:
+        return False
     excluded = load_ga_selection(device)
     if excluded is None:
         excluded = default_excluded_numbers(product["com_objects"])

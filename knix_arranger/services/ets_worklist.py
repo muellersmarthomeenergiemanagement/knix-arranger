@@ -25,8 +25,8 @@ logger = logging.getLogger("knix_arranger.ets_worklist")
 PRIO_MUST, PRIO_CHECK, PRIO_DOCS = 1, 2, 3
 
 # Befunde, die in KNiX behoben werden, nicht in der ETS: Verweise (FA-623),
-# widersprüchliche Zuteilungen (FA-625)
-KNIX_ONLY_RULES = frozenset({"FA-623", "FA-625"})
+# widersprüchliche Zuteilungen (FA-625), unpassendes Produkt (FA-626)
+KNIX_ONLY_RULES = frozenset({"FA-623", "FA-625", "FA-626"})
 PRIORITIES = {
     PRIO_MUST: ("Muss behoben werden", "Wirkt auf den Bus – nach der Korrektur programmieren."),
     PRIO_CHECK: ("Prüfen", "Verdächtig, aber nicht eindeutig falsch."),

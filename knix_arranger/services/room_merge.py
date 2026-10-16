@@ -129,6 +129,8 @@ def _append_elements(tgt: GewerkAssignment, src: GewerkAssignment) -> None:
     tgt.set_element_labels(labels + list(src.element_labels))
     for nr, links in src.all_element_links().items():
         tgt.element_links(nr + offset).update(links)
+    for nr, sensor_type in src.element_sensor_types.items():
+        tgt.element_sensor_types[nr + offset] = sensor_type
     tgt.extra_entries.extend(src.extra_entries)
     tgt.datasheets.extend(d for d in src.datasheets if d not in tgt.datasheets)
     tgt.taster_indices = sorted(set(tgt.taster_indices) | set(src.taster_indices))

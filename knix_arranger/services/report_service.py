@@ -235,6 +235,15 @@ VALIDATION_RULES = {
         "Geplant in Schritt 4/5 bereinigen; importiert über die Korrekturschicht "
         "oder in der ETS.",
     ),
+    "FA-626": (
+        "Produkt passt nicht zum Melder",
+        "Das Produkt eines Melders oder seines Gewerk-Elements ist von anderer "
+        "Art als der Melder, z.B. ein Bewegungsmelder an «Rauchmelder» oder "
+        "«Türkontakt». Erkannt aus Produktname und KOs; ist die Art nicht "
+        "erkennbar, wird nicht gewarnt.",
+        "Passendes Produkt wählen (Schritt 5 für die GAs, Materialliste für das "
+        "Gerät) oder das Produkt entfernen.",
+    ),
     "FA-1813": (
         "Szenennummer am Aktor mehrfach belegt",
         "Eine Szenen-GA überträgt nur die Nummer 1–64; was sie bewirkt, steht im "

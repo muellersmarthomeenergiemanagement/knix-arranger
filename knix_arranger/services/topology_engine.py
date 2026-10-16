@@ -199,10 +199,13 @@ class TopologyEngine:
             room.planned_actors = max(actor_devices, 1)
 
             # Sensoren: ein Gerät pro distinctem Sensortyp
+            from .sensor_service import element_sensor_types
             sensor_types = {
-                GEWERK_TO_SENSOR_TYPE[ga.gewerk_code]
+                sensor_type
                 for ga in room.gewerk_assignments
                 if ga.gewerk_code in GEWERK_TO_SENSOR_TYPE
+                for sensor_type in element_sensor_types(
+                    room, ga, 1, GEWERK_TO_SENSOR_TYPE[ga.gewerk_code])
             }
             room.planned_sensors = max(len(sensor_types), 1)
 

@@ -27,6 +27,101 @@ from dataclasses import dataclass
 from .button_move import bedienelement_of_device
 
 
+# Art eines Melders: aus dem Sensortyp und aus Produktname/KOs eines Produkts.
+# Weichen beide ab, passt das Produkt nicht zum Element (FA-626) -- z.B. ein
+# Bewegungsmelder (Busch-Watchdog) an «Rauchmelder» oder «Türkontakt»
+# (Projekt_23, Typ-Batch in der Materialliste).
+_TYPE_KIND = {
+    "Bewegungsmelder": "Bewegung", "Präsenzmelder": "Bewegung",
+    "Rauchmelder": "Rauch", "Wassermelder": "Wasser",
+    "Türkontakt": "Kontakt", "Fensterkontakt": "Kontakt",
+    "Riegelkontakt": "Kontakt", "Magnetkontakt": "Kontakt",
+}
+_PRODUCT_KIND_WORDS = (
+    ("Rauch", ("rauch", "smoke")),
+    ("Wasser", ("leak", "leck", "wasser", "water", "flood")),
+    ("Bewegung", ("bewegung", "präsenz", "praesenz", "presence", "motion",
+                  "watchdog", "pir")),
+    ("Kontakt", ("binär", "binaer", "binary", "eingang", "input", "kontakt", "contact")),
+)
+
+
+def sensor_kind(sensor_type: str) -> str | None:
+    return _TYPE_KIND.get(sensor_type)
+
+
+def product_kind(product_name: str, com_objects: list | None = None) -> str | None:
+    """Art eines Sensorprodukts aus Name, sonst aus den KO-Namen; None wenn
+    nicht erkennbar (dann keine Warnung)."""
+    def kind_of(text: str) -> str | None:
+        text = (text or "").lower()
+        return next((kind for kind, words in _PRODUCT_KIND_WORDS
+                     if any(w in text for w in words)), None)
+    found = kind_of(product_name)
+    if found:
+        return found
+    kinds = [kind_of(co.get("function_text") or co.get("name") or "")
+             if isinstance(co, dict) else kind_of(co.name or co.object_function)
+             for co in (com_objects or [])]
+    counted = {k: kinds.count(k) for k in kinds if k}
+    return max(counted, key=counted.get) if counted else None
+
+
+def kinds_conflict(sensor_type: str, product_name: str, com_objects=None) -> bool:
+    expected = sensor_kind(sensor_type)
+    actual = product_kind(product_name, com_objects)
+    return bool(expected and actual and expected != actual)
+
+
+def element_sensor_type(room, assignment, element_nr: int) -> str:
+    """Sensortyp eines Gewerk-Elements (sensor_service.element_sensor_types)."""
+    from ..models.device import GEWERK_TO_SENSOR_TYPE
+    from .sensor_service import element_sensor_types
+    auto_type = GEWERK_TO_SENSOR_TYPE.get(assignment.gewerk_code, "")
+    ti = assignment.taster_indices[0] if assignment.taster_indices else 1
+    return next((t for t, nrs in element_sensor_types(room, assignment, ti, auto_type).items()
+                 if element_nr in nrs), "")
+
+
+@dataclass
+class KindConflict:
+    where: str          # "Gewerk A, Element 1 Rauchmelder (CUG02 Technik)" bzw. Gerät
+    sensor_type: str
+    product_name: str
+
+
+def product_kind_conflicts(project) -> list[KindConflict]:
+    """FA-626: Produkte, die nicht zur Art des Melders passen -- in der
+    GA-Planung (Gewerke ohne Aktor) und am Gerät. Nur geplante Projekte."""
+    if project.topology.is_imported:
+        return []
+    result = []
+    for room in project.all_rooms:
+        for a in room.gewerk_assignments:
+            if not sensor_owns_gewerk(a.gewerk_code):
+                continue
+            for nr in range(1, a.count + 1):
+                product = a.product_for_element(nr)
+                if not product:
+                    continue
+                sensor_type = element_sensor_type(room, a, nr)
+                if kinds_conflict(sensor_type, product.get("product_name", ""),
+                                  product.get("com_objects")):
+                    m = ProductMismatch(None, room, a, nr)
+                    result.append(KindConflict(
+                        f"{m.element_text} ({room.number} {room.name})", sensor_type,
+                        product.get("product_name") or product.get("order_number", "")))
+    for area in project.topology.areas:
+        for line in area.lines:
+            for d in line.devices:
+                if d.device_type == "sensor" and d.order_number and kinds_conflict(
+                        d.product, d.product_name, d.communication_objects):
+                    result.append(KindConflict(
+                        f"Gerät {d.physical_address} {d.product}", d.product,
+                        d.product_name or d.order_number))
+    return result
+
+
 @dataclass
 class ProductMismatch:
     device: object          # Sensor-Gerät der Topologie

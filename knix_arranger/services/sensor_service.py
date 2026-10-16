@@ -217,33 +217,31 @@ class SensorService:
                     continue
 
                 # FA-1407: Override hat Vorrang vor automatisch ermitteltem Typ
-                is_overridden = bool(assignment.sensor_type_override)
+                own_key = _own_type_key(assignment)
+                is_overridden = bool(own_key)
 
                 # taster_indices: viele-zu-viele – pro taster_index ein eigenes Gerät.
                 # Bei Override jede Zuweisung einzeln zeigen (eigener Schlüssel via id).
+                # Elemente verschiedenen Typs (Gewerk A) ergeben eigene Geräte.
                 for taster_idx in assignment.taster_indices:
-                    effective_type = self._effective_sensor_type(
-                        room, assignment, taster_idx, auto_type
-                    )
-                    if effective_type in suppressed_types:
-                        continue
-                    agg_key = (
-                        room.id, effective_type, taster_idx,
-                        assignment.id if is_overridden else "",
-                    )
-                    if agg_key in aggregated:
-                        aggregated[agg_key].count += assignment.count
-                    else:
-                        aggregated[agg_key] = SensorRequirement(
-                            sensor_type=effective_type,
-                            room_id=room.id,
-                            room_name=f"{room.number} {room.name}",
-                            gewerk_code=assignment.gewerk_code,
-                            count=assignment.count,
-                            taster_index=taster_idx,
-                            assignment_id=assignment.id,
-                            is_overridden=is_overridden,
-                        )
+                    for effective_type, elements in element_sensor_types(
+                            room, assignment, taster_idx, auto_type).items():
+                        if effective_type in suppressed_types:
+                            continue
+                        agg_key = (room.id, effective_type, taster_idx, own_key)
+                        if agg_key in aggregated:
+                            aggregated[agg_key].count += len(elements)
+                        else:
+                            aggregated[agg_key] = SensorRequirement(
+                                sensor_type=effective_type,
+                                room_id=room.id,
+                                room_name=f"{room.number} {room.name}",
+                                gewerk_code=assignment.gewerk_code,
+                                count=len(elements),
+                                taster_index=taster_idx,
+                                assignment_id=assignment.id,
+                                is_overridden=is_overridden,
+                            )
 
         return list(aggregated.values())
 
@@ -382,17 +380,11 @@ class SensorService:
                 if code not in GEWERK_PRIMARY_FUNCTIONS:
                     continue
                 for taster_idx in assignment.taster_indices:
-                    effective_type = self._effective_sensor_type(
-                        room, assignment, taster_idx, auto_type
-                    )
-                    grp_key = (
-                        effective_type,
-                        taster_idx,
-                        assignment.id if assignment.sensor_type_override else "",
-                    )
-                    if grp_key not in element_groups:
-                        element_groups[grp_key] = []
-                    element_groups[grp_key].append((assignment, code, effective_type))
+                    for effective_type, elements in element_sensor_types(
+                            room, assignment, taster_idx, auto_type).items():
+                        grp_key = (effective_type, taster_idx, _own_type_key(assignment))
+                        element_groups.setdefault(grp_key, []).append(
+                            (assignment, code, effective_type, elements))
 
             sorted_groups = sorted(element_groups.items())
 
@@ -444,7 +436,7 @@ class SensorService:
                         handled_suppressed_types.add(element_type)
                     continue
 
-                total_channels = sum(a.count for a, _, _et in assignments)
+                total_channels = sum(len(elements) for _a, _c, _et, elements in assignments)
                 be = Bedienelement(element_type=element_type, channels=total_channels,
                                    taster_index=taster_idx)
 
@@ -468,8 +460,8 @@ class SensorService:
                     # Auto: SensorFunktionen aus Gewerken ableiten (FA-1410b)
                     be.is_auto = True
                     be.funktionen = []
-                    for assignment, gewerk_code, _eff in assignments:
-                        for elem_nr in range(1, assignment.count + 1):
+                    for _assignment, gewerk_code, _eff, elements in assignments:
+                        for elem_nr in elements:
                             be.funktionen.append(SensorFunktion(
                                 gewerk_code=gewerk_code,
                                 element_number=elem_nr,
@@ -804,6 +796,66 @@ SENSOR_TYPE_CHOICES = [
 ]
 
 
+# Gewerk A (Alarm-Magnetkontakte): Typ je Element aus seiner Bezeichnung.
+# Vorher war jedes A-Element ein «Bewegungsmelder» -- ein Typ-Batch in der
+# Materialliste gab so Rauchmeldern und Türkontakten ein Bewegungsmelder-
+# Produkt (Projekt_23 Technik, Garage, Haupteingang, Eingang). Reihenfolge
+# zählt: «Schlüsselkontakt Türe» ist ein Türkontakt, «Fensterkontakt» ein
+# Fensterkontakt, erst danach «…kontakt» allgemein.
+_LABEL_SENSOR_TYPES = (
+    (("rauch",), "Rauchmelder"),
+    (("wasser", "leck", "leak", "überflut", "ueberflut"), "Wassermelder"),
+    (("präsenz", "praesenz"), "Präsenzmelder"),
+    (("bewegung",), "Bewegungsmelder"),
+    (("fenster",), "Fensterkontakt"),
+    (("riegel",), "Riegelkontakt"),
+    (("tür", "tuer"), "Türkontakt"),
+    (("kontakt", "magnet"), "Magnetkontakt"),
+    (("temperatur",), "Temperaturfuehler"),
+)
+NEUTRAL_SENSOR_TYPE = "Sensor"
+
+
+def label_sensor_type(label: str) -> str | None:
+    """Sensortyp aus der Bezeichnung eines Elements, None wenn nicht erkennbar."""
+    text = (label or "").lower()
+    for words, sensor_type in _LABEL_SENSOR_TYPES:
+        if any(w in text for w in words):
+            return sensor_type
+    return None
+
+
+def element_sensor_types(room: Room, assignment, taster_idx: int,
+                         auto_type: str) -> dict[str, list[int]]:
+    """Elemente eines Gewerks je wirksamem Sensortyp. Vorrang: Typ des
+    Elements (Gebäude › Sensortyp) > bei Gewerk A aus der Bezeichnung > Typ
+    des Gewerks (sensor_type_override) > bei A neutral «Sensor» > TE-Typ /
+    Gewerk-Standard. Die Bezeichnung geht bei A dem Gewerk-Typ vor: der gilt
+    für alle Elemente (früher setzte ihn auch Gebäude › Sensortyp, Projekt_23
+    Technik: «Rauchmelder» auch für das Element «Wassermelder»). Elemente
+    verschiedenen Typs ergeben eigene Geräte."""
+    groups: dict[str, list[int]] = {}
+    for nr in range(1, assignment.count + 1):
+        sensor_type = assignment.element_sensor_types.get(nr)
+        if not sensor_type and assignment.gewerk_code == "A":
+            sensor_type = label_sensor_type(assignment.element_label(nr))
+        if not sensor_type and assignment.sensor_type_override:
+            sensor_type = assignment.sensor_type_override
+        if not sensor_type and assignment.gewerk_code == "A":
+            sensor_type = NEUTRAL_SENSOR_TYPE
+        if not sensor_type:
+            sensor_type = SensorService._effective_sensor_type(
+                room, assignment, taster_idx, auto_type)
+        groups.setdefault(sensor_type, []).append(nr)
+    return groups
+
+
+def _own_type_key(assignment) -> str:
+    """Eigenes Gerät je Gewerk, wenn sein Typ von Hand gesetzt ist (FA-1407)."""
+    return assignment.id if (assignment.sensor_type_override
+                             or assignment.element_sensor_types) else ""
+
+
 def _product_element_fas(sf: SensorFunktion, room: Room, src_room_id: str,
                          ga_lookup: dict, channel_name: str) -> list[FunctionAssignment]:
     """Kanal eines Sensors an einem Gewerk ohne Aktor (A, FK …), dessen GAs
@@ -892,8 +944,9 @@ def _has_own_device(topology, room: Room, be: Bedienelement) -> bool:
                for area in topology.areas for line in area.lines for d in line.devices)
 
 
-def sensor_assignments(room: Room, be: Bedienelement) -> list:
-    """Gewerk-Zuweisungen, aus denen der Sensor be abgeleitet ist."""
+def sensor_elements(room: Room, be: Bedienelement) -> list[tuple]:
+    """(Gewerk-Zuweisung, Element-Nummern), aus denen der Sensor be abgeleitet
+    ist -- bei Gewerk A ggf. nur ein Teil der Elemente."""
     result = []
     for assignment in room.gewerk_assignments:
         auto_type = GEWERK_TO_SENSOR_TYPE.get(assignment.gewerk_code)
@@ -901,24 +954,36 @@ def sensor_assignments(room: Room, be: Bedienelement) -> list:
             continue
         if be.taster_index not in assignment.taster_indices:
             continue
-        effective = SensorService._effective_sensor_type(
-            room, assignment, be.taster_index, auto_type)
-        if effective == be.element_type:
-            result.append(assignment)
+        elements = element_sensor_types(
+            room, assignment, be.taster_index, auto_type).get(be.element_type)
+        if elements:
+            result.append((assignment, elements))
     return result
 
 
+def sensor_assignments(room: Room, be: Bedienelement) -> list:
+    """Gewerk-Zuweisungen, aus denen der Sensor be abgeleitet ist."""
+    return [assignment for assignment, _elements in sensor_elements(room, be)]
+
+
 def set_sensor_type(room: Room, be: Bedienelement, sensor_type: str) -> bool:
-    """Sensortyp über sensor_type_override der zugehörigen Gewerke setzen;
-    der Gewerk-Standard hebt den Override wieder auf. Die Neuberechnung legt
+    """Sensortyp der Elemente setzen, aus denen der Sensor be besteht
+    (GewerkAssignment.element_sensor_types) -- nur dieses Gerät, nicht das
+    ganze Gewerk (Technik: Rauchmelder und Wassermelder im selben Gewerk A).
+    Der abgeleitete Typ hebt die Angabe wieder auf. Die Neuberechnung legt
     den Sensor danach mit dem neuen Typ an. False, wenn be nicht aus Gewerken
     stammt oder schon diesen Typ hat."""
-    assignments = sensor_assignments(room, be)
-    if not assignments or be.element_type == sensor_type:
+    found = sensor_elements(room, be)
+    if not found or be.element_type == sensor_type:
         return False
-    for assignment in assignments:
-        default = GEWERK_TO_SENSOR_TYPE[assignment.gewerk_code]
-        assignment.sensor_type_override = None if sensor_type == default else sensor_type
+    for assignment, elements in found:
+        auto_type = GEWERK_TO_SENSOR_TYPE[assignment.gewerk_code]
+        for nr in elements:
+            assignment.element_sensor_types.pop(nr, None)
+        derived = element_sensor_types(room, assignment, be.taster_index, auto_type)
+        for nr in elements:
+            if nr not in derived.get(sensor_type, []):
+                assignment.element_sensor_types[nr] = sensor_type
     # Manuell bearbeitete Sensoren werden nach Typ wiedergefunden
     be.element_type = sensor_type
     return True

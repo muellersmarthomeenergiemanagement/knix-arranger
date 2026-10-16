@@ -85,6 +85,7 @@ class ValidationEngine:
             issues.extend(self._check_scene_numbers(project))
             issues.extend(self._check_references(project))
             issues.extend(self._check_structure(project))
+            issues.extend(self._check_product_kinds(project))
             # FA-609, FA-611 bis FA-613: Topologie
             from .topology_validation import check_topology
             issues.extend(check_topology(project))
@@ -163,6 +164,18 @@ class ValidationEngine:
             self._REFERENCE_HINTS.get(issue.kind, "Verweis prüfen und neu zuordnen"),
             details={"kind": issue.kind})
             for issue in check_integrity(project)]
+
+    def _check_product_kinds(self, project) -> list[ValidationIssue]:
+        """FA-626: Produkt passt nicht zur Art des Melders, z.B. ein
+        Bewegungsmelder-Produkt an «Rauchmelder» (Projekt_23 nach Typ-Batch)."""
+        from .product_sync import product_kind_conflicts
+        return [ValidationIssue(
+            "warning", "FA-626",
+            f"{c.where}: {c.product_name} passt nicht zu «{c.sensor_type}»", "",
+            "In Schritt 5 (GA-Planung) bzw. in der Materialliste das passende "
+            "Produkt wählen oder das Produkt entfernen",
+            details={"sensor_type": c.sensor_type, "product": c.product_name})
+            for c in product_kind_conflicts(project)]
 
     def _check_structure(self, project) -> list[ValidationIssue]:
         """FA-625: Zuteilungen, die einander widersprechen. Geplant: Warnung

@@ -299,6 +299,10 @@ class GewerkAssignment:
     taster_indices: list[int] = field(default_factory=lambda: [1])
     # Manueller Sensortyp-Override (FA-1407); None = automatisch aus Gewerk ableiten
     sensor_type_override: str | None = None
+    # Sensortyp einzelner Elemente (Gebäude › Sensortyp), Vorrang vor
+    # sensor_type_override -- z.B. Gewerk A ×2 in der Technik: Element 1
+    # Rauchmelder, Element 2 Wassermelder (siehe sensor_service.element_sensor_types)
+    element_sensor_types: dict[int, str] = field(default_factory=dict)
     # Zusätzliche GA-Einträge über den Standard-Block hinaus (serialisierte BlockEntry-Dicts)
     extra_entries: list[dict] = field(default_factory=list)
     # Verknüpftes Produkt (FA-Produktbasierte GA-Generierung): wenn gesetzt,
@@ -380,6 +384,9 @@ class GewerkAssignment:
             "datasheets": self.datasheets,
             "taster_indices": self.taster_indices,
             "sensor_type_override": self.sensor_type_override,
+            "element_sensor_types": {
+                str(nr): t for nr, t in self.element_sensor_types.items() if t
+            },
             "extra_entries": self.extra_entries,
             "linked_product": self.linked_product,
             "element_products": {
@@ -412,6 +419,9 @@ class GewerkAssignment:
             taster_indices=taster_indices,
             sensor_type_override=data.get("sensor_type_override"),
         )
+        obj.element_sensor_types = {
+            int(nr): t for nr, t in data.get("element_sensor_types", {}).items() if t
+        }
         obj.extra_entries = data.get("extra_entries", [])
         obj.linked_product = data.get("linked_product")
         obj.element_products = {

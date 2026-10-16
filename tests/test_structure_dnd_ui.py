@@ -283,7 +283,8 @@ def test_building_view_sensor_type_menu_alarm_to_water():
     lift.gewerk_assignments.append(GewerkAssignment(gewerk_code="A", count=1))
     service = SensorService()
     service.auto_assign_functions(project.all_rooms, project.group_addresses)
-    be = next(b for b in lift.bedienelemente if b.element_type == "Bewegungsmelder")
+    # A ohne Bezeichnung: neutraler Typ (aus der Bezeichnung nicht ableitbar)
+    be = next(b for b in lift.bedienelemente if b.element_type == "Sensor")
 
     view = BuildingView()
     bus = MagicMock()
@@ -295,20 +296,22 @@ def test_building_view_sensor_type_menu_alarm_to_water():
     menu = QMenu()
     sub = view._add_sensor_type_menu(menu, be, lift)
     actions = {a.text(): a for a in sub.actions()}
-    assert actions["Bewegungsmelder"].isChecked()
+    assert actions["Sensor"].isChecked()
     actions["Wassermelder"].trigger()
     bus.begin_change.assert_called_once()
 
     service.auto_assign_functions(project.all_rooms, project.group_addresses)
     types = [b.element_type for b in lift.bedienelemente if not b.suppressed]
-    assert "Wassermelder" in types and "Bewegungsmelder" not in types
+    assert "Wassermelder" in types and "Sensor" not in types
     reqs = service.determine_sensors([lift], project.gewerk_catalog)
     assert any(r.sensor_type == "Wassermelder" for r in reqs)
 
-    # Zurück auf den Gewerk-Standard hebt den Override auf
+    # Der Typ gilt für das Element, nicht das ganze Gewerk; zurück auf den
+    # abgeleiteten Typ hebt die Angabe auf
+    assert lift.gewerk_assignments[-1].element_sensor_types == {1: "Wassermelder"}
     be = next(b for b in lift.bedienelemente if b.element_type == "Wassermelder")
-    view._set_sensor_type(lift, be, "Bewegungsmelder")
-    assert lift.gewerk_assignments[-1].sensor_type_override is None
+    view._set_sensor_type(lift, be, "Sensor")
+    assert lift.gewerk_assignments[-1].element_sensor_types == {}
 
 
 def test_building_view_zone_drag_and_menu_to_floor():
