@@ -1039,3 +1039,29 @@ class TestManualProductFollowsSensor:
         assert len(ids_after - ids_before) == 1
         new = next(d for d in sensors() if d.id not in ids_before)
         assert (new.room_id, new.taster_index) == (room_a.id, 2)
+
+
+def test_actor_keeps_product_when_verteiler_changes(gewerk_catalog):
+    """Anderer Verteiler für die Linie: der Einbauort ändert sich, der Aktor
+    behält Produkt und ID (vorher hing beides an der Adresse)."""
+    from knix_arranger.models.building import Areal, Building, Wing, Floor, Apartment, Room
+    room = Room(number="E01", name="Wohnen")
+    room.gewerk_assignments = [GewerkAssignment(gewerk_code="L", count=2)]
+    floor = Floor(name="EG", short_code="EG", main_group_number=1)
+    floor.apartments = [Apartment(name="EG", rooms=[room])]
+    areal = Areal(buildings=[Building(wings=[Wing(floors=[floor])])])
+    engine = TopologyEngine()
+    topology = engine.calculate_topology(areal)
+    engine.populate_devices(topology, areal.all_rooms, gewerk_catalog)
+    line = topology.areas[0].lines[0]
+    actor = next(d for d in line.devices if d.device_type == "actor")
+    actor.manufacturer, actor.order_number = "MDT", "AKS-0416.03"
+    actor_id = actor.id
+    for d in line.devices:
+        if d.device_type == "actor":
+            d.installation_location = "UV (UV Alt)"
+
+    engine.populate_devices(topology, areal.all_rooms, gewerk_catalog, preserve_manual=True)
+
+    again = next(d for d in line.devices if d.id == actor_id)
+    assert again.order_number == "AKS-0416.03"

@@ -1019,7 +1019,8 @@ class _DeviceKeys:
 
     - Sensor: Raum, Typ und Index des Bedienelements (Device.taster_index);
       ältere Dateien ohne Index: laufende Nummer dieses Typs im Raum
-    - Aktor/Gateway: Linie, Typ, Einbauort, laufende Nummer
+    - Aktor/Gateway: Linie, Typ, Einbauort, laufende Nummer; sonst ohne
+      Einbauort (anderer Verteiler gewählt)
     - übrige (Koppler, Spannungsversorgung): Adresse, die steht fest
 
     Je Durchgang eine Instanz, Geräte in Topologie-Reihenfolge."""
@@ -1042,9 +1043,11 @@ class _DeviceKeys:
             with_index = base + ("index", device.taster_index)
             return [with_index + (self._next(with_index),), ordinal]
         if device.device_type in ("actor", "gateway"):
-            base = ("actor", line.coupler_address, device.device_type, device.product,
-                    device.installation_location)
-            return [base + (self._next(base),)]
+            # Zweiter Schlüssel ohne Einbauort: ein anderer Verteiler für die
+            # Linie ändert den Einbauort, der Aktor bleibt derselbe
+            base = ("actor", line.coupler_address, device.device_type, device.product)
+            at = base + (device.installation_location,)
+            return [at + (self._next(at),), base + (self._next(base),)]
         return [("address", device.physical_address)] if device.physical_address else []
 
 
@@ -1079,8 +1082,11 @@ def _previous_devices(topology, with_products: bool) -> dict:
                         "co_map": {k: dict(v) for k, v in device.co_map.items()},
                     }
                 found = keys.keys(device, line)
-                if found:
-                    previous.setdefault(found[0], {"id": device.id, "product": product})
+                entry = {"id": device.id, "product": product}
+                # Sensoren nur unter dem ersten Schlüssel (siehe oben),
+                # Aktoren auch ohne Einbauort
+                for key in (found if device.device_type in ("actor", "gateway") else found[:1]):
+                    previous.setdefault(key, entry)
     return previous
 
 
