@@ -2,6 +2,29 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.3.1",
+      "date": "2026-10-16",
+      "neu": [
+        "Gebäude: Rechtsklick auf einen Raum › «Gerät hinzufügen» setzt Taster, Thermostate und Melder direkt ein (wie in der Bauherrenberatung).",
+        "Gewerk A (Alarm-Magnetkontakte): Der Gerätetyp ergibt sich je Element aus der Bezeichnung – «Rauchmelder», «Wassermelder», «Türkontakt», «Fensterkontakt» usw.; Elemente verschiedenen Typs werden eigene Geräte. Ohne erkennbare Bezeichnung heisst das Gerät neutral «Sensor» (bisher «Bewegungsmelder»).",
+        "Validierung: neue Prüfungen «Verweis ins Leere» (FA-623), «Zuteilung widersprüchlich» (FA-625) und «Produkt passt nicht zum Melder» (FA-626), z.B. ein Bewegungsmelder-Produkt an einem Rauchmelder."
+      ],
+      "verbessert": [
+        "Gebäude › Sensortyp gilt nur noch für das gewählte Gerät, nicht für das ganze Gewerk.",
+        "Beim Öffnen bereinigt KNiX tote Verweise früherer Versionen (z.B. Checklistenpunkte, Gewerk-Verknüpfungen) und vermerkt das im Änderungsprotokoll; Einträge und Prüfergebnisse bleiben erhalten.",
+        "Produktübernahme für die GA-Planung (auch nach «Typ-Batch»): unpassende Elemente werden genannt und nur nach Bestätigung übernommen.",
+        "Gebäude und Steigschema zeigen die Aktoren laut Topologie.",
+        "Löschen und Umbenennen in der Gebäudeansicht lassen sich rückgängig machen."
+      ],
+      "behoben": [
+        "Wurde ein Gerät eingefügt oder entfernt, verschoben sich die Produkte anderer Geräte: das Produkt blieb an der alten Adresse hängen. Produkte bleiben jetzt beim Gerät.",
+        "Nach jeder Neuberechnung verloren FDSK (KNX Secure), Materialliste, DALI-Konfiguration und Inbetriebnahme-Checklisten den Bezug zu ihrem Gerät.",
+        "Die Gebäudeansicht zeigte Geräte mit veralteter Adresse.",
+        "Melder an Gewerken ohne Aktor (A, FK …) mit eigenem Produkt fanden ihre GAs nicht.",
+        "Anmerkungen des Bauherrn zu automatisch ermittelten Tastern gingen bei der Neuberechnung verloren."
+      ]
+    },
+    {
       "version": "1.3.0",
       "date": "2026-10-14",
       "neu": [
