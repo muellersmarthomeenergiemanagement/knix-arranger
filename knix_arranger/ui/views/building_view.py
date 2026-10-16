@@ -208,12 +208,17 @@ class BuildingView(QWidget):
         """
         room_devices = self._devices_for_room(room)
         vt_name = (vt.name or "").strip().lower()
-        if not vt_name:
-            return []
-        return [
+        found = [
             d for d in room_devices
-            if self._loc_matches_vt(d.installation_location, {vt_name})
+            if vt_name and self._loc_matches_vt(d.installation_location, {vt_name})
         ]
+        # Geplante Projekte: Aktoren tragen keinen Raum, sondern den
+        # Verteiler als Einbauort
+        if self._topology is not None:
+            from ...services.verteiler_service import verteiler_devices
+            found += [d for d in verteiler_devices(self._topology, vt, room)
+                      if d not in found]
+        return found
 
     # ------------------------------------------------------------------
     # Baumdarstellung
@@ -344,6 +349,8 @@ class BuildingView(QWidget):
                                 vd = vt_dev_map.get(vt.id, [])
                                 if vd:
                                     vt_detail = f"{len(vd)} Geräte"
+                                elif self._topology is not None and self._topology.areas:
+                                    vt_detail = "keine Geräte"
                                 else:
                                     vt_detail = (
                                         f"{len(vt.actor_assignments)} Aktoren"

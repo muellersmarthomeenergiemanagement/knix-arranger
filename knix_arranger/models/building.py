@@ -590,10 +590,6 @@ class Bedienelement:
         return be
 
 
-# Abwärtskompatibilität für Code der noch SensorAssignment importiert
-SensorAssignment = Bedienelement
-
-
 @dataclass
 class SensorFunktionGa:
     """Zusätzliche GA an einer Direkte-GA-SensorFunktion (FA-1410d).
@@ -736,44 +732,6 @@ def is_long_press(funktionen: list[SensorFunktion], sf: SensorFunktion) -> bool:
         base = sf.label[: -len(SensorFunktion.LONG_PRESS_SUFFIX)]
         return any(o is not sf and o.label == base for o in funktionen)
     return False
-
-
-@dataclass
-class ControlFunction:
-    """
-    Veraltetes Einzelfunktions-Objekt (vor FA-1410).  Wird nur noch beim
-    Einlesen alter Projektdaten benötigt; neue Daten verwenden SensorFunktion.
-    """
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    label: str = ""
-    gewerk_code: str = ""
-    element_number: int = 1
-    function_name: str = ""
-    source_room_id: str = ""
-    ga_designation: str = ""
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "label": self.label,
-            "gewerk_code": self.gewerk_code,
-            "element_number": self.element_number,
-            "function_name": self.function_name,
-            "source_room_id": self.source_room_id,
-            "ga_designation": self.ga_designation,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> ControlFunction:
-        return cls(
-            id=data.get("id", str(uuid.uuid4())),
-            label=data.get("label", ""),
-            gewerk_code=data.get("gewerk_code", ""),
-            element_number=data.get("element_number", 1),
-            function_name=data.get("function_name", ""),
-            source_room_id=data.get("source_room_id", ""),
-            ga_designation=data.get("ga_designation", ""),
-        )
 
 
 #: Erlaubte Werte für FunctionAssignment.role:

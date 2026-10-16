@@ -20,6 +20,15 @@ def verteiler_label(vt: Verteiler, room: Room) -> str:
     return f"{vt.verteiler_type} ({vt.name or room.name})"
 
 
+def verteiler_devices(topology: Topology, vt: Verteiler, room: Room) -> list:
+    """Geräte im Verteiler laut Topologie: Einbauort = verteiler_label.
+    Massgebend statt Verteiler.actor_assignments -- die schreibt nur Wizard
+    Schritt 6, danach veralten sie (Projekt_23: 20 statt 16 Aktoren)."""
+    label = verteiler_label(vt, room)
+    return [d for area in topology.areas for line in area.lines for d in line.devices
+            if d.device_type != "sensor" and d.installation_location == label]
+
+
 class VerteilerPlacement:
     """Ordnet Linien und Aktortypen ihre Verteiler zu."""
 

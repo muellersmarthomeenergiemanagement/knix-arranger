@@ -176,3 +176,28 @@ class TestTopologieAnsicht:
             view._edit_device_location(device)
         assert line.actor_verteiler[device.product] == _vt(project, "UV Halle").id
         assert device.installation_location == "UV (UV Halle)"
+
+
+def test_verteiler_devices_counts_topology_not_wizard_list():
+    """Gebäude und Steigschema zählen die Geräte der Topologie im Verteiler,
+    nicht Verteiler.actor_assignments aus Schritt 6 (veraltet nach jeder
+    Änderung; Projekt_23: 20 statt 16 Aktoren)."""
+    from knix_arranger.models.building import ActorAssignment
+    from knix_arranger.models.topology import Area, Device, Topology
+    from knix_arranger.services.verteiler_service import verteiler_devices
+    room = Room(number="CUG02", name="Technik")
+    hv = Verteiler(name="HV Technikraum", verteiler_type="HV")
+    hv.actor_assignments = [ActorAssignment() for _ in range(20)]
+    room.verteiler = [hv]
+    label = "HV (HV Technikraum)"
+    line = Line(line_number=1, devices=[
+        Device(physical_address="1.1.1", device_type="actor", installation_location=label),
+        Device(physical_address="1.1.2", device_type="gateway", installation_location=label),
+        Device(physical_address="1.1.3", device_type="actor", installation_location="UV (UV Halle)"),
+        Device(physical_address="1.1.101", device_type="sensor", installation_location=label),
+    ])
+    topology = Topology(areas=[Area(area_number=1, lines=[line])])
+
+    found = verteiler_devices(topology, hv, room)
+
+    assert [d.physical_address for d in found] == ["1.1.1", "1.1.2"]

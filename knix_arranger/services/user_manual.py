@@ -768,7 +768,10 @@ class UserManualBuilder:
                                                for c in d.communication_objects))
                                  for d in device)
             # gleich in der Sprache des Bauherrn (FA-2006)
-            specials = [self.p(sensor_sentence(be.element_type, be.product_name)) for be in sensors]
+            # Produkt des Geräts: am Bedienelement eines geplanten Projekts
+            # steht keines (Materialliste/Topologie weisen es dem Gerät zu)
+            specials = [self.p(sensor_sentence(be.element_type, self._product_name(be)))
+                        for be in sensors]
             specials += [self.p(sensor_sentence(d.product or "", d.product_name))
                          for d in extra_sensors.get(room.id, [])]
             if heating and not any("thermostat" in (be.element_type or "").lower() for be, _ in cards):
@@ -918,6 +921,11 @@ class UserManualBuilder:
         if uses["nacht"]:
             keys.append("tip_night")
         return "\n".join(f"• {self.t(key)}" for key in keys)
+
+    def _product_name(self, be) -> str:
+        """Produktname am Bedienelement, sonst der seines Geräts."""
+        device = self.device_by_addr.get(be.participant_number or "")
+        return be.product_name or (device.product_name if device else "")
 
     def _first_ga(self, be, key: ButtonKey):
         for fa in be.function_assignments:

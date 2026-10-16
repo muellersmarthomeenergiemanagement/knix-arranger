@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass, field
 
 from .report_sorting import room_order
-from .verteiler_service import VerteilerPlacement, verteiler_label
+from .verteiler_service import VerteilerPlacement, verteiler_devices, verteiler_label
 
 # Gut unterscheidbare Linienfarben (auf Weiss, auch im Ausdruck)
 LINE_COLORS = [
@@ -339,7 +339,8 @@ def build_riser_diagram(project, highlight: str = "") -> RiserDiagram:
                     shapes.append(Label(vx + 3, vy + 14, fit_text(vt.name or vroom.name, VT_W - 10, 5),
                                         5, color="#CFD8DC", ref=ref))
                     vt_anchor[vt.id] = (vx + VT_W - 4, vy + VT_H / 2)
-                    n_act = len(vt.actor_assignments)
+                    n_act = sum(1 for d in verteiler_devices(project.topology, vt, vroom)
+                                if d.device_type in ("actor", "gateway"))
                     diagram.tooltips[ref] = (
                         f"{verteiler_label(vt, vroom)} in {vroom.number} {vroom.name}".strip()
                         + (f"\n{n_act} Aktoren" if n_act else ""))
