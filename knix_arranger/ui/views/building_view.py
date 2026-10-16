@@ -19,6 +19,7 @@ from ...services.structure_move import (
 )
 from ...services.sensor_service import SENSOR_TYPE_CHOICES, sensor_assignments, set_sensor_type
 from ..column_utils import fit_columns
+from ..widgets.add_element_menu import fill_add_element_menu
 from ..widgets.drag_drop import DragDropTree
 
 _DEVICE_TYPE_LABELS: dict[str, str] = {
@@ -746,6 +747,7 @@ class BuildingView(QWidget):
         new_name, ok = QInputDialog.getText(self, title, "Name:", text=getattr(obj, "name", ""))
         if not (ok and new_name):
             return
+        self._begin(f"«{getattr(obj, 'name', '')}» umbenannt in «{new_name}»")
         obj.name = new_name
 
         if kind == "floor":
@@ -784,9 +786,27 @@ class BuildingView(QWidget):
                 QMessageBox.Yes | QMessageBox.No,
             )
         if reply == QMessageBox.Yes:
+            name = (obj[0].element_type if kind == "bedienelement"
+                    else getattr(obj, "name", kind))
+            self._begin(f"«{name}» gelöscht")
             self._remove_from_structure(kind, obj)
             self._refresh_tree()
             self.structure_changed.emit()
+
+    def _begin(self, description: str) -> None:
+        """Rückgängig-Punkt vor einer Änderung (ProjectBus.begin_change)."""
+        bus = getattr(self, "_bus", None)
+        if bus:
+            bus.begin_change(description)
+
+    def _add_element(self, room: Room, element_type: str, channels: int) -> None:
+        """Bedienelement oder Melder in den Raum setzen -- wie in der
+        Bauherrenberatung; die Neuberechnung legt das Gerät in der Topologie an."""
+        from ...services.button_move import add_bedienelement
+        self._begin(f"{element_type} in «{room.name}» hinzugefügt")
+        add_bedienelement(room, element_type, channels)
+        self._refresh_tree()
+        self.structure_changed.emit()
 
     def _remove_from_structure(self, kind: str, obj):
         if kind == "bedienelement":
@@ -869,6 +889,12 @@ class BuildingView(QWidget):
             menu.addSeparator()
             menu.addAction("Löschen",              self._delete_selected)
         elif kind == "room":
+            room = data[1]
+            add_menu = menu.addMenu("Gerät hinzufügen")
+            fill_add_element_menu(
+                add_menu, lambda t, n, r=room: self._add_element(r, t, n))
+            # Importierte Projekte: Geräte kommen aus der ETS
+            add_menu.setEnabled(not (self._topology and self._topology.is_imported))
             menu.addAction("Verteiler hinzufügen", self._add_verteiler)
             self._add_move_menu(menu, data[1])
             menu.addAction("Umbenennen",           self._rename_selected)

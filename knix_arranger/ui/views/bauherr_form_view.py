@@ -33,7 +33,7 @@ from ...services.bauherr_form_service import (
     _DROPDOWN_OPTIONS, BauherrFormService,
 )
 from ...services.sensor_service import (
-    GEWERK_PRIMARY_FUNCTIONS, PRESENCE_SENSOR_TYPES, SENSOR_TYPE_CHOICES,
+    GEWERK_PRIMARY_FUNCTIONS, PRESENCE_SENSOR_TYPES,
 )
 from ...services.scene_addressing import (
     scene_group_key, scene_channel_designation, build_scope_label_lookup,
@@ -45,6 +45,7 @@ from ...services.multi_ga_check import (
     ko_for_ga, unlink_ga,
 )
 from ..styles import COLOR_ERROR, COLOR_INFO, COLOR_WARNING, KNX_BLUE, KNX_DARK_GREEN
+from ..widgets.add_element_menu import OTHER_SENSOR_TYPES, fill_add_element_menu
 from ..widgets.function_palette import FunctionPalette, function_from_mime
 from .topology_view import confirm_unlink
 
@@ -72,21 +73,9 @@ _TASTE_POSITION_RE = re.compile(
 )
 _SIDE_TO_COL = {"links": 0, "rechts": 1}
 
-# Übrige Melder und Kontakte (Wassermelder, Fensterkontakt …): im Menü
-# «Sonstige», damit z.B. ein Wassermelder ein eigenes Gerät bekommt
-OTHER_SENSOR_TYPES = tuple(t for t in SENSOR_TYPE_CHOICES if t not in PRESENCE_SENSOR_TYPES)
-
 # Sensoren erscheinen in der Bauherrenberatung mit Kanälen statt Tasten:
 # Präsenz-/Bewegungsmelder, auf die man Leuchten legt, und die sonstigen
 LINKABLE_SENSOR_TYPES = PRESENCE_SENSOR_TYPES | frozenset(OTHER_SENSOR_TYPES)
-
-# Hinzufügbar in der Bauherrenberatung: (Typ, Kanäle); dazu «Sonstige»
-ADDABLE_ELEMENTS = (
-    ("Tastereinheit", 4),
-    ("Raumthermostat", 1),
-    ("Präsenzmelder", 1),
-    ("Bewegungsmelder", 1),
-)
 
 
 def _view_elements(room: Room, imported: bool) -> list[Bedienelement]:
@@ -1309,14 +1298,7 @@ class BauherrFormView(QWidget):
             "«Sonstige» z.B. Wassermelder oder Fensterkontakt, in diesen Raum "
             "setzen und danach Funktionen darauf legen")
         add_menu = QMenu(self._btn_add_element)
-        for element_type, channels in ADDABLE_ELEMENTS:
-            add_menu.addAction(element_type).triggered.connect(
-                lambda _c=False, t=element_type, n=channels: self._add_element(t, n))
-        self._other_menu = QMenu("Sonstige", add_menu)
-        add_menu.addMenu(self._other_menu)
-        for element_type in OTHER_SENSOR_TYPES:
-            self._other_menu.addAction(element_type).triggered.connect(
-                lambda _c=False, t=element_type: self._add_element(t, 1))
+        self._other_menu = fill_add_element_menu(add_menu, self._add_element)
         self._btn_add_element.setMenu(add_menu)
         add_bar.addWidget(self._btn_add_element)
         self._empty_hint = QLabel("Noch kein Bedienelement in diesem Raum.")
@@ -1520,11 +1502,9 @@ class BauherrFormView(QWidget):
         room = self._current_room
         if room is None or self._project is None or self._project.topology.is_imported:
             return
-        from ...services.button_move import next_taster_index
+        from ...services.button_move import add_bedienelement
         self._begin_change(f"Bauherrenberatung: {element_type} hinzugefügt")
-        room.bedienelemente.append(Bedienelement(
-            element_type=element_type, channels=channels, is_auto=False,
-            taster_index=next_taster_index(room)))
+        add_bedienelement(room, element_type, channels)
         self._on_structure_changed()
 
     def _load_room(self, room: Room):

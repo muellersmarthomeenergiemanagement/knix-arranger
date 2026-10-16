@@ -528,3 +528,30 @@ def test_objects_without_channel_grouped_by_function_or_shown_directly():
     group, single = dev_item.child(0), dev_item.child(1)
     assert group.text(0) == "Bedienung / Heizkreis A1/HK1" and group.childCount() == 2
     assert single.text(0).startswith("Außentemperatur") and single.text(2) == "0/2/108"
+
+
+def test_add_device_in_room_with_undo_point():
+    """Gebäude, Raum → «Gerät hinzufügen»: wie in der Bauherrenberatung ein
+    manuelles Bedienelement (bleibt bei der Neuberechnung), vorher ein
+    Rückgängig-Punkt (Projekt_23: Geräte gingen nur über die Bauherrenberatung)."""
+    from knix_arranger.models.building import GewerkAssignment
+    room = Room(number="CUG02", name="Technik")
+    room.gewerk_assignments = [GewerkAssignment(gewerk_code="A", count=1)]
+    calls = []
+
+    class _Bus:
+        def begin_change(self, description):
+            calls.append(description)
+
+    view = BuildingView()
+    view.set_bus(_Bus())
+    changed = []
+    view.structure_changed.connect(lambda: changed.append(True))
+
+    view._add_element(room, "Wassermelder", 1)
+
+    be = room.bedienelemente[-1]
+    assert (be.element_type, be.channels, be.is_auto) == ("Wassermelder", 1, False)
+    assert be.taster_index == 2   # 1 gehört dem Gewerk A
+    assert calls == ["Wassermelder in «Technik» hinzugefügt"]
+    assert changed == [True]

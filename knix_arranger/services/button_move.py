@@ -133,6 +133,16 @@ def next_taster_index(room) -> int:
     return max(used, default=0) + 1
 
 
+def add_bedienelement(room, element_type: str, channels: int) -> Bedienelement:
+    """Bedienelement oder Melder von Hand in den Raum setzen (Bauherren-
+    beratung, Gebäude): bleibt bei der Neuberechnung und bekommt dort sein
+    Gerät in der Topologie."""
+    be = Bedienelement(element_type=element_type, channels=channels, is_auto=False,
+                       taster_index=next_taster_index(room))
+    room.bedienelemente.append(be)
+    return be
+
+
 def fit_sensor_channels(be: Bedienelement) -> None:
     """Kanalzahl eines Sensors auf seine Funktionen verkleinern: ein
     entfernter oder verschobener Kanal hinterlässt keinen leeren Kanal
