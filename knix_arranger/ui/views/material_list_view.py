@@ -1513,7 +1513,8 @@ class MaterialListView(QWidget):
 
     def _auto_assign_kos(self, entry, devices: list) -> None:
         """Nach der Produktzuweisung die KOs der Geräte gleich zuordnen wie
-        «KOs aller Geräte zuordnen» (Geräte mit eigener Auswahl bleiben); nur
+        «KOs aller Geräte zuordnen» (gewählte KOs bleiben, Lücken werden
+        gefüllt); nur
         unsichere Fälle (kein KO, DPT) als Rückfrage mit Zuordnungsdialog."""
         if not self._project or not devices:
             return

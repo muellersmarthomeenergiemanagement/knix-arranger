@@ -119,7 +119,13 @@ def actor_proposal(channel, circuit, number: int, template: dict, known: set) ->
     selection = suggested_co_map(channel, circuit)
     for function, _ga in circuit.functions:
         remembered = template.get(actor_signature(number, function))
-        if remembered is not None and (remembered < 0 or remembered in known):
+        if remembered is None:
+            continue
+        if remembered >= 0 and remembered in known:
+            selection[function] = remembered
+        elif remembered < 0 and selection.get(function, -1) < 0:
+            # «nicht verknüpfen» nur, wenn auch der Vorschlag nichts findet:
+            # gemerkt wurde es oft, als der Vorschlag noch nichts fand
             selection[function] = remembered
     return selection
 

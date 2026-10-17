@@ -7,7 +7,8 @@ Für jedes Gerät mit KOs aus dem Produkt, das noch keine Auswahl hat:
   der gemerkten Zuordnung des Produkts, sonst nach Texten (actor_proposal);
 - Taster/Sensoren: KO je GA nach Vorlage, sonst nach Vorschlag
   (sensor_channels) -- inklusive Rollen (Aktorstatus, Externer Taster).
-Geräte mit eigener Auswahl bleiben unverändert (bewusste Entscheidung).
+Aktoren mit eigener Auswahl bleiben unverändert (bewusste Entscheidung);
+bei Tastern/Sensoren bleiben gewählte KOs, nur die Lücken werden gefüllt.
 
 plan_all() rechnet nur, apply_plan() schreibt -- der Dialog zeigt dazwischen
 das Ergebnis. Prüfliste:
@@ -64,10 +65,14 @@ def _devices(project) -> list:
             and d.device_type in ("actor", "gateway", "sensor")]
 
 
-def _dpt_problem(co, ga_dpt: str) -> str:
+def _dpt_problem(co, ga_dpt: str, variants=()) -> str:
+    """Leer, wenn das KO oder eine Variante derselben Nummer passt: die
+    Variante hängt von der Parametrierung ab (EDIZIOdue Taste 1: Schalten
+    1.001, Wert 5.001, Szene 17.001), die ETS stellt sie beim Parametrieren."""
     from .co_linking_service import _dpt_compatible
     from .dpt_suggestion import dpt_number
-    if _dpt_compatible(co.data_type, ga_dpt):
+    if any(_dpt_compatible(c.data_type, ga_dpt) for c in (co, *variants)
+           if c.object_number == co.object_number):
         return ""
     return (f"DPT passt nicht (KO {dpt_number(co.data_type) or co.data_type}, "
             f"GA {dpt_number(ga_dpt) or ga_dpt})")
@@ -81,8 +86,8 @@ def plan_all(project, fresh: bool = False, only=None) -> BatchPlan:
     )
     from .ko_templates import actor_proposal, apply_sensor_template, load_template
     from .sensor_channels import (
-        SENSOR_CO_KEY, has_sensor_selection, sensor_links, sensor_plan,
-        suggested_sensor_co_map,
+        SENSOR_CO_KEY, has_sensor_selection, sensor_co_map, sensor_links,
+        sensor_plan, suggested_sensor_co_map,
     )
 
     from .belegungsplan_service import BelegungsplanService
@@ -96,11 +101,11 @@ def plan_all(project, fresh: bool = False, only=None) -> BatchPlan:
         all_cos = device_com_objects(device)
         known = {co.object_number for co in all_cos}
         by_number = {co.object_number: co for co in all_cos}
+        variants = {}
+        for co in device.communication_objects:
+            variants.setdefault(co.object_number, []).append(co)
         template = load_template(device)
         if device.device_type == "sensor":
-            if has_sensor_selection(device):
-                batch.kept.append(device)
-                continue
             if sensor_rows is None:
                 sensor_rows = batch.sensor_rows = sensor_plan(project, fresh)
             links = sensor_links(project, device, sensor_rows)
@@ -108,14 +113,31 @@ def plan_all(project, fresh: bool = False, only=None) -> BatchPlan:
                 continue
             remembered = apply_sensor_template(template, links, known)
             suggested = suggested_sensor_co_map(device, links, all_cos)
-            selection = {link.key: remembered.get(link.key, suggested.get(link.key, NOT_LINKED))
-                         for link in links}
+            # Gewähltes KO des Geräts bleibt; Lücken füllt das gemerkte KO,
+            # dann der Vorschlag. Ein «nicht verknüpfen» (gewählt oder gemerkt)
+            # gilt nur, wenn der Vorschlag auch nichts findet -- es stammt oft
+            # aus der Zeit, als er bei diesem Produkt noch nichts fand
+            chosen = sensor_co_map(device) if has_sensor_selection(device) else {}
+            selection = {}
+            for link in links:
+                if chosen.get(link.key, NOT_LINKED) >= 0:
+                    selection[link.key] = chosen[link.key]
+                    continue
+                kept = remembered.get(link.key)
+                proposed = suggested.get(link.key, NOT_LINKED)
+                selection[link.key] = kept if kept is not None and (kept >= 0 or proposed < 0) \
+                    else proposed
+            if chosen and all(selection[link.key] == chosen.get(link.key, NOT_LINKED)
+                              for link in links):
+                batch.kept.append(device)
+                continue
             co_map = dict(device.co_map or {})
             co_map[SENSOR_CO_KEY] = selection
             batch.plans.append(DevicePlan(device, None, co_map))
             for link in links:
                 _record(batch, device, link.channel, link.function, link.ga_address,
-                        by_number.get(selection[link.key]), link.dpt)
+                        by_number.get(selection[link.key]), link.dpt,
+                        variants.get(selection[link.key], ()))
             continue
 
         if device.co_map:
@@ -145,18 +167,19 @@ def plan_all(project, fresh: bool = False, only=None) -> BatchPlan:
                     continue
                 _record(batch, device, circuit.label, function, ga_address,
                         by_number.get(co_map[circuit.key][function]),
-                        circuit.dpts.get(function, ""))
+                        circuit.dpts.get(function, ""),
+                        variants.get(co_map[circuit.key][function], ()))
         batch.plans.append(DevicePlan(device, channel_map, co_map))
     return batch
 
 
 def _record(batch: BatchPlan, device, where: str, function: str, ga_address: str,
-            co, ga_dpt: str) -> None:
+            co, ga_dpt: str, variants=()) -> None:
     if co is None:
         batch.issues.append(BatchIssue(device, where, function, ga_address, NO_KO))
         return
     batch.links += 1
-    problem = _dpt_problem(co, ga_dpt)
+    problem = _dpt_problem(co, ga_dpt, variants)
     if problem:
         batch.issues.append(BatchIssue(device, where, function, ga_address, problem))
 

@@ -130,6 +130,23 @@ def test_leftover_device_and_double_operation(gewerk_catalog):
     assert _rule(project, "FA-631") == []
 
 
+def test_melder_without_ga(gewerk_catalog):
+    """FA-633: Melder mit Gerät, aber ohne GA (Projekt_23 CUG02: Rauch- und
+    Wassermelder) -- Hinweis; eine GA am KO genügt."""
+    from knix_arranger.models.topology import CommunicationObject
+    from knix_arranger.services.button_move import add_bedienelement
+    project, room, recompute = _planned(gewerk_catalog)
+    melder = add_bedienelement(room, "Rauchmelder", 1)
+    recompute()
+    assert [i.address for i in _rule(project, "FA-633")] == [melder.participant_number]
+    assert _rule(project, "FA-631") == []
+    device = next(d for a in project.topology.areas for l in a.lines for d in l.devices
+                  if d.physical_address == melder.participant_number)
+    device.communication_objects = [CommunicationObject(
+        object_number=0, name="Alarm", connected_gas=["1/0/0"])]
+    assert _rule(project, "FA-633") == []
+
+
 def test_new_device_goes_to_end_and_others_keep_address(gewerk_catalog):
     from knix_arranger.services.button_move import add_bedienelement
     project, room, recompute = _planned(gewerk_catalog)

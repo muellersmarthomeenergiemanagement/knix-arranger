@@ -106,7 +106,9 @@ def apply_to_device(device, data: dict | None = None) -> int:
         if known.get("flags"):
             # Platzhalter tragen oft alle Flags (Griesser JAX-9): ETS gilt
             co.flags = known["flags"]
-        if known.get("dpt") and not co.data_type:
+        if known.get("dpt"):
+            # Platzhalter tragen einen pauschalen Typ (EDIZIOdue: 5.001 auch
+            # für Schalt-KOs): der Typ aus der ETS gilt
             co.data_type = known["dpt"]
         n += 1
     return n

@@ -73,6 +73,23 @@ def test_sensoren_mit_rollen():
                for key, number in selection.items())
 
 
+def test_sensor_luecken_werden_gefuellt():
+    """Taster mit teilweiser Auswahl: gewählte KOs bleiben, «nicht verknüpfen»
+    und fehlende GAs bekommen den Vorschlag (Projekt_23: 17 Taster mit
+    Lücken aus der Zeit, als der Vorschlag nichts fand)."""
+    project_, melder = _setup()
+    apply_plan(project_, plan_all(project_))
+    full = dict(melder.co_map[SENSOR_CO_KEY])
+    keys = list(full)
+    chosen_key, gap_key = keys[0], keys[1]
+    melder.co_map[SENSOR_CO_KEY] = {chosen_key: full[chosen_key], gap_key: -1}
+    batch = plan_all(project_)
+    assert melder not in batch.kept
+    apply_plan(project_, batch)
+    assert melder.co_map[SENSOR_CO_KEY] == full
+    assert plan_all(project_).kept == [melder]     # nichts mehr zu füllen
+
+
 def test_dialog():
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])

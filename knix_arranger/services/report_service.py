@@ -270,7 +270,7 @@ VALIDATION_RULES = {
     ),
     "FA-631": (
         "Gerät ohne Funktion",
-        "Ein Taster, Thermostat oder Melder ist geplant und hat ein Gerät in der "
+        "Ein Taster oder Raumthermostat ist geplant und hat ein Gerät in der "
         "Topologie, aber keine einzige Funktion – meist ein Rest, nachdem seine "
         "Funktionen auf andere Geräte gelegt wurden.",
         "In der Bauherrenberatung Funktionen zuweisen oder das Gerät entfernen.",
@@ -281,6 +281,14 @@ VALIDATION_RULES = {
         "Tastern. Das kann gewollt sein (zwei Bedienstellen), oft ist es ein Rest "
         "nach dem Verschieben.",
         "Prüfen; nicht gewollte Taste in der Bauherrenberatung entfernen.",
+    ),
+    "FA-633": (
+        "Melder ohne GA",
+        "Ein Melder (Rauch-, Wasser-, Bewegungsmelder, Kontakt …) ist geplant und hat "
+        "ein Gerät in der Topologie, aber keine einzige GA. Nicht jeder Melder bekommt "
+        "seine GA automatisch.",
+        "GA manuell anlegen oder über die Materialliste erzeugen; sonst das Gerät "
+        "entfernen.",
     ),
     "FA-630": (
         "Temperaturfühler im Taster ungenutzt",
@@ -1389,6 +1397,7 @@ class ReportService:
         from .bedienelement_layout import (
             group_assignments, button_plan, row_function_label,
         )
+        from .product_capabilities import temperature_gas_of
         # FA-1404: Physikalische Adressen aus Topologie sicherstellen – auf einer
         # Kopie, damit auch alte gespeicherte Projekte korrekte Adressen erhalten,
         # ohne dass der Bericht das Projekt selbst verändert.
@@ -1564,6 +1573,15 @@ class ReportService:
                 pdf.add_card_header(title, "\n".join(d for d in details if d),
                                     bookmark=title)
 
+                # Eingebauter Fühler, der die Raumtemperatur liefert (FA-1411b):
+                # keine Taste, sondern eine Verknüpfung am Heizungselement
+                sensor_rows = [
+                    ["Fühler",
+                     ("Raumtemperatur (Messwert)",
+                      f"KO {co.object_number} «{co.name or co.object_function}»" if co else ""),
+                     _ga_line(ga)]
+                    for ga, co in (temperature_gas_of(project, device) if device else [])]
+
                 if be.function_assignments:
                     if plan:
                         pdf.add_button_plan(plan)
@@ -1582,7 +1600,7 @@ class ReportService:
                             ("\n".join(_ga_line(g) for g in row.gas) or "–",
                              "\n".join("LED: " + _ga_line(g) for g in row.led_gas)),
                         ])
-                    pdf.add_table(["Taste", "Funktion", "Gruppenadressen"], table,
+                    pdf.add_table(["Taste", "Funktion", "Gruppenadressen"], table + sensor_rows,
                                   col_widths=[0.13, 0.30, 0.57])
                 elif device and any(co.connected_gas for co in device.communication_objects):
                     table = []
@@ -1597,6 +1615,9 @@ class ReportService:
                         ])
                     pdf.add_table(["KO", "Objekt", "Gruppenadressen"], table,
                                   col_widths=[0.08, 0.32, 0.60])
+                elif sensor_rows:
+                    pdf.add_table(["Taste", "Funktion", "Gruppenadressen"], sensor_rows,
+                                  col_widths=[0.13, 0.30, 0.57])
                 else:
                     pdf.add_paragraph("Keine Funktionszuordnungen.")
 

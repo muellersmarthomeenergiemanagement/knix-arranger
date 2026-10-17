@@ -51,6 +51,25 @@ class ValidationIssue:
         }
 
 
+def _melder_has_ga(project, room, be, device=None) -> bool:
+    """Melder mit mindestens einer GA: Funktionen des Bedienelements (Licht
+    schalten, eigenes Gewerk-Element), Zusatzfunktionen «be:…» oder -- mit
+    Gerät -- eine GA an einem KO (manuell, ETS, Materialliste). Ohne Gerät
+    nur die günstigen Merkmale."""
+    if be.funktionen or be.function_assignments:
+        return True
+    own = f"be:{be.id}"
+    if any(ga.assignment_id == own and not ga.is_placeholder
+           for ga in project.group_addresses.all_addresses()):
+        return True
+    if device is None:
+        return False
+    if any(co.connected_gas for co in device.communication_objects):
+        return True
+    from .sensor_channels import sensor_co_map
+    return any(number >= 0 for number in sensor_co_map(device).values())
+
+
 class ValidationEngine:
     """Prüft GA-Strukturen auf Konformitaet."""
 
@@ -222,12 +241,15 @@ class ValidationEngine:
     @staticmethod
     def _check_bedienelement_leftovers(project) -> list[ValidationIssue]:
         """FA-631: Bedienelement mit Gerät, aber ohne Funktion; FA-632:
-        dasselbe Element auf mehreren Tastern im selben Raum (nur geplante
-        Projekte, Hinweise)."""
+        dasselbe Element auf mehreren Tastern im selben Raum; FA-633: Melder
+        ohne jede GA (nicht jeder Melder bekommt automatisch eine -- GAs
+        entstehen auch manuell oder über die Materialliste). Nur geplante
+        Projekte, Hinweise."""
         if project.topology.is_imported:
             return []
         catalog = project.gewerk_catalog
         issues = []
+        devices = None      # Teilnehmernummer -> Gerät, erst bei Bedarf
         for room in project.all_rooms:
             holders: dict[tuple, list] = {}
             for be in room.bedienelemente:
@@ -245,6 +267,21 @@ class ValidationEngine:
                         be.participant_number,
                         "In der Bauherrenberatung Funktionen zuweisen oder das Gerät entfernen",
                         details={"room_id": room.id}))
+                elif (be.element_type not in ("Tastereinheit", "Raumthermostat")
+                      and be.participant_number and not _melder_has_ga(project, room, be)):
+                    if devices is None:
+                        devices = {d.physical_address: d for a in project.topology.areas
+                                   for l in a.lines for d in l.devices}
+                    device = devices.get(be.participant_number)
+                    if device is None or not _melder_has_ga(project, room, be, device):
+                        issues.append(ValidationIssue(
+                            "info", "FA-633",
+                            f"{be.participant_number} {be.element_type} ({room.number} "
+                            f"{room.name}) hat keine GA",
+                            be.participant_number,
+                            "GA manuell anlegen oder über die Materialliste erzeugen; "
+                            "sonst das Gerät entfernen",
+                            details={"room_id": room.id}))
                 if be.element_type != "Tastereinheit":
                     continue
                 for sf in be.funktionen:

@@ -333,7 +333,27 @@ def _channel_cos(cos: list, channel: str) -> list:
         right = n % 2 == 0
         own = [co for co in own
                if bool(_RIGHT_SIDE.search(f"{co.name} {co.object_function}")) == right]
-    return own or cos
+    return _with_generic_followers(cos, own) or cos
+
+
+def _with_generic_followers(cos: list, own: list) -> list:
+    """Generische KOs («Object 2») direkt hinter einem KO der Taste gehören
+    zur Taste, bis zum nächsten benannten KO (EDIZIOdue: KO 0 «Taste 1, links»,
+    KO 1 «Object 2» = Dimmen, KO 2 «Taste 1, links, Signal LED»)."""
+    if not own:
+        return own
+    from .ko_names import is_generic
+    own_ids = {id(co) for co in own}
+    result = list(own)
+    following = False
+    for co in sorted(cos, key=lambda c: c.object_number):
+        if id(co) in own_ids:
+            following = True
+        elif not is_generic(co):
+            following = False
+        elif following:
+            result.append(co)
+    return result
 
 
 # Sendende KOs für Befehle an den Aktor, nach Vorrang: ein Melder schaltet

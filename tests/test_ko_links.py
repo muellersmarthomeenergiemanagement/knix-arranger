@@ -255,3 +255,51 @@ def test_real_variant_before_placeholder():
     chosen = _by_number(cos)
     assert flags_text(chosen[2].flags) == "K S"
     assert flags_text(chosen[9].flags) == "K L Ü"
+
+
+def test_generic_ko_after_key_belongs_to_key():
+    """EDIZIOdue: KO 1 «Object 2» zwischen «Taste 1, links» und dessen LED
+    ist das Dimm-KO der Taste 1 (im Vorlageprojekt als Szene parametriert,
+    darum ohne gelernten Namen)."""
+    from knix_arranger.services.sensor_channels import suggested_sensor_co_map
+    cos = [CommunicationObject(object_number=0, name="Taste 1, links",
+                               object_function="senden, Wert", flags="K-SÜ--"),
+           CommunicationObject(object_number=1, name="Object 2", object_function="Object 2",
+                               flags="K-SÜ--", data_type="DPST-3-7"),
+           CommunicationObject(object_number=2, name="Taste 1, links, Signal LED",
+                               object_function="anzeigen auf LED", flags="K-S-A-"),
+           CommunicationObject(object_number=3, name="Object 4", object_function="Object 4",
+                               flags="K-SÜ--", data_type="DPST-3-7")]
+    links = [_link("r|LD|1|E/A", "Taste 1 kurz", "E/A", "DPST-1-1", False),
+             _link("r|LD|1|DIM", "Taste 1 lang", "DIM", "DPST-3-7", False)]
+    result = suggested_sensor_co_map(None, links, cos)
+    assert result == {"r|LD|1|E/A": 0, "r|LD|1|DIM": 1}
+
+
+def test_dpt_check_accepts_parameter_variant():
+    """Taste 1 als «Wert» 5.001 im Katalog, als Variante auch Schalten 1.001:
+    keine DPT-Warnung, die ETS stellt die Variante beim Parametrieren."""
+    from knix_arranger.services.ko_batch import _dpt_problem
+    value = CommunicationObject(object_number=0, name="Taste 1", data_type="DPST-5-1")
+    switch = CommunicationObject(object_number=0, name="Object 1", data_type="DPST-1-1")
+    other = CommunicationObject(object_number=4, name="Object 5", data_type="DPST-1-1")
+    assert _dpt_problem(value, "DPST-1-1", [value, switch]) == ""
+    assert _dpt_problem(value, "DPST-1-1", [value, other]).startswith("DPT passt nicht")
+
+
+def test_remembered_unlinked_does_not_hide_suggestion():
+    """Vorlage «nicht verknüpfen» aus der Zeit, als der Vorschlag nichts fand,
+    verdrängt einen heutigen Vorschlag nicht; ein gemerktes KO gilt."""
+    from types import SimpleNamespace
+    from knix_arranger.services import actor_channels, ko_templates
+    circuit = SimpleNamespace(functions=[("E/A", "1/0/0"), ("RM", "1/0/1"), ("WERT", "1/0/2")])
+    template = {ko_templates.actor_signature(1, "E/A"): -1,
+                ko_templates.actor_signature(1, "RM"): 7,
+                ko_templates.actor_signature(1, "WERT"): -1}
+    original = actor_channels.suggested_co_map
+    actor_channels.suggested_co_map = lambda channel, circuit: {"E/A": 5, "RM": 6}
+    try:
+        result = ko_templates.actor_proposal(None, circuit, 1, template, {5, 6, 7})
+    finally:
+        actor_channels.suggested_co_map = original
+    assert result == {"E/A": 5, "RM": 7, "WERT": -1}

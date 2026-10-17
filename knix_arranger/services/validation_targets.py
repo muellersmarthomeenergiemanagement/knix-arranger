@@ -46,6 +46,7 @@ _RULE_VIEWS = {
     "FA-620": "gewerke",
     "FA-626": "material_list",
     "FA-622": "material_list",
+    "FA-633": "material_list",
 }
 
 
@@ -105,8 +106,9 @@ def targets_for(issue: dict, project) -> list[Target]:
         add(Target(KEYS, address, f"Tasten anpassen ({address})…"))
     if rule == "FA-629" and room_id in rooms:
         add(_room_targets(project, rooms[room_id])[0])
-    # Taster ohne Funktion bzw. doppelt belegte Taste: Bauherrenberatung zuerst
-    if rule in ("FA-631", "FA-632") and room_id in rooms:
+    # Taster ohne Funktion bzw. doppelt belegte Taste: Bauherrenberatung zuerst;
+    # Melder ohne GA (FA-633): Materialliste, dann Bauherrenberatung
+    if rule in ("FA-631", "FA-632", "FA-633") and room_id in rooms:
         add(_room_targets(project, rooms[room_id])[0])
 
     missing_ga = None

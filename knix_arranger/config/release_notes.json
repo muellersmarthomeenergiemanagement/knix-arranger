@@ -2,6 +2,22 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.2",
+      "date": "2026-10-17",
+      "neu": [
+        "Bericht «Bedienelemente und Sensoren»: Tastereinheiten mit Temperaturfühler zeigen die Raumtemperatur-GA (Zeile «Fühler»).",
+        "Validierung: Hinweis «Melder ohne GA» (FA-633) – GA manuell anlegen oder über die Materialliste erzeugen."
+      ],
+      "verbessert": [
+        "«KOs aller Geräte zuordnen» füllt bei Tastern und Sensoren auch die Lücken einer bestehenden Zuordnung; bereits gewählte KOs bleiben.",
+        "Ein früher gemerktes «nicht verknüpfen» verdrängt einen heutigen KO-Vorschlag nicht mehr."
+      ],
+      "behoben": [
+        "Falsche Warnung «DPT passt nicht» bei Tastern, deren KO je nach Parametrierung Schalten, Wert oder Szene ist (z.B. Feller EDIZIOdue).",
+        "Das Dimm- bzw. Jalousie-KO einer Taste ohne eigenen KO-Text («Object 2») wird jetzt der richtigen Taste zugeordnet."
+      ]
+    },
+    {
       "version": "1.4.1",
       "date": "2026-10-17",
       "neu": [

@@ -403,3 +403,23 @@ def test_plan_all_only_given_devices(gewerk_catalog):
     taster = _taster(project)
     batch = plan_all(project, only=[taster])
     assert [plan.device for plan in batch.plans] == [taster]
+
+
+def test_report_lists_room_temperature(gewerk_catalog, tmp_path):
+    """Bericht «Bedienelemente und Sensoren»: der Taster nennt seinen
+    Temperaturfühler mit KO und IST-GA."""
+    import fitz
+    from knix_arranger.services.report_service import ReportService
+    from knix_arranger.services.sensor_service import link_bedienelemente_to_devices
+    project, room = _project(gewerk_catalog)
+    link_bedienelemente_to_devices(project.topology, project.all_rooms)
+    taster = _taster(project)
+    offer = next(o for o in plan_conflicts(project)[1] if o.device is taster)
+    use_taster_temperature(project, offer, remove_thermostats=False)
+    out = tmp_path / "bedienelemente.pdf"
+    ReportService(project).generate_bedienelemente_report(str(out))
+    text = " ".join(page.get_text() for page in fitz.open(str(out)))
+    ist = next(g for g in project.group_addresses.all_addresses()
+               if g.gewerk_code == "H" and g.function_name == "IST")
+    assert "Raumtemperatur (Messwert)" in text and "KO 70" in text
+    assert ist.address in text
