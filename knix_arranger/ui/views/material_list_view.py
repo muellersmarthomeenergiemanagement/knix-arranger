@@ -156,6 +156,12 @@ class MaterialListView(QWidget):
             "Alle Aktoren, Taster und Sensoren mit KOs aus dem Produkt, die noch\n"
             "keine Zuordnung haben, auf einmal zuordnen (gemerkte Zuordnung gleicher\n"
             "Produkte vor Vorschlag) – danach nur die unsicheren Fälle prüfen")
+        self._btn_ko_names = more_menu.addAction("KO-Namen aus ETS-Projekt übernehmen…",
+                                                 self._learn_ko_names)
+        self._btn_ko_names.setToolTip(
+            "Aus einem importierten ETS-Projekt die echten KO-Texte, Flags und DPTs\n"
+            "je Produkt lernen (z.B. «Taste 1, links» statt «Object 1») und bei allen\n"
+            "Geräten desselben Produkts einsetzen – auch bei künftigen Zuweisungen")
         self._btn_channels.setToolTip(
             "Aktoren: Stromkreise den Kanälen zuordnen (Benennung des Herstellers,\n"
             "z.B. Kanal C) und je GA den KO wählen – nicht benötigte KOs bleiben frei.\n"
@@ -1366,7 +1372,7 @@ class MaterialListView(QWidget):
         self._rebuild_table()
         self.list_changed.emit()
         self._offer_device_product(devices)
-        self._offer_channel_assignment(entry, devices)
+        self._auto_assign_kos(entry, devices)
 
     # ── Kanäle und KOs (actor_channels) ──
 
@@ -1417,6 +1423,38 @@ class MaterialListView(QWidget):
             if bus:
                 bus.emit_functions_changed()
         self.list_changed.emit()
+
+    def _learn_ko_names(self) -> None:
+        """KO-Texte je Produkt aus einem importierten ETS-Projekt lernen und
+        bei allen Geräten dieses Projekts einsetzen (FA-1411d)."""
+        if not self._project:
+            return
+        from PySide6.QtWidgets import QFileDialog
+        from ...services import ko_names
+        from ...services.project_service import ProjectService
+        path, _f = QFileDialog.getOpenFileName(
+            self, "ETS-Projekt mit KO-Namen wählen", "",
+            "KNiX-Projekt (*.knxarr);;Alle Dateien (*)")
+        if not path:
+            return
+        try:
+            source = ProjectService().load_project(path)
+        except Exception as exc:
+            QMessageBox.warning(self, "KO-Namen", f"Projekt konnte nicht gelesen werden:\n{exc}")
+            return
+        learned = ko_names.learn_from_project(source)
+        bus = getattr(self, "_bus", None)
+        if bus:
+            bus.begin_change("KO-Namen aus ETS-Projekt übernommen")
+        replaced = ko_names.apply_to_project(self._project)
+        self._rebuild_table()
+        self.list_changed.emit()
+        QMessageBox.information(
+            self, "KO-Namen",
+            f"{sum(learned.values())} KO-Texte von {len(learned)} Produkt(en) gelernt "
+            f"und gemerkt.\n{replaced} KO(s) in diesem Projekt erhielten ihren echten "
+            f"Namen.\n\nDanach «KOs aller Geräte zuordnen», damit die Zuordnung die "
+            f"neuen Namen nutzt.")
 
     def _assign_all_kos(self) -> None:
         """Sammelvorschlag: KOs aller Geräte ohne Zuordnung (FA-3009)."""
@@ -1473,6 +1511,38 @@ class MaterialListView(QWidget):
         if bus:
             bus.emit_functions_changed()
 
+    def _auto_assign_kos(self, entry, devices: list) -> None:
+        """Nach der Produktzuweisung die KOs der Geräte gleich zuordnen wie
+        «KOs aller Geräte zuordnen» (Geräte mit eigener Auswahl bleiben); nur
+        unsichere Fälle (kein KO, DPT) als Rückfrage mit Zuordnungsdialog."""
+        if not self._project or not devices:
+            return
+        from ...services.ko_batch import NO_KO, UNNEEDED, apply_plan, plan_all
+        batch = plan_all(self._project, only=devices)
+        if not batch.plans:
+            if entry is not None:
+                self._offer_channel_assignment(entry, devices)
+            return
+        apply_plan(self._project, batch)
+        unsure = [i for i in batch.issues if i.problem != UNNEEDED]
+        self.list_changed.emit()
+        if not unsure:
+            return
+        lines = "\n".join(
+            f"• {i.device.physical_address} {i.where}: {i.function} "
+            f"({'kein passendes KO' if i.problem == NO_KO else i.problem})"
+            for i in unsure[:8])
+        more = f"\n… und {len(unsure) - 8} weitere" if len(unsure) > 8 else ""
+        answer = QMessageBox.question(
+            self, "KOs zugeordnet",
+            f"{batch.links} Verknüpfung(en) zugeordnet. Nicht sicher:\n\n{lines}{more}"
+            f"\n\nJetzt im Dialog «Kanäle und KOs zuordnen» prüfen?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if answer == QMessageBox.Yes:
+            self._assign_channels([i.device for i in unsure
+                                   if i.device.device_type in ("actor", "gateway")]
+                                  or devices)
+
     def _offer_channel_assignment(self, entry: MaterialEntry, devices: list) -> None:
         """Nach der Produktzuweisung: hat das Produkt KOs je Kanal, die
         Zuordnung gleich anbieten."""
@@ -1525,6 +1595,9 @@ class MaterialListView(QWidget):
             updated.append(device)
             if prod.com_objects:
                 device.communication_objects = communication_objects_of(prod.com_objects)
+                # Gemerkte KO-Texte aus ETS-Projekten (FA-1411d)
+                from ...services.ko_names import apply_to_device
+                apply_to_device(device)
             be = be_by_addr.get(device.physical_address)
             if prod.channels and be:
                 be.channels = prod.channels
@@ -1665,6 +1738,7 @@ class MaterialListView(QWidget):
         self._rebuild_table()
         self.list_changed.emit()
         self._offer_device_product(devices)
+        self._auto_assign_kos(None, devices)
 
     def _on_item_changed(self, item: QTableWidgetItem):
         """Reagiert auf Mengen-Änderung durch Doppelklick (nur manuelle Einträge)."""

@@ -215,9 +215,13 @@ class TopologyEngine:
                          small_project: bool = False,
                          preserve_manual: bool = False,
                          shared_gateways: dict[str, str] | None = None,
-                         backbone_type: str | None = None):
+                         backbone_type: str | None = None,
+                         renumber: bool = False):
         """
         Fügt alle Linienteilnehmer gemaess KNX Projektrichtlinien 2024 ein.
+        Bestehende Geräte behalten ihre Teilnehmernummer, neue kommen ans Ende
+        ihres Bereichs; renumber=True vergibt alle neu in Standardreihenfolge
+        («Teilnehmernummern neu ordnen»).
         shared_gateways: gemeinsame Gateways (KnxProject.shared_gateways()).
         backbone_type: Medium der Bereichslinie aus den Projekteigenschaften
         ("TP"/"IP"); bestimmt, ob sie eine Spannungsversorgung braucht.
@@ -597,6 +601,7 @@ class TopologyEngine:
         # ID und manuelle Produktzuweisung vom Vorgänger übernehmen (nach der
         # Adressvergabe). Programmierte und von Hand hinzugefügte Geräte sind
         # die gesicherten Objekte selbst.
+        inherited: dict[int, dict] = {}     # id(Gerät) -> Vorgänger
         if previous:
             device_keys = _DeviceKeys()
             taken: set[int] = set()
@@ -610,6 +615,7 @@ class TopologyEngine:
                         if entry is None:
                             continue
                         taken.add(id(entry))
+                        inherited[id(device)] = entry
                         device.id = entry["id"]
                         saved = entry["product"]
                         if saved:
@@ -624,6 +630,58 @@ class TopologyEngine:
                                 device.communication_objects = saved["communication_objects"]
                             device.channel_map = saved.get("channel_map", {})
                             device.co_map = saved.get("co_map", {})
+            if not renumber:
+                self._keep_participant_numbers(topology, inherited, small_project)
+                self.assign_participant_numbers(topology, all_rooms)
+
+    @staticmethod
+    def _keep_participant_numbers(topology: Topology, inherited: dict,
+                                  small_project: bool = False) -> None:
+        """Geräte mit Vorgänger auf derselben Linie behalten dessen
+        Teilnehmernummer; neue bekommen die nächste freie Nummer nach den
+        belegten ihres Bereichs (Aktoren 1–100, Sensoren 101–199), statt die
+        folgenden Geräte zu verschieben (Projekt_23: Raumthermostat 1.1.121 ->
+        122 -> 123 bei jedem neuen Taster)."""
+        ranges = {"actor": (1, 20 if small_project else 100),
+                  "gateway": (1, 20 if small_project else 100),
+                  "sensor": (21, 40) if small_project else (101, 199)}
+
+        def number(address: str) -> int | None:
+            parts = (address or "").split(".")
+            return int(parts[2]) if len(parts) == 3 and parts[2].isdigit() else None
+
+        for area in topology.areas:
+            for line in area.lines:
+                prefix = f"{area.area_number}.{line.line_number}"
+                fixed = {number(d.physical_address) for d in line.devices
+                         if d.is_programmed or d.manually_added
+                         or d.device_type not in ranges}
+                used = {n for n in fixed if n is not None}
+                kept, new = {}, []
+                for device in line.devices:
+                    if device.device_type not in ranges or device.is_programmed \
+                            or device.manually_added:
+                        continue
+                    entry = inherited.get(id(device))
+                    old = number(entry["address"]) if entry and entry.get("line_id") == line.id \
+                        and (entry.get("address") or "").startswith(prefix + ".") else None
+                    low, high = ranges[device.device_type]
+                    if old is not None and low <= old <= high and old not in used:
+                        kept[id(device)] = old
+                        used.add(old)
+                    else:
+                        new.append(device)
+                for device in line.devices:
+                    if id(device) in kept:
+                        device.physical_address = f"{prefix}.{kept[id(device)]}"
+                for device in new:
+                    low, high = ranges[device.device_type]
+                    in_range = [n for n in used if low <= n <= high]
+                    candidate = (max(in_range) + 1) if in_range else low
+                    if candidate > high:   # Bereich voll: erste Lücke
+                        candidate = next((n for n in range(low, high + 1) if n not in used), high)
+                    used.add(candidate)
+                    device.physical_address = f"{prefix}.{candidate}"
 
     def assign_physical_addresses(self, topology: Topology,
                                   small_project: bool = False):
@@ -1086,7 +1144,8 @@ def _previous_devices(topology, with_products: bool) -> dict:
                         "co_map": {k: dict(v) for k, v in device.co_map.items()},
                     }
                 found = keys.keys(device, line)
-                entry = {"id": device.id, "product": product}
+                entry = {"id": device.id, "product": product,
+                         "address": device.physical_address, "line_id": line.id}
                 # Sensoren nur unter dem ersten Schlüssel (siehe oben),
                 # Aktoren auch ohne Einbauort
                 for key in (found if device.device_type in ("actor", "gateway") else found[:1]):

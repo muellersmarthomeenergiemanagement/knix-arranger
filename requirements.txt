@@ -1,5 +1,6 @@
 PySide6>=6.6.0
 pytest>=8.0.0
+pytest-xdist>=3.6.1  # parallele Tests: python -m pytest tests -n 4
 openpyxl>=3.1.0
 PyMuPDF>=1.23.0
 cryptography>=41.0.0

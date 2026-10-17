@@ -268,6 +268,20 @@ VALIDATION_RULES = {
         "In der Bauherrenberatung Funktionen auf einen anderen Taster legen oder "
         "ein Produkt mit mehr Tasten wählen.",
     ),
+    "FA-631": (
+        "Gerät ohne Funktion",
+        "Ein Taster, Thermostat oder Melder ist geplant und hat ein Gerät in der "
+        "Topologie, aber keine einzige Funktion – meist ein Rest, nachdem seine "
+        "Funktionen auf andere Geräte gelegt wurden.",
+        "In der Bauherrenberatung Funktionen zuweisen oder das Gerät entfernen.",
+    ),
+    "FA-632": (
+        "Element von mehreren Tastern bedient",
+        "Dasselbe Element (z.B. Storen «Fenster») liegt im selben Raum auf mehreren "
+        "Tastern. Das kann gewollt sein (zwei Bedienstellen), oft ist es ein Rest "
+        "nach dem Verschieben.",
+        "Prüfen; nicht gewollte Taste in der Bauherrenberatung entfernen.",
+    ),
     "FA-630": (
         "Temperaturfühler im Taster ungenutzt",
         "Das Produkt der Tastereinheit misst die Raumtemperatur, die Heizung des "

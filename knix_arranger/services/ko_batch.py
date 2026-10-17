@@ -49,6 +49,9 @@ class BatchPlan:
     issues: list[BatchIssue] = field(default_factory=list)
     links: int = 0                                   # GAs mit KO
     unneeded: dict[str, list[str]] = field(default_factory=dict)  # circuit_key -> Funktionen
+    # Belegungspläne der Berechnung, zum Wiederverwenden (ko_links)
+    sensor_rows: object = None
+    actor_plan: object = None
 
     @property
     def unneeded_count(self) -> int:
@@ -70,8 +73,9 @@ def _dpt_problem(co, ga_dpt: str) -> str:
             f"GA {dpt_number(ga_dpt) or ga_dpt})")
 
 
-def plan_all(project) -> BatchPlan:
-    """Zuordnung für alle Geräte ohne Auswahl berechnen, ohne zu schreiben."""
+def plan_all(project, fresh: bool = False, only=None) -> BatchPlan:
+    """Zuordnung für alle Geräte ohne Auswahl berechnen, ohne zu schreiben;
+    only: nur diese Geräte (z.B. nach einer Produktzuweisung)."""
     from .actor_channels import (
         device_channels, device_circuits, device_com_objects, unneeded_functions,
     )
@@ -85,7 +89,10 @@ def plan_all(project) -> BatchPlan:
     batch = BatchPlan()
     sensor_rows = None
     actor_plan = None
+    only_ids = {id(d) for d in only} if only is not None else None
     for device in _devices(project):
+        if only_ids is not None and id(device) not in only_ids:
+            continue
         all_cos = device_com_objects(device)
         known = {co.object_number for co in all_cos}
         by_number = {co.object_number: co for co in all_cos}
@@ -95,7 +102,7 @@ def plan_all(project) -> BatchPlan:
                 batch.kept.append(device)
                 continue
             if sensor_rows is None:
-                sensor_rows = sensor_plan(project)
+                sensor_rows = batch.sensor_rows = sensor_plan(project, fresh)
             links = sensor_links(project, device, sensor_rows)
             if not links:
                 continue
@@ -115,7 +122,7 @@ def plan_all(project) -> BatchPlan:
             batch.kept.append(device)
             continue
         if actor_plan is None:
-            actor_plan = BelegungsplanService().generate(project)
+            actor_plan = batch.actor_plan = BelegungsplanService().generate(project)
         circuits = device_circuits(project, device, actor_plan)
         if not circuits:
             continue

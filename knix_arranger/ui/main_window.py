@@ -118,6 +118,12 @@ class MainWindow(QMainWindow):
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(30_000)
         self._autosave_timer.timeout.connect(self._autosave)
+        # Sofortprüfung (FA-620a) gesammelt nach der letzten Änderung: bei
+        # schnellen Klickfolgen einmal, der Klick selbst wartet nicht darauf
+        self._problem_timer = QTimer(self)
+        self._problem_timer.setSingleShot(True)
+        self._problem_timer.setInterval(600)
+        self._problem_timer.timeout.connect(self._report_new_problems)
 
         self._update_window_title()
         license_gate.add_listener(self._on_read_only_changed)
@@ -922,8 +928,8 @@ class MainWindow(QMainWindow):
             self._pending_undo_cmd = None
             self._update_undo_actions()
 
-        # Neue Fehler/Warnungen sofort melden, nach dem Neuaufbau der Ansichten
-        QTimer.singleShot(0, self._report_new_problems)
+        # Neue Fehler/Warnungen melden, sobald einen Moment Ruhe ist
+        self._problem_timer.start()
 
         # Dirty-Flag und Auto-Save
         self._set_dirty(True)

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox, QPushButton,
     QTableWidget, QTableWidgetItem, QGroupBox, QTabWidget, QHeaderView,
     QAbstractItemView, QMessageBox, QComboBox, QLineEdit, QFormLayout,
-    QSplitter, QInputDialog, QTextEdit,
+    QSplitter, QInputDialog, QTextEdit, QStyledItemDelegate,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
@@ -74,6 +74,24 @@ def set_new_master_password(parent, cfg: KnxSecureConfig) -> bool:
     )
     KnxSecureService.unlock(cfg, pw1)
     return True
+
+
+class _SecurityDelegate(QStyledItemDelegate):
+    """Auswahlfeld für die Spalte Sicherheit, nur während der Bearbeitung."""
+
+    def createEditor(self, parent, option, index):
+        combo = QComboBox(parent)
+        combo.addItems(GA_SECURITY_MODES)
+        combo.activated.connect(lambda _i, c=combo: self.commitData.emit(c))
+        return combo
+
+    def setEditorData(self, editor, index):
+        idx = editor.findText(index.data() or "")
+        editor.setCurrentIndex(max(idx, 0))
+        editor.showPopup()
+
+    def setModelData(self, editor, model, index):
+        model.setData(index, editor.currentText())
 
 
 class KnxSecureView(QWidget):
@@ -354,33 +372,53 @@ class KnxSecureView(QWidget):
         self._ga_table.setHorizontalHeaderLabels(["Adresse", "Bezeichnung", "Funktion", "Security"])
         self._ga_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._ga_table.horizontalHeader().setStretchLastSection(True)
+        # Sicherheit: ein Auswahlfeld erst beim Anklicken (Delegate) statt
+        # eines Felds je GA -- 1910 Felder brauchten 2 s zum Öffnen
+        self._ga_table.setItemDelegateForColumn(_COL_GA_SEC, _SecurityDelegate(self._ga_table))
+        self._ga_table.setEditTriggers(QAbstractItemView.DoubleClicked
+                                       | QAbstractItemView.SelectedClicked
+                                       | QAbstractItemView.EditKeyPressed)
+        self._ga_table.itemChanged.connect(self._on_ga_item_changed)
         layout.addWidget(self._ga_table)
         return w
 
     def _populate_ga_tab(self):
         all_gas = list(self._project.group_addresses.all_addresses())
+        self._ga_table.blockSignals(True)
         self._ga_table.setRowCount(len(all_gas))
         for i, ga in enumerate(all_gas):
-            self._ga_table.setItem(i, _COL_GA_ADDR, QTableWidgetItem(ga.address))
-            self._ga_table.setItem(i, _COL_GA_NAME, QTableWidgetItem(ga.designation or ga.description))
-            self._ga_table.setItem(i, _COL_GA_FUNC, QTableWidgetItem(ga.function_name))
-
-            combo = QComboBox()
-            combo.addItems(GA_SECURITY_MODES)
-            idx = combo.findText(ga.security)
-            if idx >= 0:
-                combo.setCurrentIndex(idx)
-            combo.currentTextChanged.connect(
-                lambda text, g=ga: setattr(g, "security", text)
-            )
-            self._ga_table.setCellWidget(i, _COL_GA_SEC, combo)
-
-            if ga.security == "Ein":
-                for col in range(_GA_COLS - 1):
-                    item = self._ga_table.item(i, col)
-                    if item:
-                        item.setForeground(QColor("#1565C0"))
+            for col, text in ((_COL_GA_ADDR, ga.address),
+                              (_COL_GA_NAME, ga.designation or ga.description),
+                              (_COL_GA_FUNC, ga.function_name)):
+                item = QTableWidgetItem(text)
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                self._ga_table.setItem(i, col, item)
+            sec = QTableWidgetItem(ga.security)
+            sec.setData(Qt.UserRole, ga)
+            sec.setToolTip("Doppelklick zum Ändern: " + " / ".join(GA_SECURITY_MODES))
+            self._ga_table.setItem(i, _COL_GA_SEC, sec)
+            self._color_ga_row(i, ga)
+        self._ga_table.blockSignals(False)
         fit_columns(self._ga_table)
+
+    def _color_ga_row(self, row: int, ga) -> None:
+        color = QColor("#1565C0") if ga.security == "Ein" else QColor("#000000")
+        for col in range(_GA_COLS - 1):
+            item = self._ga_table.item(row, col)
+            if item:
+                item.setForeground(color)
+
+    def _on_ga_item_changed(self, item: QTableWidgetItem) -> None:
+        """Wert aus dem Auswahlfeld der Spalte Sicherheit übernehmen."""
+        if item.column() != _COL_GA_SEC:
+            return
+        ga = item.data(Qt.UserRole)
+        if ga is None or item.text() not in GA_SECURITY_MODES:
+            return
+        ga.security = item.text()
+        self._ga_table.blockSignals(True)
+        self._color_ga_row(item.row(), ga)
+        self._ga_table.blockSignals(False)
 
     def _auto_suggest_security(self):
         n = self._service.auto_suggest_ga_security(self._project)

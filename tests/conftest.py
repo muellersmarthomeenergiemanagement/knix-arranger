@@ -30,6 +30,9 @@ def isolate_appdata(monkeypatch, tmp_path):
     from knix_arranger.services import ko_templates
     from knix_arranger.utils import workspace
     monkeypatch.setattr(ko_templates, "_TEMPLATE_FILE", str(tmp_path / "ko_templates.json"))
+    # Gemerkte KO-Namen aus ETS-Projekten (ko_names)
+    from knix_arranger.services import ko_names
+    monkeypatch.setattr(ko_names, "_NAMES_FILE", str(tmp_path / "ko_names.json"))
     monkeypatch.setattr(workspace, "_home_dir", lambda: str(tmp_path / "home_knix"))
     # Der in der Sitzung geladene Produktkatalog gehört zum alten APPDATA
     from knix_arranger.services.product_sync import reset_shared_catalog

@@ -26,7 +26,7 @@ logger = logging.getLogger("knix_arranger.recalc_service")
 class RecalcService:
     """Steuert Kaskaden-Neuberechnungen nach manuellen Projektänderungen."""
 
-    def recalc_actors_and_addresses(self, project: KnxProject) -> dict:
+    def recalc_actors_and_addresses(self, project: KnxProject, renumber: bool = False) -> dict:
         """Aktoren/Sensoren und GAs nach Gewerk- oder Gebäudestruktur-Änderung
         neu berechnen.
 
@@ -56,6 +56,9 @@ class RecalcService:
                 preserve_manual=True,
                 shared_gateways=project.shared_gateways(),
                 backbone_type=project.config.backbone_type,
+                # Teilnehmernummern bleiben, ausser «neu ordnen» (nicht nach
+                # der Übertragung in die ETS)
+                renumber=renumber and not project.addresses_fixed,
             )
 
         actor_count = sum(

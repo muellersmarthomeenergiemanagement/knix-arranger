@@ -95,6 +95,24 @@ def _is_placeholder(co) -> bool:
     return "{{" in f"{co.name or ''} {co.object_function or ''}"
 
 
+def co_by_number(cos: list, number: int):
+    """Das KO mit dieser Nummer, bei Varianten die echte vor Platzhaltern --
+    für «welches KO bekommt bzw. zeigt die GA?»."""
+    best = None
+    for co in cos:
+        if co.object_number == number and (
+                best is None or (_is_placeholder(best) and not _is_placeholder(co))):
+            best = co
+    return best
+
+
+def co_holding(cos: list, number: int, ga_address: str):
+    """Die Variante mit dieser Nummer, an der die GA hängt (Trennen,
+    Korrekturen); ohne Treffer die echte Variante."""
+    return next((co for co in cos if co.object_number == number
+                 and ga_address in co.connected_gas), None) or co_by_number(cos, number)
+
+
 def _devices(project) -> list:
     return [d for area in project.topology.areas for line in area.lines
             for d in line.devices]
@@ -125,7 +143,7 @@ def _planned_gas(project, device, sensor_rows, co_map: dict,
     return result
 
 
-def ko_links(project, proposals: bool = False) -> list[KoLink]:
+def ko_links(project, proposals: bool = False, fresh: bool = False) -> list[KoLink]:
     """Alle bekannten KO-GA-Verknüpfungen des Projekts. Mit proposals auch
     für Geräte ohne Zuordnung, nach dem Vorschlag von «KOs aller Geräte
     zuordnen» (KoLink.proposed) -- für die Anzeige, nicht für Prüfungen."""
@@ -135,13 +153,17 @@ def ko_links(project, proposals: bool = False) -> list[KoLink]:
     actor_plan = None
     if proposals:
         from .ko_batch import plan_all
-        proposed_maps = {id(plan.device): plan.co_map for plan in plan_all(project).plans}
+        batch = plan_all(project, fresh)
+        proposed_maps = {id(plan.device): plan.co_map for plan in batch.plans}
+        # dieselben Belegungspläne wiederverwenden (je ca. 0,4 s)
+        sensor_rows, actor_plan = batch.sensor_rows, batch.actor_plan
     for device in _devices(project):
         cos = _by_number(device.communication_objects)
         if any(co.connected_gas for co in device.communication_objects):
             for co in device.communication_objects:
+                shown = cos.get(co.object_number, co) if _is_placeholder(co) else co
                 for i, ga in enumerate(co.connected_gas):
-                    links.append(KoLink(device, co, ga, i == 0))
+                    links.append(KoLink(device, shown, ga, i == 0))
             continue
         from .sensor_channels import has_sensor_selection
         own = device.co_map and (device.device_type != "sensor"
@@ -152,7 +174,7 @@ def ko_links(project, proposals: bool = False) -> list[KoLink]:
         proposed = not own
         if device.device_type == "sensor" and sensor_rows is None:
             from .sensor_channels import sensor_plan
-            sensor_rows = sensor_plan(project)
+            sensor_rows = sensor_plan(project, fresh)
         if device.device_type != "sensor" and actor_plan is None:
             from .belegungsplan_service import BelegungsplanService
             actor_plan = BelegungsplanService().generate(project)

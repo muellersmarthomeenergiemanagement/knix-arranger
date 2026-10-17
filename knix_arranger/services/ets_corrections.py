@@ -263,8 +263,9 @@ def check_unlinks_after_import(project) -> list[PendingUnlink]:
     for key in project.ets_corrections.unlinked:
         pa, co_number, ga_addr = _split_unlink(key)
         device = find_device(project, pa)
-        co = None if device is None else next(
-            (c for c in device.communication_objects if c.object_number == co_number), None)
+        from .ko_links import co_holding
+        co = None if device is None else co_holding(
+            device.communication_objects, co_number, ga_addr)
         if co is None or ga_addr not in co.connected_gas:
             continue        # in der ETS getrennt (oder Gerät/KO weg)
         keep.append(key)

@@ -155,8 +155,11 @@ class AddressTreeView(QWidget):
         self._tree.target_data = self._drop_target
         self._tree.can_drop = self._can_drop
         self._tree.on_drop = self._on_drop
+        # Spaltenbreiten beim Aufklappen von Hand; beim Aufbau einmal am Ende
+        # (sonst je Mittelgruppe einmal, Projekt_23: 0,5 s)
+        self._building = False
         self._tree.itemExpanded.connect(
-            lambda _: fit_columns(self._tree, stretch_to_fit=False)
+            lambda _: None if self._building else fit_columns(self._tree, stretch_to_fit=False)
         )
         self._tree.setHeaderLabels([
             "Adresse", "Bezeichnung", "Beschreibung", "Funktion", "DPT", "Gewerk", "Raum",
@@ -277,6 +280,14 @@ class AddressTreeView(QWidget):
         self.ga_modified.emit()
 
     def _refresh_tree(self):
+        self._building = True
+        try:
+            self._build_tree()
+        finally:
+            self._building = False
+        fit_columns(self._tree, stretch_to_fit=False)
+
+    def _build_tree(self):
         self._tree.clear()
         if not self._structure:
             return
@@ -338,8 +349,6 @@ class AddressTreeView(QWidget):
                     if ga.is_placeholder:
                         for col in range(_COLUMNS):
                             ga_item.setForeground(col, QBrush(QColor("#757575")))
-
-        fit_columns(self._tree, stretch_to_fit=False)
 
     def _get_gewerk_color(self, gewerk_code: str) -> str | None:
         """Gibt die Farbe basierend auf Gewerk-Kategorie zurück."""

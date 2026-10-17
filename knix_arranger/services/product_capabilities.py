@@ -112,10 +112,11 @@ def capabilities(cos: list, product_name: str = "") -> Capabilities:
     caps = Capabilities()
     numbers = {int(m.group(1)) for co in cos if (m := _KEY.search(_text(co)))}
     caps.rocker = any(_RIGHT_SIDE.search(_text(co)) for co in cos if _KEY.search(_text(co)))
-    if numbers:
-        caps.keys = max(numbers) * (2 if caps.rocker else 1)
-    else:
-        caps.keys = keys_from_name(product_name)
+    # Aus den KOs, mindestens aber nach dem Produktnamen: sind nur einige
+    # KO-Namen bekannt (aus einem ETS-Projekt gelernt, ko_names), sähe der
+    # Taster sonst kleiner aus, als er ist
+    from_kos = max(numbers) * (2 if caps.rocker else 1) if numbers else 0
+    caps.keys = max(from_kos, keys_from_name(product_name))
     for kind, (pattern, main) in _SENSOR_PATTERNS.items():
         co = next((c for c in sorted(cos, key=lambda c: c.object_number)
                    if _is_measurement(c, pattern, main)), None)
@@ -124,11 +125,31 @@ def capabilities(cos: list, product_name: str = "") -> Capabilities:
     return caps
 
 
+# Fähigkeiten je KO-Liste und Produktname: hängen nur daran, die Topologie
+# fragte sie bei jedem Aufbau für alle Geräte neu ab (Projekt_23: 0,3 s)
+_CAPS_CACHE: dict[tuple, Capabilities] = {}
+_CAPS_CACHE_MAX = 512
+
+
 def device_capabilities(device) -> Capabilities:
     from .actor_channels import device_com_objects
     if not device.communication_objects:
         return Capabilities()
-    return capabilities(device_com_objects(device), device.product_name or device.product)
+    name = device.product_name or device.product
+    key = (name, tuple((co.object_number, co.name, co.object_function, co.flags, co.data_type)
+                       for co in device.communication_objects))
+    caps = _CAPS_CACHE.get(key)
+    if caps is None:
+        if len(_CAPS_CACHE) >= _CAPS_CACHE_MAX:
+            _CAPS_CACHE.clear()
+        caps = _CAPS_CACHE[key] = capabilities(device_com_objects(device), name)
+    # Kopie: Aufrufer dürfen sensors nicht für andere Geräte verändern;
+    # die KOs gehören zu diesem Gerät (gleiche Nummer)
+    from .ko_links import _by_number
+    by_number = _by_number(device.communication_objects)
+    return Capabilities(caps.keys, caps.rocker,
+                        {kind: by_number.get(co.object_number, co)
+                         for kind, co in caps.sensors.items()})
 
 
 # ── Abgleich Planung ↔ Produkt (FA-1411a) ──
@@ -295,6 +316,8 @@ def apply_catalog_product(device, prod, be=None) -> None:
     device.apply_product(prod)
     if prod.com_objects:
         device.communication_objects = communication_objects_of(prod.com_objects)
+        from .ko_names import apply_to_device
+        apply_to_device(device)        # gemerkte KO-Texte (FA-1411d)
     if be is not None:
         keys = capabilities(device.communication_objects, prod.product_name).keys
         if keys or prod.channels:

@@ -290,8 +290,8 @@ def unlink_ga(project, physical_address: str, co_number: int, ga_addr: str,
     device = find_device(project, physical_address)
     if device is None:
         return False
-    co = next((c for c in device.communication_objects
-               if c.object_number == co_number), None)
+    from .ko_links import co_holding
+    co = co_holding(device.communication_objects, co_number, ga_addr)
     if co is None or ga_addr not in co.connected_gas:
         return False
     co.connected_gas.remove(ga_addr)

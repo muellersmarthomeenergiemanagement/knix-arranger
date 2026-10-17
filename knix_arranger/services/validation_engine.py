@@ -95,6 +95,7 @@ class ValidationEngine:
             issues.extend(self._check_product_kinds(project))
             issues.extend(self._check_ko_flags(project))
             issues.extend(self._check_product_capabilities(project))
+            issues.extend(self._check_bedienelement_leftovers(project))
             # FA-609, FA-611 bis FA-613: Topologie
             from .topology_validation import check_topology
             issues.extend(check_topology(project))
@@ -216,6 +217,57 @@ class ValidationEngine:
                     address,
                     "Empfänger verknüpfen oder beim empfangenden KO das S-Flag setzen",
                     designation=designation))
+        return issues
+
+    @staticmethod
+    def _check_bedienelement_leftovers(project) -> list[ValidationIssue]:
+        """FA-631: Bedienelement mit Gerät, aber ohne Funktion; FA-632:
+        dasselbe Element auf mehreren Tastern im selben Raum (nur geplante
+        Projekte, Hinweise)."""
+        if project.topology.is_imported:
+            return []
+        catalog = project.gewerk_catalog
+        issues = []
+        for room in project.all_rooms:
+            holders: dict[tuple, list] = {}
+            for be in room.bedienelemente:
+                if be.suppressed:
+                    continue
+                # Melder (Gewerk A, FK …) tragen ihre GAs über das eigene
+                # Element, nicht über Funktionen -- nur Bedienstellen prüfen
+                if (be.element_type in ("Tastereinheit", "Raumthermostat")
+                        and not be.funktionen and not be.function_assignments
+                        and be.participant_number):
+                    issues.append(ValidationIssue(
+                        "info", "FA-631",
+                        f"{be.participant_number} {be.element_type} ({room.number} {room.name}) "
+                        f"hat keine Funktion",
+                        be.participant_number,
+                        "In der Bauherrenberatung Funktionen zuweisen oder das Gerät entfernen",
+                        details={"room_id": room.id}))
+                if be.element_type != "Tastereinheit":
+                    continue
+                for sf in be.funktionen:
+                    if not sf.gewerk_code or sf.press_of or sf.ga_designation:
+                        continue
+                    key = (sf.source_room_id or room.id, sf.gewerk_code, str(sf.element_number))
+                    if be not in holders.setdefault(key, []):
+                        holders[key].append(be)
+            for (_src, code, nr), bes in holders.items():
+                if len(bes) < 2:
+                    continue
+                gewerk = catalog.get(code) if catalog else None
+                assignment = next((a for a in room.gewerk_assignments if a.gewerk_code == code), None)
+                label = assignment.element_label(int(nr)) if assignment and str(nr).isdigit() else ""
+                name = " ".join(p for p in ((gewerk.name if gewerk else code), nr,
+                                             f"«{label}»" if label else "") if p)
+                devices = ", ".join(be.participant_number or "Taster" for be in bes)
+                issues.append(ValidationIssue(
+                    "info", "FA-632",
+                    f"{name} ({room.number} {room.name}) liegt auf {len(bes)} Tastern: {devices}",
+                    bes[0].participant_number or "",
+                    "Gewollt (zwei Bedienstellen)? Sonst die Taste in der Bauherrenberatung entfernen",
+                    details={"room_id": room.id}))
         return issues
 
     @staticmethod

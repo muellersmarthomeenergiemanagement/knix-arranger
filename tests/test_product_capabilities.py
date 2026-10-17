@@ -76,12 +76,18 @@ def _project(gewerk_catalog):
 
 
 def _recompute(project):
-    SensorService().auto_assign_functions(project.all_rooms, project.group_addresses,
-                                          topology=project.topology)
-    engine = TopologyEngine(project.config.topology_mode)
-    engine.populate_devices(project.topology, project.all_rooms, project.gewerk_catalog)
-    SensorService().auto_assign_functions(project.all_rooms, project.group_addresses,
-                                          topology=project.topology)
+    """Neuberechnung wie das Hauptfenster (_on_functions_changed) -- eine
+    eigene Nachbildung hatte das Zurückfallen entfernter Tasten verdeckt."""
+    from knix_arranger.services.recalc_service import RecalcService
+    from knix_arranger.services.sensor_service import refresh_bedienelemente
+    if not any(l.devices for a in project.topology.areas for l in a.lines):
+        # erste Belegung der Linien (wie Wizard Schritt 7)
+        SensorService().auto_assign_functions(project.all_rooms, project.group_addresses,
+                                              topology=project.topology)
+        TopologyEngine(project.config.topology_mode).populate_devices(
+            project.topology, project.all_rooms, project.gewerk_catalog)
+    RecalcService().recalc_actors_and_addresses(project)
+    refresh_bedienelemente(project)
 
 
 def _devices(project, product):
@@ -361,3 +367,39 @@ def test_material_list_type_filter(gewerk_catalog):
     assert shown == {"Tastereinheit"}
     combo.setCurrentIndex(0)
     assert view._table.rowCount() > 1
+
+
+def test_bauherr_shows_capabilities_and_actions(gewerk_catalog):
+    """Bauherrenberatung: Zeile «Produkt kann: …» mit «Tasten anpassen…»,
+    der Knopf löst die Aktion mit dem Mangel aus."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+    QApplication.instance() or QApplication([])
+    from knix_arranger.services.sensor_service import link_bedienelemente_to_devices
+    from knix_arranger.ui.views.bauherr_form_view import BauherrFormView, _TasterWidget
+    project, room = _project(gewerk_catalog)
+    link_bedienelemente_to_devices(project.topology, project.all_rooms)
+    _taster(project)
+    view = BauherrFormView()
+    view.set_project(project)
+    assert view.show_room(room.id)
+    tasters = [w for w in view.findChildren(_TasterWidget)
+               if any(l.text().startswith("Produkt kann") for l in w.findChildren(QLabel))]
+    assert tasters
+    texts = [l.text() for l in tasters[0].findChildren(QLabel)]
+    assert any("8 Tasten" in t and "Temperatur (KO 70)" in t for t in texts)
+    buttons = {b.text(): b for b in tasters[0].findChildren(QPushButton)}
+    assert "Tasten anpassen…" in buttons and "Raumtemperatur übernehmen…" in buttons
+    seen = []
+    tasters[0].device_action.connect(lambda kind, payload: seen.append((kind, payload)))
+    tasters[0].device_action.disconnect(view._on_device_action)
+    buttons["Tasten anpassen…"].click()
+    assert seen and seen[0][0] == "keys" and seen[0][1].planned == 9
+
+
+def test_plan_all_only_given_devices(gewerk_catalog):
+    from knix_arranger.services.ko_batch import plan_all
+    project, room = _project(gewerk_catalog)
+    taster = _taster(project)
+    batch = plan_all(project, only=[taster])
+    assert [plan.device for plan in batch.plans] == [taster]

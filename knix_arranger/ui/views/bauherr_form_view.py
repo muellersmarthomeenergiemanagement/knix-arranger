@@ -976,6 +976,17 @@ class _SlotWidget(QWidget):
         self.removed.emit()   # Raster neu aufbauen
 
 
+def _small_button(text: str, tooltip: str) -> QPushButton:
+    btn = QPushButton(text)
+    btn.setFixedHeight(20)
+    btn.setCursor(Qt.PointingHandCursor)
+    btn.setToolTip(tooltip)
+    btn.setStyleSheet("QPushButton { font-size: 12px; border: 1px solid #90A4AE; "
+                      "border-radius: 2px; background: white; padding: 1px 8px; } "
+                      "QPushButton:hover { background: #E3F2FD; }")
+    return btn
+
+
 class _TasterWidget(QFrame):
     """
     Grafische Darstellung eines Bedienelements als Raster einzelner Taster.
@@ -987,9 +998,12 @@ class _TasterWidget(QFrame):
     # Tastenanzahl (be.channels) wurde geaendert -- Grid muss mit neuer
     # Slot-Zahl komplett neu aufgebaut werden (siehe BauherrFormView._load_room).
     structure_changed = Signal()
+    # Aktion am realen Gerät (FA-1411): "keys" = Tasten anpassen,
+    # "temperature" = Raumtemperatur über diesen Taster
+    device_action = Signal(str, object)
 
     def __init__(self, be: Bedienelement, service: BauherrFormService,
-                 room: Room, parent=None, begin_change=None):
+                 room: Room, parent=None, begin_change=None, device_info=None):
         super().__init__(parent)
         self._be = be
         self._begin = begin_change or (lambda _description: None)
@@ -1042,6 +1056,8 @@ class _TasterWidget(QFrame):
             btn_remove.clicked.connect(self._on_remove_taster)
             hdr_layout.addWidget(btn_remove)
         layout.addWidget(hdr_bar)
+        if device_info:
+            layout.addWidget(self._capability_bar(device_info))
 
         # Geräteinterne Funktionen ohne physische Taste (z.B. Nachtabsenkung
         # LED, role="fremdsteuerung" -- FA-1410d) sind kein bedienbarer
@@ -1179,6 +1195,37 @@ class _TasterWidget(QFrame):
     def _on_annotation(self, text: str):
         self._be.bauherr_annotation = text
         self.notes_changed.emit()
+
+    def _capability_bar(self, info: dict) -> QWidget:
+        """Zeile unter dem Kopf: Produkt und Fähigkeiten, bei Bedarf die
+        Aktionen «Tasten anpassen» und «Raumtemperatur» (FA-1411)."""
+        bar = QWidget()
+        bar.setStyleSheet("QWidget { background-color: #ECEFF1; border: none; }")
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(6, 2, 4, 2)
+        row.setSpacing(4)
+        text = info.get("summary") or ""
+        label = QLabel(f"Produkt kann: {text}" if text else "Produkt: keine Fähigkeiten erkannt")
+        label.setStyleSheet("color: #37474F; font-size: 12px; border: none;")
+        row.addWidget(label, 1)
+        shortage = info.get("shortage")
+        if shortage is not None:
+            warn = QLabel(f"⚠ {shortage.planned} Tasten geplant")
+            warn.setStyleSheet("color: #BF360C; font-size: 12px; font-weight: bold; border: none;")
+            row.addWidget(warn)
+            btn = _small_button("Tasten anpassen…",
+                                "Verteilen, auf zwei Taster aufteilen oder ein Produkt mit "
+                                "genügend Tasten wählen")
+            btn.clicked.connect(lambda: self.device_action.emit("keys", shortage))
+            row.addWidget(btn)
+        offers = info.get("offers") or []
+        if offers:
+            btn = _small_button("Raumtemperatur übernehmen…",
+                                "Die Heizung des Raums bezieht die Ist-Temperatur von "
+                                "diesem Taster, auf Wunsch ohne Raumthermostat")
+            btn.clicked.connect(lambda: self.device_action.emit("temperature", offers))
+            row.addWidget(btn)
+        return bar
 
     def _on_remove_taster(self):
         from ...services.button_move import remove_bedienelement
@@ -1543,9 +1590,12 @@ class BauherrFormView(QWidget):
         elements = _view_elements(room, self._project.topology.is_imported)
         self._empty_hint.setVisible(not elements)
         self._btn_add_element.setEnabled(not self._project.topology.is_imported)
+        infos = self._device_infos(room)
         for be in elements:
             taster = _TasterWidget(be, self._service, room=room,
-                                   begin_change=self._begin_change)
+                                   begin_change=self._begin_change,
+                                   device_info=infos.get(be.id))
+            taster.device_action.connect(self._on_device_action)
             taster.changed.connect(self.project_changed)
             # Markierung "ohne Bedienung" nachführen -- verzögert, ein Ablegen
             # läuft noch im Drag der Funktionsliste
@@ -1555,6 +1605,41 @@ class BauherrFormView(QWidget):
             self._content_layout.insertWidget(
                 self._content_layout.count() - 1, taster
             )
+
+    def _device_infos(self, room) -> dict:
+        """Bedienelement-id -> Produkt-Fähigkeiten und offene Konflikte
+        (FA-1411), einmal je Raum berechnet."""
+        if self._project is None or self._project.topology.is_imported:
+            return {}
+        from ...services.product_capabilities import device_capabilities, plan_conflicts
+        devices = {d.physical_address: d for area in self._project.topology.areas
+                   for line in area.lines for d in line.devices}
+        shortages, offers = plan_conflicts(self._project)
+        infos = {}
+        for be in room.bedienelemente:
+            device = devices.get(be.participant_number)
+            if device is None or not device.communication_objects:
+                continue
+            infos[be.id] = {
+                "summary": device_capabilities(device).summary,
+                "shortage": next((x for x in shortages if x.device is device), None),
+                "offers": [o for o in offers if o.device is device],
+            }
+        return infos
+
+    def _on_device_action(self, kind: str, payload) -> None:
+        """Tasten anpassen / Raumtemperatur übernehmen (ui/device_actions)."""
+        from ..device_actions import OPEN_BAUHERR, resolve_keys, use_temperature
+        if kind == "keys":
+            result = resolve_keys(self, self._project, self._bus, payload)
+            if result in (None, OPEN_BAUHERR):
+                return              # hier ist man schon in der Bauherrenberatung
+        elif not use_temperature(self, self._project, self._bus, payload):
+            return
+        room = self._current_room
+        if room is not None:
+            self._refresh_room_list(keep_id=room.id)
+        self._palette.refresh()
 
     def _on_structure_changed(self):
         """Tastenanzahl eines Bedienelements wurde geaendert -- Raum komplett

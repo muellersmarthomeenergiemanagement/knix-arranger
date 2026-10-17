@@ -2,6 +2,26 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.1",
+      "date": "2026-10-17",
+      "neu": [
+        "Materialliste › «KO-Namen aus ETS-Projekt übernehmen…»: aus einem importierten Projekt die echten KO-Texte und Flags je Produkt lernen (z.B. «Taste 1, links» statt «Object 1») – gilt für alle Geräte dieses Produkts, auch bei künftigen Zuweisungen.",
+        "Bauherrenberatung: Unter jedem Taster «Produkt kann: …» (Tasten, Fühler), bei Bedarf mit «Tasten anpassen…» und «Raumtemperatur übernehmen…».",
+        "Topologie › Linie › «Teilnehmernummern neu ordnen…» stellt die Standardreihenfolge der physikalischen Adressen wieder her.",
+        "Validierung: Hinweise «Gerät ohne Funktion» (FA-631) und «Element von mehreren Tastern bedient» (FA-632)."
+      ],
+      "verbessert": [
+        "Neue Geräte verschieben die Adressen der übrigen nicht mehr: bestehende behalten ihre Teilnehmernummer, neue kommen ans Ende.",
+        "Nach einer Produktzuweisung ordnet die Materialliste die KOs gleich zu; nur unsichere Fälle werden nachgefragt.",
+        "Schneller: Klick in der Bauherrenberatung 0,6 s, KNX Secure öffnet in 0,1 s statt 2 s, Gruppenadressen und Topologie in 0,3 s; die Prüfung auf neue Probleme läuft kurz nach der letzten Änderung statt nach jedem Klick.",
+        "KNX Secure: die Sicherheit einer GA wird per Doppelklick gewählt."
+      ],
+      "behoben": [
+        "Bei Produkten mit mehreren KO-Varianten gleicher Nummer (z.B. Griesser JAX-9) wählten Trennen, Zuordnung und Anzeige teils einen Platzhalter statt des echten KOs.",
+        "Flags älterer Produktdaten werden beim Öffnen einheitlich in ETS-Schreibweise gespeichert."
+      ]
+    },
+    {
       "version": "1.4.0",
       "date": "2026-10-17",
       "neu": [

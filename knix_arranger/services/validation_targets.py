@@ -105,6 +105,9 @@ def targets_for(issue: dict, project) -> list[Target]:
         add(Target(KEYS, address, f"Tasten anpassen ({address})…"))
     if rule == "FA-629" and room_id in rooms:
         add(_room_targets(project, rooms[room_id])[0])
+    # Taster ohne Funktion bzw. doppelt belegte Taste: Bauherrenberatung zuerst
+    if rule in ("FA-631", "FA-632") and room_id in rooms:
+        add(_room_targets(project, rooms[room_id])[0])
 
     missing_ga = None
     if _GA_RE.match(address):

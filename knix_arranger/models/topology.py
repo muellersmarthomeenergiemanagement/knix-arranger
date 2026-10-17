@@ -12,6 +12,22 @@ from ..utils.manufacturers import canonical_manufacturer
 from ..utils.rtf import rtf_to_text
 
 
+# Produktdaten bis 1.3.1: fünf Stellen K L Ü S U mit Schreiben als «Ü»,
+# Übertragen als «S», Aktualisieren als «U» (z.B. Empfangs-KO «K-Ü--»).
+# Beim Laden in die ETS-Schreibweise K L S Ü A I umschreiben, damit im
+# Projekt nur noch eine Form vorkommt (ko_links.parse_flags liest beide).
+_OLD_PRODUCT_FLAGS = re.compile(r"^([K-])([L-])([Ü-])([S-])([U-])$")
+
+
+def normalize_flags(flags: str) -> str:
+    m = _OLD_PRODUCT_FLAGS.match(flags or "")
+    if not m:
+        return flags or ""
+    k, l, write, transmit, update = m.groups()
+    return "".join((k, l, "S" if write == "Ü" else "-", "Ü" if transmit == "S" else "-",
+                    "A" if update == "U" else "-", "-"))
+
+
 @dataclass
 class CommunicationObject:
     """KNX-Kommunikationsobjekt eines Geräts (FA-515)."""
@@ -41,7 +57,7 @@ class CommunicationObject:
             name=data.get("name", ""),
             object_function=data.get("object_function", ""),
             priority=data.get("priority", "Niedrig"),
-            flags=data.get("flags", ""),
+            flags=normalize_flags(data.get("flags", "")),
             data_type=data.get("data_type", ""),
             connected_gas=data.get("connected_gas", []),
         )

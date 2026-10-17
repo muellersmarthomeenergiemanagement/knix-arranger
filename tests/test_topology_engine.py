@@ -1022,14 +1022,15 @@ class TestManualProductFollowsSensor:
         target.manufacturer, target.order_number = "Elsner", "70316"
         ids_before = {d.id for d in topology.areas[0].lines[0].devices}
 
-        # Zweiter Taster in Raum A schiebt Raum B eine Adresse weiter
+        # Zweiter Taster in Raum A: Raum B behält seine Adresse, der neue
+        # Taster kommt ans Ende (früher rückten alle folgenden nach)
         room_a.bedienelemente.append(Bedienelement(
             element_type="Tastereinheit", channels=1, is_auto=False, taster_index=2))
         engine.populate_devices(topology, areal.all_rooms, gewerk_catalog,
                                 preserve_manual=True)
 
         moved = next(d for d in sensors() if d.room_id == room_b.id)
-        assert moved.physical_address != old_address
+        assert moved.physical_address == old_address
         assert moved.order_number == "70316"
         assert [d.order_number for d in sensors() if d.room_id == room_a.id] == ["", ""]
         # Alle bisherigen Geräte behalten ihre ID (Secure-Archiv, Materialliste,
@@ -1039,6 +1040,16 @@ class TestManualProductFollowsSensor:
         assert len(ids_after - ids_before) == 1
         new = next(d for d in sensors() if d.id not in ids_before)
         assert (new.room_id, new.taster_index) == (room_a.id, 2)
+        number = lambda d: int(d.physical_address.split(".")[2])
+        assert number(new) == max(number(d) for d in sensors())
+
+        # «Teilnehmernummern neu ordnen»: Standardreihenfolge, Raum B rückt nach,
+        # das Produkt bleibt beim Gerät
+        engine.populate_devices(topology, areal.all_rooms, gewerk_catalog,
+                                preserve_manual=True, renumber=True)
+        moved = next(d for d in sensors() if d.room_id == room_b.id)
+        assert moved.physical_address != old_address
+        assert moved.order_number == "70316"
 
 
 def test_actor_keeps_product_when_verteiler_changes(gewerk_catalog):

@@ -434,8 +434,8 @@ class CoLinkingService:
         number = selection[row.function_name]
         if number < 0:
             return False
-        return next((co for co in device.communication_objects
-                     if co.object_number == number), None)
+        from .ko_links import co_by_number
+        return co_by_number(device.communication_objects, number)
 
     def _direction_from_flags(self, flags: str) -> str:
         """Leitet 'empfangen'/'senden' aus den Flags eines realen COs ab
@@ -466,9 +466,10 @@ class CoLinkingService:
     ):
         """Findet ein bestehendes CO oder legt ein neues an."""
         if proposal.co_number >= 0:
-            for co in device.communication_objects:
-                if co.object_number == proposal.co_number:
-                    return co
+            from .ko_links import co_by_number
+            co = co_by_number(device.communication_objects, proposal.co_number)
+            if co is not None:
+                return co
         for co in device.communication_objects:
             if co.name == proposal.co_name and co.data_type == proposal.co_dpt:
                 return co

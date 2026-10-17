@@ -142,12 +142,14 @@ def ga_key(ga) -> str:
     return f"GA|{ga.designation}"
 
 
-def sensor_plan(project):
+def sensor_plan(project, fresh: bool = False):
     """Belegungsplan mit aufgefrischten Funktionszuordnungen, ohne das
-    Projekt zu verändern -- für mehrere sensor_links-Aufrufe einmal."""
+    Projekt zu verändern -- für mehrere sensor_links-Aufrufe einmal.
+    fresh: die Tastenbelegung des Projekts ist schon aktuell (Hauptfenster
+    nach refresh_bedienelemente), dann ohne Kopie des ganzen Projekts."""
     from .belegungsplan_service import BelegungsplanService
     from .sensor_service import project_for_export
-    return BelegungsplanService().generate(project_for_export(project))
+    return BelegungsplanService().generate(project if fresh else project_for_export(project))
 
 
 def sensor_links(project, device, plan=None) -> list[SensorLink]:
@@ -475,4 +477,5 @@ def chosen_sensor_co(device, ga):
     number = selection[key]
     if number < 0:
         return False
-    return next((co for co in device.communication_objects if co.object_number == number), None)
+    from .ko_links import co_by_number
+    return co_by_number(device.communication_objects, number)
