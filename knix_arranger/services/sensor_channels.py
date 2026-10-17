@@ -75,6 +75,12 @@ SENSOR_ROLES: tuple[SensorRole, ...] = (
 BRIGHTNESS_ROLE = SensorRole("helligkeit", "Externe Helligkeit", "quelle",
                              ("externehelligkeit", "externalbrightness", "helligkeitextern"))
 SOURCE_KEY = "GA-Quelle"
+
+# Raumtemperatur aus einem Taster mit eingebautem Fühler (FA-1411b): der
+# Taster sendet auf die IST-GA der Heizung seines Raums, wenn das Element
+# ihn als Quelle hat (GewerkAssignment.temperature_sources); das KO findet
+# product_capabilities (z.B. EDIZIOdue colore KO 70 «Raumtemperatur»)
+TEMPERATURE_ROLE = SensorRole("raumtemperatur", "Raumtemperatur", "messwert", ())
 _BRIGHTNESS = re.compile(r"helligkeit|brightness|\blux\b", re.IGNORECASE)
 _NOT_BRIGHTNESS = re.compile(r"schwelle|threshold|extern|anpassung|unabh", re.IGNORECASE)
 _DIRECTION_ORDER = ("SUED", "SÜD", "OST", "WEST")
@@ -191,10 +197,31 @@ def sensor_links(project, device, plan=None) -> list[SensorLink]:
             if ga.assignment_id == f"be:{be.id}":
                 add(ga, "Zusatzfunktion", ga.function_name, _receives(ga, device))
     _add_brightness_links(project, device, links)
+    _add_temperature_links(project, device, links, gas)
     # Je Taste/Kanal beisammen (Kanal 1: Licht schalten, Aktorstatus, ...)
     links.sort(key=lambda link: [int(part) if part.isdigit() else part
                                  for part in re.split(r"(\d+)", link.channel)])
     return links
+
+
+def _add_temperature_links(project, device, links: list[SensorLink], gas: list) -> None:
+    """IST-GA der Heizungselemente, deren Raumtemperatur dieser Taster liefert."""
+    from .button_move import bedienelement_of_device
+    room, be = bedienelement_of_device(project, device)
+    if be is None or be.element_type != "Tastereinheit":
+        return
+    for assignment in room.gewerk_assignments:
+        for nr, index in assignment.temperature_sources.items():
+            if index != be.taster_index:
+                continue
+            ist = next((ga for ga in gas if ga.assignment_id == assignment.id
+                        and ga.element_number == nr and ga.function_name == "IST"), None)
+            if ist is None:
+                continue
+            links.append(SensorLink(
+                f"{ga_key(ist)}#{TEMPERATURE_ROLE.code}", "Raumtemperatur",
+                TEMPERATURE_ROLE.label, ist.address, ist.designation, ist.function_name,
+                ist.datapoint_type, False, TEMPERATURE_ROLE.code))
 
 
 def _add_role_links(device, links: list[SensorLink], gas: list, by_address: dict,
@@ -236,8 +263,9 @@ def _receives(ga, device) -> bool:
     Flag, kein Senden), sonst an der Funktion (RM/Status)."""
     co = _named_co(device.communication_objects, ga.function_name)
     if co is not None:
-        flags = co.flags or ""
-        return ("Ü" in flags or "W" in flags) and "S" not in flags
+        from .ko_links import TRANSMIT, WRITE, parse_flags
+        flags = parse_flags(co.flags)
+        return WRITE in flags and TRANSMIT not in flags
     return bool(_FEEDBACK_FUNCTION.match(ga.function_name or ""))
 
 
@@ -272,16 +300,37 @@ def _nth_channel(function: str, nth: int) -> str:
     return f"{prefix}{int(number) + nth}{rest}"
 
 
+_RIGHT_SIDE = re.compile(r"\b(?:rechts|right|droite|destra)\b", re.IGNORECASE)
+_KEY_CHANNEL = re.compile(r"^\s*(?:taste|status)\b", re.IGNORECASE)
+
+
+def _is_rocker_product(cos: list) -> bool:
+    """Produkt mit Wippen: KOs je Taste links (ohne Zusatz) und «rechts»
+    (Feller EDIZIOdue «Taste 1», «Taste 1, rechts»)."""
+    return any(_RIGHT_SIDE.search(f"{co.name} {co.object_function}") for co in cos)
+
+
 def _channel_cos(cos: list, channel: str) -> list:
     """KOs, deren Text zur Taste/zum Kanal passt ("Taste 1" -> "Taste 1",
-    "T1", "Kanal 1", "Button 1"); ohne Treffer alle."""
+    "T1", "Kanal 1", "Button 1"); ohne Treffer alle.
+
+    Wippen-Produkte: KNiX zählt jede Seite als eigene Taste -- Taste 1 =
+    Wippe 1 links, Taste 2 = Wippe 1 rechts, Taste 3 = Wippe 2 links usw.
+    (ebenso «Status n» für die Rückmeldung der Taste n)."""
     found = _NUMBER.search(channel or "")
     if not found:
         return cos
-    n = found.group(1)
-    pattern = re.compile(rf"\b(?:taste|kanal|button|channel|wippe|rocker|t|k|p|ch)\s*{n}\b",
-                         re.IGNORECASE)
+    n = int(found.group(1))
+    rocker = _KEY_CHANNEL.match(channel or "") and _is_rocker_product(cos)
+    product_key = (n + 1) // 2 if rocker else n
+    pattern = re.compile(
+        rf"\b(?:taste|kanal|button|channel|wippe|rocker|t|k|p|ch)\s*{product_key}\b",
+        re.IGNORECASE)
     own = [co for co in cos if pattern.search(f"{co.name} {co.object_function}")]
+    if rocker:
+        right = n % 2 == 0
+        own = [co for co in own
+               if bool(_RIGHT_SIDE.search(f"{co.name} {co.object_function}")) == right]
     return own or cos
 
 
@@ -294,7 +343,8 @@ _SEND_KEYWORDS = {
 
 
 def _sends(co) -> bool:
-    return "S" in (co.flags or "")
+    from .ko_links import TRANSMIT, parse_flags
+    return TRANSMIT in parse_flags(co.flags)
 
 
 def _is_status(co) -> bool:
@@ -333,13 +383,18 @@ def suggested_sensor_co_map(device, links: list[SensorLink], all_cos: list) -> d
         result[link.key] = co.object_number
         named_used.add(co.object_number)
     used: set[int] = set()
+    # Befehle vor Rückmeldungen: die Rückmeldung kann am KO des Befehls mithören
+    rest.sort(key=lambda link: bool(link.feedback))
     for link in rest:
         candidates = [c for c in _channel_cos(all_cos, link.channel)
                       if c.object_number not in used]
         co = None
-        role = next((r for r in SENSOR_ROLES + (BRIGHTNESS_ROLE,) if r.code == link.role),
-                    None)
-        if role is not None:
+        role = next((r for r in SENSOR_ROLES + (BRIGHTNESS_ROLE, TEMPERATURE_ROLE)
+                     if r.code == link.role), None)
+        if role is TEMPERATURE_ROLE:
+            from .product_capabilities import TEMPERATURE, capabilities
+            co = capabilities(all_cos).sensors.get(TEMPERATURE)
+        elif role is not None:
             co = next(iter(_role_cos(candidates, role)), None)
         # Den Befehl sendet der Sensor (S-Flag), die Rückmeldung empfängt er
         # (LED, Status)
@@ -356,14 +411,58 @@ def suggested_sensor_co_map(device, links: list[SensorLink], all_cos: list) -> d
             co = suggest_co(candidates, link.ga_function, used)
         if co is None and link.dpt and role is None:
             co = _co_by_dpt(candidates, link.dpt, link.feedback, used)
+        if co is None and role is None:
+            # «Taste» ohne Nummer (Einzeltaster) = Taste 1
+            channel = link.channel if _NUMBER.search(link.channel or "") \
+                else f"{link.channel} 1"
+            if _own_channel(all_cos, channel):
+                own = [c for c in _channel_cos(all_cos, channel) if c.object_number not in used]
+                co = _key_fallback(own, link, result, all_cos)
         if co is not None:
             result[link.key] = co.object_number
             used.add(co.object_number)
     return result
 
 
+def _own_channel(cos: list, channel: str) -> bool:
+    """Hat die Taste/der Kanal eigene KOs (nicht nur alle des Geräts)?"""
+    return _channel_cos(cos, channel) is not cos
+
+
+def _key_fallback(candidates: list, link: SensorLink, result: dict, all_cos: list):
+    """Taster mit KOs ohne sprechenden Text und ohne DPT (Feller EDIZIOdue:
+    «Taste 1», «Taste 1, Signal-LED»): der Befehl auf das nächste sendende KO
+    der Taste (Schalten, dann Dimmen), die Rückmeldung auf das KO des Befehls
+    desselben Elements, wenn es schreibt (hört mit), sonst auf ein
+    empfangendes KO der Taste (Signal-LED)."""
+    from .ko_links import TRANSMIT, WRITE, parse_flags
+    if not link.feedback:
+        return next((c for c in candidates
+                     if TRANSMIT in parse_flags(c.flags) and not _is_status(c)), None)
+    # Nur Schaltzustand (1 Bit): ein Wert gehört nicht auf ein Tasten-KO
+    dpt = (link.dpt or "").upper().replace("DPST-", "DPT-")
+    if dpt.split("-")[1:2] not in (["1"], []) or (not dpt and link.ga_function != "RM"):
+        return None
+    element = link.key.rsplit("|", 1)[0]
+    by_number = {c.object_number: c for c in all_cos}
+    for key, number in result.items():
+        co = by_number.get(number)
+        if key.rsplit("|", 1)[0] == element and co is not None \
+                and WRITE in parse_flags(co.flags):
+            return co
+    return next((c for c in candidates
+                 if WRITE in parse_flags(c.flags) and TRANSMIT not in parse_flags(c.flags)),
+                None)
+
+
 def sensor_co_map(device) -> dict[str, int]:
     return dict((device.co_map or {}).get(SENSOR_CO_KEY) or {})
+
+
+def has_sensor_selection(device) -> bool:
+    """Mindestens ein KO zugeordnet -- nur «nicht verknüpfen» (z.B. weil der
+    Vorschlag früher nichts fand) gilt als noch nicht zugeordnet."""
+    return any(number >= 0 for number in sensor_co_map(device).values())
 
 
 def chosen_sensor_co(device, ga):

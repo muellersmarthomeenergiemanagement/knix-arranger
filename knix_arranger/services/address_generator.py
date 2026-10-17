@@ -29,6 +29,7 @@ from ..models.address_block import (
     create_lueftung_block_schema, create_kl_block_schema,
     create_ev_block_schema, create_pv_block_schema, create_sp_block_schema,
     create_w_block_schema, create_wp_block_schema, create_mm_block_schema,
+    create_switch_block_schema,
     create_generic_5_block_schema, create_generic_10_block_schema,
 )
 from .building_service import BuildingService
@@ -105,6 +106,8 @@ class AddressGenerator:
         # Weggelassene Funktionen des gerade bearbeiteten Gewerk-Elements
         # (Element-Nr. -> Funktionen), siehe _fill_entry_fields
         self._omitted: dict[int, list[str]] = {}
+        # Nachbearbeitete Funktionen (GewerkAssignment.function_overrides)
+        self._overrides: dict[int, dict[str, dict]] = {}
 
     def generate(self, areal: Areal, scenes: list | None = None,
                  project=None,
@@ -276,6 +279,7 @@ class AddressGenerator:
             ga.room_id = ""
             ga.element_number = 0
             ga.function_name = ""
+            ga.plan_function = ""
             if (ga.description or "").startswith(OMITTED_PREFIX):
                 ga.description = ""
             if omitted:
@@ -283,17 +287,21 @@ class AddressGenerator:
                 ga.description = f"{OMITTED_PREFIX}{entry.function}"
                 ga.element_number = element_number
         else:
+            # Nachbearbeitung in der Baumansicht: andere Funktion/DPT am selben Platz
+            override = self._overrides.get(element_number, {}).get(entry.function) or {}
+            function = override.get("function") or entry.function
             desc = " ".join(p for p in (room_name, element_label) if p)
             ga.designation = NamingEngine.create_designation(
                 gewerk_code, room_number, element_number,
-                entry.function, desc,
+                function, desc,
             )
-            ga.datapoint_type = entry.dpt
+            ga.datapoint_type = override.get("dpt") or entry.dpt
             ga.gewerk_code = gewerk_code
             ga.room_number = room_number
             ga.room_id = room_id
             ga.element_number = element_number
-            ga.function_name = entry.function
+            ga.function_name = function
+            ga.plan_function = entry.function if override else ""
             ga.is_placeholder = False
             if (ga.description or "").startswith(OMITTED_PREFIX):
                 ga.description = ""      # Funktion wieder eingeschaltet
@@ -557,6 +565,7 @@ class AddressGenerator:
 
             for room, assignment, gewerk, room_number_ga, room_desc in mg_data[mg_num]:
                 self._omitted = assignment.omitted_functions
+                self._overrides = assignment.function_overrides
                 schema = self._get_block_schema(gewerk, assignment=assignment, is_feedback=False)
 
                 # Manuell verknuepfte Funktions-Slots je Element (siehe
@@ -628,6 +637,7 @@ class AddressGenerator:
 
                 for room, assignment, gewerk, room_number_ga, room_desc in mg_data[mg_num]:
                     self._omitted = assignment.omitted_functions
+                    self._overrides = assignment.function_overrides
                     fb_schema = self._get_block_schema(
                         gewerk, assignment=assignment, is_feedback=True,
                     )
@@ -664,6 +674,7 @@ class AddressGenerator:
             mg.group_addresses.sort(key=lambda g: g.sub_group)
         hg.middle_groups = sorted(mg_registry.values(), key=lambda m: m.number)
         self._omitted = {}
+        self._overrides = {}
 
         return hg
 
@@ -946,6 +957,7 @@ class AddressGenerator:
         "W":   create_w_block_schema,
         "WP":  create_wp_block_schema,
         "MM":  create_mm_block_schema,
+        "SF":  create_switch_block_schema,
     }
 
     def _base_schema(self, gewerk: Gewerk) -> AddressBlockSchema:

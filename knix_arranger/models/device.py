@@ -145,6 +145,7 @@ GEWERK_TO_ACTOR_TYPE = {
     "BW":  "Schaltaktor",
     "BL":  "Schaltaktor",
     "P":   "Schaltaktor",
+    "SF":  "Schaltaktor",           # Schaltfunktion allgemein (FA-1003d)
     "MM":  "KNX-Schnittstelle",     # FA-1307: Gateway
 }
 

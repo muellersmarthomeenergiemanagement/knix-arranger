@@ -194,6 +194,14 @@ class MaterialListView(QWidget):
         self._filter_combo.currentIndexChanged.connect(self._rebuild_table)
         toolbar.addWidget(self._filter_combo)
 
+        # Typ-Filter (Spalte «Typ», z.B. «Jalousieaktor 8-fach»)
+        toolbar.addWidget(QLabel("Typ:"))
+        self._type_filter_combo = QComboBox()
+        self._type_filter_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self._type_filter_combo.addItem("Alle Typen", None)
+        self._type_filter_combo.currentIndexChanged.connect(self._rebuild_table)
+        toolbar.addWidget(self._type_filter_combo)
+
         # Linien-Filter
         toolbar.addWidget(QLabel("Linie:"))
         self._line_filter_combo = QComboBox()
@@ -511,6 +519,23 @@ class MaterialListView(QWidget):
 
     # ------------------------------------------------------------------ Filter
 
+    def _populate_type_filter(self, entries: list) -> None:
+        """Typen der (nach Kategorie gefilterten) Einträge; die Auswahl bleibt,
+        solange es den Typ noch gibt."""
+        types = sorted({e.device_type for e in entries if e.device_type}, key=str.lower)
+        current = self._type_filter_combo.currentData()
+        if [self._type_filter_combo.itemData(i)
+                for i in range(1, self._type_filter_combo.count())] == types:
+            return
+        self._type_filter_combo.blockSignals(True)
+        self._type_filter_combo.clear()
+        self._type_filter_combo.addItem("Alle Typen", None)
+        for device_type in types:
+            self._type_filter_combo.addItem(device_type, device_type)
+        index = self._type_filter_combo.findData(current) if current else 0
+        self._type_filter_combo.setCurrentIndex(max(index, 0))
+        self._type_filter_combo.blockSignals(False)
+
     def _populate_line_filter(self) -> None:
         """Befüllt den Linien-Filter aus der aktuellen Topologie."""
         self._line_filter_combo.blockSignals(True)
@@ -545,6 +570,10 @@ class MaterialListView(QWidget):
         entries = self._material_list.entries
         if cat_filter != "Alle Kategorien":
             entries = [e for e in entries if e.category == cat_filter]
+        self._populate_type_filter(entries)
+        type_filter = self._type_filter_combo.currentData()
+        if type_filter:
+            entries = [e for e in entries if e.device_type == type_filter]
         if line_id_filter:
             entries = [
                 e for e in entries
@@ -1496,10 +1525,13 @@ class MaterialListView(QWidget):
             updated.append(device)
             if prod.com_objects:
                 device.communication_objects = communication_objects_of(prod.com_objects)
-            if prod.channels:
-                be = be_by_addr.get(device.physical_address)
-                if be:
-                    be.channels = prod.channels
+            be = be_by_addr.get(device.physical_address)
+            if prod.channels and be:
+                be.channels = prod.channels
+            if be:
+                # Tastenzahl aus den KOs bzw. dem Namen («1-8fach», FA-1411)
+                from ...services.product_capabilities import fit_taster_channels
+                fit_taster_channels(self._project, be)
 
         addr_set = set(entry.physical_addresses)
         for area in self._project.topology.areas:

@@ -287,6 +287,15 @@ class Room:
         return room
 
 
+# Funktionsumfang eines Elements (GewerkAssignment.element_profiles, FA-1003d):
+# Profil -> Funktionen, die die ersten Plätze des Blocks bekommen
+ELEMENT_PROFILES: dict[str, tuple[str, ...]] = {
+    "schalten_rm": ("E/A", "RM"),
+    "schalten": ("E/A",),
+}
+SWITCH_PROFILES = frozenset({"schalten_rm", "schalten"})
+
+
 @dataclass
 class GewerkAssignment:
     """Zuweisung eines Gewerks zu einem Raum (FA-301, FA-304)."""
@@ -336,6 +345,37 @@ class GewerkAssignment:
     # Element-Nr. -> ["SPERREN", ...]. Die Generierung legt dort eine Reserve
     # an, die Adressen des Blocks verschieben sich nicht.
     omitted_functions: dict[int, list[str]] = field(default_factory=dict)
+    # Nachbearbeitete Funktionen je Element (Baumansicht, nur geplante
+    # Projekte): Element-Nr. -> {Funktion laut Schema: {"function": ..,
+    # "dpt": ..}}, z.B. Rohrbegleitheizung {1: {"STELLGROESSE": {"function":
+    # "E/A", "dpt": "DPST-1-1"}}}. Gilt bei jeder Neuberechnung, die Adresse
+    # bleibt dieselbe.
+    function_overrides: dict[int, dict[str, dict]] = field(default_factory=dict)
+    # Funktionsumfang je Element (FA-1003d), z.B. {1: "schalten_rm"}: die
+    # Rohrbegleitheizung als Gewerk H schaltet nur Ein/Aus. Umgesetzt über
+    # function_overrides/omitted_functions; ein Schaltaktor-Kanal statt eines
+    # Kanals des Gewerk-Aktors (actor_code).
+    element_profiles: dict[int, str] = field(default_factory=dict)
+    # Raumtemperatur je Element aus einem Taster mit eingebautem Fühler
+    # (FA-1411b): Element-Nr. -> Nummer der Tastereinheit im Raum
+    # (Bedienelement.taster_index), z.B. Heizung {1: 1} = IST kommt von
+    # Tastereinheit 1 statt vom Raumthermostat.
+    temperature_sources: dict[int, int] = field(default_factory=dict)
+
+    def actor_code(self, element_nr: int) -> str:
+        """Gewerk, nach dem der Aktor des Elements bestimmt wird: "S"
+        (Schaltaktor) bei Funktionsumfang Schalten, sonst das eigene."""
+        if self.element_profiles.get(element_nr) in SWITCH_PROFILES:
+            return "S"
+        return self.gewerk_code
+
+    def actor_codes(self) -> dict[str, int]:
+        """Aktor-Gewerk -> Anzahl Elemente (Kanäle), siehe actor_code."""
+        codes: dict[str, int] = {}
+        for nr in range(1, self.count + 1):
+            code = self.actor_code(nr)
+            codes[code] = codes.get(code, 0) + 1
+        return codes
 
     def element_label(self, element_nr: int) -> str:
         """Klartext eines Elements (1-basiert), leer wenn keiner erfasst ist."""
@@ -400,6 +440,15 @@ class GewerkAssignment:
             "omitted_functions": {
                 str(nr): list(fns) for nr, fns in self.omitted_functions.items() if fns
             },
+            "function_overrides": {
+                str(nr): dict(o) for nr, o in self.function_overrides.items() if o
+            },
+            "element_profiles": {
+                str(nr): p for nr, p in self.element_profiles.items() if p
+            },
+            "temperature_sources": {
+                str(nr): t for nr, t in self.temperature_sources.items() if t
+            },
         }
 
     @classmethod
@@ -434,6 +483,15 @@ class GewerkAssignment:
         obj.element_labels = list(data.get("element_labels", []))
         obj.omitted_functions = {
             int(nr): list(fns) for nr, fns in data.get("omitted_functions", {}).items()
+        }
+        obj.function_overrides = {
+            int(nr): dict(o) for nr, o in data.get("function_overrides", {}).items() if o
+        }
+        obj.element_profiles = {
+            int(nr): p for nr, p in data.get("element_profiles", {}).items() if p
+        }
+        obj.temperature_sources = {
+            int(nr): int(t) for nr, t in data.get("temperature_sources", {}).items() if t
         }
         return obj
 

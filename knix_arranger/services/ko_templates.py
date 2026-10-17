@@ -66,6 +66,9 @@ def save_template(device, entries: dict[str, int]) -> None:
     if not product or not entries:
         return
     data = _load_all()
+    if not any(n >= 0 for n in entries.values()) and not any(
+            n >= 0 for n in (data.get(product) or {}).values()):
+        return      # nur «nicht verknüpfen»: nichts Brauchbares zu merken
     template = dict(data.get(product) or {})
     template.update(entries)
     data[product] = template
@@ -122,7 +125,11 @@ def actor_proposal(channel, circuit, number: int, template: dict, known: set) ->
 
 
 def apply_sensor_template(template: dict[str, int], links: list, known: set[int]) -> dict[str, int]:
-    """ga_key -> KO-Nummer aus der Vorlage, nur KOs, die das Gerät hat."""
+    """ga_key -> KO-Nummer aus der Vorlage, nur KOs, die das Gerät hat. Eine
+    Vorlage nur mit «nicht verknüpfen» (früherer Vorschlag ohne Treffer) gilt
+    nicht -- sonst verdeckt sie jeden neuen Vorschlag."""
+    if not any(n >= 0 for n in template.values()):
+        return {}
     result = {}
     for link in links:
         number = template.get(sensor_signature(link))

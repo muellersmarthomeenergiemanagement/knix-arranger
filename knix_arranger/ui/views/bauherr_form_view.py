@@ -524,6 +524,9 @@ class _SlotWidget(QWidget):
             # Dimmen"), nicht nur die erste -- eine Gewerk-Auswahl deckt sie
             # automatisch alle ab (siehe Klassen-Docstring).
             fn_names = " + ".join(fn[2] for fn in GEWERK_PRIMARY_FUNCTIONS[code])
+            assignment = next((a for a in room.gewerk_assignments if a.gewerk_code == code), None)
+            if assignment is not None and assignment.actor_code(elem_nr) != code:
+                fn_names = "Ein/Aus schalten"    # Funktionsumfang Schalten (FA-1003d)
             display = f"{code} – {fn_names}"
             display += room.gewerk_element_suffix(code, elem_nr, count > 1)
             display += f"   ·   {room.number} {room.name}"
@@ -1361,6 +1364,15 @@ class BauherrFormView(QWidget):
         if self._bus:
             self._bus.begin_change(description)
 
+    def show_room(self, room_id: str) -> bool:
+        """Raum öffnen (Sprung aus der Validierung, FA-615a)."""
+        for item in self._room_items():
+            if item.data(0, Qt.UserRole).id == room_id:
+                self._room_tree.setCurrentItem(item)
+                self._room_tree.scrollToItem(item)
+                return True
+        return False
+
     def show_element(self, be_id: str) -> bool:
         """Springt zum Raum des Bedienelements und zeigt dessen Taster an
         (Doppelklick in der Verknüpfungsmatrix). False, wenn es hier nicht
@@ -1550,6 +1562,12 @@ class BauherrFormView(QWidget):
         (_TasterWidget legt die Slots nur einmal bei der Konstruktion an)."""
         room = self._current_room
         if room is not None:
+            # Tastenzahl folgt dem Produkt: eine entfernte Taste hinterlässt
+            # keinen leeren Platz, den das Gerät nicht hat (FA-1411)
+            from ...services.product_capabilities import fit_taster_channels
+            for be in room.bedienelemente:
+                if not be.suppressed:
+                    fit_taster_channels(self._project, be)
             # Anzahl im Raumbaum nachführen; lädt den Raum neu
             self._refresh_room_list(keep_id=room.id)
         self._palette.refresh()

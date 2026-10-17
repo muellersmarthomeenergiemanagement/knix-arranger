@@ -2,6 +2,35 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.0",
+      "date": "2026-10-17",
+      "neu": [
+        "Gruppenadressen bearbeiten in der Baumansicht: einzeln (Doppelklick), mehrere markiert (Sammeldialog) oder direkt in der Zelle (F2). Die Funktion wählt man aus einer Liste mit Rolle (Befehl, Rückmeldung, Messwert); Nachbearbeitungen bleiben bei jeder Neuberechnung erhalten (✎), «Auf Planung zurücksetzen» hebt sie auf.",
+        "Funktionsumfang je Element: z.B. eine Heizung nur Ein/Aus (Rohrbegleitheizung, Spiegelheizung) – E/A und RM statt Raumregler-Satz, ein Schaltaktor-Kanal statt Heizungsaktor, die Adressen bleiben. Ein solches Element lässt sich auf eine Taste legen.",
+        "Neues Gewerk SF «Schaltfunktion allgemein (Ein/Aus)».",
+        "«Zur Szene hinzufügen…» im Gruppenadressen-Baum: Szenen ankreuzen und den Wert je Szene wählen.",
+        "Validierung: Doppelklick auf eine Meldung springt dorthin, wo sie korrigiert wird (GA, Gerät, Linie, Raum, Szene …); lange Meldungen brechen um.",
+        "Flags der Kommunikationsobjekte in der Topologie (Spalte Details, mit Erklärung im Tooltip); neue Prüfungen «Mehrere Antworten beim Lesen» (FA-627) und «Befehl ohne Empfänger» (FA-628). Neuer Handbuch-Abschnitt 8.1 «Wer schaltet, wer liest».",
+        "Fähigkeiten realer Produkte: Tastenzahl (Wippen) und eingebaute Fühler. Die Validierung meldet, wenn mehr Tasten geplant sind als das Produkt hat (FA-629) – «Tasten anpassen» verteilt, teilt auf zwei Taster auf oder schlägt ein Produkt mit genügend Tasten vor – und wenn ein Taster die Raumtemperatur messen könnte (FA-630).",
+        "Raumtemperatur über einen Taster mit Fühler (z.B. Feller EDIZIOdue colore RGB Temp): die Heizung bezieht die Ist-Temperatur vom Taster, der Raumthermostat kann entfallen.",
+        "Materialliste: Filter nach Typ."
+      ],
+      "verbessert": [
+        "Bauherrenberatung und alle anderen Ansichten reagieren viel schneller: nach einer Änderung wird nur die sichtbare Ansicht neu aufgebaut (Projekt mit 70 Geräten: 0,7 statt 7 Sekunden je Klick).",
+        "Wippen-Taster: KNiX-Taste 1 = Wippe 1 links, Taste 2 = Wippe 1 rechts, Taste 3 = Wippe 2 links usw.; KOs ohne sprechenden Namen (Feller EDIZIOdue «Taste 1») werden zugeordnet.",
+        "Die Tastenzahl eines Tasters folgt seinem Produkt: eine entfernte Taste hinterlässt keinen leeren Platz, den das Gerät nicht hat.",
+        "Szenen: eine eingetippte GA-Adresse wird als Verknüpfung erkannt.",
+        "Topologie, CO-Verknüpfung und Matrix zeigen nach Änderungen in der Materialliste den neuen Stand."
+      ],
+      "behoben": [
+        "Die Flags aus dem Produktkatalog waren vertauscht (Schreiben als «Ü», Übertragen als «S»): Empfangs-KOs galten als Sender. Bestehende Projekte werden richtig gelesen.",
+        "CO-Verknüpfung: übernommene Verknüpfungen an Produkt-KOs standen weiter als «neu» da, «Verknüpfungen übernehmen» trug nichts ein.",
+        "Bearbeitungen an generierten GAs (Bezeichnung, DPT, Funktion) gingen bei der nächsten Neuberechnung verloren.",
+        "Eine im GA-Dialog geänderte Adresse blieb in der alten Mittelgruppe hängen.",
+        "Flags bei Aktoren mit KO-Varianten (Griesser JAX-9) zeigten die Platzhalter mit allen Flags."
+      ]
+    },
+    {
       "version": "1.3.1",
       "date": "2026-10-16",
       "neu": [

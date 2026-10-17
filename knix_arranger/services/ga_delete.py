@@ -60,8 +60,8 @@ def delete_gas(project, gas: list) -> DeleteResult:
         if kind == GENERATED:
             assignment = _assignment_by_id(project, ga.assignment_id)
             functions = assignment.omitted_functions.setdefault(ga.element_number, [])
-            if ga.function_name not in functions:
-                functions.append(ga.function_name)
+            if ga.planned_function not in functions:
+                functions.append(ga.planned_function)
             result.omitted.append(ga.address)
         elif kind == DELETABLE:
             to_remove.append(ga)

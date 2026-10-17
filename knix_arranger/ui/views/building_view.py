@@ -21,6 +21,7 @@ from ...services.sensor_service import SENSOR_TYPE_CHOICES, sensor_assignments, 
 from ..column_utils import fit_columns
 from ..widgets.add_element_menu import fill_add_element_menu
 from ..widgets.drag_drop import DragDropTree
+from ..tree_select import select_tree_item
 
 _DEVICE_TYPE_LABELS: dict[str, str] = {
     "actor":         "Aktor",
@@ -223,6 +224,21 @@ class BuildingView(QWidget):
     # ------------------------------------------------------------------
     # Baumdarstellung
     # ------------------------------------------------------------------
+
+    def select_room(self, room_id: str) -> bool:
+        """Raum anwählen (Sprung aus der Validierung, FA-615a)."""
+        def match(item):
+            d = item.data(0, Qt.UserRole)
+            return isinstance(d, tuple) and d[0] == "room" and d[1].id == room_id
+        return select_tree_item(self._tree, match) is not None
+
+    def select_floor(self, main_group: int) -> bool:
+        """Erstes Stockwerk mit dieser Hauptgruppe anwählen (FA-615a)."""
+        def match(item):
+            d = item.data(0, Qt.UserRole)
+            return (isinstance(d, tuple) and d[0] == "floor"
+                    and d[1].main_group_number == main_group)
+        return select_tree_item(self._tree, match) is not None
 
     def _refresh_tree(self):
         self._tree.clear()

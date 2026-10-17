@@ -262,7 +262,7 @@ class SceneView(QWidget):
         # Aktion hinzufügen
         add_action_layout = QHBoxLayout()
         self._action_ga = QLineEdit()
-        self._action_ga.setPlaceholderText("GA oder Gewerk")
+        self._action_ga.setPlaceholderText("GA (z.B. 4/2/0), Bezeichnung oder Gewerk")
         add_action_layout.addWidget(self._action_ga)
 
         self._action_value = QLineEdit()
@@ -964,8 +964,17 @@ class SceneView(QWidget):
             )
             return
 
+        # Adresse oder Bezeichnung einer bestehenden GA: beides festhalten,
+        # sonst erkennt die Validierung (FA-619) die Aktion nicht
+        ga_address = ""
+        if self._project:
+            match = next((g for g in self._project.group_addresses.all_addresses()
+                          if ga in (g.address, g.designation)), None)
+            if match is not None:
+                ga, ga_address = match.designation or ga, match.address
         scene.actions.append(SceneAction(
             group_address=ga,
+            ga_address=ga_address,
             value=value,
             delay_seconds=delay,
         ))

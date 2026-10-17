@@ -109,12 +109,14 @@ def ga_address_of(designation: str) -> str:
 
 
 def _transmits(flags: str) -> bool:
-    # ETS-Report: "K-SÜA-", knxproj-Import: "KSUE-A" (U = Übertragen)
-    return "Ü" in flags or "U" in flags
+    # ETS-Report "K-SÜA-", knxproj "KSUE-A", Produktdaten "K--S-" (ko_links)
+    from .ko_links import TRANSMIT, parse_flags
+    return TRANSMIT in parse_flags(flags)
 
 
 def _writes(flags: str) -> bool:
-    return "S" in flags
+    from .ko_links import WRITE, parse_flags
+    return WRITE in parse_flags(flags)
 
 
 def _has_feedback_hint(text: str) -> bool:

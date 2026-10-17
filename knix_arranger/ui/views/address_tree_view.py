@@ -5,15 +5,19 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
     QLabel, QMenu, QPushButton, QAbstractItemView, QMessageBox,
+    QStyledItemDelegate, QLineEdit, QInputDialog,
 )
 from PySide6.QtGui import QColor, QBrush, QKeySequence, QShortcut
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import Signal, Qt, QTimer
 from ..widgets.search_filter_bar import SearchFilterBar
-from ..dialogs.ga_edit_dialog import GaEditDialog
+from ..dialogs.ga_edit_dialog import GaEditDialog, dpt_combo, function_combo
+from ..dialogs.ga_bulk_edit_dialog import GaBulkEditDialog
+from ..dialogs.ga_scene_dialog import GaSceneDialog
 from ..styles import GEWERK_COLORS
 from ...models.group_address import GroupAddressStructure, GroupAddress
 from ..column_utils import fit_columns
 from ..widgets.drag_drop import DragDropTree
+from ..tree_select import select_tree_item
 from ...services.ets_corrections import gewerk_display
 from ...services.ga_move import (
     can_move_to_middle_group, can_reorder, can_swap, is_draggable,
@@ -23,6 +27,56 @@ from ...services.time_program_service import timed_label
 from ...services.ga_delete import (
     DELETABLE, GENERATED, classify, delete_gas, omitted_function_of, restore_function,
 )
+from ...services import ga_functions
+from ...services.ga_edit import (
+    PROFILE_LABELS, apply_changes, can_set_profile, editable_fields, element_of,
+    is_reworked, reset_to_plan, set_element_profile,
+)
+
+# Spalten
+COL_ADDRESS, COL_DESIGNATION, COL_DESCRIPTION, COL_FUNCTION, COL_DPT, COL_GEWERK, COL_ROOM = range(7)
+_COLUMNS = 7
+# In der Zelle bearbeitbar (F2): Spalte -> GA-Feld
+_INLINE_FIELDS = {COL_DESCRIPTION: "description", COL_FUNCTION: "function_name",
+                  COL_DPT: "datapoint_type"}
+# Kennzeichen nachbearbeiteter Funktionen (FA-1003b)
+REWORKED_MARK = "✎"
+
+
+class _InlineDelegate(QStyledItemDelegate):
+    """Editor für Beschreibung, Funktion und DPT; der Wert geht über die
+    Ansicht an alle markierten GAs (services/ga_edit), nicht ins Item."""
+
+    def __init__(self, view: "AddressTreeView"):
+        super().__init__(view._tree)
+        self._view = view
+
+    def _ga(self, index):
+        item = self._view._tree.itemFromIndex(index)
+        return item, (item.data(0, AddressTreeView.GA_OBJECT_ROLE) if item else None)
+
+    def createEditor(self, parent, option, index):
+        item, ga = self._ga(index)
+        field = _INLINE_FIELDS.get(index.column())
+        if not isinstance(ga, GroupAddress) or not field or not self._view._can_edit(ga, field):
+            return None
+        if field == "function_name":
+            editor = function_combo(ga.function_name)
+        elif field == "datapoint_type":
+            editor = dpt_combo(ga.datapoint_type)
+        else:
+            editor = QLineEdit(ga.description)
+        editor.setParent(parent)
+        return editor
+
+    def setEditorData(self, editor, index):
+        pass    # Startwert setzt createEditor
+
+    def setModelData(self, editor, model, index):
+        item, _ga = self._ga(index)
+        field = _INLINE_FIELDS[index.column()]
+        value = editor.text() if isinstance(editor, QLineEdit) else editor.currentText().strip()
+        self._view._commit_inline(item, field, value)
 
 
 class AddressTreeView(QWidget):
@@ -46,7 +100,8 @@ class AddressTreeView(QWidget):
         "lueftung": {"LU", "KL", "V"},
         "energie":  {"EV", "PV", "SP", "E"},
         "alarm":    {"A", "RK", "FK", "TK"},
-        "allgemein": {"G", "BW", "BL", "P", "W", "MM", "GS", "TE", "TVL", "LW", "FG", "F", "U"},
+        "allgemein": {"G", "BW", "BL", "P", "SF", "W", "MM", "GS", "TE", "TVL", "LW", "FG",
+                      "F", "U"},
     }
 
     def __init__(self, parent=None):
@@ -73,7 +128,8 @@ class AddressTreeView(QWidget):
         toolbar.addWidget(self._btn_expand_all)
         toolbar.addWidget(self._btn_collapse_all)
         toolbar.addStretch()
-        hint = QLabel("Doppelklick oder Rechtsklick auf eine GA zum Bearbeiten")
+        hint = QLabel("Doppelklick oder Rechtsklick auf eine GA zum Bearbeiten  ·  "
+                      "F2: Zelle bearbeiten")
         hint.setStyleSheet("color: #666666; font-style: italic;")
         self._hint = hint
         toolbar.addWidget(hint)
@@ -103,9 +159,12 @@ class AddressTreeView(QWidget):
             lambda _: fit_columns(self._tree, stretch_to_fit=False)
         )
         self._tree.setHeaderLabels([
-            "Adresse", "Bezeichnung", "Beschreibung", "DPT", "Gewerk", "Raum",
+            "Adresse", "Bezeichnung", "Beschreibung", "Funktion", "DPT", "Gewerk", "Raum",
         ])
         self._tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        # F2: Beschreibung, Funktion, DPT direkt in der Zelle, für alle markierten
+        self._tree.setEditTriggers(QAbstractItemView.EditKeyPressed)
+        self._tree.setItemDelegate(_InlineDelegate(self))
         self._tree.itemClicked.connect(self._on_item_clicked)
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -152,11 +211,30 @@ class AddressTreeView(QWidget):
         self._project = project
         reorder = project is not None and can_reorder(project)
         self._hint.setText(
-            "Doppelklick oder Rechtsklick auf eine GA zum Bearbeiten  ·  Entf: markierte löschen"
+            "Doppelklick oder Rechtsklick auf eine GA zum Bearbeiten  ·  F2: Zelle bearbeiten"
+            "  ·  Entf: markierte löschen"
             + ("  ·  Ziehen auf eine GA: tauschen, auf eine Mittelgruppe: verschieben"
                if reorder else ""))
 
     # ── Ziehen und Ablegen (FA-1015 d) ──
+
+    def select_address(self, address: str) -> bool:
+        """GA anwählen (Sprung aus der Validierung, FA-615a); ein Suchtext,
+        der sie ausblendet, wird gelöscht."""
+        def match(item):
+            return item.data(0, Qt.UserRole) == address
+        found = select_tree_item(self._tree, match)
+        if found is not None and (self._search_bar.search_text or self._active_category):
+            self._search_bar.clear()
+            found = select_tree_item(self._tree, match)
+        if found is None:
+            # Adresse gibt es nicht (z.B. Lücke im Block): ihre Mittelgruppe
+            parts = address.split("/")
+            if len(parts) == 3 and all(p.isdigit() for p in parts):
+                group = (int(parts[0]), int(parts[1]))
+                found = select_tree_item(
+                    self._tree, lambda item: item.data(0, self.MG_ROLE) == group)
+        return found is not None
 
     def _drag_data(self, item: QTreeWidgetItem):
         ga = item.data(0, self.GA_OBJECT_ROLE)
@@ -205,7 +283,7 @@ class AddressTreeView(QWidget):
 
         for hg in sorted(self._structure.main_groups, key=lambda m: m.number):
             hg_text = f"HG {hg.number} - {hg.name}"
-            hg_item = QTreeWidgetItem(self._tree, [hg_text, "", "", "", "", ""])
+            hg_item = QTreeWidgetItem(self._tree, [hg_text] + [""] * (_COLUMNS - 1))
             hg_item.setExpanded(True)
             hg_item.setData(0, Qt.UserRole, None)
 
@@ -213,7 +291,7 @@ class AddressTreeView(QWidget):
                 ga_count = len(mg.group_addresses)
                 mg_text = f"MG {mg.number} - {mg.name}"
                 mg_item = QTreeWidgetItem(
-                    hg_item, [mg_text, f"{ga_count} Adressen", "", "", "", ""]
+                    hg_item, [mg_text, f"{ga_count} Adressen"] + [""] * (_COLUMNS - 2)
                 )
                 mg_item.setExpanded(True)
                 mg_item.setData(0, Qt.UserRole, None)
@@ -226,28 +304,39 @@ class AddressTreeView(QWidget):
                         # Sub → Description → Fallback, damit immer ein Text erscheint
                         designation = ga.designation or ga.description or "(keine Bezeichnung)"
                     timed = getattr(self, "_timed", {}).get(ga.id, [])
+                    reworked = is_reworked(ga)
                     ga_item = QTreeWidgetItem(mg_item, [
                         ga.address,
                         designation,
                         " ".join(p for p in (self.TIMED_MARK if timed else "",
                                              ga.description) if p),
+                        " ".join(p for p in (REWORKED_MARK if reworked else "",
+                                             ga.function_name) if p),
                         ga.datapoint_type,
                         gewerk_display(ga),
                         ga.room_number,
                     ])
                     ga_item.setData(0, Qt.UserRole, ga.address)
                     ga_item.setData(0, self.GA_OBJECT_ROLE, ga)
+                    ga_item.setFlags(ga_item.flags() | Qt.ItemIsEditable)
+                    role = ga_functions.role_label(ga.function_name)
+                    tip = f"Rolle: {role}" if role else ""
+                    if reworked:
+                        tip = "\n".join(p for p in (
+                            tip, f"Nachbearbeitet – geplant war {ga.plan_function}") if p)
+                    if tip:
+                        ga_item.setToolTip(COL_FUNCTION, tip)
                     if timed:
                         ga_item.setToolTip(2, timed_label(timed))
 
                     # Farbmarkierung nach Gewerk-Kategorie
                     color = self._get_gewerk_color(ga.gewerk_code)
                     if color:
-                        for col in range(6):
+                        for col in range(_COLUMNS):
                             ga_item.setBackground(col, QBrush(QColor(color)))
 
                     if ga.is_placeholder:
-                        for col in range(6):
+                        for col in range(_COLUMNS):
                             ga_item.setForeground(col, QBrush(QColor("#757575")))
 
         fit_columns(self._tree, stretch_to_fit=False)
@@ -301,11 +390,25 @@ class AddressTreeView(QWidget):
         ga = item.data(0, self.GA_OBJECT_ROLE)
         menu = QMenu(self)
         if isinstance(ga, GroupAddress):
-            edit_action = menu.addAction("Bearbeiten…")
-            selected = [i.data(0, Qt.UserRole) for i in self._tree.selectedItems()
-                        if isinstance(i.data(0, self.GA_OBJECT_ROLE), GroupAddress)]
-            if ga.address not in selected:
-                selected = [ga.address]
+            selected_gas = self._selected_gas()
+            if ga not in selected_gas:
+                selected_gas = [ga]
+            selected = [g.address for g in selected_gas]
+            edit_action = menu.addAction(
+                f"Bearbeiten… ({len(selected)} GA)" if len(selected) > 1 else "Bearbeiten…")
+            reworked = [g for g in selected_gas if is_reworked(g)]
+            reset_action = None
+            if reworked and self._project is not None:
+                reset_action = menu.addAction(
+                    f"Auf Planung zurücksetzen ({len(reworked)} GA)" if len(reworked) > 1
+                    else f"Auf Planung zurücksetzen ({reworked[0].plan_function})")
+            profile_action = None
+            if self._project is not None and can_set_profile(self._project, ga):
+                profile_action = menu.addAction("Funktionsumfang des Elements…")
+            scene_action = None
+            if (self._project is not None and not ga.is_placeholder
+                    and ga.function_name != "SZENE"):
+                scene_action = menu.addAction("Zur Szene hinzufügen…")
             gewerk_action = menu.addAction(
                 f"Gewerk zuordnen… ({len(selected)} GA)" if len(selected) > 1
                 else "Gewerk zuordnen…")
@@ -319,7 +422,16 @@ class AddressTreeView(QWidget):
             delete_action.setEnabled(self._project is not None)
             action = menu.exec(global_pos)
             if action == edit_action:
-                self._edit_ga(ga)
+                if len(selected_gas) > 1 and self._project is not None:
+                    self._edit_many(selected_gas)
+                else:
+                    self._edit_ga(ga)
+            elif reset_action is not None and action == reset_action:
+                self._reset_to_plan(reworked)
+            elif profile_action is not None and action == profile_action:
+                self._choose_profile(ga)
+            elif scene_action is not None and action == scene_action:
+                self._edit_scenes(ga)
             elif action == gewerk_action:
                 self.gewerk_change_requested.emit(selected)
             elif restore_action is not None and action == restore_action:
@@ -401,10 +513,93 @@ class AddressTreeView(QWidget):
         """Oeffnet den GA-Bearbeitungsdialog."""
         if self._bus:
             self._bus.begin_change(f"GA {ga.address} »{ga.designation}« bearbeiten")
-        dialog = GaEditDialog(ga, parent=self)
+        dialog = GaEditDialog(ga, parent=self, project=self._project)
         if dialog.exec() == GaEditDialog.Accepted:
-            self._refresh_tree()
-            self.ga_modified.emit()
+            self._after_edit(dialog.result_info)
+
+    def _edit_many(self, gas: list[GroupAddress]) -> None:
+        """Sammeldialog für mehrere markierte GAs (FA-1003b)."""
+        if self._bus:
+            self._bus.begin_change(f"{len(gas)} GA bearbeiten")
+        dialog = GaBulkEditDialog(self._project, gas, parent=self)
+        if dialog.exec() == GaBulkEditDialog.Accepted:
+            self._after_edit(dialog.result_info)
+
+    def _can_edit(self, ga: GroupAddress, field: str) -> bool:
+        return self._project is not None and field in editable_fields(self._project, ga)
+
+    def _commit_inline(self, item: QTreeWidgetItem, field: str, value) -> None:
+        """Wert aus der Zelle für die bearbeitete GA und alle mit ihr markierten."""
+        ga = item.data(0, self.GA_OBJECT_ROLE) if item else None
+        if not isinstance(ga, GroupAddress) or self._project is None:
+            return
+        gas = self._selected_gas()
+        if ga not in gas:
+            gas = [ga]
+        targets = [g for g in gas if getattr(g, field) != value
+                   and field in editable_fields(self._project, g)]
+        if not targets:
+            return
+        if self._bus:
+            label = {"function_name": "Funktion", "datapoint_type": "DPT",
+                     "description": "Beschreibung"}[field]
+            self._bus.begin_change(
+                f"{label} von {len(targets)} GA setzen" if len(targets) > 1
+                else f"{label} von GA {ga.address} setzen")
+        result = apply_changes(self._project, targets, {field: value})
+        # Baum erst neu aufbauen, wenn der Editor geschlossen ist
+        QTimer.singleShot(0, lambda: self._after_edit(result))
+
+    def _edit_scenes(self, ga: GroupAddress) -> None:
+        """GA in Szenen aufnehmen, mit Wert je Szene (FA-1816)."""
+        dialog = GaSceneDialog(self._project, ga, parent=self)
+        if dialog.exec() != GaSceneDialog.Accepted:
+            return
+        if self._bus:
+            self._bus.begin_change(f"GA {ga.address} in Szenen")
+        from ...services.scene_membership import set_scene_values
+        if set_scene_values(self._project, ga, dialog.values()) and self._bus:
+            self._bus.any_change.emit("scenes")
+
+    def _choose_profile(self, ga: GroupAddress) -> None:
+        """Funktionsumfang des Elements wählen (FA-1003d), z.B. Heizung nur Ein/Aus."""
+        assignment, nr = element_of(self._project, ga)
+        if assignment is None:
+            return
+        keys = list(PROFILE_LABELS)
+        current = assignment.element_profiles.get(nr, "")
+        name = ga.designation.split(" ", 1)[0]
+        label, ok = QInputDialog.getItem(
+            self, "Funktionsumfang",
+            f"Element {name}:\n\nDie Adressen bleiben. Nicht benötigte Funktionen werden "
+            f"Reserve. Bei Schalten bekommt das Element einen Schaltaktor-Kanal.",
+            [PROFILE_LABELS[k] for k in keys], keys.index(current), False)
+        if not ok:
+            return
+        profile = keys[[PROFILE_LABELS[k] for k in keys].index(label)]
+        if profile == current:
+            return
+        if self._bus:
+            self._bus.begin_change(f"Funktionsumfang {name}: {label}")
+        if set_element_profile(self._project, ga, profile):
+            self._after_edit()
+
+    def _reset_to_plan(self, gas: list[GroupAddress]) -> None:
+        if self._bus:
+            self._bus.begin_change(f"{len(gas)} GA auf Planung zurücksetzen")
+        if reset_to_plan(self._project, gas):
+            self._after_edit()
+
+    def _after_edit(self, result=None) -> None:
+        if self._project is not None:
+            self._structure = self._project.group_addresses
+        self._refresh_tree()
+        self.ga_modified.emit()
+        if result is not None and result.skipped:
+            QMessageBox.information(
+                self, "GA bearbeiten",
+                f"{len(result.skipped)} GA nicht geändert:\n\n" + "\n".join(
+                    f"{address}: {reason}" for address, reason in result.skipped[:10]))
 
     def _on_category_changed(self, category: str):
         self._active_category = category
@@ -427,9 +622,9 @@ class AddressTreeView(QWidget):
             if item.childCount() == 0:
                 # Blatt-Element (GA): Text- und Kategorie-Prüfung kombinieren
                 text_ok = (not search) or any(
-                    search in item.text(col).lower() for col in range(6)
+                    search in item.text(col).lower() for col in range(_COLUMNS)
                 )
-                cat_ok = (allowed_codes is None) or (item.text(4) in allowed_codes)
+                cat_ok = (allowed_codes is None) or (item.text(COL_GEWERK) in allowed_codes)
                 item.setHidden(not (text_ok and cat_ok))
             else:
                 # HG / MG: sichtbar wenn mindestens ein Kind sichtbar ist

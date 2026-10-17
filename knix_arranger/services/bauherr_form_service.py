@@ -105,6 +105,8 @@ _GEWERK_BTN_LABEL: dict[tuple[str, bool], str] = {
     ("TE",  False): "Türe öffnen",
     ("P",   True):  "Pumpe Ein/Aus",
     ("P",   False): "Pumpe Ein/Aus",
+    ("SF",  True):  "Ein/Aus",
+    ("SF",  False): "Ein/Aus",
     ("TVL", True):  "TV-Lift Ein",
     ("TVL", False): "TV-Lift Aus",
     ("U",   True):  "Uhr stellen",

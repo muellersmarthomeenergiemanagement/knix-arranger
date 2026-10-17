@@ -86,6 +86,10 @@ GEWERK_PRIMARY_FUNCTIONS: dict[str, list[tuple[str, str, str, str, str]]] = {
 # Rueckmelde-GAs die dem Sensor zusaetzlich zugeordnet werden, damit er den
 # Schaltzustand des Aktorkanals kennt (z.B. LED-Rueckmeldung am Taster).
 # Format: list[(Kanal-Label, GA-Funktionsname, Beschreibung)]
+# Element mit Funktionsumfang Schalten (FA-1003d), z.B. Spiegelheizung als H
+_SWITCH_PRIMARY = [("Taste", "E/A", "Ein/Aus schalten", "kurz", _UMSCHALTEN)]
+_SWITCH_FEEDBACK = [("Status", "RM", "Schaltzustand Rueckmeldung")]
+
 GEWERK_FEEDBACK_FUNCTIONS: dict[str, list[tuple[str, str, str]]] = {
     # Licht
     "L":   [("Status", "RM", "Schaltzustand Rueckmeldung")],
@@ -572,6 +576,16 @@ class SensorService:
             ))
         return fas
 
+    @staticmethod
+    def _is_switched(ga_lookup: dict, sf, src_room_id: str, room, primary_fns) -> bool:
+        """Element ohne die Befehls-GAs seines Gewerks, aber mit E/A."""
+        def has(fn: str) -> bool:
+            return bool(ga_lookup.get((sf.gewerk_code, src_room_id, sf.element_number, fn))
+                        or ga_lookup.get((sf.gewerk_code, room.number, sf.element_number, fn)))
+        if any(fn == "E/A" for _l, fn, *_r in primary_fns):
+            return False
+        return has("E/A") and not any(has(fn) for _l, fn, *_r in primary_fns)
+
     def _expand_funktionen(
         self,
         funktionen: list[SensorFunktion],
@@ -663,6 +677,11 @@ class SensorService:
             global_channel += 1
             primary_fns = GEWERK_PRIMARY_FUNCTIONS.get(sf.gewerk_code, [])
             feedback_fns = GEWERK_FEEDBACK_FUNCTIONS.get(sf.gewerk_code, [])
+            if self._is_switched(ga_lookup, sf, src_room_id, room, primary_fns):
+                # Element nur Ein/Aus (Funktionsumfang Schalten, FA-1003d),
+                # z.B. Spiegelheizung als Gewerk H: die Taste schaltet statt
+                # Sollwert/Betriebsart
+                primary_fns, feedback_fns = _SWITCH_PRIMARY, _SWITCH_FEEDBACK
             word = "Taste"
             if element_type in PRESENCE_SENSOR_TYPES:
                 # Präsenz-/Bewegungsmelder: Kanal statt Taste (in der

@@ -30,6 +30,7 @@
     {"code": "R",   "name": "Rollladen",                                       "ga_count": 10, "block_size": 10, "middle_group": 1, "category": "jalousie",    "interface_type": "actor"},
     {"code": "RK",  "name": "Riegelkontakte",                                  "ga_count": 5,  "block_size": 5,  "middle_group": 3, "category": "alarm",       "interface_type": "actor"},
     {"code": "S",   "name": "Steckdose",                                       "ga_count": 5,  "block_size": 5,  "middle_group": 0, "category": "licht",       "interface_type": "actor"},
+    {"code": "SF",  "name": "Schaltfunktion allgemein (Ein/Aus)",              "ga_count": 5,  "block_size": 5,  "middle_group": 4, "category": "allgemein",   "interface_type": "actor"},
     {"code": "SD",  "name": "Steckdose dimmbar",                               "ga_count": 5,  "block_size": 5,  "middle_group": 0, "category": "licht",       "interface_type": "actor"},
     {"code": "SP",  "name": "Stromspeicher / Batterie",                       "ga_count": 10, "block_size": 10, "middle_group": 6, "category": "energie",     "interface_type": "gateway"},
     {"code": "T",   "name": "Tagesvorhang",                                    "ga_count": 5,  "block_size": 5,  "middle_group": 1, "category": "jalousie",    "interface_type": "actor"},

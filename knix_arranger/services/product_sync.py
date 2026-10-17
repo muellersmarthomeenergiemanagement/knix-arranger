@@ -293,12 +293,15 @@ def communication_objects_of(com_objects: list[dict]) -> list:
     from ..models.topology import CommunicationObject
 
     def flags(co: dict) -> str:
+        # ETS-Schreibweise K L S Ü A I (bis 1.3.1: fünf Stellen mit Schreiben
+        # als "Ü", Übertragen als "S" -- ko_links.parse_flags liest beides)
         return "".join([
             "K" if co.get("communication_flag", True) else "-",
             "L" if co.get("read_flag", False) else "-",
-            "Ü" if co.get("write_flag", False) else "-",
-            "S" if co.get("transmit_flag", False) else "-",
-            "U" if co.get("update_flag", False) else "-",
+            "S" if co.get("write_flag", False) else "-",
+            "Ü" if co.get("transmit_flag", False) else "-",
+            "A" if co.get("update_flag", False) else "-",
+            "-",
         ])
     return [CommunicationObject(
         object_number=co.get("number", 0), name=co.get("name", ""),
@@ -308,14 +311,15 @@ def communication_objects_of(com_objects: list[dict]) -> list:
 
 
 def _co_dict(co) -> dict:
-    """CommunicationObject des Geräts als Katalog-Dict (Flags "KLÜSU")."""
-    flags = co.flags or ""
+    """CommunicationObject des Geräts als Katalog-Dict."""
+    from .ko_links import COMMUNICATE, READ, TRANSMIT, UPDATE, WRITE, parse_flags
+    flags = parse_flags(co.flags)
     return {
         "number": co.object_number, "name": co.name,
         "function_text": co.object_function, "datapoint_type": co.data_type,
-        "communication_flag": "K" in flags, "read_flag": "L" in flags,
-        "write_flag": "Ü" in flags or "W" in flags,
-        "transmit_flag": "S" in flags or "T" in flags, "update_flag": "U" in flags,
+        "communication_flag": COMMUNICATE in flags, "read_flag": READ in flags,
+        "write_flag": WRITE in flags, "transmit_flag": TRANSMIT in flags,
+        "update_flag": UPDATE in flags,
     }
 
 

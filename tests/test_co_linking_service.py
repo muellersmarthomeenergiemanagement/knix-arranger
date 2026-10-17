@@ -323,7 +323,7 @@ class TestRealComObjectPreferred:
         device = project.topology.areas[0].lines[0].devices[0]
         device.communication_objects = [CommunicationObject(
             object_number=0, name="System Ein/Aus",
-            object_function="EIN/AUS", data_type="DPST-1-1", flags="KÜU",
+            object_function="EIN/AUS", data_type="DPST-1-1", flags="K-S-A-",
         )]
 
         proposals = CoLinkingService().generate_proposals(project)
@@ -346,7 +346,7 @@ class TestRealComObjectPreferred:
         device = project.topology.areas[0].lines[0].devices[0]
         device.communication_objects = [CommunicationObject(
             object_number=0, name="Bass anpassen",
-            object_function="BASS", data_type="DPST-6-1", flags="KÜU",
+            object_function="BASS", data_type="DPST-6-1", flags="K-S-A-",
         )]
 
         proposals = CoLinkingService().generate_proposals(project)
@@ -364,7 +364,7 @@ class TestRealComObjectPreferred:
         device = project.topology.areas[0].lines[0].devices[0]
         device.communication_objects = [CommunicationObject(
             object_number=0, name="Statustext",
-            object_function="STATUSTEXT", data_type="DPST-16-1", flags="KLSU",
+            object_function="STATUSTEXT", data_type="DPST-16-1", flags="KL-ÜA-",
         )]
 
         proposals = CoLinkingService().generate_proposals(project)
@@ -380,7 +380,7 @@ class TestRealComObjectPreferred:
         device = project.topology.areas[0].lines[0].devices[0]
         device.communication_objects = [CommunicationObject(
             object_number=0, name="System Ein/Aus",
-            object_function="EIN/AUS", data_type="DPST-1-1", flags="KÜU",
+            object_function="EIN/AUS", data_type="DPST-1-1", flags="K-S-A-",
             connected_gas=["1/0/0"],
         )]
 
@@ -401,7 +401,7 @@ class TestRealComObjectPreferred:
         device = project.topology.areas[0].lines[0].devices[0]
         device.communication_objects = [CommunicationObject(
             object_number=0, name="Zone A Mute",
-            object_function="MUTE ZONE A", data_type="DPST-1-1", flags="KÜU",
+            object_function="MUTE ZONE A", data_type="DPST-1-1", flags="K-S-A-",
         )]
 
         proposals = CoLinkingService().generate_proposals(project)
@@ -676,3 +676,38 @@ class TestSzenenLinking:
         assert p.confidence == "sicher"
         assert _dpt_compatible("DPST-18-1", "DPST-17-1")
         assert not _dpt_compatible("DPST-18-1", "DPST-5-1")
+
+
+class TestUebernehmenUndErneutVorschlagen:
+    """Übernommene Verknüpfungen an Produkt-KOs (Name ≠ Funktion, z.B.
+    «GO0002») gelten danach als bereits verknüpft -- vorher standen sie
+    weiter als neu da und «Verknüpfungen übernehmen» trug 0 ein (Projekt_23)."""
+
+    def _project(self):
+        from knix_arranger.services.actor_channels import circuit_key
+        room = Room(number="E01", name="Wohnen")
+        gas = [_ga(room, "L", 1, "E/A", 0), _ga(room, "L", 1, "RM", 1)]
+        project = _make_project([room], "Schaltaktor 4-fach", gas)
+        actor = project.topology.areas[0].lines[0].devices[0]
+        actor.communication_objects = [
+            CommunicationObject(object_number=2, name="GO0002", object_function="Kanal A",
+                                flags="K-S---", data_type="DPST-1-1"),
+            CommunicationObject(object_number=3, name="GO0003", object_function="Kanal A",
+                                flags="KL-Ü--", data_type="DPST-1-1"),
+            # gleiche Nummer ein zweites Mal (Variante in den Produktdaten)
+            CommunicationObject(object_number=2, name="GO0002", object_function="Kanal A",
+                                flags="K-S---", data_type="DPST-1-1"),
+        ]
+        actor.co_map = {circuit_key(room.id, "L", 1): {"E/A": 2, "RM": 3}}
+        return project
+
+    def test_apply_then_all_linked(self):
+        project = self._project()
+        svc = CoLinkingService()
+        proposals = svc.generate_proposals(project)
+        new = [p for p in proposals if not p.already_linked]
+        assert {p.ga_address for p in new} == {"1/0/0", "1/0/1"}
+        assert svc.apply_proposals(project, proposals) == 2
+        again = svc.generate_proposals(project)
+        assert again and all(p.already_linked for p in again)
+        assert svc.apply_proposals(project, again) == 0

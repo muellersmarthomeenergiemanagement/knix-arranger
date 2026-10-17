@@ -186,15 +186,16 @@ class TopologyEngine:
             type_channels: dict[str, int] = {}
             gateway_devices: int = 0
             for ga in room.gewerk_assignments:
-                actor_type = GEWERK_TO_ACTOR_TYPE.get(ga.gewerk_code)
-                if not actor_type:
-                    continue
-                if actor_type in GATEWAY_ACTOR_TYPES:
-                    gateway_devices += 1  # 1 Gateway-Device pro Gateway-Gewerk-Zuweisung
-                else:
-                    type_channels[actor_type] = (
-                        type_channels.get(actor_type, 0) + ga.count
-                    )
+                for code, channels in ga.actor_codes().items():   # FA-1003d
+                    actor_type = GEWERK_TO_ACTOR_TYPE.get(code)
+                    if not actor_type:
+                        continue
+                    if actor_type in GATEWAY_ACTOR_TYPES:
+                        gateway_devices += 1  # 1 Gateway-Device pro Gateway-Gewerk-Zuweisung
+                    else:
+                        type_channels[actor_type] = (
+                            type_channels.get(actor_type, 0) + channels
+                        )
             actor_devices = sum(math.ceil(ch / 4) for ch in type_channels.values()) + gateway_devices
             room.planned_actors = max(actor_devices, 1)
 

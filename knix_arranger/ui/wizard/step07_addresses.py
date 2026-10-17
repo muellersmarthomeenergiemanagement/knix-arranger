@@ -332,7 +332,7 @@ class Step07Addresses(QWidget):
         ga = self._selected_ga()
         if not ga:
             return
-        dlg = GaEditDialog(ga, self)
+        dlg = GaEditDialog(ga, self, project=self._project)
         if dlg.exec():
             self._display_preview(self._project.group_addresses)
 
@@ -512,7 +512,7 @@ class Step07Addresses(QWidget):
     def _on_double_click(self, item, _column):
         ga = item.data(0, Qt.UserRole)
         if isinstance(ga, GroupAddress):
-            dlg = GaEditDialog(ga, self)
+            dlg = GaEditDialog(ga, self, project=self._project)
             if dlg.exec():
                 self._display_preview(self._project.group_addresses)
 
@@ -544,6 +544,10 @@ class Step07Addresses(QWidget):
                         ga.gewerk_code,
                     ])
                     ga_item.setData(0, Qt.UserRole, ga)
+                    if ga.plan_function:
+                        # in der Baumansicht nachbearbeitet (FA-1003b)
+                        ga_item.setText(1, f"✎ {ga_item.text(1)}")
+                        ga_item.setToolTip(1, f"Nachbearbeitet – geplant war {ga.plan_function}")
                     if ga.is_manual:
                         for col in range(self._tree.columnCount()):
                             ga_item.setForeground(col, manual_brush)

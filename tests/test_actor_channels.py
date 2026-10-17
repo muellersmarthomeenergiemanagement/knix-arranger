@@ -29,8 +29,8 @@ from knix_arranger.services.topology_engine import TopologyEngine
 def _kos(channels="ABCD"):
     cos, n = [], 0
     for ch in channels:
-        for function, flags in (("Schalten", "KÜ"), ("Status Schalten", "KLS"),
-                                ("Sperren", "KÜ")):
+        for function, flags in (("Schalten", "K-S---"), ("Status Schalten", "KL-Ü--"),
+                                ("Sperren", "K-S---")):
             cos.append(CommunicationObject(object_number=n, name=f"Kanal {ch}",
                                            object_function=function, flags=flags,
                                            data_type="DPST-1-1"))
@@ -359,12 +359,12 @@ def test_program_names_are_split_for_matching():
 def test_dpt_fallback_without_function_text():
     """Hager: alle KOs eines Kanals heissen "Output 1" -- nur der DPT hilft."""
     from knix_arranger.services.actor_channels import Circuit, suggested_co_map
-    device = _device([(1, "Output 1", "Output 1", "DPST-1-8", "KÜ"),
-                      (2, "Output 1", "Output 1", "DPST-1-7", "KÜ"),
-                      (3, "Output 1", "Output 1", "DPST-5-1", "KÜ"),
-                      (4, "Output 1", "Output 1", "DPST-5-1", "KÜ"),
-                      (5, "Output 1", "Output 1", "DPST-5-1", "KLS"),
-                      (6, "Output 2", "Output 2", "DPST-1-8", "KÜ")])
+    device = _device([(1, "Output 1", "Output 1", "DPST-1-8", "K-S---"),
+                      (2, "Output 1", "Output 1", "DPST-1-7", "K-S---"),
+                      (3, "Output 1", "Output 1", "DPST-5-1", "K-S---"),
+                      (4, "Output 1", "Output 1", "DPST-5-1", "K-S---"),
+                      (5, "Output 1", "Output 1", "DPST-5-1", "KL-Ü--"),
+                      (6, "Output 2", "Output 2", "DPST-1-8", "K-S---")])
     channel = device_channels(device)[0]
     circuit = Circuit(key="x", room_number="", room_name="", gewerk_code="J",
                       element_number=1, channel=1,

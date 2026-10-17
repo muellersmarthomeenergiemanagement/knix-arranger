@@ -11,6 +11,13 @@ from ..utils.validators import (
     is_valid_ga, is_valid_designation, designation_room_number,
 )
 from .dpt_suggestion import suggest_dpt
+from . import ga_functions
+
+
+def _dpt_main(dpt: str) -> str:
+    """Haupttyp eines DPT: "DPST-5-1" und "DPT-5" -> "5"."""
+    parts = (dpt or "").upper().replace("DPST-", "DPT-").split("-")
+    return parts[1] if len(parts) > 1 else ""
 
 logger = logging.getLogger("knix_arranger.validation")
 
@@ -86,6 +93,8 @@ class ValidationEngine:
             issues.extend(self._check_references(project))
             issues.extend(self._check_structure(project))
             issues.extend(self._check_product_kinds(project))
+            issues.extend(self._check_ko_flags(project))
+            issues.extend(self._check_product_capabilities(project))
             # FA-609, FA-611 bis FA-613: Topologie
             from .topology_validation import check_topology
             issues.extend(check_topology(project))
@@ -164,6 +173,98 @@ class ValidationEngine:
             self._REFERENCE_HINTS.get(issue.kind, "Verweis prüfen und neu zuordnen"),
             details={"kind": issue.kind})
             for issue in check_integrity(project)]
+
+    def _check_ko_flags(self, project) -> list[ValidationIssue]:
+        """FA-627: mehrere KOs mit L-Flag an einer GA; FA-628: Befehls-GA mit
+        verknüpften KOs, aber keinem Empfänger (S-Flag). Nur GAs, deren KOs
+        bekannt sind (ETS-Import oder Zuordnung in KNiX, services/ko_links)."""
+        from .ko_links import READ, WRITE, links_by_ga
+        by_ga = links_by_ga(project)
+        if not by_ga:
+            return []
+        gas = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+        imported = project.topology.is_imported
+        unresolved: set[str] | None = set() if imported else None   # erst bei Bedarf
+        issues = []
+        for address, links in sorted(by_ga.items()):
+            known = [link for link in links if link.flags]
+            if not known:
+                continue
+            ga = gas.get(address)
+            designation = ga.designation if ga else ""
+            readers = list({(l.device.physical_address, l.co.object_number): l
+                            for l in known if READ in l.flags}.values())
+            if len(readers) > 1:
+                issues.append(ValidationIssue(
+                    "info" if imported else "warning", "FA-627",
+                    f"{len(readers)} KOs beantworten Leseanfragen (L-Flag): "
+                    + ", ".join(l.label for l in readers),
+                    address,
+                    "L-Flag nur am KO lassen, das den Wert liefert",
+                    designation=designation,
+                    details={"devices": [l.device.physical_address for l in readers]}))
+            if (ga is not None and ga_functions.role_of(ga.function_name) == ga_functions.COMMAND
+                    and not any(WRITE in l.flags for l in known)):
+                if unresolved is None:
+                    unresolved = self._actors_without_kos(project)
+                if address in unresolved:
+                    continue
+                issues.append(ValidationIssue(
+                    "info", "FA-628",
+                    f"Befehl {ga.function_name}: kein verknüpftes KO empfängt ihn (S-Flag), "
+                    f"nur " + ", ".join(l.label for l in known),
+                    address,
+                    "Empfänger verknüpfen oder beim empfangenden KO das S-Flag setzen",
+                    designation=designation))
+        return issues
+
+    @staticmethod
+    def _check_product_capabilities(project) -> list[ValidationIssue]:
+        """FA-629: mehr Tasten geplant als das Produkt hat; FA-630: Temperatur-
+        fühler im Taster, den die Heizung des Raums nicht nutzt."""
+        from .product_capabilities import plan_conflicts
+        shortages, offers = plan_conflicts(project)
+        issues = []
+        for s in shortages:
+            name = s.device.product_name or s.device.product
+            issues.append(ValidationIssue(
+                "warning", "FA-629",
+                f"{s.device.physical_address} ({s.room.number} {s.room.name}): {s.planned} "
+                f"Tasten geplant, {name} hat {s.available}",
+                s.device.physical_address,
+                "In der Bauherrenberatung Funktionen auf einen anderen Taster legen "
+                "oder ein Produkt mit mehr Tasten wählen",
+                details={"room_id": s.room.id}))
+        for o in offers:
+            thermostats = ", ".join(be.participant_number or "Raumthermostat"
+                                    for be in o.thermostats)
+            text = (f"{o.device.physical_address} ({o.room.number} {o.room.name}) misst die "
+                    f"Raumtemperatur (KO {o.co.object_number}); die Heizung "
+                    f"{o.assignment.element_label(o.element_number) or o.element_number} "
+                    f"nutzt ihn nicht")
+            if thermostats:
+                text += f", zusätzlich geplant: Raumthermostat {thermostats}"
+            issues.append(ValidationIssue(
+                "info", "FA-630", text, o.device.physical_address,
+                "In der Topologie am Taster «Raumtemperatur über dieses Gerät erfassen…»",
+                details={"room_id": o.room.id}))
+        return issues
+
+    @staticmethod
+    def _actors_without_kos(project) -> set[str]:
+        """GAs geplanter Projekte, an denen ein Aktor laut Belegungsplan hängt,
+        dessen KOs noch nicht zugeordnet sind -- dort ist «kein Empfänger»
+        noch nicht entscheidbar."""
+        from .belegungsplan_service import BelegungsplanService
+        devices = {d.physical_address: d for area in project.topology.areas
+                   for line in area.lines for d in line.devices}
+        result = set()
+        for row in BelegungsplanService().generate(project).actor_rows:
+            device = devices.get(row.physical_address)
+            if device is not None and not device.co_map and not any(
+                    co.connected_gas for co in device.communication_objects):
+                result.add(row.ga_address)
+        return result
 
     def _check_product_kinds(self, project) -> list[ValidationIssue]:
         """FA-626: Produkt passt nicht zur Art des Melders, z.B. ein
@@ -357,15 +458,23 @@ class ValidationEngine:
         from .operation_check import unoperated_elements
         catalog = self.catalog or project.gewerk_catalog
         issues = []
+        from .operation_check import switched_elements
+        switched = switched_elements(project)
         for u in unoperated_elements(project):
             gewerk = catalog.get(u.gewerk_code) if catalog else None
             name = gewerk.name if gewerk else u.gewerk_code
+            if u.gewerk_code == "SF" or (u.room_id, u.gewerk_code, u.element_number) in switched:
+                # ohne Taste geplant: über Szene oder Zeitprogramm
+                message = (f"{name} {u.ga.designation} wird von keiner Taste, "
+                           f"keiner Szene und keinem Zeitprogramm geschaltet")
+                suggestion = ("In eine Szene (z.B. Anwesenheit) oder ein Zeitprogramm "
+                              "aufnehmen, oder einer Taste zuweisen")
+            else:
+                message = f"{name} {u.ga.designation} wird von keiner Taste bedient"
+                suggestion = ("In der Bauherrenberatung einer Taste zuweisen, auch einer Taste "
+                              "in einem anderen Raum, oder so belassen, wenn es anders bedient wird")
             issues.append(ValidationIssue(
-                "info", "FA-619",
-                f"{name} {u.ga.designation} wird von keiner Taste bedient",
-                u.ga.address,
-                "In der Bauherrenberatung einer Taste zuweisen, auch einer Taste "
-                "in einem anderen Raum, oder so belassen, wenn es anders bedient wird",
+                "info", "FA-619", message, u.ga.address, suggestion,
                 designation=u.ga.designation,
                 details={"gewerk": name},
             ))
@@ -536,9 +645,15 @@ class ValidationEngine:
                     designation=ga.designation,
                     details={"dpt": proposal},
                 ))
-            elif ga.function_name in expected_dpts:
-                expected = expected_dpts[ga.function_name]
-                if ga.datapoint_type != expected:
+            else:
+                expected = expected_dpts.get(ga.function_name)
+                if expected is not None:
+                    wrong = ga.datapoint_type != expected
+                else:
+                    # übrige Funktionen der Liste (FA-1003c): nur der Haupttyp
+                    expected = ga_functions.suggested_dpt(ga.function_name)
+                    wrong = bool(expected) and _dpt_main(ga.datapoint_type) != _dpt_main(expected)
+                if wrong:
                     issues.append(ValidationIssue(
                         "warning", "FA-603",
                         f"Unerwarteter DPT für {ga.function_name}: "
@@ -708,8 +823,9 @@ class ValidationEngine:
             }
             for ga in commands.values():
                 if self._is_feedback_function(ga):
+                    # in der Baumansicht bewusst umgewidmet: nur ein Hinweis
                     issues.append(ValidationIssue(
-                        "warning", "FA-608",
+                        "info" if ga.plan_function else "warning", "FA-608",
                         f"Rückmeldung in MG {cmd_num} statt MG {fb_num}",
                         ga.address,
                         f"Adressen neu erzeugen (Variante B: Rückmeldungen in MG {fb_num})",

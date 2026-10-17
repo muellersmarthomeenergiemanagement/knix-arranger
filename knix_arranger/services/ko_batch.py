@@ -77,18 +77,21 @@ def plan_all(project) -> BatchPlan:
     )
     from .ko_templates import actor_proposal, apply_sensor_template, load_template
     from .sensor_channels import (
-        SENSOR_CO_KEY, sensor_co_map, sensor_links, sensor_plan, suggested_sensor_co_map,
+        SENSOR_CO_KEY, has_sensor_selection, sensor_links, sensor_plan,
+        suggested_sensor_co_map,
     )
 
+    from .belegungsplan_service import BelegungsplanService
     batch = BatchPlan()
     sensor_rows = None
+    actor_plan = None
     for device in _devices(project):
         all_cos = device_com_objects(device)
         known = {co.object_number for co in all_cos}
         by_number = {co.object_number: co for co in all_cos}
         template = load_template(device)
         if device.device_type == "sensor":
-            if sensor_co_map(device):
+            if has_sensor_selection(device):
                 batch.kept.append(device)
                 continue
             if sensor_rows is None:
@@ -111,7 +114,9 @@ def plan_all(project) -> BatchPlan:
         if device.co_map:
             batch.kept.append(device)
             continue
-        circuits = device_circuits(project, device)
+        if actor_plan is None:
+            actor_plan = BelegungsplanService().generate(project)
+        circuits = device_circuits(project, device, actor_plan)
         if not circuits:
             continue
         channels = {ch.number: ch

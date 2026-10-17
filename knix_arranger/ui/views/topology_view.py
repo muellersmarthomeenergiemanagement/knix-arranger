@@ -34,6 +34,33 @@ from ..column_utils import fit_columns
 from ..styles import COLOR_WARNING
 from ..widgets.column_filter import TreeColumnFilter
 from ..widgets.drag_drop import DragDropTree
+from ..tree_select import select_tree_item
+from ...services.ko_links import flags_text, ko_links
+from ...services.product_capabilities import (
+    apply_catalog_product, copy_device_product, device_capabilities, plan_conflicts,
+    split_surplus, use_taster_temperature,
+)
+
+_FLAG_LEGEND = ("K Kommunikation · L Lesen (beantwortet Leseanfragen) · S Schreiben "
+                "(empfängt) · Ü Übertragen (sendet) · A Aktualisieren · I Lesen bei Init")
+
+
+def _set_flags(item: QTreeWidgetItem, column: int, dpt: str, links: list) -> None:
+    """Flags der KOs an dieser GA in die Spalte, Erklärung im Tooltip (FA-627)."""
+    texts = list(dict.fromkeys(flags_text(l.co.flags) for l in links if flags_text(l.co.flags)))
+    if not texts:
+        return
+    proposed = all(l.proposed for l in links)
+    label = ("Flags (Vorschlag) " if proposed else "Flags ") + " | ".join(texts)
+    item.setText(column, "  ·  ".join(p for p in (dpt, label) if p))
+    lines = [f"KO {l.co.object_number} «{l.co.name or l.co.object_function}»: "
+             f"{flags_text(l.co.flags) or '–'}"
+             f"{'' if l.sending else '  (hört nur mit, sendet auf eine andere GA)'}"
+             for l in links]
+    if proposed:
+        lines.append("Vorschlag: KOs dieses Geräts sind noch nicht zugeordnet "
+                     "(Materialliste › «KOs aller Geräte zuordnen»).")
+    item.setToolTip(column, "\n".join(lines + ["", _FLAG_LEGEND]))
 
 # Farben für Infrastruktur-Knoten
 _COLOR_COUPLER     = QColor("#1565C0")  # Dunkelblau: Koppler
@@ -58,6 +85,8 @@ class TopologyView(QWidget):
     """Topologie-Prinzipschema als Baumansicht – editierbar."""
 
     topology_changed = Signal()   # nach jeder manuellen Änderung
+    # Raum in der Bauherrenberatung öffnen (Tasten verteilen, FA-1411c)
+    bauherr_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -66,6 +95,7 @@ class TopologyView(QWidget):
         self._knx_secure = None  # KnxSecureConfig, siehe set_knx_secure() (FA-2704)
         self._ga_structure = None  # GroupAddressStructure, siehe set_group_addresses()
         self._belegungsplan = None  # BelegungsplanData, siehe set_project() -- Kanalanzeige Aktoren
+        self._ko_links: dict[tuple[str, str], list] = {}   # (Gerät, GA) -> KoLink, Flags
         self._areal = None  # Areal, siehe set_project() -- Funktionsanzeige Sensoren/Taster
         self._project = None  # KnxProject, siehe set_project() -- GA von KO trennen
 
@@ -151,6 +181,33 @@ class TopologyView(QWidget):
         if self._topology is not None:
             self._refresh()
 
+    def select_device(self, physical_address: str) -> bool:
+        """Gerät anwählen (Sprung aus der Validierung, FA-615a)."""
+        def match(item):
+            d = item.data(0, _ROLE_DATA)
+            return (isinstance(d, tuple) and len(d) == 4 and d[0] == "device"
+                    and d[3] is not None and d[3].physical_address == physical_address)
+        return select_tree_item(self._tree, match) is not None
+
+    def select_line(self, key: str) -> bool:
+        """Linie "Bereich.Linie" anwählen; "B.0" = Hauptlinie (Bereich),
+        "0.0" = Bereichslinie (FA-615a)."""
+        area_nr, _sep, line_nr = key.partition(".")
+
+        def match(item):
+            d = item.data(0, _ROLE_DATA)
+            if not isinstance(d, tuple) or len(d) < 2:
+                return False
+            if d[0] == "line" and len(d) == 3:
+                return f"{d[1].area_number}.{d[2].line_number}" == key
+            return d[0] == "area" and line_nr == "0" and str(d[1].area_number) == area_nr
+        if select_tree_item(self._tree, match) is not None:
+            return True
+        if key == "0.0" and self._tree.topLevelItemCount():
+            return select_tree_item(
+                self._tree, lambda i: i is self._tree.topLevelItem(0)) is not None
+        return False
+
     def set_project(self, project) -> None:
         """Verbindet die View mit dem vollständigen Projekt (FA-1007 Kanal-Anzeige).
 
@@ -166,6 +223,11 @@ class TopologyView(QWidget):
         self._knx_secure = project.knx_secure
         self._ga_structure = project.group_addresses
         self._belegungsplan = BelegungsplanService().generate(project)
+        # KO-Flags je (Gerät, GA) für die Kanalzeilen
+        self._ko_links = {}
+        for link in ko_links(project, proposals=True):
+            self._ko_links.setdefault(
+                (link.device.physical_address, link.ga_address), []).append(link)
         self._areal = project.areal
         self._update_legend()
         self._refresh()
@@ -426,6 +488,11 @@ class TopologyView(QWidget):
                         status,
                     ])
                     dev_item.setData(0, _ROLE_DATA, ("device", area, line, device))
+                    # Fähigkeiten des Produkts (FA-1411)
+                    if device.communication_objects:
+                        caps = device_capabilities(device).summary
+                        if caps:
+                            dev_item.setToolTip(0, f"Produkt kann: {caps}")
 
                     # FA-2704: Secure-inkompatible Geräte rot markieren (nur
                     # wenn KNX Secure aktiv ist und die Kompatibilität bereits
@@ -482,8 +549,7 @@ class TopologyView(QWidget):
                 return
         self._add_channel_items_from_cos(dev_item, device, ga_by_address)
 
-    @staticmethod
-    def _add_channel_items_from_rows(dev_item: QTreeWidgetItem, rows: list) -> None:
+    def _add_channel_items_from_rows(self, dev_item: QTreeWidgetItem, rows: list) -> None:
         """Kanalknoten aus BelegungsplanService.actor_rows -- inkl. Gewerk-Kontext,
         damit auch bei mehreren Gewerken auf demselben Kanal klar ist, welche
         GA wozu gehört (z.B. Jalousieaktor mit Auf/Ab UND Sperren desselben
@@ -513,16 +579,17 @@ class TopologyView(QWidget):
                     if r.co_function and r.co_function != r.function_name
                     else ""
                 )
-                QTreeWidgetItem(ch_item, [
+                row_item = QTreeWidgetItem(ch_item, [
                     f"{gewerk_prefix}{r.function_name}{role_suffix}: {r.ga_designation}",
                     r.ga_address,
                     "",
                     "",
                     r.dpt,
                 ])
+                _set_flags(row_item, 4, r.dpt, self._ko_links.get(
+                    (r.physical_address, r.ga_address), []))
 
-    @staticmethod
-    def _add_channel_items_from_cos(dev_item: QTreeWidgetItem, device: Device,
+    def _add_channel_items_from_cos(self, dev_item: QTreeWidgetItem, device: Device,
                                      ga_by_address: dict) -> None:
         """Kanalknoten direkt aus Device.communication_objects (ETS6-Import-
         Fallback ohne Belegungsplan). Gruppierung per group_cos_for_display --
@@ -568,6 +635,31 @@ class TopologyView(QWidget):
                     ])
                     ko_item.setData(0, _ROLE_DATA,
                                     ("ko_ga", device, co.object_number, ga_addr))
+                    _set_flags(ko_item, 4, ga_obj.datapoint_type if ga_obj else "", [
+                        l for l in self._ko_links.get(
+                            (device.physical_address, ga_addr), []) if l.co is co])
+
+    def _add_temperature_items(self, dev_item: QTreeWidgetItem, device: Device) -> None:
+        """Kanal «Raumtemperatur» unter einem Taster, der die Ist-Temperatur
+        der Heizung seines Raums liefert (FA-1411b)."""
+        if self._project is None:
+            return
+        from ...services.product_capabilities import temperature_gas_of
+        found = temperature_gas_of(self._project, device)
+        if not found:
+            return
+        ch_item = QTreeWidgetItem(dev_item, ["Raumtemperatur", "", "", "", f"{len(found)} GA(s)"])
+        ch_item.setForeground(0, QColor("#616161"))
+        for ga, co in found:
+            ko = f" (KO {co.object_number} «{co.name or co.object_function}»)" if co else ""
+            item = QTreeWidgetItem(ch_item, [
+                f"Messwert{ko}: {ga.designation}", ga.address, "", "", ga.datapoint_type])
+            item.setToolTip(0, "Der Taster sendet die Raumtemperatur auf die Ist-Temperatur "
+                               "der Heizung (statt eines Raumthermostats).")
+            _set_flags(item, 4, ga.datapoint_type,
+                       self._ko_links.get((device.physical_address, ga.address), []))
+            if co is not None:
+                item.setData(0, _ROLE_DATA, ("ko_ga", device, co.object_number, ga.address))
 
     def _add_sensor_function_items(self, dev_item: QTreeWidgetItem, device: Device) -> None:
         """Fügt Funktions-Kindknoten unter einem Sensor/Taster ein, analog zu
@@ -586,7 +678,10 @@ class TopologyView(QWidget):
              if b.participant_number == device.physical_address and not b.suppressed),
             None,
         )
-        if not be or not be.function_assignments:
+        if not be:
+            return
+        self._add_temperature_items(dev_item, device)
+        if not be.function_assignments:
             return
 
         # Wizard-geplante (Gewerk-basierte) function_assignments speichern in
@@ -627,6 +722,9 @@ class TopologyView(QWidget):
                 if co is not None:
                     fa_item.setData(0, _ROLE_DATA,
                                     ("ko_ga", device, co.object_number, ga_addr))
+                if ga_addr:
+                    _set_flags(fa_item, 4, "", self._ko_links.get(
+                        (device.physical_address, ga_addr), []))
 
     # ── Toolbar-Aktionen ──
 
@@ -697,14 +795,35 @@ class TopologyView(QWidget):
             # Sensor aus der Planung entfernen (über sein Bedienelement);
             # importierte Geräte gibt es in der Anlage
             remove_act = None
+            temp_act = None
+            keys_act = None
+            offers = []
+            shortage = None
             if self._project and not self._project.topology.is_imported:
                 room, be = bedienelement_of_device(self._project, device)
+                shortages, all_offers = plan_conflicts(self._project)
+                offers = [o for o in all_offers if o.device is device]
+                shortage = next((x for x in shortages if x.device is device), None)
+                if shortage or offers:
+                    menu.addSeparator()
+                if shortage:
+                    keys_act = menu.addAction(
+                        f"Tasten anpassen ({shortage.planned} geplant, "
+                        f"{shortage.available} vorhanden)…")
+                if offers:
+                    temp_act = menu.addAction("Raumtemperatur über dieses Gerät erfassen…")
                 if be is not None:
                     menu.addSeparator()
                     remove_act = menu.addAction("Gerät entfernen…")
             action = menu.exec(global_pos)
             if remove_act and action == remove_act:
                 self._remove_sensor(device, room, be)
+                return
+            if temp_act and action == temp_act:
+                self._use_temperature(offers)
+                return
+            if keys_act and action == keys_act:
+                self._resolve_keys(shortage)
                 return
             if action == loc_act:
                 self._edit_device_location(device)
@@ -722,6 +841,101 @@ class TopologyView(QWidget):
             unlink_act = menu.addAction(f"GA {ga_addr} von diesem KO trennen…")
             if menu.exec(global_pos) == unlink_act:
                 self._unlink_ga(device, co_number, ga_addr)
+
+    def resolve_keys(self, physical_address: str) -> bool:
+        """Dialog «Tasten anpassen» für das Gerät (Sprung aus der Validierung)."""
+        if self._project is None:
+            return False
+        shortage = next((x for x in plan_conflicts(self._project)[0]
+                         if x.device.physical_address == physical_address), None)
+        if shortage is None:
+            return False
+        self.select_device(physical_address)
+        self._resolve_keys(shortage)
+        return True
+
+    def _resolve_keys(self, shortage) -> None:
+        """Mehr Tasten geplant als das Produkt hat: verteilen, aufteilen oder
+        anderes Produkt (FA-1411c)."""
+        from ..dialogs.key_shortage_dialog import BAUHERR, PRODUCT, SPLIT, KeyShortageDialog
+        from ...services.product_sync import shared_catalog
+        dialog = KeyShortageDialog(shortage, shared_catalog(), parent=self)
+        if dialog.exec() != KeyShortageDialog.Accepted:
+            return
+        device = shortage.device
+        if dialog.choice == BAUHERR:
+            self.bauherr_requested.emit(shortage.room.id)
+            return
+        if self._bus:
+            self._bus.begin_change(
+                f"{device.physical_address}: Tasten aufgeteilt" if dialog.choice == SPLIT
+                else f"{device.physical_address}: Produkt {dialog.selected_product.product_name}")
+        if dialog.choice == PRODUCT:
+            apply_catalog_product(device, dialog.selected_product, shortage.bedienelement)
+            if self._bus:
+                self._bus.emit_material_changed()
+            self.set_project(self._project)
+            return
+        new_be = split_surplus(self._project, shortage)
+        if new_be is None:
+            return
+        if self._bus:
+            # Geräte neu ableiten; danach hat der zweite Taster sein Gerät
+            self._bus.emit_building_changed()
+        new_device = next((d for area in self._project.topology.areas for line in area.lines
+                           for d in line.devices
+                           if new_be.participant_number
+                           and d.physical_address == new_be.participant_number), None)
+        if new_device is not None and not new_device.order_number:
+            copy_device_product(device, new_device)
+            if self._bus:
+                self._bus.emit_material_changed()
+        self.set_project(self._project)
+        if new_device is not None:
+            self.select_device(new_device.physical_address)
+
+    def _use_temperature(self, offers: list) -> None:
+        """Raumtemperatur der Heizung über den Taster erfassen (FA-1411b), auf
+        Wunsch ohne den Raumthermostat."""
+        if len(offers) > 1:
+            labels = [f"{o.assignment.gewerk_code} {o.element_number} "
+                      f"{o.assignment.element_label(o.element_number)}".strip() for o in offers]
+            label, ok = QInputDialog.getItem(self, "Raumtemperatur",
+                                             "Für welches Heizungselement?", labels, 0, False)
+            if not ok:
+                return
+            offers = [offers[labels.index(label)]]
+        offer = offers[0]
+        device = offer.device
+        text = (f"{device.physical_address} misst die Raumtemperatur (KO "
+                f"{offer.co.object_number} «{offer.co.name or offer.co.object_function}»). "
+                f"Die Ist-Temperatur der Heizung in {offer.room.number} {offer.room.name} "
+                f"kommt dann von diesem Taster.")
+        remove = False
+        if offer.thermostats:
+            names = ", ".join(be.participant_number or "Raumthermostat" for be in offer.thermostats)
+            box = QMessageBox(QMessageBox.Question, "Raumtemperatur", text
+                              + f"\n\nRaumthermostat {names} wird dann nicht mehr für die "
+                              "Temperatur gebraucht. Entfernen? Seine Bedienung (Sollwert, "
+                              "Betriebsart) entfällt mit.", parent=self)
+            keep_btn = box.addButton("Raumthermostat behalten", QMessageBox.NoRole)
+            remove_btn = box.addButton("Raumthermostat entfernen", QMessageBox.YesRole)
+            box.addButton(QMessageBox.Cancel)
+            box.exec()
+            if box.clickedButton() not in (keep_btn, remove_btn):
+                return
+            remove = box.clickedButton() is remove_btn
+        elif QMessageBox.question(self, "Raumtemperatur", text + "\n\nÜbernehmen?",
+                                  QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        if self._bus:
+            self._bus.begin_change(f"Raumtemperatur über {device.physical_address}")
+        use_taster_temperature(self._project, offer, remove)
+        if self._bus:
+            # Geräte und Verknüpfungen aus den Bedienelementen neu ableiten
+            self._bus.emit_building_changed()
+        else:
+            self.topology_changed.emit()
 
     def _remove_sensor(self, device: Device, room, be) -> None:
         """Sensor entfernen wie in der Bauherrenberatung: ein abgeleitetes

@@ -179,6 +179,12 @@ class CoLinkingService:
                 if not co_specs:
                     continue
             for co_name, co_dpt, co_flags, direction in co_specs:
+                # Bereits verknüpft: am selben KO, das apply_proposals
+                # beschreiben würde (KO-Nummer bzw. Name+DPT) -- der
+                # Funktionsname allein trifft Produkt-KOs nicht («GO0002»),
+                # sonst stünden übernommene Verknüpfungen immer als neu da
+                linked = already or self._ga_on_co(
+                    device, real_co, co_name, co_dpt, row.ga_address)
                 # FA-3004: DPT-Kompatibilitaetspruefung
                 ga_dpt = row.dpt or ""
                 if ga_dpt and not _dpt_compatible(co_dpt, ga_dpt):
@@ -207,8 +213,8 @@ class CoLinkingService:
                     ga_dpt=ga_dpt,
                     room_name=row.room_name,
                     confidence=confidence,
-                    selected=not already,
-                    already_linked=already,
+                    selected=not linked,
+                    already_linked=linked,
                     co_number=real_co.object_number if real_co is not None else -1,
                 ))
 
@@ -432,13 +438,28 @@ class CoLinkingService:
                      if co.object_number == number), None)
 
     def _direction_from_flags(self, flags: str) -> str:
-        """Leitet 'empfangen'/'senden' aus den ETS-Flags eines realen COs ab
-        (Konvention aus knxprod_catalog_service: K,L,Ü=Schreiben,S=Senden,U)."""
-        if "Ü" in flags:
+        """Leitet 'empfangen'/'senden' aus den Flags eines realen COs ab
+        (ETS oder Produktdaten, siehe ko_links.parse_flags)."""
+        from .ko_links import TRANSMIT, WRITE, parse_flags
+        parsed = parse_flags(flags)
+        if WRITE in parsed:
             return "empfangen"
-        if "S" in flags:
+        if TRANSMIT in parsed:
             return "senden"
         return "empfangen"
+
+    @staticmethod
+    def _ga_on_co(device, real_co, co_name: str, co_dpt: str, ga_address: str) -> bool:
+        """Liegt die GA schon an dem KO, das _find_or_create_co wählen würde?"""
+        if device is None:
+            return False
+        if real_co is not None:
+            # Gleiche Nummer kann mehrfach vorkommen (Varianten eines KOs in
+            # den Produktdaten); apply_proposals schreibt in die erste
+            return any(ga_address in co.connected_gas for co in device.communication_objects
+                       if co.object_number == real_co.object_number)
+        return any(ga_address in co.connected_gas for co in device.communication_objects
+                   if co.name == co_name and co.data_type == co_dpt)
 
     def _find_or_create_co(
         self, device, proposal: CoLinkingProposal, co_class

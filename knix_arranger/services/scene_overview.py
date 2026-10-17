@@ -178,9 +178,10 @@ def _sends(device, cos) -> bool:
     Übertragen (knxproj "U", GA-Report "Ü") = sendet, Schreiben ("S") =
     empfängt. Ohne Flags oder mit beiden entscheidet der Gerätetyp – ein
     DALI-Gateway empfängt Szenen, ein Taster oder Visu-Gateway sendet."""
-    flags = "".join(co.flags or "" for co in cos).upper()
-    transmit = any(f in flags for f in ("U", "Ü", "T"))
-    write = any(f in flags for f in ("S", "W"))
+    from .ko_links import TRANSMIT, WRITE, parse_flags
+    flags = set().union(*(parse_flags(co.flags) for co in cos)) if cos else set()
+    transmit = TRANSMIT in flags
+    write = WRITE in flags
     if transmit != write:
         return transmit
     return device.device_type not in ("actor", "gateway")

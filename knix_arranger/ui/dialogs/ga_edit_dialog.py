@@ -1,15 +1,24 @@
 """
-GA-Bearbeitungsdialog (FA-435)
+GA-Bearbeitungsdialog (FA-435, FA-1003b/c)
 Ermöglicht das Bearbeiten einer einzelnen Gruppenadresse.
+
+Mit project: nur, was nach der Herkunft der GA bearbeitbar ist (services/
+ga_edit); Funktion und DPT generierter GAs bleiben als Nachbearbeitung über
+Neuberechnungen erhalten. Ohne project (neue GA in Schritt 10): alle Felder
+direkt ins GA-Objekt.
 """
 from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QComboBox, QGroupBox, QGridLayout, QCheckBox,
+    QLineEdit, QComboBox, QGroupBox, QGridLayout, QCheckBox, QMessageBox,
 )
 from PySide6.QtCore import Qt
 from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 from ...models.group_address import GroupAddress
+from ...services import ga_functions
+from ...services.ga_edit import (
+    FIELDS_FREE, GENERATED, apply_changes, edit_kind, editable_fields, move_ga,
+)
 
 
 # Gaengige DPT-Typen
@@ -27,18 +36,54 @@ DPT_OPTIONS = [
 ]
 
 
+def function_combo(current: str = "") -> QComboBox:
+    """Auswahl der GA-Funktion (Liste aus ga_functions, freie Eingabe möglich)."""
+    combo = QComboBox()
+    combo.setEditable(True)
+    combo.addItem("")
+    for function in ga_functions.all_functions():
+        combo.addItem(function.name)
+        combo.setItemData(combo.count() - 1,
+                          f"{function.group} · {ga_functions.ROLE_LABELS[function.role]}"
+                          f" · {function.dpt}", Qt.ToolTipRole)
+    if current:
+        idx = combo.findText(current)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        else:
+            combo.setEditText(current)
+    return combo
+
+
+def dpt_combo(current: str = "") -> QComboBox:
+    combo = QComboBox()
+    combo.setEditable(True)
+    combo.addItems(DPT_OPTIONS)
+    if current:
+        idx = combo.findText(current)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        else:
+            combo.setEditText(current)
+    return combo
+
+
 class GaEditDialog(QDialog):
     """Dialog zum Bearbeiten einer Gruppenadresse."""
 
-    def __init__(self, ga: GroupAddress, parent=None):
+    def __init__(self, ga: GroupAddress, parent=None, project=None):
         super().__init__(parent)
         self._ga = ga
+        self._project = project
+        self.result_info = None    # ga_edit.EditResult nach dem Speichern
         self.setWindowTitle(f"GA bearbeiten: {ga.address}")
         self.setMinimumSize(500, 500)
+        allowed = editable_fields(project, ga) if project is not None else FIELDS_FREE
+        address_free = project is None or "designation" in allowed
 
         layout = QVBoxLayout(self)
 
-        # Adresse (nur lesen)
+        # Adresse
         addr_group = QGroupBox("Adresse")
         addr_layout = QGridLayout()
 
@@ -63,6 +108,10 @@ class GaEditDialog(QDialog):
         self._ug_spin = QLineEdit(str(ga.sub_group))
         self._ug_spin.setMaxLength(3)
         addr_layout.addWidget(self._ug_spin, 3, 1)
+        for edit in (self._hg_spin, self._mg_spin, self._ug_spin):
+            edit.setEnabled(address_free)
+            if not address_free:
+                edit.setToolTip("Die Adresse kommt aus der Planung – im Baum per Ziehen verschieben")
 
         addr_group.setLayout(addr_layout)
         layout.addWidget(addr_group)
@@ -79,47 +128,66 @@ class GaEditDialog(QDialog):
         self._description = QLineEdit(ga.description)
         prop_layout.addWidget(self._description, 1, 1)
 
-        prop_layout.addWidget(QLabel("Datenpunkttyp:"), 2, 0)
-        self._dpt = QComboBox()
-        self._dpt.setEditable(True)
-        self._dpt.addItems(DPT_OPTIONS)
-        if ga.datapoint_type:
-            idx = self._dpt.findText(ga.datapoint_type)
-            if idx >= 0:
-                self._dpt.setCurrentIndex(idx)
-            else:
-                self._dpt.setEditText(ga.datapoint_type)
-        prop_layout.addWidget(self._dpt, 2, 1)
+        prop_layout.addWidget(QLabel("Funktion:"), 2, 0)
+        self._function = function_combo(ga.function_name)
+        self._function.currentTextChanged.connect(self._on_function_changed)
+        prop_layout.addWidget(self._function, 2, 1)
 
-        prop_layout.addWidget(QLabel("Funktion:"), 3, 0)
-        self._function = QLineEdit(ga.function_name)
-        prop_layout.addWidget(self._function, 3, 1)
+        prop_layout.addWidget(QLabel("Rolle:"), 3, 0)
+        self._role = QLabel()
+        prop_layout.addWidget(self._role, 3, 1)
 
-        prop_layout.addWidget(QLabel("Gewerk-Code:"), 4, 0)
+        prop_layout.addWidget(QLabel("Datenpunkttyp:"), 4, 0)
+        self._dpt = dpt_combo(ga.datapoint_type)
+        prop_layout.addWidget(self._dpt, 4, 1)
+
+        prop_layout.addWidget(QLabel("Gewerk-Code:"), 5, 0)
         self._gewerk = QLineEdit(ga.gewerk_code)
         self._gewerk.setMaxLength(4)
-        prop_layout.addWidget(self._gewerk, 4, 1)
+        prop_layout.addWidget(self._gewerk, 5, 1)
 
-        prop_layout.addWidget(QLabel("Raum-Nummer:"), 5, 0)
+        prop_layout.addWidget(QLabel("Raum-Nummer:"), 6, 0)
         self._room = QLineEdit(ga.room_number)
-        prop_layout.addWidget(self._room, 5, 1)
+        prop_layout.addWidget(self._room, 6, 1)
 
-        prop_layout.addWidget(QLabel("Element-Nummer:"), 6, 0)
+        prop_layout.addWidget(QLabel("Element-Nummer:"), 7, 0)
         self._element = QLineEdit(str(ga.element_number))
         self._element.setMaxLength(3)
-        prop_layout.addWidget(self._element, 6, 1)
+        prop_layout.addWidget(self._element, 7, 1)
 
         # Flags
         self._central = QCheckBox("Zentraladresse")
         self._central.setChecked(ga.central == "true")
-        prop_layout.addWidget(self._central, 7, 0, 1, 2)
+        prop_layout.addWidget(self._central, 8, 0, 1, 2)
 
         self._placeholder = QCheckBox("Reserve/Platzhalter")
         self._placeholder.setChecked(ga.is_placeholder)
-        prop_layout.addWidget(self._placeholder, 8, 0, 1, 2)
+        prop_layout.addWidget(self._placeholder, 9, 0, 1, 2)
+
+        widgets = {
+            "designation": self._designation, "description": self._description,
+            "function_name": self._function, "datapoint_type": self._dpt,
+            "gewerk_code": self._gewerk, "room_number": self._room,
+            "element_number": self._element, "central": self._central,
+            "is_placeholder": self._placeholder,
+        }
+        for name, widget in widgets.items():
+            widget.setEnabled(name in allowed)
+
+        if project is not None and edit_kind(project, ga) == GENERATED:
+            hint = ("Aus der Planung: Funktion und DPT lassen sich nachbearbeiten, "
+                    "sie bleiben bei jeder Neuberechnung erhalten, die Adresse "
+                    "bleibt dieselbe. Die Bezeichnung folgt der Funktion.")
+            if ga.plan_function:
+                hint += f"\nGeplant war: {ga.plan_function}"
+            note = QLabel(hint)
+            note.setWordWrap(True)
+            note.setStyleSheet("color: #666666; font-style: italic;")
+            prop_layout.addWidget(note, 10, 0, 1, 2)
 
         prop_group.setLayout(prop_layout)
         layout.addWidget(prop_group)
+        self._update_role()
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -139,28 +207,64 @@ class GaEditDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
+    def _on_function_changed(self, text: str) -> None:
+        dpt = ga_functions.suggested_dpt(text)
+        if dpt and self._dpt.isEnabled():
+            self._dpt.setEditText(dpt)
+        self._update_role()
+
+    def _update_role(self) -> None:
+        self._role.setText(ga_functions.role_label(self._function.currentText()) or "–")
+
+    def _values(self) -> dict:
+        try:
+            element = int(self._element.text())
+        except ValueError:
+            element = 0
+        return {
+            "designation": self._designation.text(),
+            "description": self._description.text(),
+            "datapoint_type": self._dpt.currentText(),
+            "function_name": self._function.currentText().strip(),
+            "gewerk_code": self._gewerk.text(),
+            "room_number": self._room.text(),
+            "element_number": element,
+            "central": "true" if self._central.isChecked() else "",
+            "is_placeholder": self._placeholder.isChecked(),
+        }
+
+    def _address(self) -> tuple[int, int, int] | None:
+        try:
+            return (int(self._hg_spin.text()), int(self._mg_spin.text()),
+                    int(self._ug_spin.text()))
+        except ValueError:
+            return None
+
     def _save(self):
         """Speichert die Änderungen in das GA-Objekt."""
-        try:
-            self._ga.main_group = int(self._hg_spin.text())
-            self._ga.middle_group = int(self._mg_spin.text())
-            self._ga.sub_group = int(self._ug_spin.text())
-        except ValueError:
-            pass
+        values = self._values()
+        address = self._address()
+        if self._project is None:
+            if address is not None:
+                self._ga.main_group, self._ga.middle_group, self._ga.sub_group = address
+            for name, value in values.items():
+                setattr(self._ga, name, value)
+            self.accept()
+            return
 
-        self._ga.designation = self._designation.text()
-        self._ga.description = self._description.text()
-        self._ga.datapoint_type = self._dpt.currentText()
-        self._ga.function_name = self._function.text()
-        self._ga.gewerk_code = self._gewerk.text()
-        self._ga.room_number = self._room.text()
-
-        try:
-            self._ga.element_number = int(self._element.text())
-        except ValueError:
-            self._ga.element_number = 0
-
-        self._ga.central = "true" if self._central.isChecked() else ""
-        self._ga.is_placeholder = self._placeholder.isChecked()
-
+        if address is None:
+            QMessageBox.warning(self, "GA bearbeiten", "Die Adresse ist keine Zahl.")
+            return
+        error = move_ga(self._project, self._ga, *address)
+        if error:
+            QMessageBox.warning(self, "GA bearbeiten", error)
+            return
+        changes = {name: value for name, value in values.items()
+                   if value != getattr(self._ga, name)}
+        # DPT nur übernehmen, wenn er nicht bloss dem Funktionsvorschlag folgt
+        if ("datapoint_type" in changes and "function_name" in changes
+                and changes["datapoint_type"] == ga_functions.suggested_dpt(
+                    changes["function_name"])):
+            del changes["datapoint_type"]
+        self.result_info = apply_changes(self._project, [self._ga], changes)
         self.accept()

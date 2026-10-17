@@ -19,6 +19,7 @@ from dataclasses import dataclass
 OPERABLE_GEWERKE = frozenset({
     "L", "LD", "LDA", "LC", "LCT", "LCW", "DMX",   # Licht
     "S", "SD",                                    # Steckdosen
+    "SF",                                         # Schaltfunktion allgemein
     "J", "R", "M", "T",                           # Beschattung, Vorhang
 })
 
@@ -38,15 +39,25 @@ def _element(ga) -> tuple[str, str, int]:
     return ga.room_id, ga.gewerk_code, ga.element_number
 
 
+def switched_elements(project) -> set[tuple[str, str, int]]:
+    """(Raum, Gewerk, Element) mit Funktionsumfang Schalten (FA-1003d)."""
+    return {(room.id, a.gewerk_code, nr)
+            for room in project.all_rooms for a in room.gewerk_assignments
+            for nr in a.element_profiles if a.actor_code(nr) != a.gewerk_code}
+
+
 def unoperated_elements(project) -> list[UnoperatedElement]:
     """Schaltbare Elemente ohne Bedienung; nur für mit KNiX geplante Projekte
     (importierten fehlt oft die Angabe, wer bedient)."""
     if project.topology.is_imported:
         return []
     all_gas = project.group_addresses.all_addresses()
+    # Elemente mit Funktionsumfang Schalten (FA-1003d), z.B. Rohrbegleitheizung
+    switched = switched_elements(project)
     elements: dict[tuple, list] = {}
     for ga in all_gas:
-        if ga.gewerk_code in OPERABLE_GEWERKE and ga.room_id and not ga.is_placeholder:
+        if ga.room_id and not ga.is_placeholder and (
+                ga.gewerk_code in OPERABLE_GEWERKE or _element(ga) in switched):
             elements.setdefault(_element(ga), []).append(ga)
     if not elements:
         return []

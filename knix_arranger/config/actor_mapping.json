@@ -16,6 +16,7 @@
     "BW": {"actor_type": "Schaltaktor", "description": "Bewaesserung"},
     "BL": {"actor_type": "Schaltaktor", "description": "Beamer-Lift"},
     "P": {"actor_type": "Schaltaktor", "description": "Pumpe"},
+    "SF": {"actor_type": "Schaltaktor", "description": "Schaltfunktion allgemein, z.B. Rohrbegleitheizung"},
     "LW": {"actor_type": "Schaltaktor", "description": "Leinwand"},
     "TVL": {"actor_type": "Schaltaktor", "description": "TV-Lift"},
     "F": {"actor_type": "Jalousieaktor", "description": "Fenster"},

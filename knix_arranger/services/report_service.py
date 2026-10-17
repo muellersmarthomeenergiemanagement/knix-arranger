@@ -244,6 +244,38 @@ VALIDATION_RULES = {
         "Passendes Produkt wählen (Schritt 5 für die GAs, Materialliste für das "
         "Gerät) oder das Produkt entfernen.",
     ),
+    "FA-627": (
+        "Mehrere Antworten beim Lesen",
+        "Eine Leseanfrage auf eine GA darf jedes Gerät senden, antworten soll aber "
+        "genau ein KO: die Quelle des Werts (Status des Aktors, Messwert des "
+        "Sensors). Haben mehrere KOs an derselben GA das L-Flag, kommen mehrere, "
+        "unter Umständen widersprüchliche Antworten.",
+        "Das L-Flag nur am KO lassen, das den Wert liefert; bei den übrigen "
+        "entfernen.",
+    ),
+    "FA-628": (
+        "Befehl ohne Empfänger",
+        "Eine Befehls-GA (E/A, DIM, AUF/AB, Szene ...) hat verknüpfte KOs, aber "
+        "keines mit S-Flag: gesendete Befehle setzt niemand um.",
+        "Empfänger verknüpfen (Aktorkanal) bzw. beim empfangenden KO das S-Flag "
+        "setzen, oder die Funktion der GA korrigieren.",
+    ),
+    "FA-629": (
+        "Mehr Tasten geplant als das Produkt hat",
+        "Die Tastereinheit hat mehr Funktionen geplant, als das zugewiesene Produkt "
+        "Tasten bzw. Wippenseiten hat (aus den KOs des Produkts erkannt). Die "
+        "überzähligen Tasten bekommen kein KO.",
+        "In der Bauherrenberatung Funktionen auf einen anderen Taster legen oder "
+        "ein Produkt mit mehr Tasten wählen.",
+    ),
+    "FA-630": (
+        "Temperaturfühler im Taster ungenutzt",
+        "Das Produkt der Tastereinheit misst die Raumtemperatur, die Heizung des "
+        "Raums bezieht ihre Ist-Temperatur aber nicht von ihm – oft ist zusätzlich "
+        "ein Raumthermostat geplant.",
+        "In der Topologie am Taster «Raumtemperatur über dieses Gerät erfassen…» "
+        "wählen, auf Wunsch ohne Raumthermostat; oder so belassen.",
+    ),
     "FA-1813": (
         "Szenennummer am Aktor mehrfach belegt",
         "Eine Szenen-GA überträgt nur die Nummer 1–64; was sie bewirkt, steht im "

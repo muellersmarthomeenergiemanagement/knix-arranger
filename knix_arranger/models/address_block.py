@@ -484,6 +484,23 @@ def create_mm_block_schema() -> AddressBlockSchema:
     )
 
 
+def create_switch_block_schema() -> AddressBlockSchema:
+    """Schaltfunktion allgemein (SF): nur Ein/Aus mit Rückmeldung, z.B. eine
+    Rohrbegleitheizung, die eine Szene schaltet (FA-1003d)."""
+    return AddressBlockSchema(
+        gewerk_code="SF",
+        block_size=5,
+        middle_group=4,
+        entries=[
+            BlockEntry(0, "E/A", "E/A", "DPST-1-1"),
+            BlockEntry(1, "RM", "RM", "DPST-1-1", is_feedback=True),
+            BlockEntry(2, "", "", "", is_reserve=True),
+            BlockEntry(3, "", "", "", is_reserve=True),
+            BlockEntry(4, "", "", "", is_reserve=True),
+        ],
+    )
+
+
 def create_generic_5_block_schema(gewerk_code: str, middle_group: int = 4) -> AddressBlockSchema:
     """Generischer 5er-Block für sonstige Gewerke (FA-436)."""
     return AddressBlockSchema(

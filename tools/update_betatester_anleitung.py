@@ -791,54 +791,19 @@ def build_document() -> Document:
              "KNX-Linienbaum mit Kopplern und Speisegeräten. "
              "Für manuelle Gerätezuweisungen und Leistungsberechnungen."),
             ("Gruppenadressen",
-             "Tabellarische GA-Übersicht mit Filterfunktion. "
-             "Für manuelle GA-Korrekturen und GA-Suche."),
+             "GA-Baum und Tabelle mit Filterfunktion. Im Baum GAs bearbeiten: einzeln "
+             "(Doppelklick), mehrere markiert (Sammeldialog) oder direkt in der Zelle "
+             "(F2). Funktion mit Rolle (Befehl, Rückmeldung, Messwert) aus einer Liste; "
+             "Nachbearbeitungen bleiben bei Neuberechnungen erhalten (✎). Im "
+             "Kontextmenü: Funktionsumfang eines Elements (z. B. Heizung nur Ein/Aus), "
+             "Zur Szene hinzufügen, Gewerk zuordnen, Löschen."),
             ("Gewerke",
              "Übersicht aller verfügbaren Gewerk-Codes mit Beschreibung. "
              "Zum Nachschlagen während der Gewerke-Zuweisung (Schritt 5)."),
             ("Validierung",
-             "Prüft das Projekt auf Fehler und Warnungen vor dem Export – "
-             "Gruppenadressen, Topologie (Geräte je Linie, physikalische Adressen, "
-             "Spannungsversorgung) und Zeitprogramme. Empfohlen immer vor dem CSV-Export. "
-             "Bei geplanten Projekten ordnet Bearbeiten → «Adressen neu ordnen…» "
-             "die Gruppenadressen lückenlos neu (mit Vorschau)."),
-            ("Szenen",
-             "Szenen-Verwaltung ausserhalb des Wizards. "
-             "Für Nachträge oder Korrekturen an Szenen."),
-            ("Offertanfragen",
-             "Lieferanten und Anfragen verwalten; Offertanfragen automatisch aus der "
-             "Materialliste erzeugen, als Excel oder PDF speichern oder «Per E-Mail…» "
-             "als Entwurf mit PDF-Anhang im Mailprogramm öffnen. «An weitere "
-             "Lieferanten…» fragt dieselben Positionen bei mehreren an; Offerten mit "
-             "Preis, Rabatt und Lieferfrist erfassen, «Preisvergleich…» als PDF."),
-            ("Kundenofferte",
-             "Automatische Angebotskalkulation basierend auf Materialliste und den "
-             "Stundensätzen aus dem Firmenprofil. Nachkalkulation je Offerte und "
-             "«Auswertung aller Projekte…» mit Marge, Abweichungen und Vorschlägen "
-             "für die Richtwerte."),
-            ("Produktdatenblätter",
-             "Produktdatenblätter zu den zugewiesenen Geräten, inkl. Online-Suche "
-             "und Speichern von Links."),
-            ("Topologie-Report",
-             "Zeigt einen importierten ETS-Topologie-Report (Datei → Importieren → "
-             "ETS6 Topologie-Report XLSX oder .knxproj)."),
-            ("Topologie-Diagramm",
-             "Grafische Darstellung der Topologie, exportierbar als PNG oder PDF."),
-            ("Materialliste",
-             "Ermittelte Geräte mit Typ, Kanal und Raum. "
-             "Für Produktzuweisung und als Grundlage für Offertanfragen. "
-             "Im Produktdialog lädt «Online-Katalog aktualisieren» weitere Produkte; "
-             "der GA-Bedarf lässt sich pro Position mit «GA-Bedarf festlegen…» "
-             "von Hand eintragen (z. B. für frei belegbare Gateways)."),
-            ("CO-Verknüpfung",
-             "Manuelle Verknüpfung einzelner Kommunikationsobjekte mit Gruppenadressen "
-             "(z. B. für eigene Gewerke ausserhalb der Standardlogik)."),
-            ("Verknüpfungsmatrix",
-             "Welcher Sensor sendet auf welche GA? "
-             "Für die Kontrolle vor der ETS-Programmierung."),
-            ("Leitungslängen",
-             "Berechnung und Prüfung der Kabellängen zwischen Verteilungen und Geräten "
-             "je Linie."),
+             "Prüft das Projekt auf Fehler und Warnungen vor dem Export. Doppelklick "
+             "auf eine Meldung springt dorthin, wo sie korrigiert wird (GA, Gerät, "
+             "Linie, Raum, Szene …), Rechtsklick zeigt weitere Ziele."),
             ("DALI-Konfiguration",
              "DALI-Gruppen und EVGs. Geplante Projekte: je LDA-Element eine Gruppe "
              "mit allen ihren GAs, Name aus der Bezeichnung (z. B. «Wohnen Decke»); "
@@ -870,6 +835,69 @@ def build_document() -> Document:
              "Raum und Foto je Taster."),
         ]
     )
+    doc.add_paragraph()
+
+    # ── 8.1  Flags ────────────────────────────────────────────────────────────
+    add_heading2(doc, "8.1  Wer schaltet, wer liest: Flags der Kommunikationsobjekte")
+    add_body(doc,
+        "Eine Gruppenadresse hat selbst keine Rechte. Ob ein Gerät eine GA schaltet, "
+        "von ihr geschaltet wird oder ihren Wert liefert, bestimmen die Flags der "
+        "Kommunikationsobjekte (KO), die mit der GA verknüpft sind.")
+    add_table_2col(doc,
+        header=("Flag", "Bedeutung an der GA"),
+        rows=[
+            ("K  Kommunikation", "KO ist aktiv – ohne K passiert nichts."),
+            ("S  Schreiben", "KO übernimmt Telegramme: es wird geschaltet (Empfänger)."),
+            ("Ü  Übertragen", "KO sendet bei Änderung: es schaltet die GA (Sender)."),
+            ("L  Lesen", "KO beantwortet Leseanfragen: es liefert den Wert."),
+            ("A  Aktualisieren", "KO übernimmt Antworten auf Leseanfragen."),
+            ("I  Lesen bei Init", "KO fragt nach einem Neustart den aktuellen Wert ab."),
+        ])
+    doc.add_paragraph()
+    add_body(doc,
+        "Schalten: jedes KO mit Ü-Flag an der GA. Mehrere Sender sind normal "
+        "(z. B. drei Taster, Visualisierung und Logik auf demselben Licht). Ein KO "
+        "sendet aber nur auf seine erste verknüpfte GA, die sendende GA; weitere GAs "
+        "am selben KO hört es nur mit. Deshalb gilt in KNiX: pro Sensorkanal nur eine "
+        "sendende GA, eine zweite daneben darf nur eine Rückmeldung sein (FA-614).",
+        bold_parts=["Schalten:"])
+    add_body(doc,
+        "Geschaltet werden: jedes KO mit S-Flag an der GA, typischerweise der "
+        "Schaltkanal des Aktors. Mehrere Empfänger sind kein Problem (z. B. eine "
+        "Zentral-GA an mehreren Kanälen).",
+        bold_parts=["Geschaltet werden:"])
+    add_body(doc,
+        "Lesen: eine Leseanfrage darf jedes Gerät senden (Visualisierung, Logik, "
+        "Gerät mit I-Flag nach einem Neustart). Antworten soll genau ein KO – die "
+        "Quelle des Werts mit L-Flag, bei einer Rückmelde-GA das Status-KO des Aktors. "
+        "Haben mehrere KOs an derselben GA das L-Flag, kommen mehrere, unter Umständen "
+        "widersprüchliche Antworten.",
+        bold_parts=["Lesen:"])
+    add_table_2col(doc,
+        header=("Gerät / KO", "Flags · Rolle in KNiX"),
+        rows=[
+            ("Taster «Schalten»", "K S Ü · Befehl (E/A); S, damit Umschalten den "
+                                  "aktuellen Zustand kennt"),
+            ("Taster, 2. GA am selben KO", "mithören über S · Rückmeldung (RM)"),
+            ("Aktor, Schaltkanal", "K S · empfängt den Befehl"),
+            ("Aktor, Status", "K L Ü · Rückmeldung, beantwortet Leseanfragen"),
+            ("Sensor (Temperatur, Wind)", "K L Ü · Messwert"),
+            ("Visualisierung", "K S Ü A · schaltet, zeigt Status, fragt beim Start ab"),
+        ])
+    doc.add_paragraph()
+    add_body(doc,
+        "Beispiel Rohrbegleitheizung: Die Szenen-GA 0/4/3 sendet der Szenentaster "
+        "(Ü), das Szenen-KO des Schaltaktors empfängt sie (S) und setzt Kanal 3 nach "
+        "seinen Szenenwerten (Anwesend = Ein …). An 4/2/0 E/A empfängt der "
+        "Schaltkanal (S); an 4/2/1 RM sendet das Status-KO (Ü) und beantwortet als "
+        "einziges KO Leseanfragen (L).")
+    add_tip(doc,
+        "In der Topologie zeigt die Spalte «Details» bei jeder GA eines Kanals die "
+        "Flags des KOs, der Tooltip erklärt sie und sagt, ob das KO auf diese GA "
+        "sendet oder nur mithört. Die Validierung meldet mehrere KOs mit L-Flag an "
+        "einer GA (FA-627) und Befehls-GAs, die kein KO mit S-Flag empfängt (FA-628). "
+        "Geprüft werden GAs, deren KOs bekannt sind: aus dem ETS-Import oder nach "
+        "«KOs aller Geräte zuordnen» in der Materialliste.")
     doc.add_paragraph()
 
     # ── 9  Tastenkürzel ───────────────────────────────────────────────────────

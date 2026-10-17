@@ -33,11 +33,20 @@ class GroupAddress:
     is_placeholder: bool = False  # Reserve-Platzhalter (FA-434)
     is_manual: bool = False       # Manuell hinzugefügt (kein Auto-GA)
     assignment_id: str = ""       # GewerkAssignment.id – für stabile Neugenerierung
+    # Funktion laut Planung (Schema des Gewerks), wenn sie nachbearbeitet wurde
+    # (GewerkAssignment.function_overrides), z.B. "STELLGROESSE" bei E/A.
+    # Leer = function_name ist die geplante Funktion.
+    plan_function: str = ""
 
     @property
     def address(self) -> str:
         """Vollständige Gruppenadresse als String."""
         return f"{self.main_group}/{self.middle_group}/{self.sub_group}"
+
+    @property
+    def planned_function(self) -> str:
+        """Funktion laut Planung (vor einer Nachbearbeitung)."""
+        return self.plan_function or self.function_name
 
     def to_dict(self) -> dict:
         return {
@@ -60,6 +69,7 @@ class GroupAddress:
             "is_placeholder": self.is_placeholder,
             "is_manual": self.is_manual,
             "assignment_id": self.assignment_id,
+            "plan_function": self.plan_function,
         }
 
     @classmethod
@@ -84,6 +94,7 @@ class GroupAddress:
             is_placeholder=data.get("is_placeholder", False),
             is_manual=data.get("is_manual", False),
             assignment_id=data.get("assignment_id", ""),
+            plan_function=data.get("plan_function", ""),
         )
 
 

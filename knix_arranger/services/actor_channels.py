@@ -58,24 +58,48 @@ def _co_dicts(device) -> list[dict]:
             for co in device.communication_objects]
 
 
-def device_channels(device, fallback_count: int = 0) -> list[DeviceChannel]:
-    """Kanäle des Geräts in der Benennung des Herstellers (aus den KOs, siehe
-    product_zones); ohne erkennbare Kanäle "Kanal 1…n" nach der Kanalzahl."""
+# Kanalerkennung je KO-Liste (Nummer, Name, Funktion) -> [(Kanal, Name,
+# Positionen der KOs)] bzw. None ohne erkennbare Kanäle. Die Erkennung prüft
+# jeden KO gegen alle Schreibweisen (product_zones) und lief je Neuberechnung
+# hunderte Male für dieselben Geräte (Projekt_23: 1 s je Klick).
+_ZONE_CACHE: dict[tuple, list | None] = {}
+_ZONE_CACHE_MAX = 512
+
+
+def _zones(device) -> list | None:
     from .knxprod_catalog_service import unique_com_objects
     from .product_zones import co_zone, zone_label, zone_scheme
+    key = tuple((co.object_number, co.name, co.object_function)
+                for co in device.communication_objects)
+    if key in _ZONE_CACHE:
+        return _ZONE_CACHE[key]
     product = {"com_objects": _co_dicts(device)}
     scheme = zone_scheme(product)
+    result = None
     if scheme is not None:
         # Je KO-Nummer ein Eintrag (echter Text vor "{{0:GO}}"-Varianten)
-        by_id = {id(data): co for co, data in zip(device.communication_objects,
-                                                  product["com_objects"])}
-        by_zone: dict[int, list] = {}
+        position = {id(data): i for i, data in enumerate(product["com_objects"])}
+        by_zone: dict[int, list[int]] = {}
         for data in unique_com_objects(product["com_objects"]):
             zone = co_zone(data, scheme)
             if zone is not None:
-                by_zone.setdefault(zone, []).append(by_id[id(data)])
-        return [DeviceChannel(z, zone_label(product, z), cos)
-                for z, cos in sorted(by_zone.items())]
+                by_zone.setdefault(zone, []).append(position[id(data)])
+        result = [(z, zone_label(product, z), positions)
+                  for z, positions in sorted(by_zone.items())]
+    if len(_ZONE_CACHE) >= _ZONE_CACHE_MAX:
+        _ZONE_CACHE.clear()
+    _ZONE_CACHE[key] = result
+    return result
+
+
+def device_channels(device, fallback_count: int = 0) -> list[DeviceChannel]:
+    """Kanäle des Geräts in der Benennung des Herstellers (aus den KOs, siehe
+    product_zones); ohne erkennbare Kanäle "Kanal 1…n" nach der Kanalzahl."""
+    zones = _zones(device)
+    if zones is not None:
+        cos = device.communication_objects
+        return [DeviceChannel(z, label, [cos[i] for i in positions])
+                for z, label, positions in zones]
     from .belegungsplan_service import BelegungsplanService
     count = fallback_count or BelegungsplanService._parse_channel_count(device.product)
     if count >= 999:   # unbekannt
@@ -94,10 +118,8 @@ def device_com_objects(device) -> list:
 
 def channel_names(device) -> dict[int, str]:
     """Kanalnummer -> Name, nur wenn die KOs Kanäle erkennen lassen."""
-    from .product_zones import zone_scheme
-    if zone_scheme({"com_objects": _co_dicts(device)}) is None:
-        return {}
-    return {ch.number: ch.label for ch in device_channels(device)}
+    zones = _zones(device)
+    return {} if zones is None else {z: label for z, label, _p in zones}
 
 
 def _element_text(project, room, gewerk_code: str, element_number: int) -> str:
@@ -110,11 +132,14 @@ def _element_text(project, room, gewerk_code: str, element_number: int) -> str:
     return f"{text} «{label}»" if label else text
 
 
-def device_circuits(project, device) -> list[Circuit]:
+def device_circuits(project, device, plan=None) -> list[Circuit]:
     """Stromkreise, die das Gerät laut Belegungsplan bedient, mit aktuellem
-    Kanal und GA-Funktionen."""
+    Kanal und GA-Funktionen. plan: bereits erzeugter Belegungsplan (für
+    viele Geräte nacheinander, sonst je Aufruf neu)."""
     from .belegungsplan_service import BelegungsplanService
-    rows = [r for r in BelegungsplanService().generate(project).actor_rows
+    if plan is None:
+        plan = BelegungsplanService().generate(project)
+    rows = [r for r in plan.actor_rows
             if r.physical_address == device.physical_address and r.room_id
             and r.gewerk_code and r.channel_number.isdigit()]
     rooms = {room.id: room for room in project.all_rooms}
@@ -178,8 +203,9 @@ def _is_feedback(co) -> bool:
     text = _norm(f"{co.object_function or ''} {co.name or ''}")
     if _is_feedback_co(co) or "feedback" in text or "état" in text or "status" in text:
         return True
-    flags = co.flags or ""
-    return bool(flags) and "Ü" not in flags and "W" not in flags and "S" in flags
+    from .ko_links import TRANSMIT, WRITE, parse_flags
+    flags = parse_flags(co.flags)
+    return bool(flags) and WRITE not in flags and TRANSMIT in flags
 
 
 def suggest_co(channel_cos: list, function: str, used=frozenset()):

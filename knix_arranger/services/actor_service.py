@@ -86,15 +86,16 @@ class ActorService:
                     continue
                 if only_codes is not None and assignment.gewerk_code not in only_codes:
                     continue
-                actor_type = GEWERK_TO_ACTOR_TYPE.get(assignment.gewerk_code)
-                if not actor_type:
-                    continue
-
-                channels = assignment.count
-                type_channels[actor_type] = type_channels.get(actor_type, 0) + channels
-                if actor_type not in type_gewerke:
-                    type_gewerke[actor_type] = []
-                type_gewerke[actor_type].append(assignment.gewerk_code)
+                # Elemente mit Funktionsumfang Schalten zählen beim
+                # Schaltaktor (FA-1003d), z.B. Rohrbegleitheizung als Gewerk H
+                for code, channels in assignment.actor_codes().items():
+                    actor_type = GEWERK_TO_ACTOR_TYPE.get(code)
+                    if not actor_type:
+                        continue
+                    type_channels[actor_type] = type_channels.get(actor_type, 0) + channels
+                    if actor_type not in type_gewerke:
+                        type_gewerke[actor_type] = []
+                    type_gewerke[actor_type].append(assignment.gewerk_code)
 
         requirements = []
         for actor_type, channels_needed in type_channels.items():

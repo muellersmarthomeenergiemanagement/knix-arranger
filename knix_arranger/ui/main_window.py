@@ -390,6 +390,9 @@ class MainWindow(QMainWindow):
         self._validation_view = ValidationView()
         self._validation_view.revalidate_requested.connect(self._validate)
         self._validation_view.worklist_requested.connect(self._export_worklist)
+        self._validation_view.set_target_provider(self._validation_targets)
+        self._validation_view.jump_requested.connect(self._jump_to_target)
+        self._topology_view.bauherr_requested.connect(self._open_room_in_bauherr)
         self._gewerk_view = GewerkView()
         self._scene_view = SceneView()
         self._scene_view.request_generate_addresses.connect(
@@ -515,7 +518,9 @@ class MainWindow(QMainWindow):
         if key == "wizard":
             self._start_wizard()
             return
-        if self._project:
+        # Veraltete Ansicht (nach einer Änderung nicht mitgeführt) zuerst neu
+        # aufbauen; sonst wie bisher beim Öffnen auffrischen
+        if self._project and not self._refresh_view(key):
             if key in ("addresses", "addresses_table"):
                 # Zeitprogramme seither geändert: Hinweis nachführen (FA-3306d)
                 from ..services.time_program_service import timed_ga_programs
@@ -564,40 +569,123 @@ class MainWindow(QMainWindow):
         if view:
             self._stack.setCurrentWidget(view)
 
+    def _view_refreshers(self) -> dict:
+        """Ansicht -> Neuaufbau mit dem aktuellen Projekt."""
+        p = self._project
+
+        def building():
+            self._building_view.set_areal(p.areal)
+            self._building_view.set_gewerk_catalog(p.gewerk_catalog)
+            self._building_view.set_topology(p.topology)
+            self._building_view.set_group_addresses(p.group_addresses)
+
+        views = {
+            "topology": self._topology_view, "gewerke": self._gewerk_view,
+            "scenes": self._scene_view, "quotations": self._quotation_view,
+            "customer_quotes": self._customer_quote_view,
+            "datasheets": self._datasheet_view,
+            "topology_report": self._topology_report_view,
+            "material_list": self._material_list_view,
+            "co_linking": self._co_linking_view,
+            "linking_matrix": self._linking_matrix_view,
+            "cable_length": self._cable_length_view,
+            "topology_diagram": self._topology_diagram_view,
+            "riser_diagram": self._riser_diagram_view,
+            "dali_config": self._dali_config_view,
+            "knx_secure": self._knx_secure_view,
+            "time_programs": self._time_program_view,
+            "commissioning": self._commissioning_view,
+            "changelog": self._changelog_view,
+        }
+        refreshers = {key: (lambda v=view: v.set_project(p)) for key, view in views.items()}
+        refreshers.update({
+            "overview": lambda: self._overview.update_from_project(p),
+            "building": building,
+            "addresses": self._set_address_views,
+            "addresses_table": self._set_address_views,
+        })
+        return refreshers
+
+    def _current_view_key(self) -> str:
+        current = self._stack.currentWidget()
+        return next((key for key, view in self._views.items() if view is current), "")
+
+    def _refresh_view(self, key: str) -> bool:
+        """Veraltete Ansicht neu aufbauen; True, wenn das geschah."""
+        stale = getattr(self, "_stale_views", set())
+        if not self._project or key not in stale:
+            return False
+        stale.discard(key)
+        if key in ("addresses", "addresses_table"):
+            stale.discard("addresses")
+            stale.discard("addresses_table")
+        self._view_refreshers()[key]()
+        return True
+
+    def _mark_stale(self, *keys: str) -> None:
+        """Ansichten beim nächsten Öffnen neu aufbauen, die sichtbare sofort."""
+        if not hasattr(self, "_stale_views"):
+            self._stale_views = set()
+        self._stale_views.update(keys)
+        self._refresh_view(self._current_view_key())
+
     def _update_views(self):
-        """Aktualisiert alle Ansichten nach Projektänderung."""
+        """Aktualisiert die Ansichten nach Projektänderung (die sichtbare
+        sofort, die übrigen beim Öffnen)."""
         if not self._project:
             return
 
-        self._overview.update_from_project(self._project)
-        self._building_view.set_areal(self._project.areal)
-        self._building_view.set_gewerk_catalog(self._project.gewerk_catalog)
-        self._building_view.set_topology(self._project.topology)
-        self._building_view.set_group_addresses(self._project.group_addresses)
-        self._topology_view.set_project(self._project)
-        self._set_address_views()
-        self._gewerk_view.set_project(self._project)
-        self._scene_view.set_project(self._project)
-        self._quotation_view.set_project(self._project)
-        self._customer_quote_view.set_project(self._project)
-        self._datasheet_view.set_project(self._project)
-        self._topology_report_view.set_project(self._project)
-        self._material_list_view.set_project(self._project)
-        self._co_linking_view.set_project(self._project)
-        self._linking_matrix_view.set_project(self._project)
-        self._cable_length_view.set_project(self._project)
-        self._topology_diagram_view.set_project(self._project)
-        self._riser_diagram_view.set_project(self._project)
-        self._dali_config_view.set_project(self._project)
-        self._knx_secure_view.set_project(self._project)
-        self._time_program_view.set_project(self._project)
-        self._commissioning_view.set_project(self._project)
-        self._changelog_view.set_project(self._project)
+        # Nur die sichtbare Ansicht sofort neu aufbauen, die übrigen beim
+        # Öffnen (_navigate): sonst kostet jede Änderung, z.B. eine Taste in
+        # der Bauherrenberatung, das Neuaufbauen aller Ansichten (Projekt_23:
+        # 7 s je Klick)
+        self._stale_views = set(self._view_refreshers())
+        self._refresh_view(self._current_view_key())
 
         ga_count = len(self._project.group_addresses.all_addresses())
         self._status_bar.set_project_name(self._project.name)
         self._status_bar.set_variant(self._project.config.mg_variant)
         self._status_bar.set_ga_count(ga_count)
+
+    def _open_room_in_bauherr(self, room_id: str) -> None:
+        """Raum in der Bauherrenberatung öffnen (Tasten verteilen, FA-1411c)."""
+        from ..services.validation_targets import BAUHERR, Target
+        self._jump_to_target(Target(BAUHERR, room_id, ""))
+
+    def _validation_targets(self, issue: dict) -> list:
+        """Sprungziele einer Validierungsmeldung (FA-615a)."""
+        from ..services.validation_targets import targets_for
+        return targets_for(issue, self._project) if self._project else []
+
+    def _jump_to_target(self, target) -> None:
+        """Zur Stelle springen, an der eine Meldung korrigiert wird (FA-615a)."""
+        from ..services import validation_targets as vt
+        views = {vt.GA: "addresses", vt.DEVICE: "topology", vt.LINE: "topology",
+                 vt.ROOM: "building", vt.FLOOR: "building", vt.BAUHERR: "bauherr_form",
+                 vt.KEYS: "topology"}
+        key = target.key if target.kind == vt.VIEW else views[target.kind]
+        self._sidebar.select(key)
+        self._navigate(key)
+        if target.kind == vt.GA:
+            found = self._address_tree.select_address(target.key)
+        elif target.kind == vt.DEVICE:
+            found = self._topology_view.select_device(target.key)
+        elif target.kind == vt.KEYS:
+            found = self._topology_view.resolve_keys(target.key)
+        elif target.kind == vt.LINE:
+            found = self._topology_view.select_line(target.key)
+        elif target.kind == vt.ROOM:
+            found = self._building_view.select_room(target.key)
+        elif target.kind == vt.FLOOR:
+            found = self._building_view.select_floor(int(target.key))
+        elif target.kind == vt.BAUHERR:
+            found = self._bauherr_form_view.show_room(target.key)
+        else:
+            found = True
+        if not found:
+            self._status_bar.set_status(
+                "Nicht gefunden – das Projekt hat sich seit der Validierung geändert. "
+                "Bitte erneut validieren.")
 
     def _open_in_bauherr(self, be_id: str):
         """Doppelklick in der Verknüpfungsmatrix: Taster in der Bauherren-
@@ -655,6 +743,11 @@ class MainWindow(QMainWindow):
             # Produktdatenblätter-Ansicht mitaktualisieren, damit neu
             # zugewiesene Produkte sofort sichtbar sind (FA-1205)
             self._datasheet_view.set_project(self._project)
+            # Produkte und KO-Zuordnung zeigen auch Topologie (Flags,
+            # Fähigkeiten), CO-Verknüpfung und Matrix: beim Öffnen neu aufbauen
+            self._mark_stale("topology", "topology_report", "co_linking",
+                             "linking_matrix", "knx_secure", "dali_config",
+                             "commissioning")
 
     def _on_topology_changed(self):
         """Reagiert auf Topologie-Änderungen aus der Materiallisten-Ansicht.
@@ -668,8 +761,7 @@ class MainWindow(QMainWindow):
             return
         # Neue/aufgeteilte Geräte brauchen ihre Bedienelemente
         self._refresh_bedienelemente()
-        self._topology_view.set_project(self._project)
-        self._topology_report_view.set_project(self._project)
+        self._mark_stale("topology", "topology_report")
         self._overview.update_from_project(self._project)
         self._building_view.set_topology(self._project.topology)
         self._building_view.set_group_addresses(self._project.group_addresses)
@@ -714,6 +806,7 @@ class MainWindow(QMainWindow):
         from ..services.time_program_service import timed_ga_programs
         timed = timed_ga_programs(self._project)
         self._address_tree.set_project(self._project)
+        self._address_table.set_project(self._project)
         for view in (self._address_tree, self._address_table):
             view.set_timed_gas(timed)
             view.set_structure(self._project.group_addresses)
@@ -775,9 +868,7 @@ class MainWindow(QMainWindow):
         self._building_view.set_group_addresses(self._project.group_addresses)
         # GA-Bezeichnungen werden in Verknüpfungsmatrix, CO-Linking und den
         # Aktor-Kanalknoten der Topologie-Ansicht angezeigt
-        self._co_linking_view.set_project(self._project)
-        self._linking_matrix_view.set_project(self._project)
-        self._topology_view.set_project(self._project)
+        self._mark_stale("co_linking", "linking_matrix", "topology")
 
     def _on_functions_changed(self):
         """Reagiert auf Gewerk-Änderungen aus der manuellen Bearbeitungsphase.

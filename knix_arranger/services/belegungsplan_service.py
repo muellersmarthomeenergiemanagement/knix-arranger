@@ -20,7 +20,7 @@ logger = logging.getLogger("knix_arranger.belegungsplan")
 # Enthält deutsche UND englische Keywords für ETS6-Importe.
 _ACTOR_TYPE_GEWERKE: dict[str, set[str]] = {
     # Deutsch – spezifische Einträge VOR allgemeinen (Substring-Matching, first-match-wins)
-    "Schaltaktor":          {"L", "S", "V", "G", "DF", "BW", "BL", "P"},
+    "Schaltaktor":          {"L", "S", "V", "G", "DF", "BW", "BL", "P", "SF"},
     "DALI-Gateway":         {"LDA"},
     "RGB-Dimmaktor":        {"LC"},   # vor "Dimmaktor" – "Dimmaktor" ist Teilstring
     "Tunable-White-Aktor":  {"LCT"},
@@ -37,7 +37,7 @@ _ACTOR_TYPE_GEWERKE: dict[str, set[str]] = {
     "Speicher-KNX-Gateway": {"SP"},
     "KNX-Schnittstelle":    {"MM"},
     # Englisch (ETS6-Import) – spezifische Einträge zuerst
-    "switch act":    {"L", "S", "V", "G", "DF", "BW", "BL", "P"},
+    "switch act":    {"L", "S", "V", "G", "DF", "BW", "BL", "P", "SF"},
     "dimming act":   {"LD", "SD"},
     "dali":          {"LDA"},
     "rgbw":          {"LCW"},  # vor "rgb" – "rgb" ist Teilstring von "rgbw"
@@ -175,7 +175,9 @@ def _is_feedback_co(co) -> bool:
     Unbekannte/leere Flags (kein ETS-Import) bleiben konservativ False, wie
     bisher.
     """
-    return bool(co.flags) and "S" not in co.flags
+    from .ko_links import WRITE, parse_flags
+    flags = parse_flags(co.flags)
+    return bool(flags) and WRITE not in flags
 
 
 def _split_button_channel(button_channel: str) -> tuple[str, str]:
@@ -749,17 +751,26 @@ class BelegungsplanService:
 
         # GA-Index: (room_id, gewerk_code) → list[GroupAddress]
         # Fallback: (room_number, gewerk_code) für ältere Projekte ohne room_id
+        # Schlüssel ist das Aktor-Gewerk: Elemente mit Funktionsumfang Schalten
+        # (FA-1003d) hängen am Schaltaktor ("S"), behalten aber ihr Gewerk
         ga_by_room_gewerk: dict[tuple, list] = {}
         ga_by_roomnr_gewerk: dict[tuple, list] = {}
+        switched = {
+            (room.id, a.gewerk_code, nr)
+            for room in project.all_rooms for a in room.gewerk_assignments
+            for nr in a.element_profiles if a.actor_code(nr) != a.gewerk_code
+        }
         for ga in project.group_addresses.all_addresses():
             if ga.is_placeholder:
                 continue
             if not ga.gewerk_code or ga.gewerk_code not in _ALL_ACTOR_GEWERKE:
                 continue
+            code = ("S" if (ga.room_id, ga.gewerk_code, ga.element_number) in switched
+                    else ga.gewerk_code)
             if ga.room_id:
-                ga_by_room_gewerk.setdefault((ga.room_id, ga.gewerk_code), []).append(ga)
+                ga_by_room_gewerk.setdefault((ga.room_id, code), []).append(ga)
             elif ga.room_number:
-                ga_by_roomnr_gewerk.setdefault((ga.room_number, ga.gewerk_code), []).append(ga)
+                ga_by_roomnr_gewerk.setdefault((ga.room_number, code), []).append(ga)
 
         rows: list[ActorRow] = []
         covered_device_addrs: set[str] = set()  # Adressen mit GA-Treffer (kein CO-Fallback nötig)
@@ -816,14 +827,15 @@ class BelegungsplanService:
                                 gas = ga_by_roomnr_gewerk.get((room.number, gewerk_code), [])
                             if not gas:
                                 continue
-                            by_elem: dict[int, list] = {}
+                            by_elem: dict[tuple, list] = {}
                             for ga in gas:
-                                by_elem.setdefault(ga.element_number, []).append(ga)
-                            for elem_nr, elem_gas in sorted(by_elem.items()):
-                                circ_key = (room.number, gewerk_code, elem_nr)
+                                by_elem.setdefault((ga.gewerk_code, ga.element_number),
+                                                   []).append(ga)
+                            for (code, elem_nr), elem_gas in sorted(by_elem.items()):
+                                circ_key = (room.number, code, elem_nr)
                                 if circ_key not in seen_circuits:
                                     seen_circuits.add(circ_key)
-                                    circuits.append((room_id, room, gewerk_code, elem_nr, elem_gas))
+                                    circuits.append((room_id, room, code, elem_nr, elem_gas))
 
                     if not circuits:
                         continue

@@ -31,6 +31,7 @@ class AddressTableView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._structure: GroupAddressStructure | None = None
+        self._project = None   # bestimmt, was bearbeitbar ist (services/ga_edit)
         self._all_gas: list[GroupAddress] = []
         self._row_ga_map: dict[int, GroupAddress] = {}
         self._bus = None
@@ -95,6 +96,9 @@ class AddressTableView(QWidget):
         "Zeitprogramm: …" in der Spalte Notizen (FA-3306d). Wirkt beim
         nächsten set_structure."""
         self._timed = dict(programs)
+
+    def set_project(self, project) -> None:
+        self._project = project
 
     def set_structure(self, structure: GroupAddressStructure):
         self._structure = structure
@@ -178,8 +182,11 @@ class AddressTableView(QWidget):
 
     def _edit_ga(self, ga: GroupAddress):
         """Oeffnet den GA-Bearbeitungsdialog."""
-        dialog = GaEditDialog(ga, parent=self)
+        dialog = GaEditDialog(ga, parent=self, project=self._project)
         if dialog.exec() == GaEditDialog.Accepted:
+            if self._project is not None:
+                self._structure = self._project.group_addresses
+                self._all_gas = self._structure.all_addresses()
             self._populate_table(self._all_gas)
             self.ga_modified.emit()
 

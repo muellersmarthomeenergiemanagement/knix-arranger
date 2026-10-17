@@ -109,13 +109,16 @@ class ComObjectInfo:
 
     @property
     def flags_display(self) -> str:
-        """Kompakter Flags-String, z.B. 'K-WS--' (ETS-Notation)."""
+        """Flags in ETS-Schreibweise K L S Ü A I, z.B. 'K-S---' (Empfänger),
+        'KL-Ü--' (Status). Ältere Daten mit fünf Stellen ('K-Ü--', Schreiben
+        als Ü) deutet ko_links.parse_flags weiterhin richtig."""
         return "".join([
             "K" if self.communication_flag else "-",
             "L" if self.read_flag else "-",
-            "Ü" if self.write_flag else "-",
-            "S" if self.transmit_flag else "-",
-            "U" if self.update_flag else "-",
+            "S" if self.write_flag else "-",
+            "Ü" if self.transmit_flag else "-",
+            "A" if self.update_flag else "-",
+            "-",
         ])
 
     def to_dict(self) -> dict:
