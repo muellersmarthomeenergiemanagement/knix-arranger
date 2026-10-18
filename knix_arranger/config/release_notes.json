@@ -2,6 +2,23 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.5",
+      "date": "2026-10-18",
+      "neu": [
+        "Soll-Flags aus der Rolle: pro GA eine Quelle mit L Ü, Empfänger mit S (I = Lesen bei Init). Aktor: Befehl K S, Rückmeldung K L Ü; Taster: Taste K S Ü, Rückmeldung K S I.",
+        "Topologie: Geräte ohne Produkt zeigen ihre Soll-Flags; bei Geräten mit Produkt steht das Soll im Tooltip.",
+        "Validierung: Hinweis «L-Flag an einem Empfänger» (FA-635), z.B. am Schaltobjekt eines Aktors.",
+        "ETS-Belegungsplan (.xlsx): neue Spalte «Flags (Soll)» für Taster und Aktoren."
+      ],
+      "verbessert": [
+        "«Mehrere Antworten beim Lesen» und «Befehl ohne Empfänger» prüfen schon vor der Produktwahl, mit den Soll-Flags."
+      ],
+      "behoben": [
+        "ETS-Belegungsplan: der Hinweis, Rückmelde-Objekte als lesende KOs zu konfigurieren, war falsch – das L-Flag gehört an den Status des Aktors.",
+        "Falscher Hinweis «Befehl ohne Empfänger» bei Gateways, deren Gruppen-KOs noch nicht zugeordnet sind."
+      ]
+    },
+    {
       "version": "1.4.4",
       "date": "2026-10-18",
       "neu": [
