@@ -242,3 +242,31 @@ class TestExcelFeatures:
         ws = openpyxl.load_workbook(path)["Aktoren"]
         assert ws.auto_filter.ref is not None
         os.unlink(path)
+
+
+# ── Flags (Soll), FA-635 ───────────────────────────────────────────────────────
+
+def test_flags_soll_spalte():
+    data = BelegungsplanData(project_name="Flags")
+    data.sensor_rows = [
+        _sensor_row(),                                             # Taste sendet
+        _sensor_row(function="Schaltzustand Rueckmeldung", ga_designation="L_E01_01 RM",
+                    ga_address="1/6/0", is_feedback=True),          # LED empfängt
+    ]
+    data.actor_rows = [
+        _actor_row(),
+        _actor_row(function_name="RM", ga_designation="L_E01_01 RM", ga_address="1/6/0"),
+    ]
+    path = _export(data)
+    try:
+        wb = openpyxl.load_workbook(path)
+        ws = wb["Taster & Sensoren"]
+        assert ws.cell(row=3, column=13).value == "Flags (Soll)"
+        assert [ws.cell(row=r, column=13).value for r in (4, 5)] == ["K S Ü", "K S I"]
+        ws2 = wb["Aktoren"]
+        assert ws2.cell(row=3, column=14).value == "Flags (Soll)"
+        assert [ws2.cell(row=r, column=14).value for r in (4, 5)] == ["K S", "K L Ü"]
+        texts = " ".join(str(c.value) for row in ws.iter_rows() for c in row if c.value)
+        assert "lesende KOs" not in texts                          # alter, falscher Hinweis
+    finally:
+        os.remove(path)

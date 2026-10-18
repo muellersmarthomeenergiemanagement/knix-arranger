@@ -282,6 +282,14 @@ VALIDATION_RULES = {
         "nach dem Verschieben.",
         "Prüfen; nicht gewollte Taste in der Bauherrenberatung entfernen.",
     ),
+    "FA-635": (
+        "L-Flag an einem Empfänger",
+        "Das KO empfängt an allen seinen GAs nur (Befehl, Rückmeldung oder Messwert "
+        "von einem anderen Gerät), hat aber das L-Flag. Auf eine Leseanfrage antwortet "
+        "es mit dem zuletzt empfangenen Wert, zusätzlich zur eigentlichen Quelle.",
+        "Das L-Flag entfernen. Die Quelle des Werts (Status des Aktors, Messwert des "
+        "Sensors) behält es.",
+    ),
     "FA-634": (
         "KO passt nicht zur Funktion",
         "Die in KNiX gewählte Verknüpfung GA–KO widerspricht der Funktion: eine "

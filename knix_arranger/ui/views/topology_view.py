@@ -102,6 +102,7 @@ class TopologyView(QWidget):
         self._ga_structure = None  # GroupAddressStructure, siehe set_group_addresses()
         self._belegungsplan = None  # BelegungsplanData, siehe set_project() -- Kanalanzeige Aktoren
         self._ko_links: dict[tuple[str, str], list] = {}   # (Gerät, GA) -> KoLink, Flags
+        self._expected: dict = {}   # (Gerät, GA) -> flag_rules.Expected (Soll-Flags)
         self._areal = None  # Areal, siehe set_project() -- Funktionsanzeige Sensoren/Taster
         self._project = None  # KnxProject, siehe set_project() -- GA von KO trennen
 
@@ -231,6 +232,9 @@ class TopologyView(QWidget):
         self._belegungsplan = BelegungsplanService().generate(project)
         # KO-Flags je (Gerät, GA) für die Kanalzeilen
         self._ko_links = {}
+        # Soll-Flags je (Gerät, GA) aus der Rolle (FA-635)
+        from ...services.flag_rules import expected_by_link
+        self._expected = expected_by_link(project, actor_plan=self._belegungsplan)
         # Im Hauptfenster ist die Tastenbelegung schon aktuell (refresh_bedienelemente)
         for link in ko_links(project, proposals=True, fresh=self._bus is not None):
             self._ko_links.setdefault(
@@ -594,7 +598,8 @@ class TopologyView(QWidget):
                     r.dpt,
                 ])
                 self._flags(row_item, 4, r.dpt, self._ko_links.get(
-                    (r.physical_address, r.ga_address), []))
+                    (r.physical_address, r.ga_address), []),
+                    (r.physical_address, r.ga_address))
 
     def _add_channel_items_from_cos(self, dev_item: QTreeWidgetItem, device: Device,
                                      ga_by_address: dict) -> None:
@@ -644,7 +649,8 @@ class TopologyView(QWidget):
                                     ("ko_ga", device, co.object_number, ga_addr))
                     self._flags(ko_item, 4, ga_obj.datapoint_type if ga_obj else "", [
                         l for l in self._ko_links.get((device.physical_address, ga_addr), [])
-                        if l.co.object_number == co.object_number])
+                        if l.co.object_number == co.object_number],
+                        (device.physical_address, ga_addr))
 
     def _add_temperature_items(self, dev_item: QTreeWidgetItem, device: Device) -> None:
         """Kanal «Raumtemperatur» unter einem Taster, der die Ist-Temperatur
@@ -664,7 +670,8 @@ class TopologyView(QWidget):
             item.setToolTip(0, "Der Taster sendet die Raumtemperatur auf die Ist-Temperatur "
                                "der Heizung (statt eines Raumthermostats).")
             self._flags(item, 4, ga.datapoint_type,
-                       self._ko_links.get((device.physical_address, ga.address), []))
+                        self._ko_links.get((device.physical_address, ga.address), []),
+                        (device.physical_address, ga.address))
             if co is not None:
                 item.setData(0, _ROLE_DATA, ("ko_ga", device, co.object_number, ga.address))
 
@@ -733,7 +740,8 @@ class TopologyView(QWidget):
                                     ("ko_ga", device, co.object_number, ga_addr))
                 if ga_addr:
                     self._flags(fa_item, 4, "", self._ko_links.get(
-                        (device.physical_address, ga_addr), []))
+                        (device.physical_address, ga_addr), []),
+                        (device.physical_address, ga_addr))
 
     # ── Toolbar-Aktionen ──
 
@@ -862,9 +870,27 @@ class TopologyView(QWidget):
             if menu.exec(global_pos) == unlink_act:
                 self._unlink_ga(device, co_number, ga_addr)
 
-    def _flags(self, item, column: int, dpt: str, links: list) -> None:
+    def _flags(self, item, column: int, dpt: str, links: list, key=None) -> None:
+        """Flags der KOs; dazu die Soll-Flags der Rolle (FA-635): bei Geräten
+        ohne Produkt als Annahme in der Spalte, sonst im Tooltip."""
+        from ...services.flag_rules import flags_label
         _set_flags(item, column, dpt, links,
                    self._project is not None and self._project.topology.is_imported)
+        expected = self._expected.get(key) if key else None
+        if expected is None:
+            return
+        soll = flags_label(expected.flags)
+        if any(l.co.flags for l in links):
+            item.setToolTip(column, f"Soll für diese GA ({expected.function}): {soll}\n"
+                                    + item.toolTip(column))
+            return
+        item.setText(column, "  ·  ".join(p for p in (dpt, f"Soll-Flags {soll}") if p))
+        item.setForeground(column, QColor("#616161"))
+        item.setToolTip(column, (
+            f"Soll-Flags für {expected.function}: {soll}\n"
+            "Angenommen nach der Rolle, solange das Gerät kein Produkt mit KOs hat: "
+            "Befehl empfangen K S, Rückmeldung oder Messwert senden K L Ü, "
+            "Rückmeldung empfangen K S I, Taste sendet K S Ü.\n\n" + _FLAG_LEGEND))
 
     def _flags_menu(self, item, data, links: list, pos) -> None:
         """Kontextmenü einer GA-Zeile mit Flags: KO trennen (falls verknüpft)

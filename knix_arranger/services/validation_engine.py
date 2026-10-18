@@ -114,6 +114,7 @@ class ValidationEngine:
             issues.extend(self._check_product_kinds(project))
             issues.extend(self._check_ko_flags(project))
             issues.extend(self._check_ko_plausibility(project))
+            issues.extend(self._check_flag_recommendations(project))
             issues.extend(self._check_product_capabilities(project))
             issues.extend(self._check_bedienelement_leftovers(project))
             # FA-609, FA-611 bis FA-613: Topologie
@@ -201,10 +202,15 @@ class ValidationEngine:
         bekannt sind (ETS-Import oder Zuordnung in KNiX, services/ko_links)."""
         from .ko_links import READ, WRITE, flags_unparametrized, links_by_ga
         by_ga = links_by_ga(project)
+        imported = project.topology.is_imported
+        if not imported:
+            # Geräte ohne Produkt mit ihren Soll-Flags (FA-635)
+            from .flag_rules import expected_links
+            for link in expected_links(project):
+                by_ga.setdefault(link.ga_address, []).append(link)
         if not by_ga:
             return []
         gas = {ga.address: ga for ga in project.group_addresses.all_addresses()}
-        imported = project.topology.is_imported
         unresolved: set[str] | None = set() if imported else None   # erst bei Bedarf
         issues = []
         for address, links in sorted(by_ga.items()):
@@ -242,6 +248,26 @@ class ValidationEngine:
                     address,
                     "Empfänger verknüpfen oder beim empfangenden KO das S-Flag setzen",
                     designation=designation))
+        return issues
+
+    @staticmethod
+    def _check_flag_recommendations(project) -> list[ValidationIssue]:
+        """FA-635: L-Flag an einem KO, das laut Soll-Flags nur empfängt."""
+        from .flag_rules import receiver_read_flags
+        imported = project.topology.is_imported
+        gas = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+        issues = []
+        for device, co, addresses, functions in receiver_read_flags(project):
+            ga = gas.get(addresses[0])
+            issues.append(ValidationIssue(
+                "info", "FA-635",
+                f"{device.physical_address} KO {co.object_number} «{co.name or co.object_function}» "
+                f"empfängt nur ({', '.join(functions)}), hat aber das L-Flag",
+                addresses[0],
+                "L-Flag in der ETS entfernen und neu einlesen" if imported else
+                "L-Flag entfernen (in der ETS; in KNiX: Topologie › Flags bearbeiten…)",
+                designation=ga.designation if ga else "",
+                details={"devices": [device.physical_address]}))
         return issues
 
     @staticmethod
@@ -421,7 +447,12 @@ class ValidationEngine:
         result = set()
         for row in BelegungsplanService().generate(project).actor_rows:
             device = devices.get(row.physical_address)
-            if device is None or any(co.connected_gas for co in device.communication_objects):
+            if device is None:
+                continue
+            # Verbunden über die CO-Verknüpfung: an dieser GA entschieden. Ein
+            # anderes verbundenes KO (Szene am DALI-Gateway 1.1.2) sagt nichts
+            # über die Gruppen-KOs.
+            if any(row.ga_address in co.connected_gas for co in device.communication_objects):
                 continue
             selection = (device.co_map or {}).get(
                 circuit_key(row.room_id, row.gewerk_code, row.element_number)) or {}

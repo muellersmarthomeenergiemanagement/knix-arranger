@@ -26,10 +26,11 @@ _SENSOR_HEADERS = [
     "GA-Bezeichnung",   # J
     "GA-Adresse",       # K  ← Monospace
     "DPT",              # L  ← Monospace
+    "Flags (Soll)",     # M  ← Monospace (flag_rules, FA-635)
 ]
-_SENSOR_WIDTHS    = [18, 20, 10, 22, 18, 14, 20, 12, 28, 32, 12, 14]
-_SENSOR_LAST_COL  = "L"   # für Merge-Ranges und AutoFilter
-_SENSOR_MONO_COLS = (6, 11, 12)   # F, K, L
+_SENSOR_WIDTHS    = [18, 20, 10, 22, 18, 14, 20, 12, 28, 32, 12, 14, 12]
+_SENSOR_LAST_COL  = "M"   # für Merge-Ranges und AutoFilter
+_SENSOR_MONO_COLS = (6, 11, 12, 13)   # F, K, L, M
 _SENSOR_WARN_COLS = (10, 11, 12)  # J, K, L  (warn wenn kein GA)
 
 # Spalten Tab "Aktoren"  (13 Spalten A–M)
@@ -47,10 +48,36 @@ _ACTOR_HEADERS = [
     "GA-Bezeichnung",       # K
     "GA-Adresse",           # L  ← Monospace
     "DPT",                  # M  ← Monospace
+    "Flags (Soll)",         # N  ← Monospace (flag_rules, FA-635)
 ]
-_ACTOR_WIDTHS    = [20, 18, 22, 14, 8, 10, 20, 22, 10, 12, 32, 12, 14]
-_ACTOR_LAST_COL  = "M"   # für Merge-Ranges und AutoFilter
-_ACTOR_MONO_COLS = (4, 12, 13)    # D, L, M
+_ACTOR_WIDTHS    = [20, 18, 22, 14, 8, 10, 20, 22, 10, 12, 32, 12, 14, 12]
+_ACTOR_LAST_COL  = "N"   # für Merge-Ranges und AutoFilter
+_ACTOR_MONO_COLS = (4, 12, 13, 14)    # D, L, M, N
+
+_FLAGS_HINT = ("Flags (Soll): pro GA eine Quelle mit L Ü (Status des Aktors, Messwert), "
+               "Empfänger mit S, I = Lesen bei Init. Taste sendet K S Ü, Rückmeldung am "
+               "Taster K S I (ohne L). Empfehlung nach der Rolle; der Hersteller kann abweichen.")
+
+
+def sensor_row_flags(row) -> str:
+    """Soll-Flags einer Taster-/Sensorzeile des Belegungsplans."""
+    from types import SimpleNamespace
+    from .flag_rules import flags_label, sensor_flags
+    from .naming_engine import NamingEngine
+    function = NamingEngine.parse_designation(row.ga_designation or "").get(
+        "function_name", "") or ""
+    if "szene" in (row.function or "").lower() and not row.is_feedback:
+        function = "SZENE"
+    link = SimpleNamespace(
+        ga_function=function, role="",
+        feedback=row.is_feedback or row.role in ("rueckmeldung", "mithoeren"))
+    return flags_label(sensor_flags(link)) if row.ga_address else ""
+
+
+def actor_row_flags(row) -> str:
+    """Soll-Flags einer Aktorzeile des Belegungsplans."""
+    from .flag_rules import actor_flags, flags_label
+    return flags_label(actor_flags(row.function_name)) if row.ga_address else ""
 
 # Farben
 _COLOR_HEADER_BG = "1565C0"   # KNX-Blau
@@ -149,6 +176,7 @@ class BelegungsplanExportService:
                 row.ga_designation,
                 row.ga_address,
                 row.dpt,
+                sensor_row_flags(row),
             ]
             for col, val in enumerate(values, start=1):
                 cell = ws.cell(row=excel_row, column=col, value=val)
@@ -186,8 +214,8 @@ class BelegungsplanExportService:
         hint_row = legend_row + 3
         ws.merge_cells(f"A{hint_row}:{_SENSOR_LAST_COL}{hint_row}")
         ws.cell(row=hint_row, column=1,
-                value="Hinweis: Diese Tabelle zeigt die empfohlenen GA-Zuordnungen für die ETS-Programmierung. "
-                      "Status-/Rückmelde-Objekte (RM) müssen als lesende KOs konfiguriert werden.").font = Font(
+                value="Hinweis: Diese Tabelle zeigt die empfohlenen GA-Zuordnungen für die "
+                      "ETS-Programmierung. " + _FLAGS_HINT).font = Font(
             size=9, italic=True, color="555555")
 
         # ── Tab "Aktoren" ──
@@ -242,6 +270,7 @@ class BelegungsplanExportService:
                     row.ga_designation,
                     row.ga_address,
                     row.dpt,
+                    actor_row_flags(row),
                 ]
                 for col, val in enumerate(values, start=1):
                     cell = ws2.cell(row=excel_row, column=col, value=val)
@@ -273,7 +302,8 @@ class BelegungsplanExportService:
             ws2.merge_cells(f"A{hint2}:{_ACTOR_LAST_COL}{hint2}")
             ws2.cell(row=hint2, column=1,
                      value="Hinweis: Spalte 'Kanal' zeigt den Ausgangskanal des Aktors (1, 2, 3 …). "
-                           "Der Elektriker schliesst das jeweilige Gewerk an diesen Klemmenanschluss an."
+                           "Der Elektriker schliesst das jeweilige Gewerk an diesen Klemmenanschluss an. "
+                           + _FLAGS_HINT
                      ).font = Font(size=9, italic=True, color="555555")
 
         wb.save(filepath)
