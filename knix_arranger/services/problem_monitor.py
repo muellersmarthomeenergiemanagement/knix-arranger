@@ -33,11 +33,25 @@ class ProblemMonitor:
     def __init__(self):
         self._project_id: int | None = None
         self._known: set[tuple[str, str, str]] = set()
+        self._counts: tuple[int, int] | None = None   # (Fehler, Warnungen)
+
+    def counts(self) -> tuple[int, int] | None:
+        """(Fehler, Warnungen) der letzten Prüfung, None ohne Prüfung."""
+        return self._counts
+
+    def _remember(self, problems: list[ValidationIssue]) -> None:
+        errors = sum(1 for i in problems if i.level == "error")
+        self._counts = (errors, len(problems) - errors)
 
     def reset(self, project) -> None:
         """Aktuellen Stand still als Ausgangspunkt übernehmen."""
         self._project_id = id(project) if project is not None else None
-        self._known = {problem_key(i) for i in current_problems(project)}
+        problems = current_problems(project)
+        self._known = {problem_key(i) for i in problems}
+        if project is not None:
+            self._remember(problems)
+        else:
+            self._counts = None
 
     def adopt(self, project) -> None:
         """Nach dem Laden: Stand eines anderen Projekts still übernehmen,
@@ -51,11 +65,13 @@ class ProblemMonitor:
         if project is None:
             self._project_id = None
             self._known = set()
+            self._counts = None
             return []
         if id(project) != self._project_id:
             self.reset(project)
             return []
         problems = current_problems(project)
+        self._remember(problems)
         new = [i for i in problems if problem_key(i) not in self._known]
         self._known = {problem_key(i) for i in problems}
         # Fehler zuerst

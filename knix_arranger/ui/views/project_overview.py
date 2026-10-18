@@ -7,7 +7,9 @@ from PySide6.QtWidgets import (
     QFrame, QPushButton,
 )
 from PySide6.QtCore import Qt, Signal
-from ..styles import KNX_GREEN, KNX_BLUE, KNX_DARK_GREEN
+from ..styles import (
+    COLOR_OK, COLOR_WARNING, KNX_GREEN, KNX_BLUE, KNX_DARK_GREEN, TEXT_MUTED,
+)
 from ..dialogs.project_properties_dialog import ProjectPropertiesDialog
 
 
@@ -41,6 +43,8 @@ class ProjectOverview(QWidget):
     """Dashboard mit Projektuebersicht."""
 
     project_name_changed = Signal(str)  # emitted when name is changed by user
+    # Arbeitsablauf: Seitenleisten-Schlüssel des gewählten Schritts
+    navigate_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -71,6 +75,18 @@ class ProjectOverview(QWidget):
         stats_layout.addWidget(self._card_issues)
 
         layout.addLayout(stats_layout)
+
+        # Arbeitsablauf: Schritte mit Stand, nächster Schritt hervorgehoben
+        self._workflow_group = QGroupBox("Arbeitsablauf")
+        self._workflow_layout = QGridLayout()
+        self._workflow_layout.setColumnStretch(1, 3)
+        self._workflow_layout.setColumnStretch(2, 2)
+        self._workflow_layout.setHorizontalSpacing(14)
+        self._workflow_layout.setVerticalSpacing(6)
+        self._workflow_group.setLayout(self._workflow_layout)
+        self._workflow_group.setVisible(False)
+        layout.addWidget(self._workflow_group)
+        self._problem_counts: tuple[int, int] | None = None
 
         # Projektinfo
         info_group = QGroupBox("Projektinformationen")
@@ -144,6 +160,58 @@ class ProjectOverview(QWidget):
         self._info_labels["backbone"].setText(project.config.backbone_type)
         self._info_labels["created"].setText(project.created or "-")
         self._info_labels["modified"].setText(project.modified or "-")
+        self._show_workflow()
+
+    def set_problem_counts(self, counts: tuple[int, int] | None) -> None:
+        """(Fehler, Warnungen) der Sofortprüfung (ProblemMonitor), None ohne
+        Prüfung -- für die Karte und den Schritt «Validierung»."""
+        self._problem_counts = counts
+        self._card_issues.set_value("–" if counts is None else str(sum(counts)))
+        if self._project is not None:
+            self._show_workflow()
+
+    # «offen» grau: spätere Schritte sind noch nicht fällig, kein Fehler
+    _STATE_COLORS = {"erledigt": COLOR_OK, "begonnen": COLOR_WARNING, "offen": TEXT_MUTED}
+
+    def _show_workflow(self) -> None:
+        """Arbeitsablauf neu aufbauen (nur geplante Projekte; importierte
+        Projekte dokumentieren den ETS-Stand)."""
+        from ...services.workflow_status import next_step, workflow_steps
+        layout = self._workflow_layout
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                # sofort lösen: deleteLater allein liess die alten Zeilen sichtbar
+                widget.setParent(None)
+                widget.deleteLater()
+        project = self._project
+        if project is None or project.topology.is_imported:
+            self._workflow_group.setVisible(False)
+            return
+        errors, warnings = self._problem_counts or (None, None)
+        steps = workflow_steps(project, errors, warnings)
+        upcoming = next_step(steps)
+        for row, step in enumerate(steps):
+            is_next = step is upcoming
+            number = QLabel(f"{step.number}")
+            number.setStyleSheet(f"font-weight: bold; color: {COLOR_OK if is_next else TEXT_MUTED};")
+            layout.addWidget(number, row, 0, Qt.AlignTop)
+            text = QLabel(f"<b>{step.title}</b>"
+                          + ("  ← nächster Schritt" if is_next else "")
+                          + f"<br><span style='color:{TEXT_MUTED};'>{step.description}</span>")
+            text.setWordWrap(True)
+            layout.addWidget(text, row, 1)
+            state = QLabel(" · ".join(p for p in (step.state, step.detail) if p))
+            state.setWordWrap(True)
+            color = self._STATE_COLORS.get(step.state, TEXT_MUTED)
+            state.setStyleSheet(f"color: {color};" + (" font-weight: bold;" if is_next else ""))
+            layout.addWidget(state, row, 2, Qt.AlignTop)
+            button = QPushButton("Öffnen")
+            button.setObjectName("" if is_next else "secondary")
+            button.clicked.connect(lambda _c=False, key=step.nav_key: self.navigate_requested.emit(key))
+            layout.addWidget(button, row, 3, Qt.AlignTop)
+        self._workflow_group.setVisible(True)
 
     def _edit_properties(self):
         """Öffnet den Projekteigenschaften-Dialog."""

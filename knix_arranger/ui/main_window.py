@@ -383,6 +383,7 @@ class MainWindow(QMainWindow):
         # Views erstellen
         self._overview = ProjectOverview()
         self._overview.project_name_changed.connect(self._on_project_name_changed)
+        self._overview.navigate_requested.connect(self._navigate_from_overview)
         self._building_view = BuildingView()
         self._building_view.structure_changed.connect(self._bus.emit_building_changed)
         self._topology_view = TopologyView()
@@ -499,6 +500,13 @@ class MainWindow(QMainWindow):
     def _create_status_bar(self):
         self._status_bar = KnxStatusBar()
         self.setStatusBar(self._status_bar)
+
+    def _navigate_from_overview(self, key: str) -> None:
+        """Arbeitsablauf der Übersicht: Ansicht öffnen und in der Seitenleiste
+        markieren; Wizard, Export und Berichte sind Aktionen."""
+        if key not in ("wizard", "export", "reports"):
+            self._sidebar.select(key)
+        self._navigate(key)
 
     def _navigate(self, key: str):
         """Navigiert zu einer Ansicht."""
@@ -945,6 +953,7 @@ class MainWindow(QMainWindow):
         except Exception:
             logger.exception("Prüfung auf neue Probleme fehlgeschlagen")
             return
+        self._overview.set_problem_counts(self._problems.counts())
         if not new:
             return
         errors = sum(1 for i in new if i.level == "error")
@@ -995,6 +1004,7 @@ class MainWindow(QMainWindow):
         self._saved_fingerprint = self._project.content_fingerprint() if self._project else ""
         # Frisch geladenes Projekt: vorhandene Probleme nicht als neu melden
         self._problems.adopt(self._project)
+        self._overview.set_problem_counts(self._problems.counts())
 
     def _has_unsaved_changes(self) -> bool:
         """Dirty-Flag ODER geänderter Inhalt -- nicht jede Ansicht meldet ihre
