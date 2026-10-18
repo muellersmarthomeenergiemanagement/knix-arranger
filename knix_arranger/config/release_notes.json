@@ -2,6 +2,17 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.7",
+      "date": "2026-10-18",
+      "neu": [
+        "Übersicht: Arbeitsablauf nach dem Wizard mit Stand je Schritt – Bauherren-Beratung, Szenen, Materialliste, DALI, Validierung, Export an die ETS, Berichte. Der nächste Schritt ist hervorgehoben, «Öffnen» springt direkt dorthin.",
+        "Szenen-Verwaltung: gleiche Szenennummern, die am selben Aktor ankommen, sind im Baum markiert und in den Details erklärt; «Freie Nummer wählen» setzt eine Nummer, die am Aktor frei ist."
+      ],
+      "behoben": [
+        "Übersicht: die Karte «Validierungsprobleme» zeigte immer 0."
+      ]
+    },
+    {
       "version": "1.4.6",
       "date": "2026-10-18",
       "verbessert": [
