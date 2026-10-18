@@ -26,13 +26,15 @@ from ...services.scene_detection_service import detect_scenes
 from ...services.scene_value_linking import (
     link_scene_values, link_scene_triggers, link_scene_names,
 )
-from ...services.scene_numbering import suggest_scene_number
+from ...services.scene_numbering import action_targets, suggest_scene_number
+from ...services.scene_numbering import _context as numbering_context
 from ...services.scene_addressing import (
     build_scope_label_lookup, group_named_scenes, is_bound_scene, scene_group_key,
     canonical_zone_id, normalize_scene_scopes, zone_choices,
 )
 from ...services.scene_overview import (
-    SceneAddress, build_scene_overview, linked_devices, scope_text,
+    SceneAddress, build_scene_overview, linked_devices, scene_trigger_index,
+    scene_triggers, scope_text,
 )
 from ..column_utils import fit_columns
 
@@ -59,6 +61,8 @@ class SceneView(QWidget):
         self._project: KnxProject | None = None
         self._templates: list[dict] = []
         self._overview = None
+        self._trigger_index: dict[str, list[str]] = {}
+        self._numbering_ctx = None      # Aktor-Kanäle je GA, beim Neuaufbau verworfen
         self._load_templates()
 
         layout = QVBoxLayout(self)
@@ -226,11 +230,21 @@ class SceneView(QWidget):
         )
         detail_form.addRow("Szenen-Adresse:", self._scene_address)
 
+        # Taster, die die Szene laut Tastenbelegung (Schritt 8) aufrufen
+        self._scene_buttons = QLabel()
+        self._scene_buttons.setWordWrap(True)
+        self._scene_buttons.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        detail_form.addRow("Ausgelöst durch:", self._scene_buttons)
+
         self._scene_trigger = QLineEdit()
         self._scene_trigger.setPlaceholderText(
-            "z.B. Taster Eingang, Taste 4 lang"
+            "z.B. Visualisierung, Zeitschaltuhr, Taster Eingang Taste 4 lang"
         )
-        detail_form.addRow("Auslöser:", self._scene_trigger)
+        self._scene_trigger.setToolTip(
+            "Weitere Auslöser als Notiz. Taster mit der Bedienart «Szene abrufen» "
+            "(Schritt 8) erscheinen automatisch unter «Ausgelöst durch»."
+        )
+        detail_form.addRow("Weitere Auslöser:", self._scene_trigger)
 
         self._btn_apply = QPushButton("Übernehmen")
         self._btn_apply.clicked.connect(self._apply_changes)
@@ -244,10 +258,14 @@ class SceneView(QWidget):
         actions_layout = QVBoxLayout()
 
         self._actions_table = QTableWidget()
-        self._actions_table.setColumnCount(4)
+        self._actions_table.setColumnCount(5)
         self._actions_table.setHorizontalHeaderLabels([
             "Gruppenadresse / Gewerk", "Adresse", "Wert", "Verzögerung (s)",
+            "Programmiert auf",
         ])
+        self._actions_table.horizontalHeaderItem(4).setToolTip(
+            "Aktor bzw. Gateway mit Kanal, in dem der Wert der Szene "
+            "parametriert wird (aus Belegungsplan bzw. KO-Verknüpfung).")
         self._actions_table.setEditTriggers(
             QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
         )
@@ -339,6 +357,8 @@ class SceneView(QWidget):
             return
 
         self._overview = build_scene_overview(self._project)
+        self._trigger_index = scene_trigger_index(self._project, snapshot=False)
+        self._numbering_ctx = None
         labels = build_scope_label_lookup(self._project.areal)
         target_item = None
 
@@ -373,10 +393,16 @@ class SceneView(QWidget):
             source = _SOURCE_LABELS.get(scene.detection_kind, "")
             if is_bound_scene(scene):
                 source = f"Manuell → {', '.join(scene.source_ga_addresses)}"
+            triggers = scene_triggers(scene, self._trigger_index)
             item = QTreeWidgetItem(parent, [
-                scene.name, str(scene.scene_number or ""), scene.trigger,
+                scene.name, str(scene.scene_number or ""),
+                "; ".join(triggers) if triggers else "kein Auslöser",
                 str(len(scene.actions)), source,
             ])
+            if not triggers:
+                item.setForeground(2, _COLOR_HINT)
+            if len(triggers) > 1:
+                item.setToolTip(2, "\n".join(triggers))
             item.setData(0, _ROLE, ("scene", scene))
             if select is scene:
                 target_item = item
@@ -546,6 +572,11 @@ class SceneView(QWidget):
         self._scene_name.setText(scene.name)
         self._scene_number.setValue(max(1, scene.scene_number))
         self._scene_trigger.setText(scene.trigger)
+        buttons = self._trigger_index.get(scene.id, [])
+        self._scene_buttons.setText(
+            "\n".join(buttons) if buttons else
+            "kein Taster – in Schritt 8 eine Taste mit der Bedienart "
+            "«Szene abrufen» belegen")
 
         # Verschieben nur bei selbst angelegten Szenen; erkannte gehören zu
         # ihrer importierten Adresse
@@ -577,8 +608,20 @@ class SceneView(QWidget):
             self._actions_table.setItem(i, 1, QTableWidgetItem(action.ga_address))
             self._actions_table.setItem(i, 2, QTableWidgetItem(action.value))
             self._actions_table.setItem(i, 3, QTableWidgetItem(str(action.delay_seconds)))
+            self._actions_table.setItem(i, 4, self._target_item(action))
         self._actions_table.blockSignals(False)
         fit_columns(self._actions_table)
+
+    def _target_item(self, action: SceneAction) -> QTableWidgetItem:
+        """Nicht editierbare Zelle: Aktor/Gateway-Kanäle der Aktion."""
+        if self._numbering_ctx is None:
+            self._numbering_ctx = numbering_context(self._project)
+        targets = action_targets(self._project, action, self._numbering_ctx)
+        item = QTableWidgetItem("\n".join(t.label for t in targets) or "– kein Aktor zugeordnet")
+        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+        if not targets:
+            item.setForeground(_COLOR_HINT)
+        return item
 
     def _on_action_item_changed(self, item: QTableWidgetItem):
         """Schreibt eine per Doppelklick bearbeitete Aktions-Zelle zurueck in
@@ -592,10 +635,14 @@ class SceneView(QWidget):
             return
         action = scene.actions[row]
         text = item.text().strip()
-        if col == 0:
-            action.group_address = text
-        elif col == 1:
-            action.ga_address = text
+        if col in (0, 1):
+            if col == 0:
+                action.group_address = text
+            else:
+                action.ga_address = text
+            self._actions_table.blockSignals(True)
+            self._actions_table.setItem(row, 4, self._target_item(action))
+            self._actions_table.blockSignals(False)
         elif col == 2:
             action.value = text
         elif col == 3:

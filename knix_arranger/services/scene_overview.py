@@ -213,3 +213,66 @@ def scope_text(scene, label_lookup: dict) -> str:
     if scene.scope_id:
         text += f": {label_lookup.get(scene.scope_id, scene.scope_id)}"
     return text
+
+
+def resolve_legacy_scene_id(candidates: list) -> str:
+    """Fallback für SensorFunktionen aus der Zeit vor scene_id: 'candidates'
+    sind alle Szenen, die sich denselben Szenenaufruf-Kanal (sf.ga_designation)
+    teilen. Nur bei genau einer Szene auf dem Kanal ist die Zuordnung sicher.
+    Bewusst kein Text-Abgleich auf sf.label bei mehreren Kandidaten: die Szenen
+    eines Kanals heissen oft ähnlich ("Anwesend"/"Abwesend") – ein falscher
+    Treffer wäre eine stille Falschaussage, schlimmer als eine fehlende Zeile.
+    Die Schritt-8-UI markiert mehrdeutige Fälle zum manuellen Neusetzen."""
+    return candidates[0].id if len(candidates) == 1 else ""
+
+
+def scene_trigger_index(project, snapshot: bool = True) -> dict[str, list[str]]:
+    """scene.id -> Klartext aller Taster/Bedienelemente, die die Szene per
+    SensorFunktion (bedienart "Szene abrufen", Schritt 8) aufrufen, z.B.
+    "Raum E01 Wohnen, Taster 1.1.5, Taste 3". Im Unterschied zu Scene.trigger
+    (freies Notizfeld) die tatsächlich konfigurierte Zuordnung – auch mehrere
+    Taster je Szene. Gemeinsam für Szenen-Verwaltung und Szenenreport.
+
+    snapshot=False liest die Tastenbelegung direkt aus dem Projekt (Anzeige;
+    sie ist nach jeder Änderung aktuell) statt aus einer frisch abgeleiteten
+    Kopie (Berichte)."""
+    from .scene_addressing import scene_target_designation
+    from .sensor_service import project_for_export
+    label_lookup = build_scope_label_lookup(project.areal)
+    scenes_by_channel: dict[str, list] = {}
+    for s in project.scenes:
+        if not s.name or s.is_detected:
+            continue
+        designation = scene_target_designation(s, label_lookup, project.group_addresses)
+        scenes_by_channel.setdefault(designation, []).append(s)
+
+    # Tastennummern aus einer Kopie mit aktueller Tastenbelegung – liest nur
+    # (siehe sensor_service.project_for_export)
+    index: dict[str, list[str]] = {}
+    for room in (project_for_export(project) if snapshot else project).all_rooms:
+        for be in room.bedienelemente:
+            if be.suppressed:
+                continue
+            for sf in be.funktionen:
+                scene_id = sf.scene_id
+                if not scene_id and sf.bedienart == "Szene abrufen" and sf.ga_designation:
+                    scene_id = resolve_legacy_scene_id(
+                        scenes_by_channel.get(sf.ga_designation, []))
+                if not scene_id:
+                    continue
+                button = next((fa.button_channel for fa in be.function_assignments
+                               if fa.sf_id == sf.id and fa.button_channel), "")
+                addr = be.participant_number or "(keine Adresse)"
+                parts = [f"Raum {room.number} {room.name}", f"Taster {addr}"]
+                if button:
+                    parts.append(button)
+                index.setdefault(scene_id, []).append(", ".join(parts))
+    return index
+
+
+def scene_triggers(scene, trigger_index: dict[str, list[str]]) -> list[str]:
+    """Auslöser einer Szene: konfigurierte Taster, danach die Einträge des
+    Notizfelds Scene.trigger (durch "; " getrennt), ohne Doppelte."""
+    lines = list(trigger_index.get(scene.id, []))
+    lines += [t for t in (scene.trigger or "").split("; ") if t and t not in lines]
+    return lines

@@ -85,6 +85,7 @@ class _Context:
     ga_by_address: dict
     ga_by_designation: dict
     actors_by_ga: dict            # GA-Adresse -> [(Adresse, Typ)]
+    channels_by_ga: dict          # GA-Adresse -> [(Adresse, Typ, Kanal)]
     overview: object
     label_lookup: dict
     device_by_pa: dict
@@ -95,17 +96,22 @@ def _context(project) -> _Context:
     from .scene_addressing import build_scope_label_lookup
     from .scene_overview import build_scene_overview
     actors: dict[str, list] = {}
+    channels: dict[str, list] = {}
     for row in BelegungsplanService().generate(project).actor_rows:
         if row.ga_address and row.physical_address:
             entry = (row.physical_address, row.actor_type or "")
             if entry not in actors.setdefault(row.ga_address, []):
                 actors[row.ga_address].append(entry)
+            entry = entry + (row.channel_label or "",)
+            if entry not in channels.setdefault(row.ga_address, []):
+                channels[row.ga_address].append(entry)
     devices = {d.physical_address: d for a in project.topology.areas
                for l in a.lines for d in l.devices if d.physical_address}
     return _Context(
         ga_by_address={g.address: g for g in project.group_addresses.all_addresses()},
         ga_by_designation=build_ga_by_designation(project.group_addresses),
         actors_by_ga=actors,
+        channels_by_ga=channels,
         overview=build_scene_overview(project),
         label_lookup=build_scope_label_lookup(project.areal),
         device_by_pa=devices,
@@ -160,6 +166,53 @@ def scene_receivers(project, scene, ctx: _Context | None = None) -> dict[str, st
             key = f"element:{ga.room_id}:{ga.gewerk_code}:{ga.element_number}"
             result[key] = ga.designation.split(" (")[0]
     return result
+
+
+@dataclass
+class ActionTarget:
+    """Ein Aktor- bzw. Gateway-Kanal, auf dem eine Szenen-Aktion programmiert wird."""
+    physical_address: str
+    device: str                 # Gerätetyp oder Produkt, z.B. "Schaltaktor 4-fach"
+    channel: str = ""           # "Kanal A", "Gr. 3", "" = unbekannt
+
+    @property
+    def label(self) -> str:
+        text = " ".join(p for p in (self.physical_address, self.device) if p)
+        return f"{text}, {self.channel}" if self.channel else text
+
+
+def _channel_text(label: str) -> str:
+    return f"Kanal {label}" if label.isdigit() else label
+
+
+def action_targets(project, action, ctx: _Context | None = None) -> list[ActionTarget]:
+    """Aktoren/Gateways mit Kanal, auf denen eine Szenen-Aktion programmiert
+    wird: die Aktor-Kanäle an der Gruppenadresse der Aktion (Belegungsplan),
+    sonst die dort empfangenden Geräte (KO-Verknüpfung importierter
+    Projekte). Leer, wenn die Aktion keine Adresse hat (Gewerk aus einer
+    Vorlage), auf eine Szenen-Adresse zeigt oder kein Aktor bekannt ist."""
+    from .scene_overview import linked_devices
+    ctx = ctx or _context(project)
+    ga = _action_ga(action, ctx)
+    if ga is None or _is_scene_ga(ga):
+        return []
+    targets = [ActionTarget(pa, actor_type, _channel_text(channel))
+               for pa, actor_type, channel in ctx.channels_by_ga.get(ga.address, [])]
+    if targets:
+        return targets
+    for linked in linked_devices(project, ga.address):
+        if not linked.sends:
+            dev = linked.device
+            targets.append(ActionTarget(
+                dev.physical_address, dev.product_name or dev.product or dev.device_type,
+                "KO " + ", ".join(o.split(":")[0] for o in linked.objects)))
+    return targets
+
+
+def scene_action_targets(project, scene, ctx: _Context | None = None) -> list[list[ActionTarget]]:
+    """action_targets je Aktion der Szene, in derselben Reihenfolge."""
+    ctx = ctx or _context(project)
+    return [action_targets(project, a, ctx) for a in scene.actions]
 
 
 def scene_channel(scene, ctx: _Context) -> tuple[str, str]:
@@ -229,12 +282,14 @@ def number_conflicts(project) -> list[NumberConflict]:
 class ActorScene:
     number: int
     scene: object
-    channel: str
+    channel: str                                        # Szenen-Adresse
+    actions: list[str] = field(default_factory=list)    # "Kanal A → Ein"
 
 
 def scenes_by_actor(project) -> dict[str, tuple[str, list[ActorScene]]]:
     """{Aktor-Adresse: (Anzeige, [Szenen nach Nummer])} – nur echte Aktoren
-    (Adresse bekannt), nur Szenen mit Nummer."""
+    und Gateways (Adresse bekannt), nur Szenen mit Nummer. Je Szene die
+    Aktionen, die auf diesem Gerät zu programmieren sind (Kanal → Wert)."""
     scenes = [s for s in project.scenes
               if s.name and s.scene_number > 0 and s.detection_kind != "pattern"]
     if not scenes:
@@ -243,11 +298,24 @@ def scenes_by_actor(project) -> dict[str, tuple[str, list[ActorScene]]]:
     result: dict[str, tuple[str, list[ActorScene]]] = {}
     for scene in scenes:
         _key, shown = scene_channel(scene, ctx)
-        for key, label in scene_receivers(project, scene, ctx).items():
+        per_device: dict[str, list[str]] = {}
+        labels: dict[str, str] = {}
+        for action, targets in zip(scene.actions, scene_action_targets(project, scene, ctx)):
+            for target in targets:
+                labels.setdefault(target.physical_address,
+                                  " ".join(p for p in (target.device, target.physical_address) if p))
+                text = " → ".join(p for p in (target.channel, action.value) if p) or "–"
+                if text not in per_device.setdefault(target.physical_address, []):
+                    per_device[target.physical_address].append(text)
+        receivers = scene_receivers(project, scene, ctx)
+        for key, label in labels.items():
+            receivers.setdefault(key, label)
+        for key, label in receivers.items():
             if key.startswith("element:"):
                 continue
             entry = result.setdefault(key, (label, []))
-            entry[1].append(ActorScene(scene.scene_number, scene, shown))
+            entry[1].append(ActorScene(scene.scene_number, scene, shown,
+                                       per_device.get(key, [])))
     for _label, items in result.values():
         items.sort(key=lambda a: (a.number, a.scene.name or ""))
     return result

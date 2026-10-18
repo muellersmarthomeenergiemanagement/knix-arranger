@@ -25,7 +25,7 @@ from ..services.belegungsplan_service import (
     BelegungsplanService, build_ga_by_designation, _lookup_ga_by_function_ga,
 )
 from ..services.dpt_suggestion import dpt_number
-from ..services.scene_addressing import build_scope_label_lookup, scene_target_designation
+from ..services.scene_addressing import build_scope_label_lookup
 from ..services.co_linking_service import CoLinkingService
 from ..services.channel_count_service import count_controlled_elements
 from ..services.naming_engine import NamingEngine
@@ -1885,68 +1885,10 @@ class ReportService:
                 categories.add(gewerk.category)
         return categories
 
-    @staticmethod
-    def _resolve_legacy_scene_id(sf, candidates: list) -> str:
-        """Fallback fuer SensorFunktionen aus der Zeit vor scene_id (siehe
-        _scene_trigger_buttons_index): 'candidates' sind alle Szenen, die sich
-        denselben Szenenaufruf-Kanal (sf.ga_designation) teilen. Nur bei genau
-        einer Szene auf dem Kanal ist die Zuordnung sicher eindeutig. Bewusst
-        KEIN Text-Abgleich auf sf.label als Fallback bei mehreren Kandidaten:
-        die Szenen eines Kanals teilen sich oft aehnlich klingende Namen
-        (z.B. "Anwesend"/"Abwesend") -- ein falscher Treffer waere im
-        Bauherren-Report eine stille, schwer bemerkbare Falschaussage, was
-        schlimmer ist als eine fehlende Zeile. Mehrdeutige Faelle bleiben
-        unaufgeloest; die Schritt-8-UI markiert sie zum manuellen Neusetzen."""
-        if len(candidates) == 1:
-            return candidates[0].id
-        return ""
-
     def _scene_trigger_buttons_index(self) -> dict[str, list[str]]:
-        """scene.id -> Liste Klartext-Bezeichnungen aller Taster/Bedienelemente,
-        die diese Szene per SensorFunktion (bedienart='Szene abrufen', Schritt 8)
-        aufrufen. Im Unterschied zu Scene.trigger (freies Notizfeld) ist das die
-        tatsaechlich im Projekt konfigurierte Zuordnung -- erlaubt insbesondere
-        mehrere Taster pro Szene, was ein einzelnes Freitextfeld nicht robust
-        abbilden kann."""
-        label_lookup = build_scope_label_lookup(self.project.areal)
-        scenes_by_channel: dict[str, list] = {}
-        for s in self.project.scenes:
-            if not s.name or s.is_detected:
-                continue
-            designation = scene_target_designation(
-                s, label_lookup, self.project.group_addresses
-            )
-            scenes_by_channel.setdefault(designation, []).append(s)
-
-        # Tastennummern aus einer Kopie mit aktueller Tastenbelegung -- der
-        # Bericht liest nur (siehe sensor_service.project_for_export)
-        from .sensor_service import project_for_export
-        index: dict[str, list[str]] = {}
-        for room in project_for_export(self.project).all_rooms:
-            for be in room.bedienelemente:
-                if be.suppressed:
-                    continue
-                for sf in be.funktionen:
-                    scene_id = sf.scene_id
-                    if not scene_id and sf.bedienart == "Szene abrufen" and sf.ga_designation:
-                        # Vor Einfuehrung von scene_id angelegte Zuweisung --
-                        # bestmoeglich nachtraeglich aufloesen (siehe oben).
-                        scene_id = self._resolve_legacy_scene_id(
-                            sf, scenes_by_channel.get(sf.ga_designation, [])
-                        )
-                    if not scene_id:
-                        continue
-                    button = next(
-                        (fa.button_channel for fa in be.function_assignments
-                         if fa.sf_id == sf.id and fa.button_channel),
-                        "",
-                    )
-                    addr = be.participant_number or "(keine Adresse)"
-                    parts = [f"Raum {room.number} {room.name}", f"Taster {addr}"]
-                    if button:
-                        parts.append(button)
-                    index.setdefault(scene_id, []).append(", ".join(parts))
-        return index
+        """scene.id -> Taster, die die Szene aufrufen (scene_overview.scene_trigger_index)."""
+        from .scene_overview import scene_trigger_index
+        return scene_trigger_index(self.project)
 
     def generate_szenen_report(self, filepath: str):
         """Erzeugt den Szenenreport als PDF (FA-1811).
@@ -1964,7 +1906,10 @@ class ReportService:
         erkannte Szenen-Adressen (zur Fehlersuche) und geplante Szenen, deren
         Adresse noch nicht generiert ist. PDF-Lesezeichen: Abschnitt → Adresse.
         """
-        from .scene_overview import build_scene_overview, linked_devices, scope_text
+        from .scene_overview import (
+            build_scene_overview, linked_devices, scene_triggers, scope_text,
+        )
+        from .scene_numbering import _context, scene_action_targets, scenes_by_actor
 
         title = "Szenenreport"
         pdf = self._make_pdf(title)
@@ -1992,6 +1937,7 @@ class ReportService:
         }
         proposals = CoLinkingService().generate_proposals(self.project)
         trigger_buttons_index = self._scene_trigger_buttons_index()
+        numbering_ctx = _context(self.project)
         # Tatsaechlich zugewiesene Gewerke je Geraet aus den Belegungsplan-
         # Zeilen (NICHT die Typ-Faehigkeitsmenge eines "Schaltaktor").
         gewerke_by_device_addr: dict[str, set[str]] = {}
@@ -2003,17 +1949,21 @@ class ReportService:
         planned = [g for g in overview.addresses if g.planned]
 
         def triggers(scene) -> str:
-            lines = list(trigger_buttons_index.get(scene.id, []))
-            lines += [t for t in (scene.trigger or "").split("; ") if t and t not in lines]
-            return "\n".join(lines) or "–"
+            return "\n".join(scene_triggers(scene, trigger_buttons_index)) or "–"
 
         def actions(scene, ga=None) -> str:
+            """Je Aktion der Text und darunter, auf welchem Aktor/Gateway-Kanal
+            sie programmiert wird."""
             # Verweis der Szene auf ihre eigene Szenen-Adresse ist keine Aktion
             own = {ga.address, _clean(ga.designation)} if ga else set()
-            return "\n".join(
-                _clean_location(self._scene_action_label(a)) for a in scene.actions
-                if a.ga_address not in own and _clean(a.group_address) not in own
-            ) or "–"
+            lines = []
+            for a, targets in zip(scene.actions,
+                                  scene_action_targets(self.project, scene, numbering_ctx)):
+                if a.ga_address in own or _clean(a.group_address) in own:
+                    continue
+                lines.append(_clean_location(self._scene_action_label(a)))
+                lines += [f"    auf {t.label}" for t in targets]
+            return "\n".join(lines) or "–"
 
         def scene_name(scene, group) -> str:
             """'Anwesendheit Chalet – Szene 1' -> 'Szene 1' (Adressname steht im Kopf)."""
@@ -2102,7 +2052,7 @@ class ReportService:
                                             "17.001 (bzw. 18.001) erwartet.")
                 if group.scenes:
                     pdf.add_table(
-                        ["Nr.", "Szene", "Ausgelöst durch", "Aktionen"],
+                        ["Nr.", "Szene", "Ausgelöst durch", "Aktionen (programmiert auf)"],
                         [[str(s.scene_number or "–"), scene_name(s, group), triggers(s),
                           actions(s, ga)] for s in group.scenes],
                         col_widths=[0.06, 0.22, 0.32, 0.40],
@@ -2133,18 +2083,19 @@ class ReportService:
                         pdf.add_note("Betroffene Gewerke (bestätigt durch Aktor-Verknüpfung):",
                                      "noch keine Aktoren verknüpft")
 
-        # ── Szenen je Aktor (FA-1815) ────────────────────────────────────────
-        from .scene_numbering import scenes_by_actor
+        # ── Szenen je Aktor/Gateway (FA-1815) ────────────────────────────────
         per_actor = scenes_by_actor(self.project)
         if per_actor:
             pdf.add_page_break()
-            pdf.add_heading("Szenen je Aktor", level=2)
+            pdf.add_heading("Szenen je Aktor/Gateway", level=2)
             pdf.add_note(
                 "Parametrierung:",
-                "Ein Aktor unterscheidet nicht, über welche Szenen-Adresse eine Nummer "
-                "kommt. Je Aktor die Szenennummern, die bei ihm ankommen – so in der "
-                "ETS parametrieren. «doppelt» = dieselbe Nummer von verschiedenen "
-                "Szenen: der Aktor kann sie nicht unterscheiden.")
+                "Die Szene wird im Aktor bzw. Gateway programmiert: je Gerät die "
+                "Szenennummern, die bei ihm ankommen, und je Kanal der Wert. Das "
+                "Szenenobjekt mit der Szenen-Adresse verbinden. Ein Aktor "
+                "unterscheidet nicht, über welche Szenen-Adresse eine Nummer kommt. "
+                "«doppelt» = dieselbe Nummer von verschiedenen Szenen: der Aktor "
+                "kann sie nicht unterscheiden.")
             rows, groups = [], []
             for index, pa in enumerate(sorted(per_actor, key=physical_address_key)):
                 label, items = per_actor[pa]
@@ -2154,13 +2105,16 @@ class ReportService:
                         label if i == 0 else "",
                         str(item.number),
                         _clean(item.scene.name),
+                        "\n".join(item.actions) or "–",
                         _clean(item.channel),
                         "doppelt" if numbers.count(item.number) > 1 else "",
                     ])
                     groups.append(index)
-            pdf.add_table(["Aktor", "Nr.", "Szene", "Szenen-Adresse", "Prüfen"], rows,
-                          col_widths=[0.23, 0.05, 0.22, 0.42, 0.08],
-                          align=["left", "right", "left", "left", "left"], groups=groups)
+            pdf.add_table(["Aktor/Gateway", "Nr.", "Szene", "Kanal → Wert",
+                           "Szenen-Adresse", "Prüfen"], rows,
+                          col_widths=[0.20, 0.05, 0.18, 0.20, 0.29, 0.08],
+                          align=["left", "right", "left", "left", "left", "left"],
+                          groups=groups)
 
         # ── Szenen der Visualisierung ────────────────────────────────────────
         if overview.visu:
@@ -2210,7 +2164,8 @@ class ReportService:
                 "Für diese Szenen ist noch keine Szenen-Adresse generiert – in "
                 "Schritt 10 des Wizards ('Gruppenadressen generieren') aktualisieren.")
             pdf.add_table(
-                ["Nr.", "Szene", "Künftige Adresse", "Ausgelöst durch", "Aktionen"],
+                ["Nr.", "Szene", "Künftige Adresse", "Ausgelöst durch",
+                 "Aktionen (programmiert auf)"],
                 [[str(s.scene_number or "–"), s.name, g.designation, triggers(s), actions(s)]
                  for g in planned for s in g.scenes],
                 col_widths=[0.06, 0.20, 0.20, 0.24, 0.30],

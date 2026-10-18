@@ -17,7 +17,7 @@ from knix_arranger.models.project import KnxProject, ProjectConfig
 from knix_arranger.models.scene import Scene, SceneAction
 from knix_arranger.services.recalc_service import RecalcService
 from knix_arranger.services.scene_numbering import (
-    DEFAULT_RANGES, number_conflicts, scene_level, scene_range_problem,
+    DEFAULT_RANGES, action_targets, number_conflicts, scene_level, scene_range_problem,
     scene_ranges, scenes_by_actor, suggest_scene_number,
 )
 from knix_arranger.services.topology_engine import TopologyEngine
@@ -159,6 +159,63 @@ def test_scenes_by_actor(gewerk_catalog):
     label, items = next(iter(per_actor.values()))
     assert "1." in label                           # Aktor mit Adresse
     assert [(a.number, a.scene.name) for a in items] == [(1, "Abend"), (41, "Alles aus")]
+
+
+def test_action_programmed_on_actor_channel(gewerk_catalog):
+    """Je Aktion: auf welchem Aktor-Kanal der Szenenwert parametriert wird."""
+    project, wohnen, _kueche, _apt = _project(gewerk_catalog)
+    licht = _licht(project, wohnen)
+    scene = _scene("Abend", 1, "room", wohnen.id, licht, "licht")
+    targets = action_targets(project, scene.actions[0])
+    assert len(targets) == 1
+    assert targets[0].physical_address.startswith("1.")
+    assert targets[0].channel                      # Kanal bekannt
+    assert targets[0].physical_address in targets[0].label
+    assert action_targets(project, scene.actions[1]) == []   # nur Gewerk, keine GA
+
+    project.scenes = [scene]
+    label, items = next(iter(scenes_by_actor(project).values()))
+    assert items[0].actions == [f"{targets[0].channel} → Ein"]
+
+
+def test_report_shows_actor_per_action(gewerk_catalog, tmp_path):
+    import fitz
+    from knix_arranger.services.report_service import ReportService
+    project, wohnen, _kueche, _apt = _project(gewerk_catalog)
+    project.scenes = [_scene("Abend", 1, "room", wohnen.id, _licht(project, wohnen))]
+    target = action_targets(project, project.scenes[0].actions[0])[0]
+    path = tmp_path / "szenen.pdf"
+    ReportService(project).generate_szenen_report(str(path))
+    with fitz.open(path) as doc:
+        text = " ".join(" ".join(p.get_text() for p in doc).split())
+    assert "programmiert auf" in text
+    assert "Szenen je Aktor/Gateway" in text
+    assert f"auf {target.physical_address}" in text
+
+
+def test_scene_view_shows_triggers_and_actor(gewerk_catalog):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from knix_arranger.models.building import Bedienelement, SensorFunktion
+    from knix_arranger.ui.views.scene_view import SceneView
+    QApplication.instance() or QApplication([])
+    project, wohnen, _kueche, _apt = _project(gewerk_catalog)
+    scene = _scene("Abend", 1, "room", wohnen.id, _licht(project, wohnen))
+    project.scenes = [scene]
+    wohnen.bedienelemente.append(Bedienelement(
+        element_type="Tastereinheit", product_name="Taster Sofa", is_auto=False,
+        participant_number="1.1.20",
+        funktionen=[SensorFunktion(label="Abend", ga_designation="x",
+                                   bedienart="Szene abrufen", scene_id=scene.id)]))
+    view = SceneView()
+    view.set_project(project)
+    view._select_scene(scene)
+    item = view._tree.currentItem()
+    # Adresse des Tasters aus der Topologie (FA-1404), nicht die eingetragene
+    assert item.text(2).startswith("Raum E01 Wohnen, Taster 1.1.")
+    assert view._scene_buttons.text() == item.text(2)
+    target = action_targets(project, scene.actions[0])[0]
+    assert target.physical_address in view._actions_table.item(0, 4).text()
 
 
 @pytest.mark.parametrize("scope", ["room", "apartment", "central"])
