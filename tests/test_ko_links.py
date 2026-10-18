@@ -122,9 +122,11 @@ def test_unparametrized_product_flags_not_counted(monkeypatch):
     import knix_arranger.services.ko_links as ko_links_module
     monkeypatch.setattr(ko_links_module, "links_by_ga", lambda _p: {"1/7/42": links})
     assert _issues(project, "FA-627") == []
-    # Aus der ETS verknüpft: parametrierte Flags, wird gemeldet
+    # Aus der ETS verknüpft (importiert): parametrierte Flags, wird gemeldet
     taster.communication_objects[0].connected_gas = ["1/7/42"]
-    assert not flags_unparametrized(links[1])
+    assert flags_unparametrized(links[1])                  # geplant: CO-Verknüpfung
+    assert not flags_unparametrized(links[1], imported=True)
+    project.topology.is_imported = True
     assert len(_issues(project, "FA-627")) == 1
 
 
@@ -331,3 +333,54 @@ def test_device_message_needs_no_receiver():
     binary = _device("1.1.126", (0, "System", "KL-Ü--", ["3/3/22"]))
     project = _project([binary], [_ga("3/3/22", "System")])
     assert _issues(project, "FA-628") == []
+
+
+def test_planned_link_keeps_product_flags_unparametrized():
+    """Geplant: die CO-Verknüpfung schreibt connected_gas, die Flags bleiben die
+    der Produktdaten («Object 2» mit allen Flags). Importiert: ETS-Stand."""
+    taster = _device("1.1.103", (1, "Object 2", "KLSÜA-", ["1/7/42"]))
+    link = KoLink(taster, taster.communication_objects[0], "1/7/42", True)
+    assert flags_unparametrized(link)
+    assert not flags_unparametrized(link, imported=True)
+
+
+def test_edit_flags_in_topology():
+    from unittest.mock import patch
+    from knix_arranger.ui.dialogs import ko_flags_dialog
+    from knix_arranger.ui.views.topology_view import TopologyView, _FLAG_LINKS_ROLE
+    actor = _device("1.1.10", (2, "Ist-Temperatur", "KLU", ["2/2/41"]))
+    sensor = _device("1.1.113", (70, "Raumtemperatur", "KL-Ü--", ["2/2/41"]))
+    project = _project([actor, sensor], [_ga("2/2/41", "IST")])
+    project.topology.is_imported = False
+    assert len(_issues(project, "FA-627")) == 1
+    view = TopologyView()
+    view.set_project(project)
+    view._tree.expandAll()
+    it = QTreeWidgetItemIterator(view._tree)
+    links = None
+    while it.value():
+        found = it.value().data(4, _FLAG_LINKS_ROLE)
+        if found and found[0].device is actor:
+            links = found
+        it += 1
+    assert links
+
+    real = ko_flags_dialog.KoFlagsDialog
+
+    class Dialog:
+        def __init__(self, device, co, parent=None):
+            self._real = real(device, co, parent)
+            self._real._boxes[READ].setChecked(False)
+            self._real._boxes[TRANSMIT].setChecked(False)
+            self._real._boxes[WRITE].setChecked(True)
+
+        def exec(self):
+            return True
+
+        def flags_text(self):
+            return self._real.flags_text()
+
+    with patch.object(ko_flags_dialog, "KoFlagsDialog", Dialog):
+        view._edit_flags(links[0])
+    assert actor.communication_objects[0].flags == "K-S---"     # «KLU»: L, Ü weg, S dazu
+    assert _issues(project, "FA-627") == []

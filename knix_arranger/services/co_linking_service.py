@@ -68,7 +68,8 @@ _FUNCTION_MAP: dict[str, list[tuple[str, str, str, str]]] = {
     "SPERREN":              [("Sperren",                "DPST-1-1",    "KSUA", "empfangen")],
     # Heizung
     "STELLGROESSE":         [("Stellgroesse",           "DPST-5-1",    "KSUA", "empfangen")],
-    "IST":                  [("Ist-Temperatur",         "DPST-9-1",    "KLU",  "senden")],
+    # Der Aktor (Regler im Aktor) empfängt die Ist-Temperatur, z.B. vom Taster
+    "IST":                  [("Ist-Temperatur",         "DPST-9-1",    "KSA",  "empfangen")],
     "BASIS-SOLL":           [("Basis-Sollwert",         "DPST-9-1",    "KSUA", "empfangen")],
     "RM AKTUELLER SOLLWERT": [("Akt. Sollwert",         "DPST-9-1",    "KLU",  "senden")],
     "UMSCHALTEN BETRIEBSART": [("Betriebsart",          "DPST-20-102", "KSUA", "empfangen")],

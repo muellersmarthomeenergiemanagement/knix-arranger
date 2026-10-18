@@ -100,14 +100,15 @@ def _is_placeholder(co) -> bool:
 _GENERIC_NAME = re.compile(r"(object|objekt|go)\s*\d+", re.IGNORECASE)
 
 
-def flags_unparametrized(link) -> bool:
+def flags_unparametrized(link, imported: bool = False) -> bool:
     """Flags stammen aus Produktdaten und sind offensichtlich nicht
     parametriert: Platzhalter-KO oder Objekt ohne Namen («Object 2») mit
     vollem Flag-Satz K L S Ü. Die echten Flags entstehen erst durch die
-    Parametrierung in der ETS (Feller EDIZIOdue). Verknüpfungen aus einem
-    ETS-Import (connected_gas) tragen die parametrierten Flags und zählen nie
-    als unparametriert."""
-    if link.co.connected_gas:
+    Parametrierung in der ETS (Feller EDIZIOdue). Verknüpfungen eines
+    importierten Projekts (connected_gas aus der ETS) tragen die
+    parametrierten Flags; in geplanten Projekten schreibt auch die
+    CO-Verknüpfung connected_gas, die Flags bleiben die der Produktdaten."""
+    if imported and link.co.connected_gas:
         return False
     return unparametrized_co(link.co)
 

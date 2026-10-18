@@ -38,12 +38,18 @@ from ..tree_select import select_tree_item
 from ...services.ko_links import flags_text, flags_unparametrized, ko_links
 from ...services.product_capabilities import device_capabilities, plan_conflicts
 
+# Spalte Details: die KoLinks der Zeile, für «Flags bearbeiten…»
+_FLAG_LINKS_ROLE = Qt.UserRole + 1
+
 _FLAG_LEGEND = ("K Kommunikation · L Lesen (beantwortet Leseanfragen) · S Schreiben "
                 "(empfängt) · Ü Übertragen (sendet) · A Aktualisieren · I Lesen bei Init")
 
 
-def _set_flags(item: QTreeWidgetItem, column: int, dpt: str, links: list) -> None:
+def _set_flags(item: QTreeWidgetItem, column: int, dpt: str, links: list,
+               imported: bool = False) -> None:
     """Flags der KOs an dieser GA in die Spalte, Erklärung im Tooltip (FA-627)."""
+    if links:
+        item.setData(column, _FLAG_LINKS_ROLE, links)
     texts = list(dict.fromkeys(flags_text(l.co.flags) for l in links if flags_text(l.co.flags)))
     if not texts:
         return
@@ -53,11 +59,13 @@ def _set_flags(item: QTreeWidgetItem, column: int, dpt: str, links: list) -> Non
     lines = [f"KO {l.co.object_number} «{l.co.name or l.co.object_function}»: "
              f"{flags_text(l.co.flags) or '–'}"
              f"{'' if l.sending else '  (hört nur mit, sendet auf eine andere GA)'}"
-             f"{'  – aus Produktdaten, in der ETS parametrieren' if flags_unparametrized(l) else ''}"
+             f"{'  – aus Produktdaten, in der ETS parametrieren' if flags_unparametrized(l, imported) else ''}"
              for l in links]
     if proposed:
         lines.append("Vorschlag: KOs dieses Geräts sind noch nicht zugeordnet "
                      "(Materialliste › «KOs aller Geräte zuordnen»).")
+    if not imported:
+        lines.append("Rechtsklick › «Flags bearbeiten…», wie in der ETS parametriert.")
     item.setToolTip(column, "\n".join(lines + ["", _FLAG_LEGEND]))
 
 # Farben für Infrastruktur-Knoten
@@ -585,7 +593,7 @@ class TopologyView(QWidget):
                     "",
                     r.dpt,
                 ])
-                _set_flags(row_item, 4, r.dpt, self._ko_links.get(
+                self._flags(row_item, 4, r.dpt, self._ko_links.get(
                     (r.physical_address, r.ga_address), []))
 
     def _add_channel_items_from_cos(self, dev_item: QTreeWidgetItem, device: Device,
@@ -634,7 +642,7 @@ class TopologyView(QWidget):
                     ])
                     ko_item.setData(0, _ROLE_DATA,
                                     ("ko_ga", device, co.object_number, ga_addr))
-                    _set_flags(ko_item, 4, ga_obj.datapoint_type if ga_obj else "", [
+                    self._flags(ko_item, 4, ga_obj.datapoint_type if ga_obj else "", [
                         l for l in self._ko_links.get((device.physical_address, ga_addr), [])
                         if l.co.object_number == co.object_number])
 
@@ -655,7 +663,7 @@ class TopologyView(QWidget):
                 f"Messwert{ko}: {ga.designation}", ga.address, "", "", ga.datapoint_type])
             item.setToolTip(0, "Der Taster sendet die Raumtemperatur auf die Ist-Temperatur "
                                "der Heizung (statt eines Raumthermostats).")
-            _set_flags(item, 4, ga.datapoint_type,
+            self._flags(item, 4, ga.datapoint_type,
                        self._ko_links.get((device.physical_address, ga.address), []))
             if co is not None:
                 item.setData(0, _ROLE_DATA, ("ko_ga", device, co.object_number, ga.address))
@@ -724,7 +732,7 @@ class TopologyView(QWidget):
                     fa_item.setData(0, _ROLE_DATA,
                                     ("ko_ga", device, co.object_number, ga_addr))
                 if ga_addr:
-                    _set_flags(fa_item, 4, "", self._ko_links.get(
+                    self._flags(fa_item, 4, "", self._ko_links.get(
                         (device.physical_address, ga_addr), []))
 
     # ── Toolbar-Aktionen ──
@@ -752,6 +760,10 @@ class TopologyView(QWidget):
         if not item:
             return
         data = item.data(0, _ROLE_DATA)
+        flag_links = item.data(4, _FLAG_LINKS_ROLE)
+        if flag_links and (not data or data[0] == "ko_ga"):
+            self._flags_menu(item, data, flag_links, pos)
+            return
         if not data:
             return
 
@@ -849,6 +861,55 @@ class TopologyView(QWidget):
             unlink_act = menu.addAction(f"GA {ga_addr} von diesem KO trennen…")
             if menu.exec(global_pos) == unlink_act:
                 self._unlink_ga(device, co_number, ga_addr)
+
+    def _flags(self, item, column: int, dpt: str, links: list) -> None:
+        _set_flags(item, column, dpt, links,
+                   self._project is not None and self._project.topology.is_imported)
+
+    def _flags_menu(self, item, data, links: list, pos) -> None:
+        """Kontextmenü einer GA-Zeile mit Flags: KO trennen (falls verknüpft)
+        und «Flags bearbeiten…» je KO."""
+        menu = QMenu(self)
+        unlink_act = None
+        if data and data[0] == "ko_ga":
+            unlink_act = menu.addAction(f"GA {data[3]} von diesem KO trennen…")
+        imported = self._project is not None and self._project.topology.is_imported
+        flag_acts = {}
+        cos = {(id(l.device), l.co.object_number): l for l in links}
+        for link in cos.values():
+            name = link.co.name or link.co.object_function
+            act = menu.addAction(
+                f"Flags bearbeiten… ({link.device.physical_address} KO "
+                f"{link.co.object_number} «{name}»)")
+            if imported:
+                act.setEnabled(False)
+                act.setToolTip("Importiert: Flags in der ETS ändern und neu einlesen.")
+            flag_acts[act] = link
+        if imported:
+            menu.setToolTipsVisible(True)
+        action = menu.exec(self._tree.viewport().mapToGlobal(pos))
+        if unlink_act is not None and action == unlink_act:
+            self._unlink_ga(data[1], data[2], data[3])
+        elif action in flag_acts:
+            self._edit_flags(flag_acts[action])
+
+    def _edit_flags(self, link) -> None:
+        """Flags eines KOs wie in der ETS setzen (geplante Projekte): gilt für
+        alle GAs des KOs und für alle Varianten derselben Nummer."""
+        from ..dialogs.ko_flags_dialog import KoFlagsDialog
+        dialog = KoFlagsDialog(link.device, link.co, self)
+        if not dialog.exec():
+            return
+        flags = dialog.flags_text()
+        if self._bus:
+            self._bus.begin_change(
+                f"Flags {link.device.physical_address} KO {link.co.object_number}")
+        for co in link.device.communication_objects:
+            if co.object_number == link.co.object_number:
+                co.flags = flags
+        if self._bus:
+            self._bus.emit_topology_changed()
+        self.set_project(self._project)
 
     def _renumber_participants(self) -> None:
         """Teilnehmernummern aller Linien in Standardreihenfolge (Aktoren nach
