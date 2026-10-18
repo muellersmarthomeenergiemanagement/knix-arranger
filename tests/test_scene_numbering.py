@@ -128,6 +128,43 @@ def test_conflict_shown_in_scene_view_and_free_number(gewerk_catalog):
     assert "Nummernkonflikt" not in view._info.text()
 
 
+def test_uebernehmen_bindet_nicht_an_erzeugten_szenenaufruf(gewerk_catalog):
+    """Projekt_23: «Freie Nummer wählen» band die Studio-Szenen an 0/4/2; die
+    GA-Generierung gab 0/4/2 danach der Wohnung, 0/4/3 fiel weg (FA-623)."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from knix_arranger.services.address_generator import regenerate_addresses
+    from knix_arranger.services.scene_addressing import release_generated_bindings
+    from knix_arranger.ui.views.scene_view import SceneView
+    QApplication.instance() or QApplication([])
+    project, wohnen, kueche, _apt = _project(gewerk_catalog)
+    a = _scene("Abend", 1, "room", wohnen.id)
+    b = _scene("Abend", 1, "room", kueche.id)
+    project.scenes = [a, b]
+    regenerate_addresses(project)
+
+    def channels():
+        return {g.designation: g.address for g in project.group_addresses.all_addresses()
+                if "Szenenaufruf" in g.designation}
+    before = channels()
+    assert len(before) == 2
+    view = SceneView()
+    view.set_project(project)
+    view._select_scene(a)
+    view._scene_number.setValue(2)
+    view._apply_changes()
+    assert a.scene_number == 2 and a.source_ga_addresses == []      # nicht gebunden
+    # Alter Fehler: Bindung an den eigenen Szenenaufruf -- wird gelöst
+    own = next(addr for d, addr in before.items() if "Wohnen" in d)
+    a.source_ga_addresses = [own]
+    a.actions = [SceneAction(group_address="Szenenaufruf Falsch", ga_address=own)]
+    assert release_generated_bindings(project) == 1
+    assert a.source_ga_addresses == [] and a.actions[0].ga_address == ""
+    regenerate_addresses(project)
+    assert channels() == before                                     # Adressen bleiben
+    assert a.actions[0].ga_address == own                           # über die Bezeichnung
+
+
 def test_rooms_on_same_actor_conflict_other_actor_not(gewerk_catalog):
     """Zwei Raumszenen mit Nummer 1: hängen beide Lichter am selben
     Schaltaktor, sieht er zweimal Szene 1 (Konflikt); ohne gemeinsamen

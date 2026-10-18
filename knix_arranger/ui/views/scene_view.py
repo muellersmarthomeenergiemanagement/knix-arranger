@@ -32,6 +32,7 @@ from ...services.scene_numbering import (
 from ...services.scene_numbering import _context as numbering_context
 from ...services.scene_addressing import (
     build_scope_label_lookup, group_named_scenes, is_bound_scene, scene_group_key,
+    is_generated_scene_channel,
     canonical_zone_id, normalize_scene_scopes, zone_choices,
 )
 from ...services.scene_overview import (
@@ -1039,7 +1040,12 @@ class SceneView(QWidget):
             anchor = target.anchor_scene
             if anchor is not None and anchor is not scene:
                 scene.scope, scene.scope_id = anchor.scope, anchor.scope_id
-            scene.source_ga_addresses = [target.ga.address] if target.ga else []
+            # An selbst erzeugte Szenenaufrufe nie binden: ihre Adresse folgt
+            # dem Geltungsbereich (release_generated_bindings); gebunden wird
+            # nur an feste, manuelle oder importierte Szenen-GAs
+            scene.source_ga_addresses = (
+                [target.ga.address]
+                if target.ga and not is_generated_scene_channel(target.ga) else [])
         self._refresh_table(select=scene)
 
     # --- Aktionen-Verwaltung ---

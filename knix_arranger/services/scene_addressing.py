@@ -107,6 +107,48 @@ def is_bound_scene(scene) -> bool:
     return not scene.is_detected and bool(scene.source_ga_addresses)
 
 
+def is_generated_scene_channel(ga) -> bool:
+    """Von KNiX erzeugte Szenenaufruf-GA eines Geltungsbereichs («Szenenaufruf
+    Studio», «ZENTRAL Szenenaufruf»): Funktion SZENE, ohne Gewerk-Element,
+    nicht von Hand angelegt. Ihre Adresse folgt bei jeder GA-Generierung dem
+    Geltungsbereich -- eine Szene bindet man nie an sie (feste
+    Zentraladressen wie «ZENTRAL Anwesenheit Komplex» und Szenen-Eingänge
+    der Gewerk-Elemente schon)."""
+    return (ga is not None and ga.function_name == "SZENE" and not ga.gewerk_code
+            and not ga.is_manual and "Szenenaufruf" in (ga.designation or ""))
+
+
+def release_generated_bindings(project) -> int:
+    """Geplante Szenen, die an eine selbst erzeugte Szenenaufruf-GA gebunden
+    sind, wieder ihrem Geltungsbereich folgen lassen. Früher band
+    «Übernehmen» in der Szenen-Verwaltung jede Szene an ihre aktuelle GA;
+    die nächste GA-Generierung vergab die Adresse dann an einen anderen
+    Geltungsbereich (Projekt_23: Studio-Szenen auf 0/4/2, das danach
+    «Szenenaufruf Wohnung» hiess; 0/4/3 der Wohnung fiel weg). Die Aktion
+    auf die eigene Szenen-Adresse zeigt wieder auf den eigenen Szenenaufruf.
+    Nur geplante Projekte. Gibt die Anzahl gelöster Szenen zurück."""
+    topology = getattr(project, "topology", None)
+    if topology is not None and topology.is_imported:
+        return 0
+    by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+    labels = build_scope_label_lookup(project.areal)
+    released = 0
+    for scene in project.scenes:
+        if scene.is_detected or not scene.source_ga_addresses:
+            continue
+        gas = [by_address.get(a) for a in scene.source_ga_addresses]
+        if not all(is_generated_scene_channel(ga) for ga in gas):
+            continue
+        own = scene_channel_designation(scene_group_key(scene), labels)
+        bound = set(scene.source_ga_addresses)
+        for action in scene.actions:
+            if action.ga_address in bound:
+                action.group_address, action.ga_address = own, ""
+        scene.source_ga_addresses = []
+        released += 1
+    return released
+
+
 def is_callable_scene(scene) -> bool:
     """Szene, die ein Taster gezielt aufrufen kann (Schritt 8,
     Bauherren-Formular): benannt und -- falls aus dem Import erkannt -- mit

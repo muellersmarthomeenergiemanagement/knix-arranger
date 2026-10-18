@@ -1162,7 +1162,10 @@ class MainWindow(QMainWindow):
         project = self._project
         if project.topology.is_imported or project.ets_transferred:
             return False
-        if not any(issue.kind.startswith("Bedienelement:")
+        # Bedienelement ohne Gerät, oder Szene mit Verweis auf eine GA, die
+        # es nicht mehr gibt (Bindung an einen Szenenaufruf, dessen Adresse
+        # die GA-Generierung neu vergab) -- die Neuberechnung repariert beides
+        if not any(issue.kind.startswith(("Bedienelement:", "Szene:"))
                    for issue in check_integrity(project)):
             return False
         result = self._recalc.recalc_actors_and_addresses(project)

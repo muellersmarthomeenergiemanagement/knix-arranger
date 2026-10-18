@@ -1081,8 +1081,19 @@ def _sync_scene_labels(scenes: list, structure: GroupAddressStructure) -> None:
     oder zusammengeführt) diesen Text nachführen, die Szene selbst auch,
     wenn sie wie ihre GA hiess."""
     designation = {ga.address: ga.designation for ga in structure.all_addresses()}
+    # Bezeichnung -> Adresse, nur eindeutige: findet Aktionen wieder, deren
+    # Adresse es nicht mehr gibt (Szenenaufruf-GA auf neuer Adresse)
+    address_of: dict[str, str] = {}
+    for ga in structure.all_addresses():
+        if ga.is_placeholder or not ga.designation:
+            continue
+        address_of[ga.designation] = "" if ga.designation in address_of else ga.address
     for scene in scenes:
         for action in scene.actions:
+            if (action.group_address and action.ga_address not in designation
+                    and address_of.get(action.group_address)):
+                action.ga_address = address_of[action.group_address]
+                continue
             new = designation.get(action.ga_address) if action.ga_address else None
             if not new or new == action.group_address:
                 continue
@@ -1100,6 +1111,9 @@ def regenerate_addresses(project, variant: str | None = None) -> RegenerationRes
     variant = variant or project.config.mg_variant
     # Zonen-Szenen aller Stockwerke einer Zone teilen sich eine GA
     normalize_scene_scopes(project)
+    # Bindungen an selbst erzeugte Szenenaufrufe lösen (folgen dem Bereich)
+    from .scene_addressing import release_generated_bindings
+    release_generated_bindings(project)
     old = project.group_addresses
     manual_gas = [ga for ga in old.all_addresses() if ga.is_manual]
     old_keys = _ga_keys(old)
