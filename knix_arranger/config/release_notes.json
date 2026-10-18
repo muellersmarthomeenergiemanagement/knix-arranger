@@ -2,6 +2,27 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.3",
+      "date": "2026-10-18",
+      "neu": [
+        "Szenenreport: unter jeder Aktion steht der Aktor bzw. das Gateway mit Kanal, auf dem sie programmiert wird; Abschnitt «Szenen je Aktor/Gateway» mit Kanal und Wert.",
+        "Szenen-Verwaltung: zeigt die auslösenden Taster aus der Tastenbelegung und je Aktion «Programmiert auf».",
+        "Validierung: Warnung «KO passt nicht zur Funktion» (FA-634) – z.B. Rückmeldung auf einem Eingangs-KO, falscher Datentyp oder Rückmeldung auf einer anderen Taste."
+      ],
+      "verbessert": [
+        "Materialliste: Hat das Produkt zu wenig Kanäle, werden beim Zuweisen automatisch genügend Aktoren eingefügt und die physikalischen Adressen neu vergeben – auch beim Zuweisen an alle Platzhalter eines Typs.",
+        "DALI-Gateways: die Kapazität ergibt sich aus den Gruppen in den KOs (ABB DLR/S8.16.1M: 16 Gruppen statt 8).",
+        "«KOs aller Geräte zuordnen» ersetzt Zuordnungen, die nicht zur Funktion passen, und zeigt sie als «ersetzt».",
+        "Topologie: Flags auch bei Tastern geplanter Projekte; Flags aus nicht parametrierten Produktdaten sind gekennzeichnet.",
+        "Produkt zuweisen: ohne die Felder Menge und Linie – die Anzahl ergibt sich aus der Topologie."
+      ],
+      "behoben": [
+        "Markierte Zeilen in Tabellen waren unter Windows 11 nicht lesbar.",
+        "Revox-Gateway: Status-GAs wurden Eingangs-KOs zugeordnet; Hager-Schaltaktor: «RM WERT» auf der Zwangsführungs-Rückmeldung.",
+        "Falsche Hinweise «Mehrere Antworten beim Lesen» (Feller «Object 2»), «Abweichung zur ETS» bei KNiX-Namen und «Befehl ohne Empfänger» bei nicht zugeordneten Gateways oder «System»-Objekten."
+      ]
+    },
+    {
       "version": "1.4.2",
       "date": "2026-10-17",
       "neu": [
