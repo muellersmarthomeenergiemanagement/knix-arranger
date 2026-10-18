@@ -80,7 +80,23 @@ GEWERK_PRIMARY_FUNCTIONS: dict[str, list[tuple[str, str, str, str, str]]] = {
     "FK":  [("Kontakt", "E/A", "Fenster offen/geschlossen", "", "")],
     "TK":  [("Kontakt", "E/A", "Tuer offen/geschlossen",    "", "")],
     "RK":  [("Kontakt", "E/A", "Riegel offen/geschlossen",  "", "")],
-    "A":   [("Ausgang", "E/A", "Bewegung erkannt",          "", "")],
+    # Gewerk A: Text je Meldertyp (A_DESCRIPTIONS), hier der neutrale
+    "A":   [("Ausgang", "E/A", "Meldung",                   "", "")],
+}
+
+# Gewerk A (Alarm-Magnetkontakte) umfasst verschiedene Melder -- «Bewegung
+# erkannt» stand auch bei Rauch- und Wassermeldern (Projekt_23 Technik,
+# Garage, Halle, Liftschacht). Schlüssel: Sensortyp des Bedienelements.
+A_DESCRIPTIONS = {
+    "Rauchmelder": "Rauch erkannt",
+    "Wassermelder": "Wasser erkannt",
+    "Bewegungsmelder": "Bewegung erkannt",
+    "Präsenzmelder": "Bewegung erkannt",
+    "Magnetkontakt": "Kontakt offen/geschlossen",
+    "Fensterkontakt": "Fenster offen/geschlossen",
+    "Türkontakt": "Tuer offen/geschlossen",
+    "Riegelkontakt": "Riegel offen/geschlossen",
+    "Temperaturfuehler": "Temperatur",
 }
 
 # Rueckmelde-GAs die dem Sensor zusaetzlich zugeordnet werden, damit er den
@@ -682,6 +698,9 @@ class SensorService:
                 # z.B. Spiegelheizung als Gewerk H: die Taste schaltet statt
                 # Sollwert/Betriebsart
                 primary_fns, feedback_fns = _SWITCH_PRIMARY, _SWITCH_FEEDBACK
+            if sf.gewerk_code == "A" and element_type in A_DESCRIPTIONS:
+                primary_fns = [(label, fn, A_DESCRIPTIONS[element_type], action, art)
+                               for label, fn, _desc, action, art in primary_fns]
             word = "Taste"
             if element_type in PRESENCE_SENSOR_TYPES:
                 # Präsenz-/Bewegungsmelder: Kanal statt Taste (in der

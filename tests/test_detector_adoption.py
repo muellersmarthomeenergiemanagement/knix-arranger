@@ -57,6 +57,11 @@ def test_melder_bekommt_gewerk_a_element(gewerk_catalog):
            if g.room_id == technik.id and g.gewerk_code == "A"]
     assert {g.element_number for g in gas} == {1, 2}
     assert rauch.function_assignments                      # GAs am Melder
+    # Text je Meldertyp, nicht «Bewegung erkannt» für alle im Gewerk A
+    assert {fa.description for fa in rauch.function_assignments if fa.role == "befehl"} == {
+        "Rauch erkannt"}
+    assert {fa.description for fa in wasser.function_assignments if fa.role == "befehl"} == {
+        "Wasser erkannt"}
     # Wiederholt aufrufbar: nichts Neues
     assert adopt_manual_detectors(project) == 0
     assert _melders(technik, "Rauchmelder") == [rauch]
