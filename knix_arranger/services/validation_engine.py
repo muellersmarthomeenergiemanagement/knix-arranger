@@ -198,7 +198,7 @@ class ValidationEngine:
         """FA-627: mehrere KOs mit L-Flag an einer GA; FA-628: Befehls-GA mit
         verknüpften KOs, aber keinem Empfänger (S-Flag). Nur GAs, deren KOs
         bekannt sind (ETS-Import oder Zuordnung in KNiX, services/ko_links)."""
-        from .ko_links import READ, WRITE, links_by_ga
+        from .ko_links import READ, WRITE, flags_unparametrized, links_by_ga
         by_ga = links_by_ga(project)
         if not by_ga:
             return []
@@ -212,8 +212,11 @@ class ValidationEngine:
                 continue
             ga = gas.get(address)
             designation = ga.designation if ga else ""
+            # Flags nicht parametrierter Produktdaten-KOs («Object 2» mit
+            # K L S Ü A) sagen nichts über das L-Flag in der ETS
             readers = list({(l.device.physical_address, l.co.object_number): l
-                            for l in known if READ in l.flags}.values())
+                            for l in known if READ in l.flags
+                            and not flags_unparametrized(l)}.values())
             if len(readers) > 1:
                 issues.append(ValidationIssue(
                     "info" if imported else "warning", "FA-627",

@@ -20,7 +20,8 @@ from knix_arranger.models.topology import (
     Area, CommunicationObject, Device, Line, Topology,
 )
 from knix_arranger.services.ko_links import (
-    COMMUNICATE, READ, TRANSMIT, UPDATE, WRITE, flags_text, ko_links, parse_flags,
+    COMMUNICATE, READ, TRANSMIT, UPDATE, WRITE, KoLink, flags_text, flags_unparametrized,
+    ko_links, parse_flags,
 )
 from knix_arranger.services.product_sync import _co_dict
 from knix_arranger.services.validation_engine import ValidationEngine
@@ -105,6 +106,26 @@ def test_several_readers_reported():
     assert found[0].level == "info"                     # importiert: ETS massgebend
     project.topology.is_imported = False
     assert _issues(project, "FA-627")[0].level == "warning"
+
+
+def test_unparametrized_product_flags_not_counted(monkeypatch):
+    """Feller EDIZIOdue: «Object 2» aus den Produktdaten mit allen Flags ist
+    nicht parametriert und zählt nicht als zweite Antwort (FA-627)."""
+    actor = _device("1.1.15", (97, "GO0097", "KL-Ü--", []))
+    taster = _device("1.1.103", (1, "Object 2", "KLSÜA-", []))
+    links = [KoLink(actor, actor.communication_objects[0], "1/7/42", True),
+             KoLink(taster, taster.communication_objects[0], "1/7/42", False)]
+    assert not flags_unparametrized(links[0])           # echte Flags K L Ü
+    assert flags_unparametrized(links[1])
+    project = _project([actor, taster], [_ga("1/7/42", "RM")])
+    project.topology.is_imported = False
+    import knix_arranger.services.ko_links as ko_links_module
+    monkeypatch.setattr(ko_links_module, "links_by_ga", lambda _p: {"1/7/42": links})
+    assert _issues(project, "FA-627") == []
+    # Aus der ETS verknüpft: parametrierte Flags, wird gemeldet
+    taster.communication_objects[0].connected_gas = ["1/7/42"]
+    assert not flags_unparametrized(links[1])
+    assert len(_issues(project, "FA-627")) == 1
 
 
 def test_command_without_receiver():

@@ -16,6 +16,7 @@ Reine Datenoperation ohne Qt.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 COMMUNICATE, READ, WRITE, TRANSMIT, UPDATE, INIT = "K", "L", "S", "Ü", "A", "I"
@@ -93,6 +94,27 @@ def _by_number(cos: list) -> dict:
 
 def _is_placeholder(co) -> bool:
     return "{{" in f"{co.name or ''} {co.object_function or ''}"
+
+
+# Objektname ohne Bedeutung aus den Produktdaten: «Object 2», «GO0097»
+_GENERIC_NAME = re.compile(r"(object|objekt|go)\s*\d+", re.IGNORECASE)
+
+
+def flags_unparametrized(link) -> bool:
+    """Flags stammen aus Produktdaten und sind offensichtlich nicht
+    parametriert: Platzhalter-KO oder Objekt ohne Namen («Object 2») mit
+    vollem Flag-Satz K L S Ü. Die echten Flags entstehen erst durch die
+    Parametrierung in der ETS (Feller EDIZIOdue). Verknüpfungen aus einem
+    ETS-Import (connected_gas) tragen die parametrierten Flags und zählen nie
+    als unparametriert."""
+    co = link.co
+    if co.connected_gas:
+        return False
+    if _is_placeholder(co):
+        return True
+    name = (co.name or co.object_function or "").strip()
+    return bool(_GENERIC_NAME.fullmatch(name)) and {
+        COMMUNICATE, READ, WRITE, TRANSMIT} <= link.flags
 
 
 def co_by_number(cos: list, number: int):

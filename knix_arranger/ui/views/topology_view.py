@@ -35,7 +35,7 @@ from ..styles import COLOR_WARNING
 from ..widgets.column_filter import TreeColumnFilter
 from ..widgets.drag_drop import DragDropTree
 from ..tree_select import select_tree_item
-from ...services.ko_links import flags_text, ko_links
+from ...services.ko_links import flags_text, flags_unparametrized, ko_links
 from ...services.product_capabilities import device_capabilities, plan_conflicts
 
 _FLAG_LEGEND = ("K Kommunikation · L Lesen (beantwortet Leseanfragen) · S Schreiben "
@@ -53,6 +53,7 @@ def _set_flags(item: QTreeWidgetItem, column: int, dpt: str, links: list) -> Non
     lines = [f"KO {l.co.object_number} «{l.co.name or l.co.object_function}»: "
              f"{flags_text(l.co.flags) or '–'}"
              f"{'' if l.sending else '  (hört nur mit, sendet auf eine andere GA)'}"
+             f"{'  – aus Produktdaten, in der ETS parametrieren' if flags_unparametrized(l) else ''}"
              for l in links]
     if proposed:
         lines.append("Vorschlag: KOs dieses Geräts sind noch nicht zugeordnet "
@@ -715,7 +716,9 @@ class TopologyView(QWidget):
                 if fa.role == "mithoeren":
                     fa_item.setForeground(0, QColor(COLOR_WARNING))
                     fa_item.setForeground(1, QColor(COLOR_WARNING))
-                ga_addr = ga_address_of(fa.function_ga)
+                # Geplante Projekte: function_ga ist nur die Bezeichnung
+                ga_addr = ga_address_of(
+                    resolve_ga_display(fa.function_ga, ga_by_designation))
                 co = ko_for_ga(device, ga_addr, fa.description) if ga_addr else None
                 if co is not None:
                     fa_item.setData(0, _ROLE_DATA,
