@@ -282,6 +282,15 @@ VALIDATION_RULES = {
         "nach dem Verschieben.",
         "Prüfen; nicht gewollte Taste in der Bauherrenberatung entfernen.",
     ),
+    "FA-634": (
+        "KO passt nicht zur Funktion",
+        "Die in KNiX gewählte Verknüpfung GA–KO widerspricht der Funktion: eine "
+        "Rückmeldung liegt auf einem Eingangs-KO (Schreiben ohne Übertragen), der "
+        "Datentyp des KOs passt nicht (z.B. 1.011 für einen Wert 5.001) oder die "
+        "Rückmeldung eines Tasters liegt auf einer anderen Taste als der Befehl.",
+        "In der Materialliste «KOs aller Geräte zuordnen…» ausführen – unpassende "
+        "Zuordnungen werden ersetzt – oder das KO von Hand wählen.",
+    ),
     "FA-633": (
         "Melder ohne GA",
         "Ein Melder (Rauch-, Wasser-, Bewegungsmelder, Kontakt …) ist geplant und hat "

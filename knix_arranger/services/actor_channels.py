@@ -182,7 +182,6 @@ _EXTRA_KEYWORDS: dict[str, tuple[str, ...]] = {
     "BASIS-SOLL": ("setpoint", "sollwert", "basic setpoint", "consigne"),
     "STOERUNG": ("fault", "error", "malfunction", "störung", "défaut"),
 }
-_FEEDBACK_FUNCTION = re.compile(r"^(RM|STATUS)\b")
 _CAMEL = re.compile(r"(?<=[a-zäöü])(?=[A-ZÄÖÜ])")
 _NOT_ALNUM = re.compile(r"[^a-z0-9äöüéè]")
 
@@ -208,17 +207,24 @@ def _is_feedback(co) -> bool:
     return bool(flags) and WRITE not in flags and TRANSMIT in flags
 
 
-def suggest_co(channel_cos: list, function: str, used=frozenset()):
+def suggest_co(channel_cos: list, function: str, used=frozenset(), dpt: str = ""):
     """KO des Kanals für eine GA-Funktion (z.B. "E/A" -> "Kanal A:
     Schalten"); der mit den meisten passenden Stichworten, ohne bereits
-    vergebene (used: KO-Nummern). None, wenn keiner passt."""
+    vergebene (used: KO-Nummern). Mit dpt (der GA) nur KOs mit gleichem
+    DPT-Haupttyp, sonst traf «RM WERT» (5.001) über das Stichwort «status» die
+    Zwangsführungs-Rückmeldung (1.011, Hager). None, wenn keiner passt."""
+    from .ko_plausibility import is_feedback_function
     keywords = _FUNCTION_KEYWORDS.get(function, ()) + _EXTRA_KEYWORDS.get(function, ())
     if not keywords:
         keywords = (function.lower(),)
-    feedback = bool(_FEEDBACK_FUNCTION.match(function))
+    feedback = is_feedback_function(function)
+    ga_main = _dpt_key(dpt)[0]
     best, best_score = None, 0
     for co in channel_cos:
         if co.object_number in used or _is_feedback(co) != feedback:
+            continue
+        co_main = _dpt_key(co.data_type)[0]
+        if ga_main and co_main and co_main != ga_main:
             continue
         text = _norm(f"{co.object_function} {co.name}")
         compact = _compact(text)
@@ -236,9 +242,10 @@ def suggested_co_map(channel: DeviceChannel | None, circuit: Circuit) -> dict[st
     Kanal; jeder KO höchstens einmal."""
     if channel is None or not channel.com_objects:
         return {}
+    from .ko_plausibility import is_feedback_function
     result, used = {}, set()
     for function, _ga in circuit.functions:
-        co = suggest_co(channel.com_objects, function, used)
+        co = suggest_co(channel.com_objects, function, used, circuit.dpts.get(function, ""))
         if co is not None:
             result[function] = co.object_number
             used.add(co.object_number)
@@ -248,7 +255,7 @@ def suggested_co_map(channel: DeviceChannel | None, circuit: Circuit) -> dict[st
         if function in result or not circuit.dpts.get(function):
             continue
         co = _co_by_dpt(channel.com_objects, circuit.dpts[function],
-                        bool(_FEEDBACK_FUNCTION.match(function)), used)
+                        is_feedback_function(function), used)
         if co is not None:
             result[function] = co.object_number
             used.add(co.object_number)
@@ -300,7 +307,8 @@ def unneeded_functions(channel: DeviceChannel | None, circuit: Circuit,
     used = {n for n in selection.values() if n >= 0}
     return [function for function, _ga in circuit.functions
             if selection.get(function, -1) < 0
-            and suggest_co(channel.com_objects, function, used) is None]
+            and suggest_co(channel.com_objects, function, used,
+                           circuit.dpts.get(function, "")) is None]
 
 
 def omit_functions(project, circuit_key_: str, functions: list[str]) -> int:

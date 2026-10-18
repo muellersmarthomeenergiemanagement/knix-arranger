@@ -18,6 +18,7 @@ from ...services.actor_channels import (
     device_channels, device_circuits, device_com_objects, omit_functions,
     unneeded_functions,
 )
+from ...services.ko_plausibility import ko_variants
 from ...services.ko_templates import (
     actor_proposal, actor_signature, load_template, save_template,
 )
@@ -143,14 +144,16 @@ class ActorChannelDialog(QDialog):
             all_cos = device_com_objects(device)
             template = load_template(device)
             known = {co.object_number for co in all_cos}
+            variants = ko_variants(device)
             co_sel = {}
             for c in circuits:
                 saved = (device.co_map or {}).get(c.key)
                 co_sel[c.key] = (dict(saved) if saved is not None else actor_proposal(
-                    by_number.get(channel_sel[c.key]), c, channel_sel[c.key], template, known))
+                    by_number.get(channel_sel[c.key]), c, channel_sel[c.key], template, known,
+                    variants))
             self._state[device.id] = {"circuits": circuits, "channels": channels,
                                       "all_cos": all_cos, "template": template,
-                                      "known": known,
+                                      "known": known, "variants": variants,
                                       "by_number": by_number, "channel": channel_sel,
                                       "co": co_sel}
         return self._state[device.id]
@@ -200,7 +203,8 @@ class ActorChannelDialog(QDialog):
         state["channel"][circuit.key] = number
         # Neuer Kanal: KOs neu vorschlagen
         state["co"][circuit.key] = actor_proposal(state["by_number"].get(number), circuit,
-                                                  number, state["template"], state["known"])
+                                                  number, state["template"], state["known"],
+                                                  state["variants"])
         self._update_channel_info()
         if self._circuit is circuit:
             self._show_cos()

@@ -48,12 +48,17 @@ def test_sensor_dialog_merkt_und_uebernimmt():
     project_, melder = _setup()
     dlg = SensorKoDialog(project_, [melder])
     combo = dlg._table.cellWidget(0, 3)
-    combo.setCurrentIndex(combo.findData(13))
+    combo.setCurrentIndex(combo.findData(11))       # «Bewegung (Slave)», sendet auch
     dlg.apply()
     # Gleiches Produkt ohne eigene Auswahl: die gemerkte Zuordnung gilt
     melder.co_map = {}
     dlg = SensorKoDialog(project_, [melder])
-    assert dlg._table.cellWidget(0, 3).currentData() == 13
+    assert dlg._table.cellWidget(0, 3).currentData() == 11
+    # Gemerktes KO, das nicht sendet (Externer Taster), gilt nicht (FA-634)
+    links = sensor_links(project_, melder)
+    save_template(melder, {sensor_signature(links[0]): 13})
+    dlg = SensorKoDialog(project_, [melder])
+    assert dlg._table.cellWidget(0, 3).currentData() == 10
 
 
 def test_sensor_dialog_uebertraegt_auf_gleiche_geraete():

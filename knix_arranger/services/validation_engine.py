@@ -113,6 +113,7 @@ class ValidationEngine:
             issues.extend(self._check_structure(project))
             issues.extend(self._check_product_kinds(project))
             issues.extend(self._check_ko_flags(project))
+            issues.extend(self._check_ko_plausibility(project))
             issues.extend(self._check_product_capabilities(project))
             issues.extend(self._check_bedienelement_leftovers(project))
             # FA-609, FA-611 bis FA-613: Topologie
@@ -239,6 +240,68 @@ class ValidationEngine:
                     address,
                     "Empfänger verknüpfen oder beim empfangenden KO das S-Flag setzen",
                     designation=designation))
+        return issues
+
+    @staticmethod
+    def _check_ko_plausibility(project) -> list[ValidationIssue]:
+        """FA-634: in KNiX zugeordnete KOs (Device.co_map), die nicht zur
+        Funktion der GA passen -- Rückmeldung auf Eingangs-KO, DPT-Haupttyp,
+        Taster-Rückmeldung auf einer anderen Taste (ko_plausibility). Nur
+        geplante Projekte; importierte tragen die Verknüpfungen der ETS."""
+        if project.topology.is_imported:
+            return []
+        devices = [d for area in project.topology.areas for line in area.lines
+                   for d in line.devices if d.co_map and d.communication_objects]
+        if not devices:
+            return []
+        from .actor_channels import device_circuits
+        from .belegungsplan_service import BelegungsplanService
+        from .ko_plausibility import actor_ko_problem, ko_variants, sensor_selection_problems
+        from .sensor_channels import sensor_co_map, sensor_links, sensor_plan
+        gas = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+        actor_plan = sensor_rows = None
+        issues = []
+
+        def add(device, variants, number, function, ga_address, problem):
+            co = (variants.get(number) or [None])[0]
+            name = (co.name or co.object_function) if co is not None else ""
+            ga = gas.get(ga_address)
+            issues.append(ValidationIssue(
+                "warning", "FA-634",
+                f"{device.physical_address} KO {number} «{name}» für {function}: {problem}",
+                ga_address,
+                "Materialliste › «KOs aller Geräte zuordnen…» ersetzt die Zuordnung, "
+                "oder das KO von Hand wählen",
+                designation=ga.designation if ga else "",
+                details={"devices": [device.physical_address]}))
+
+        for device in devices:
+            variants = ko_variants(device)
+            if device.device_type == "sensor":
+                selection = sensor_co_map(device)
+                if not selection:
+                    continue
+                if sensor_rows is None:
+                    sensor_rows = sensor_plan(project)
+                links = {l.key: l for l in sensor_links(project, device, sensor_rows)}
+                for key, problem in sensor_selection_problems(
+                        list(links.values()), selection, variants).items():
+                    link = links[key]
+                    add(device, variants, selection[key], link.function, link.ga_address,
+                        problem)
+                continue
+            if actor_plan is None:
+                actor_plan = BelegungsplanService().generate(project)
+            for circuit in device_circuits(project, device, actor_plan):
+                chosen = device.co_map.get(circuit.key) or {}
+                for function, ga_address in circuit.functions:
+                    number = chosen.get(function, -1)
+                    if number is None or number < 0:
+                        continue
+                    problem = actor_ko_problem(variants.get(number, []), function,
+                                               circuit.dpts.get(function, ""))
+                    if problem:
+                        add(device, variants, number, function, ga_address, problem)
         return issues
 
     @staticmethod

@@ -9,6 +9,10 @@ Für jedes Gerät mit KOs aus dem Produkt, das noch keine Auswahl hat:
   (sensor_channels) -- inklusive Rollen (Aktorstatus, Externer Taster).
 Aktoren mit eigener Auswahl bleiben unverändert (bewusste Entscheidung);
 bei Tastern/Sensoren bleiben gewählte KOs, nur die Lücken werden gefüllt.
+Ausnahme: gewählte KOs, die nicht zur Funktion passen (ko_plausibility,
+FA-634 -- Rückmeldung auf Eingangs-KO, DPT-Haupttyp, KO einer anderen
+Taste), werden durch den Vorschlag ersetzt und als «ersetzt» gemeldet;
+gemerkte Vorlagen mit solchen Einträgen gelten ebenso nicht.
 
 plan_all() rechnet nur, apply_plan() schreibt -- der Dialog zeigt dazwischen
 das Ergebnis. Prüfliste:
@@ -25,6 +29,7 @@ from dataclasses import dataclass, field
 NOT_LINKED = -1
 UNNEEDED = "nicht benötigt"
 NO_KO = "kein KO"
+REPLACED = "ersetzt"        # Präfix: "ersetzt (KO 22: Rückmeldung auf Eingangs-KO …)"
 
 
 @dataclass
@@ -84,6 +89,7 @@ def plan_all(project, fresh: bool = False, only=None) -> BatchPlan:
     from .actor_channels import (
         device_channels, device_circuits, device_com_objects, unneeded_functions,
     )
+    from .ko_plausibility import actor_ko_problem, sensor_selection_problems
     from .ko_templates import actor_proposal, apply_sensor_template, load_template
     from .sensor_channels import (
         SENSOR_CO_KEY, has_sensor_selection, sensor_co_map, sensor_links,
@@ -127,6 +133,14 @@ def plan_all(project, fresh: bool = False, only=None) -> BatchPlan:
                 proposed = suggested.get(link.key, NOT_LINKED)
                 selection[link.key] = kept if kept is not None and (kept >= 0 or proposed < 0) \
                     else proposed
+            # Unpassende KOs (gewählt oder gemerkt): Vorschlag, wenn er passt
+            replaced = {}
+            for key, problem in sensor_selection_problems(links, selection, variants).items():
+                if chosen.get(key, NOT_LINKED) == selection[key]:
+                    replaced[key] = f"{REPLACED} (KO {selection[key]}: {problem})"
+                selection[key] = suggested.get(key, NOT_LINKED)
+            for key in sensor_selection_problems(links, selection, variants):
+                selection[key] = NOT_LINKED
             if chosen and all(selection[link.key] == chosen.get(link.key, NOT_LINKED)
                               for link in links):
                 batch.kept.append(device)
@@ -135,17 +149,28 @@ def plan_all(project, fresh: bool = False, only=None) -> BatchPlan:
             co_map[SENSOR_CO_KEY] = selection
             batch.plans.append(DevicePlan(device, None, co_map))
             for link in links:
+                if link.key in replaced:
+                    batch.issues.append(BatchIssue(device, link.channel, link.function,
+                                                   link.ga_address, replaced[link.key]))
                 _record(batch, device, link.channel, link.function, link.ga_address,
                         by_number.get(selection[link.key]), link.dpt,
                         variants.get(selection[link.key], ()))
             continue
 
-        if device.co_map:
-            batch.kept.append(device)
-            continue
         if actor_plan is None:
             actor_plan = batch.actor_plan = BelegungsplanService().generate(project)
         circuits = device_circuits(project, device, actor_plan)
+        own = device.co_map or {}
+        # Eigene Auswahl bleibt -- ausser KOs, die nicht zur Funktion passen
+        bad = {(c.key, function): actor_ko_problem(
+                   variants.get(own[c.key][function], []), function, c.dpts.get(function, ""))
+               for c in circuits if c.key in own
+               for function, _ga in c.functions
+               if own[c.key].get(function, NOT_LINKED) >= 0}
+        bad = {k: v for k, v in bad.items() if v}
+        if own and not bad:
+            batch.kept.append(device)
+            continue
         if not circuits:
             continue
         channels = {ch.number: ch
@@ -154,9 +179,24 @@ def plan_all(project, fresh: bool = False, only=None) -> BatchPlan:
         for circuit in circuits:
             number = (device.channel_map or {}).get(circuit.key) or circuit.channel
             channel_map[circuit.key] = number
-            selection = actor_proposal(channels.get(number), circuit, number, template, known)
+            selection = actor_proposal(channels.get(number), circuit, number, template, known,
+                                       variants)
+            if circuit.key in own:
+                selection = {**selection, **{
+                    f: n for f, n in own[circuit.key].items()
+                    if (circuit.key, f) not in bad}}
             co_map[circuit.key] = {function: selection.get(function, NOT_LINKED)
                                    for function, _ga in circuit.functions}
+            for function, ga_address in circuit.functions:
+                problem = bad.get((circuit.key, function))
+                if problem:
+                    number_before = own[circuit.key][function]
+                    if actor_ko_problem(variants.get(co_map[circuit.key][function], []),
+                                        function, circuit.dpts.get(function, "")):
+                        co_map[circuit.key][function] = NOT_LINKED
+                    batch.issues.append(BatchIssue(
+                        device, circuit.label, function, ga_address,
+                        f"{REPLACED} (KO {number_before}: {problem})"))
             unneeded = unneeded_functions(channels.get(number), circuit, co_map[circuit.key])
             if unneeded:
                 batch.unneeded[circuit.key] = unneeded
@@ -169,6 +209,9 @@ def plan_all(project, fresh: bool = False, only=None) -> BatchPlan:
                         by_number.get(co_map[circuit.key][function]),
                         circuit.dpts.get(function, ""),
                         variants.get(co_map[circuit.key][function], ()))
+        # Stromkreise ohne Funktionen im Plan (z.B. entfernt) bleiben erhalten
+        for key, functions in own.items():
+            co_map.setdefault(key, functions)
         batch.plans.append(DevicePlan(device, channel_map, co_map))
     return batch
 

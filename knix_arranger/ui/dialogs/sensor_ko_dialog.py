@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...services.actor_channels import device_com_objects
+from ...services.ko_plausibility import ko_variants, sensor_selection_problems
 from ...services.ko_templates import (
     apply_sensor_template, load_template, save_template, sensor_template_entries,
 )
@@ -94,6 +95,10 @@ class SensorKoDialog(QDialog):
             template = apply_sensor_template(load_template(device), links,
                                              {co.object_number for co in all_cos})
             suggested = suggested_sensor_co_map(device, links, all_cos)
+            # Gemerkte KOs, die nicht zur Funktion passen (FA-634), gelten nicht
+            variants = ko_variants(device)
+            for key in sensor_selection_problems(links, template, variants):
+                template.pop(key, None)
             selection = {link.key: saved.get(link.key, template.get(
                 link.key, suggested.get(link.key, -1))) for link in links}
             self._state[device.id] = {"links": links, "all_cos": all_cos,

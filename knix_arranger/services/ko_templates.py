@@ -112,14 +112,22 @@ def actor_signature(channel: int, function: str) -> str:
     return f"{channel}|{function}"
 
 
-def actor_proposal(channel, circuit, number: int, template: dict, known: set) -> dict:
+def actor_proposal(channel, circuit, number: int, template: dict, known: set,
+                   variants: dict | None = None) -> dict:
     """KO-Vorschlag für einen Aktor-Stromkreis auf Kanal number: die gemerkte
-    Zuordnung des Produkts vor dem Vorschlag nach Texten (suggested_co_map)."""
+    Zuordnung des Produkts vor dem Vorschlag nach Texten (suggested_co_map).
+    variants (KO-Nummer -> KOs): ein gemerktes KO, das nicht zur Funktion
+    passt (ko_plausibility, FA-634), gilt nicht -- Vorlagen älterer Versionen
+    enthalten solche Fehlgriffe."""
     from .actor_channels import suggested_co_map
+    from .ko_plausibility import actor_ko_problem
     selection = suggested_co_map(channel, circuit)
     for function, _ga in circuit.functions:
         remembered = template.get(actor_signature(number, function))
         if remembered is None:
+            continue
+        if remembered >= 0 and variants is not None and actor_ko_problem(
+                variants.get(remembered, []), function, circuit.dpts.get(function, "")):
             continue
         if remembered >= 0 and remembered in known:
             selection[function] = remembered

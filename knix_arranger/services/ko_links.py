@@ -107,14 +107,19 @@ def flags_unparametrized(link) -> bool:
     Parametrierung in der ETS (Feller EDIZIOdue). Verknüpfungen aus einem
     ETS-Import (connected_gas) tragen die parametrierten Flags und zählen nie
     als unparametriert."""
-    co = link.co
-    if co.connected_gas:
+    if link.co.connected_gas:
         return False
-    if _is_placeholder(co):
-        return True
+    return unparametrized_co(link.co)
+
+
+def unparametrized_co(co) -> bool:
+    """Platzhalter («{{0:GO}}») oder Objekt ohne Namen («Object 2») mit vollem
+    Flag-Satz K L S Ü. Ein Textbaustein mit echten Flags (Revox «{{0:Room 1}}:
+    Mute Status», K Ü) ist parametriert."""
+    if not {COMMUNICATE, READ, WRITE, TRANSMIT} <= parse_flags(co.flags):
+        return False
     name = (co.name or co.object_function or "").strip()
-    return bool(_GENERIC_NAME.fullmatch(name)) and {
-        COMMUNICATE, READ, WRITE, TRANSMIT} <= link.flags
+    return _is_placeholder(co) or bool(_GENERIC_NAME.fullmatch(name))
 
 
 def co_by_number(cos: list, number: int):

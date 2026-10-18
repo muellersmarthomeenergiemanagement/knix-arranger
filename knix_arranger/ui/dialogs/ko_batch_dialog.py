@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
-from ...services.ko_batch import UNNEEDED, BatchPlan
+from ...services.ko_batch import REPLACED, UNNEEDED, BatchPlan
 
 _GREY = QColor("#777777")
 _WARN = QColor("#b26a00")
@@ -26,11 +26,16 @@ class KoBatchDialog(QDialog):
         self._batch = batch
 
         layout = QVBoxLayout(self)
-        problems = [i for i in batch.issues if i.problem != UNNEEDED]
+        replaced = [i for i in batch.issues if i.problem.startswith(REPLACED)]
+        problems = [i for i in batch.issues
+                    if i.problem != UNNEEDED and not i.problem.startswith(REPLACED)]
         kept = (f" {len(batch.kept)} Geräte mit eigener Zuordnung bleiben unverändert."
                 if batch.kept else "")
         summary = QLabel(
             f"<b>{len(batch.plans)} Geräte</b> zugeordnet, {batch.links} GAs mit KO.{kept}<br>"
+            + (f"<span style='color:#b26a00'>{len(replaced)} bisherige Zuordnungen "
+               "ersetzt</span>: das KO passte nicht zur Funktion (Rückmeldung auf "
+               "Eingangs-KO, Datentyp, andere Taste).<br>" if replaced else "")
             + (f"<span style='color:#b26a00'>{len(problems)} GAs prüfen</span> "
                "(kein passender KO oder DPT passt nicht) – im Dialog «Kanäle und KOs "
                "zuordnen…» von Hand wählen." if problems else

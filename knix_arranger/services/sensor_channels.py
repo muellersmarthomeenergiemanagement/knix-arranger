@@ -26,7 +26,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .actor_channels import _FEEDBACK_FUNCTION, _co_by_dpt, _norm, circuit_key, suggest_co
+from .actor_channels import _co_by_dpt, _norm, circuit_key, suggest_co
 from .gewerk_channel_matching import _is_feedback_co
 
 SENSOR_CO_KEY = "GA"
@@ -268,7 +268,8 @@ def _receives(ga, device) -> bool:
         from .ko_links import TRANSMIT, WRITE, parse_flags
         flags = parse_flags(co.flags)
         return WRITE in flags and TRANSMIT not in flags
-    return bool(_FEEDBACK_FUNCTION.match(ga.function_name or ""))
+    from .ko_plausibility import is_feedback_function
+    return is_feedback_function(ga.function_name or "")
 
 
 def _named_co(cos: list, text: str):
