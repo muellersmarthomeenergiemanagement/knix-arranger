@@ -2,6 +2,13 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.8",
+      "date": "2026-10-18",
+      "behoben": [
+        "Szenen-Verwaltung: «Übernehmen» bzw. «Freie Nummer wählen» konnte eine Szenen-Adresse verschwinden lassen – die nächste GA-Generierung gab ihre Adresse einem anderen Bereich (Meldung «GA fehlt»). Betroffene Projekte werden beim Öffnen automatisch repariert."
+      ]
+    },
+    {
       "version": "1.4.7",
       "date": "2026-10-18",
       "neu": [
