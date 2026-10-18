@@ -1008,6 +1008,64 @@ def set_sensor_type(room: Room, be: Bedienelement, sensor_type: str) -> bool:
     return True
 
 
+# Melder, die zum Gewerk A (Alarm-Magnetkontakte) gehören -- Präsenz- und
+# Bewegungsmelder schalten Licht und gehören zu ihrem eigenen Gewerk
+ALARM_SENSOR_TYPES = frozenset({
+    "Rauchmelder", "Wassermelder", "Magnetkontakt", "Fensterkontakt",
+    "Türkontakt", "Riegelkontakt",
+})
+
+
+def adopt_manual_detectors(project) -> int:
+    """Melder, die ausserhalb der Gewerke angelegt wurden (Bauherrenberatung
+    «Sonstige», Gebäude), bekommen ein Element im Gewerk A ihres Raums, mit
+    dem Meldertyp als Bezeichnung -- sonst erzeugt die GA-Generierung
+    (Wizard Schritt 10) keine Adressen für sie (Projekt_23 Technik:
+    Rauchmelder 1.2.109, Wassermelder 1.2.113 ohne GA).
+
+    Das bestehende Bedienelement und sein Gerät werden mit dem Element
+    verbunden, nicht verdoppelt: Sensorfunktion für das Element, Taster-Index
+    der Gewerk-Gruppe (auch am Gerät), und eine Löschmarkierung desselben
+    Typs im Raum entfällt (sie hätte das Element blockiert). Nur geplante
+    Projekte; wiederholt aufrufbar. Gibt die Anzahl übernommener Melder zurück.
+    """
+    if project.topology is None or project.topology.is_imported:
+        return 0
+    from ..models.building import GewerkAssignment
+    devices = {d.physical_address: d for a in project.topology.areas
+               for line in a.lines for d in line.devices
+               if d.device_type == "sensor" and d.physical_address}
+    adopted = 0
+    for room in project.all_rooms:
+        for be in list(room.bedienelemente):
+            if (be.is_auto or be.suppressed or be.element_type not in ALARM_SENSOR_TYPES
+                    or any(sf.gewerk_code for sf in be.funktionen)):
+                continue
+            assignment = next((a for a in room.gewerk_assignments
+                               if a.gewerk_code == "A"), None)
+            if assignment is None:
+                assignment = GewerkAssignment(gewerk_code="A", count=0)
+                room.gewerk_assignments.append(assignment)
+            nr = assignment.count + 1
+            assignment.count = nr
+            labels = list(assignment.element_labels)
+            labels += [""] * (nr - 1 - len(labels))
+            assignment.element_labels = labels[:nr - 1] + [be.element_type]
+            assignment.element_sensor_types[nr] = be.element_type
+            taster_idx = assignment.taster_indices[0] if assignment.taster_indices else 1
+            device = devices.get(be.participant_number)
+            if device is not None and device.room_id == room.id:
+                device.taster_index = taster_idx
+            be.taster_index = taster_idx
+            be.funktionen.append(SensorFunktion(gewerk_code="A", element_number=nr,
+                                                source_room_id=""))
+            room.bedienelemente = [
+                b for b in room.bedienelemente
+                if not (b.suppressed and b.element_type == be.element_type)]
+            adopted += 1
+    return adopted
+
+
 def refresh_bedienelemente(project) -> None:
     """Bedienelemente mit der Topologie abgleichen (FA-1404: je Sensor-Gerät
     eines, im Raum des Geräts) und die Tastenbelegung aus den Funktionen neu
@@ -1023,6 +1081,8 @@ def refresh_bedienelemente(project) -> None:
     from .ets_corrections import apply_ets_corrections
     # Korrekturen zur ETS nach Öffnen/Import/Neuaufbau wieder anwenden
     apply_ets_corrections(project)
+    # Melder ohne Gewerk: Element im Gewerk A, damit sie GAs bekommen
+    adopt_manual_detectors(project)
     # Geplant: zuerst Bedienelement <-> Gerät über Raum/Typ/Index, sonst legt
     # der Abgleich für jedes Gerät mit neuer Adresse ein zweites an
     link_bedienelemente_to_devices(project.topology, project.all_rooms)

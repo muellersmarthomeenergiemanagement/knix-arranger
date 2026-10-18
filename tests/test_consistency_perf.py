@@ -131,12 +131,13 @@ def test_leftover_device_and_double_operation(gewerk_catalog):
 
 
 def test_melder_without_ga(gewerk_catalog):
-    """FA-633: Melder mit Gerät, aber ohne GA (Projekt_23 CUG02: Rauch- und
-    Wassermelder) -- Hinweis; eine GA am KO genügt."""
+    """FA-633: Melder mit Gerät, aber ohne GA -- Hinweis; eine GA am KO
+    genügt. Rauch- und Wassermelder bekommen seit 2026-10-18 ein Element im
+    Gewerk A (test_detector_adoption), daher hier ein Präsenzmelder."""
     from knix_arranger.models.topology import CommunicationObject
     from knix_arranger.services.button_move import add_bedienelement
     project, room, recompute = _planned(gewerk_catalog)
-    melder = add_bedienelement(room, "Rauchmelder", 1)
+    melder = add_bedienelement(room, "Präsenzmelder", 1)
     recompute()
     assert [i.address for i in _rule(project, "FA-633")] == [melder.participant_number]
     assert _rule(project, "FA-631") == []
@@ -145,6 +146,21 @@ def test_melder_without_ga(gewerk_catalog):
     device.communication_objects = [CommunicationObject(
         object_number=0, name="Alarm", connected_gas=["1/0/0"])]
     assert _rule(project, "FA-633") == []
+
+
+def test_rauchmelder_bekommt_ga(gewerk_catalog):
+    """Projekt_23 CUG02: ein in der Bauherrenberatung hinzugefügter
+    Rauchmelder bekommt sein Element im Gewerk A und damit GAs."""
+    from knix_arranger.services.button_move import add_bedienelement
+    project, room, recompute = _planned(gewerk_catalog)
+    melder = add_bedienelement(room, "Rauchmelder", 1)
+    recompute()
+    found = _rule(project, "FA-633")
+    assert all("Schritt 10" in i.suggestion for i in found)
+    recompute()                                    # GA-Generierung
+    assert _rule(project, "FA-633") == []
+    assert any(a.gewerk_code == "A" for a in room.gewerk_assignments)
+    assert melder.function_assignments
 
 
 def test_new_device_goes_to_end_and_others_keep_address(gewerk_catalog):
