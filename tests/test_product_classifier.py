@@ -138,3 +138,37 @@ def test_edit_marks_product_as_user_edited():
                      "category": "sensor", "device_type": "Tastereinheit"})
     svc.edit_product("ABB", "Z1", {"device_type": "Raumthermostat"})
     assert ProductSearchService().find_product("ABB", "Z1")["user_edited"] is True
+
+
+def test_dali_gateway_zaehlt_gruppen():
+    """ABB DLR/S8.16.1M «8f»: 8 DALI-Ausgänge, aber 16 Gruppen -- die Gruppen
+    sind die Kapazität (Projekt_23: falsches Kanaldefizit 8/16)."""
+    from knix_arranger.services.product_classifier import classify, dali_groups
+    cos = [{"number": n, "name": f"Gruppe {g}", "function_text": f"Group {g}"}
+           for n, g in enumerate([g for g in range(1, 17) for _ in range(3)])]
+    cos += [{"number": 100 + n, "name": "DALI-Ausgang", "function_text": "DALI output"}
+            for n in range(8)]
+    assert dali_groups(cos) == 16
+    found = classify("DLR/S8.16.1M DALI Light Controller,8f,MDRC", "2CDG 110 101 R0011",
+                     com_objects=cos)
+    assert (found.device_type, found.channels) == ("DALI-Gateway", 16)
+    # Ohne KOs bleibt die Zahl aus dem Namen
+    assert classify("DLR/S8.16.1M DALI Light Controller,8f,MDRC").channels == 8
+
+
+def test_materialliste_kanalzahl_aus_katalog_nachgefuehrt():
+    from knix_arranger.models.material_list import MaterialEntry
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.services.product_sync import refresh_entry_channels
+    project = KnxProject(name="DALI")
+    entry = MaterialEntry(quantity=1, category="Gateway / Schnittstellen",
+                          device_type="DALI-Gateway 16-fach", manufacturer="ABB",
+                          order_number="2CDG 110 101 R0011", assigned_channels=8)
+    project.material_list.entries.append(entry)
+
+    class Catalog:
+        def find_product(self, manufacturer, order_number, product_name=""):
+            return {"channels": 16} if order_number == "2CDG 110 101 R0011" else None
+    assert refresh_entry_channels(project, Catalog()) == 1
+    assert entry.assigned_channels == 16
+    assert refresh_entry_channels(project, Catalog()) == 0

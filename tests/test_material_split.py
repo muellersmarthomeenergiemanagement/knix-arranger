@@ -65,35 +65,34 @@ def _devices(view):
             for line in area.lines for d in line.devices}
 
 
+class Dialog:
+    """Produktdialog, der den Heizungsaktor wählt."""
+    def __init__(self, *args, **kwargs):
+        self._search_edit = type("E", (), {"setText": lambda *_: None})()
+        self.selected_product = _VAA
+
+    def setWindowTitle(self, *_):
+        pass
+
+    def has_type_preselection(self):
+        return True
+
+    def exec(self):
+        return True
+
+
 def test_produkt_mit_defizit_teilt_auf(view):
+    """Ohne Rückfrage: die nötige Anzahl Geräte wird eingefügt."""
     entry = _heating(view)
     jalousie = next(e for e in view._material_list.entries if e.device_type.startswith("Jalousie"))
     jalousie_device = _devices(view)[jalousie.physical_addresses[0]]
 
-    def choose_split(box):
-        target =next(b for b in box.buttons() if b.text().startswith("Auf 2 Geräte"))
-        box.clickedButton = lambda: target
-        return 0
-
-    class Dialog:
-        def __init__(self, *args, **kwargs):
-            self._search_edit = type("E", (), {"setText": lambda *_: None})()
-            self.selected_product = _VAA
-
-        def setWindowTitle(self, *_):
-            pass
-
-        def has_type_preselection(self):
-            return True
-
-        def exec(self):
-            return True
-
     with patch.object(module, "ProductSelectDialog", Dialog), \
             patch("knix_arranger.services.product_sync.shared_catalog", return_value=None), \
-            patch.object(QMessageBox, "exec", choose_split), \
+            patch.object(QMessageBox, "information") as info, \
             patch.object(view, "_offer_channel_assignment"):
         view._assign_product_to_entry(entry)
+    assert "2 Geräte eingefügt" in info.call_args[0][2]
 
     heating = [e for e in view._material_list.entries if e.device_type == "Heizungsaktor 6-fach"]
     assert len(heating) == 2 and entry not in view._material_list.entries
@@ -109,6 +108,29 @@ def test_produkt_mit_defizit_teilt_auf(view):
     assert sorted(per_device.values()) == [6, 6]
     # Die Adresse des nachfolgenden Aktors ist in der Materialliste nachgeführt
     assert jalousie.physical_addresses == [jalousie_device.physical_address]
+
+
+def test_typ_batch_teilt_aktoren_auf(view):
+    """Zuweisung an alle Platzhalter eines Typs: Aktoren mit zu wenig Kanälen
+    werden ebenfalls aufgeteilt."""
+    from PySide6.QtWidgets import QInputDialog
+    entry = _heating(view)
+    with patch.object(module, "ProductSelectDialog", Dialog), \
+            patch("knix_arranger.services.product_sync.shared_catalog", return_value=None), \
+            patch.object(QInputDialog, "getItem",
+                         side_effect=lambda _p, _t, _l, items, *_a: (
+                             next(i for i in items if i.startswith(entry.device_type)), True)), \
+            patch.object(QMessageBox, "warning") as warning, \
+            patch.object(QMessageBox, "information") as info, \
+            patch.object(view, "_offer_device_product"), \
+            patch.object(view, "_auto_assign_kos"):
+        view._batch_assign_by_type()
+    assert not warning.called                      # keine Rückfrage für Aktoren
+    assert "auf mehrere Geräte" in info.call_args[0][2]
+    heating = [e for e in view._material_list.entries if e.device_type == "Heizungsaktor 6-fach"]
+    assert len(heating) == 2
+    assert {_devices(view)[e.physical_addresses[0]].order_number for e in heating} == {
+        "VAA/S6.230.2.1"}
 
 
 def test_aufteilen_uebernimmt_produkt(view):

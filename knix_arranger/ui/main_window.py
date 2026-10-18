@@ -1120,6 +1120,11 @@ class MainWindow(QMainWindow):
             # Tote Verweise aus früheren Versionen bereinigen (FA-624)
             from ..services.reference_cleanup import clean_references
             cleaned = clean_references(self._project)
+            from ..services.product_sync import refresh_entry_channels
+            refreshed = refresh_entry_channels(self._project)
+            if refreshed:
+                cleaned.append(f"Kanalzahl von {refreshed} Materiallisten-Einträgen "
+                               "aus dem Produktkatalog nachgeführt")
             if self._devices_follow_rooms_on_open():
                 cleaned.append("Geräte an die Bedienelemente angepasst (Neuberechnung)")
             if cleaned:

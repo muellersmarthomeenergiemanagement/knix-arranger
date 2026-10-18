@@ -301,6 +301,8 @@ class KnxprodCatalogService:
                 category = hw.get("category") or found.category
                 device_type = found.device_type
                 channels = channels or found.channels
+                if device_type == "DALI-Gateway" and found.channels:
+                    channels = found.channels   # Gruppen, nicht die Zahl im Namen
 
                 prod = KnxprodProduct(
                     manufacturer=mfr_name,

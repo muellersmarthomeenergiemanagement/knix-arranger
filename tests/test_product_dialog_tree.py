@@ -168,3 +168,13 @@ def test_drop_imports_knxprod(dialog_factory, monkeypatch, tmp_path):
     event = QDropEvent(QPointF(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
     dlg.dropEvent(event)
     assert len(imported) == 1 and imported[0][0].endswith("Revox.knxprod")
+
+
+def test_assignment_without_quantity(dialog_factory):
+    """Produkt für bestehende Zeilen: Menge und Linie gelten nicht (die
+    Anzahl folgt aus der Topologie) und werden nicht angezeigt."""
+    dlg = dialog_factory(for_assignment=True)
+    assert not dlg._qty_spin.parentWidget().isVisibleTo(dlg)
+    assert dlg._line_combo is None
+    add = dialog_factory()
+    assert add._qty_spin.parentWidget().isVisibleTo(add)

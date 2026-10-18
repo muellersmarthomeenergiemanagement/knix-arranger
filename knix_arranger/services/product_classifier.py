@@ -175,6 +175,24 @@ def _channels_from_name(name: str, category: str) -> int:
     return n if 0 < n <= 64 else 0
 
 
+_DALI_GROUP = re.compile(r"\b(?:Gruppe|Group|Groupe)\s*(\d+)\b", re.I)
+
+
+def dali_groups(com_objects) -> int:
+    """Zahl der DALI-Gruppen eines Gateways aus den KOs («Gruppe 1» …
+    «Gruppe 16»), 0 ohne erkennbare Gruppen. Bei DALI-Gateways ist das die
+    Kapazität -- die Zahl im Namen nicht (ABB DLR/S8.16.1M «8f»: 8 Ausgänge,
+    16 Gruppen)."""
+    groups = set()
+    for co in com_objects or []:
+        for text in (co.get("name") or "", co.get("function_text") or ""):
+            m = _DALI_GROUP.search(text)
+            if m:
+                groups.add(int(m.group(1)))
+                break
+    return len(groups) if len(groups) > 1 else 0
+
+
 def _from_com_objects(com_objects) -> tuple[str, str] | None:
     if not com_objects:
         return None
@@ -215,4 +233,6 @@ def classify(product_name: str, order_number: str = "", category_hint: str = "",
         scheme = zone_scheme(product)
         if scheme is not None and scheme.label in ("Kanal", "Kanal C", "Ausgang", "Motor"):
             channels = len(zones_of(product))
+    if device_type == "DALI-Gateway":
+        channels = dali_groups(com_objects) or channels
     return Classification(category, device_type, channels)

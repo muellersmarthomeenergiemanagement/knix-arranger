@@ -288,6 +288,28 @@ def release_sensor_products(found: list[ProductMismatch]) -> None:
             assignment.linked_product = None
 
 
+def refresh_entry_channels(project, catalog=_DEFAULT) -> int:
+    """Kanalzahl der Materialliste aus dem Katalog nachführen, wenn sie sich
+    dort geändert hat (DALI-Gateways zählen seit 2026-10-18 die Gruppen statt
+    der Zahl im Namen: ABB DLR/S8.16.1M 16 statt 8). Gibt die Anzahl
+    nachgeführter Einträge zurück."""
+    if catalog is _DEFAULT:
+        catalog = shared_catalog()
+    if catalog is None or not project.material_list:
+        return 0
+    changed = 0
+    for entry in project.material_list.entries:
+        if not (entry.manufacturer and entry.order_number):
+            continue
+        product = catalog.find_product(entry.manufacturer, entry.order_number,
+                                       entry.product_name)
+        channels = (product or {}).get("channels") or 0
+        if channels and channels != entry.assigned_channels:
+            entry.assigned_channels = channels
+            changed += 1
+    return changed
+
+
 def communication_objects_of(com_objects: list[dict]) -> list:
     """Kommunikationsobjekte eines Katalogprodukts für Device.communication_objects."""
     from ..models.topology import CommunicationObject

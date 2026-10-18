@@ -199,7 +199,12 @@ def get_main_stylesheet() -> str:
         font-size: {FONT_SMALL}px;
         show-decoration-selected: 1;
     }}
-    QTreeWidget::item:selected {{
+    /* Markierte Zeilen in allen Listen, Tabellen und Bäumen: ohne diese Regel
+       zeichnet der Stil «windows11» (Qt 6.7+) die Auswahl hellgrau mit der
+       Zeilenfarbe des Eintrags -- graue Platzhalter oder grüne Einträge der
+       Materialliste waren markiert nicht lesbar, ebenso weisse Schrift in
+       nicht fokussierten Tabellen (Produktauswahl «Zuletzt verwendet») */
+    QTreeView::item:selected, QTableView::item:selected, QListView::item:selected {{
         background-color: {KNX_PRIMARY};
         color: white;
     }}

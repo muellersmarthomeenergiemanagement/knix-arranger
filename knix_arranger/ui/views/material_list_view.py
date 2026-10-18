@@ -1035,6 +1035,20 @@ class MaterialListView(QWidget):
             return []
         return self._split_actor(entry, n)
 
+    @staticmethod
+    def _units_needed(entry: MaterialEntry, prod) -> int:
+        """Geräte, die ein Aktor-Platzhalter mit diesem Produkt braucht; 0 =
+        kein Aufteilen (kein Defizit, kein Aktor oder schon mehrere Geräte).
+        Mehr Stück in der Materialliste ergäben kein zweites Gerät in der
+        Topologie -- die Kreise lägen auf Kanälen, die es nicht gibt.
+        Gateways werden nicht aufgeteilt: ihre Konfiguration (DALI-Gruppen)
+        hängt am Gerät."""
+        units = -(-entry.required_channels // prod.channels) if prod.channels else 0
+        if (entry.channel_deficit > 0 and units > 1 and entry.category == "Aktor"
+                and entry.quantity == 1 and len(entry.physical_addresses) <= 1):
+            return units
+        return 0
+
     def _split_actor(self, entry: MaterialEntry, n: int) -> list[MaterialEntry]:
         """Aufteilen in n Einheiten (siehe _split_actor_by_channels)."""
         required = entry.required_channels
@@ -1278,6 +1292,7 @@ class MaterialListView(QWidget):
             topology=topology,
             parent=self,
             initial_device_type=entry.device_type,
+            for_assignment=True,
         )
         dialog.setWindowTitle(self._product_dialog_title([entry], entry.device_type))
         # Suche vorbelegen: falls in Schritt 5 für dasselbe Gewerk bereits ein
@@ -1311,34 +1326,23 @@ class MaterialListView(QWidget):
         # (Projekt_23 1.1.10: «Heizungsaktor 12-fach» = 2× ABB VAA/S6, 6 Kanäle)
         # -- mehr Stück in der Materialliste ergäben kein zweites Gerät in der
         # Topologie, die Kreise 7–12 lägen auf Kanälen, die es nicht gibt
-        units = -(-entry.required_channels // prod.channels) if prod.channels else 0
-        if (entry.channel_deficit > 0 and units > 1 and entry.category == "Aktor"
-                and entry.quantity == 1 and len(entry.physical_addresses) <= 1):
-            box = QMessageBox(
-                QMessageBox.Question, "Kanaldefizit",
+        # Automatisch, ohne Rückfrage: die Anzahl Geräte folgt aus dem Bedarf
+        units = self._units_needed(entry, prod)
+        if units > 1:
+            new_entries = self._split_actor(entry, units)
+            if not new_entries:
+                return
+            devices = [d for new_entry in new_entries
+                       for d in self._update_device_product(new_entry, prod)]
+            self._rebuild_table()
+            self.list_changed.emit()
+            QMessageBox.information(
+                self, "Auf mehrere Geräte aufgeteilt",
                 f"«{prod.product_name or prod.order_number}» hat {prod.channels} Kanäle, "
-                f"«{entry.device_type}» braucht {entry.required_channels}.\n\n"
-                f"Auf {units} Geräte à {prod.channels} Kanäle aufteilen? Die physikalischen "
-                f"Adressen der Linie werden dabei neu vergeben.", parent=self)
-            btn_split = box.addButton(f"Auf {units} Geräte aufteilen", QMessageBox.AcceptRole)
-            btn_keep = box.addButton("Ein Gerät (Defizit)", QMessageBox.DestructiveRole)
-            box.addButton("Abbrechen", QMessageBox.RejectRole)
-            box.setDefaultButton(btn_split)
-            box.exec()
-            if box.clickedButton() is btn_split:
-                new_entries = self._split_actor(entry, units)
-                if not new_entries:
-                    return
-                devices = [d for new_entry in new_entries
-                           for d in self._update_device_product(new_entry, prod)]
-                self._rebuild_table()
-                self.list_changed.emit()
-                self._offer_channel_assignment(new_entries[0], devices)
-                return
-            if box.clickedButton() is not btn_keep:
-                entry.manufacturer = entry.order_number = entry.product_name = ""
-                entry.assigned_channels = 0
-                return
+                f"«{entry.device_type}» braucht {entry.required_channels}: {units} Geräte "
+                f"eingefügt, physikalische Adressen der Linie neu vergeben.")
+            self._offer_channel_assignment(new_entries[0], devices)
+            return
         # Kanaldefizit prüfen und Benutzer warnen
         # channel_deficit berücksichtigt bereits quantity × assigned_channels
         elif entry.channel_deficit > 0:
@@ -1682,6 +1686,7 @@ class MaterialListView(QWidget):
             topology=topology,
             parent=self,
             initial_device_type=chosen_type,
+            for_assignment=True,
         )
         dialog.setWindowTitle(self._product_dialog_title(entries_to_assign, chosen_type))
         if not dialog.has_type_preselection():
@@ -1695,9 +1700,11 @@ class MaterialListView(QWidget):
             return
         prod = self._prefer_variant_with_kos(prod)
 
-        # Kanaldefizit prüfen (am Typ, da alle Einträge denselben Typ haben)
+        # Kanaldefizit prüfen (am Typ, da alle Einträge denselben Typ haben);
+        # Aktoren werden unten automatisch aufgeteilt
         required = parse_channel_count(chosen_type)
-        if required > 0 and 0 < prod.channels < required:
+        if required > 0 and 0 < prod.channels < required and any(
+                e.category != "Aktor" for e in entries_to_assign):
             deficit_per_device = required - prod.channels
             total_missing = deficit_per_device * len(entries_to_assign)
             reply = QMessageBox.warning(
@@ -1716,9 +1723,11 @@ class MaterialListView(QWidget):
             if reply == QMessageBox.No:
                 return
 
-        # Alle Einträge dieses Typs zuweisen
+        # Alle Einträge dieses Typs zuweisen; Aktoren mit Kanaldefizit
+        # automatisch auf die nötige Anzahl Geräte aufteilen
         devices: list = []
-        for entry in entries_to_assign:
+        split = 0
+        for entry in list(entries_to_assign):
             entry.manufacturer = prod.manufacturer
             entry.order_number = prod.order_number
             entry.product_name = prod.product_name
@@ -1727,6 +1736,14 @@ class MaterialListView(QWidget):
             entry.ga_min = prod.ga_min
             entry.ga_max = prod.ga_max
             entry.ga_override = None  # gehörte zum bisherigen Produkt
+            units = self._units_needed(entry, prod) if self._project else 0
+            if units > 1:
+                new_entries = self._split_actor(entry, units)
+                if new_entries:
+                    split += 1
+                    devices += [d for new_entry in new_entries
+                                for d in self._update_device_product(new_entry, prod)]
+                    continue
             if self._project:
                 devices += self._update_device_product(entry, prod)
 
@@ -1734,7 +1751,9 @@ class MaterialListView(QWidget):
             self,
             "Batch-Zuweisung abgeschlossen",
             f"{len(entries_to_assign)} Platzhalter vom Typ «{chosen_type}»\n"
-            f"wurden mit «{prod.product_name or prod.order_number}» belegt.",
+            f"wurden mit «{prod.product_name or prod.order_number}» belegt."
+            + (f"\n\n{split} davon wegen zu weniger Kanäle auf mehrere Geräte "
+               "aufgeteilt, physikalische Adressen neu vergeben." if split else ""),
         )
         self._rebuild_table()
         self.list_changed.emit()

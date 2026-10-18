@@ -47,7 +47,7 @@ _USER_CATALOG_FORMAT = 3
 # Stand der Einordnung (product_classifier): eigene Produkte mit kleinerem
 # "classified" werden beim Laden neu eingeordnet -- ausser von Hand
 # bearbeitete ("user_edited").
-_CLASSIFY_VERSION = 2   # 2: Touch-Panels, Controller, pirios, Salva
+_CLASSIFY_VERSION = 3   # 2: Touch-Panels, Controller, pirios, Salva; 3: DALI-Gruppen
 
 
 def _com_object_store_path() -> str:
@@ -284,11 +284,14 @@ class ProductSearchService:
                              product.get("order_number", ""),
                              product.get("category", ""),
                              self.com_objects_of(product))
+            channels = product.get("channels") or found.channels
+            if found.device_type == "DALI-Gateway" and found.channels:
+                channels = found.channels   # Gruppen statt Zahl im Namen
             product.update(
                 category=found.category, device_type=found.device_type,
                 actor_type=found.device_type if found.category == "actor" else "",
                 sensor_type=found.device_type if found.category == "sensor" else "",
-                channels=product.get("channels") or found.channels,
+                channels=channels,
                 classified=_CLASSIFY_VERSION,
             )
             changed = True

@@ -151,8 +151,13 @@ class ProductSelectDialog(QDialog):
         topology: Topology | None = None,
         parent=None,
         initial_device_type: str = "",       # z.B. "Schaltaktor 8-fach", Vorauswahl
+        for_assignment: bool = False,
     ):
+        """for_assignment: Produkt für bestehende Zeilen der Materialliste
+        wählen -- ohne «Menge» und «Linie», die gelten nur für neue Geräte
+        (die Anzahl folgt dort aus der Topologie)."""
         super().__init__(parent)
+        self._for_assignment = for_assignment
         self.setWindowTitle("Produkt auswählen")
         self.setMinimumSize(980, 620)
         # .knxprod-Dateien hineinziehen oder mit Strg+V einfügen
@@ -337,8 +342,10 @@ class ProductSelectDialog(QDialog):
         splitter.setSizes([220, 760])
         layout.addWidget(splitter, 1)
 
-        # --- Menge ---
-        qty_layout = QHBoxLayout()
+        # --- Menge (nur für neue Geräte) ---
+        qty_box = QWidget()
+        qty_layout = QHBoxLayout(qty_box)
+        qty_layout.setContentsMargins(0, 0, 0, 0)
         qty_layout.addWidget(QLabel("Menge:"))
         self._qty_spin = QSpinBox()
         self._qty_spin.setMinimum(1)
@@ -346,10 +353,11 @@ class ProductSelectDialog(QDialog):
         self._qty_spin.setValue(1)
         qty_layout.addWidget(self._qty_spin)
         qty_layout.addStretch()
-        layout.addLayout(qty_layout)
+        qty_box.setVisible(not self._for_assignment)
+        layout.addWidget(qty_box)
 
         # --- Linienauswahl (optional, nur wenn Topologie vorhanden) ---
-        if self._topology and self._topology.areas:
+        if self._topology and self._topology.areas and not self._for_assignment:
             line_layout = QHBoxLayout()
             line_layout.addWidget(QLabel("Linie:"))
             self._line_combo = QComboBox()
