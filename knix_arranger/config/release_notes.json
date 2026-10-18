@@ -2,6 +2,16 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.6",
+      "date": "2026-10-18",
+      "verbessert": [
+        "Rauch- und Wassermelder sowie Kontakte, die in der Bauherrenberatung oder im Gebäude hinzugefügt werden, erhalten automatisch ein Element im Gewerk A ihres Raums. Die GA-Generierung (Wizard Schritt 10) erzeugt damit ihre Adressen; das bestehende Gerät bleibt erhalten."
+      ],
+      "behoben": [
+        "Rauch- und Wassermelder zeigten «Bewegung erkannt». Neu je Melder: Rauch erkannt, Wasser erkannt, Fenster/Tür/Riegel offen/geschlossen."
+      ]
+    },
+    {
       "version": "1.4.5",
       "date": "2026-10-18",
       "neu": [
