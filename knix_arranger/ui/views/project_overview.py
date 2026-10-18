@@ -202,7 +202,7 @@ class ProjectOverview(QWidget):
                           + f"<br><span style='color:{TEXT_MUTED};'>{step.description}</span>")
             text.setWordWrap(True)
             layout.addWidget(text, row, 1)
-            state = QLabel(" · ".join(p for p in (step.state, step.detail) if p))
+            state = QLabel(" · ".join(p for p in (step.label, step.detail) if p))
             state.setWordWrap(True)
             color = self._STATE_COLORS.get(step.state, TEXT_MUTED)
             state.setStyleSheet(f"color: {color};" + (" font-weight: bold;" if is_next else ""))

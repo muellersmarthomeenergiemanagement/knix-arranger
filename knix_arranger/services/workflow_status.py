@@ -8,13 +8,15 @@ Export an die ETS und die Unterlagen. Bis zur Übertragung in die ETS darf
 jederzeit umgeplant werden.
 
 Der Stand ist eine Orientierung aus den Projektdaten, kein Abschluss-
-Nachweis: «erledigt» heisst, die Daten des Schritts sind vorhanden.
+Nachweis. Darum zeigt jeder Schritt ein eigenes Wort für seinen Stand
+(«vorhanden», «bearbeitet», «vollständig» …) statt eines pauschalen
+«erledigt»; state dient nur der Farbe und der Wahl des nächsten Schritts.
 
 Reine Datenoperation ohne Qt.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 DONE = "erledigt"
 PARTIAL = "begonnen"
@@ -31,6 +33,12 @@ class WorkflowStep:
     description: str
     state: str
     detail: str = ""
+    labels: dict = field(default_factory=dict)   # state -> Wort des Schritts
+
+    @property
+    def label(self) -> str:
+        """Angezeigter Stand, z.B. «vorhanden» statt «erledigt»."""
+        return self.labels.get(self.state, self.state)
 
 
 def _devices(project) -> list:
@@ -61,7 +69,8 @@ def workflow_steps(project, errors: int | None = None,
         1, "Grundplanung", "wizard",
         "Gebäude, Gewerke, Geräte, Gruppenadressen und automatische Tastenbelegung.",
         DONE if planned else OPEN,
-        f"{len(rooms)} Räume, {len(gas)} GAs" if planned else "Wizard starten"))
+        f"{len(rooms)} Räume, {len(gas)} GAs" if planned else "Wizard starten",
+        {DONE: "vorhanden"}))
 
     # 2 Bauherrenberatung: von Hand bearbeitete Bedienstellen
     operable = [be for r in rooms for be in r.bedienelemente
@@ -73,7 +82,8 @@ def workflow_steps(project, errors: int | None = None,
         DONE if operable and len(edited) == len(operable)
         else PARTIAL if edited else OPEN,
         f"{len(edited)} von {len(operable)} Bedienstellen bearbeitet" if operable
-        else "keine Bedienstellen"))
+        else "keine Bedienstellen",
+        {DONE: "bearbeitet"}))
 
     # 3 Szenen und Zeitsteuerung (freiwillig)
     scenes = [s for s in project.scenes if s.name]
@@ -83,7 +93,8 @@ def workflow_steps(project, errors: int | None = None,
         "Szenen mit Nummern, Aktionen und Auslöser-Tasten; Zeitprogramme.",
         DONE if scenes or programs else OPEN,
         f"{len(scenes)} {'Szene' if len(scenes) == 1 else 'Szenen'}, {len(programs)} "
-        f"{'Zeitprogramm' if len(programs) == 1 else 'Zeitprogramme'}"))
+        f"{'Zeitprogramm' if len(programs) == 1 else 'Zeitprogramme'}",
+        {DONE: "vorhanden", OPEN: "keine"}))
 
     # 4 Materialliste: Produkte, dann KOs
     devices = [d for d in _devices(project) if d.device_type in ("actor", "gateway", "sensor")]
@@ -101,7 +112,8 @@ def workflow_steps(project, errors: int | None = None,
         "Produkte zuweisen, danach «KOs aller Geräte zuordnen».",
         state,
         f"{len(with_product)} von {len(devices)} Geräten mit Produkt, "
-        f"{len(assigned)} von {len(with_kos)} mit KO-Zuordnung"))
+        f"{len(assigned)} von {len(with_kos)} mit KO-Zuordnung",
+        {DONE: "vollständig"}))
 
     # 5 DALI
     gateways = [d for d in _devices(project)
@@ -117,18 +129,21 @@ def workflow_steps(project, errors: int | None = None,
         NOT_NEEDED if not gateways
         else DONE if len(configured) == len(gateways) else PARTIAL if configured else OPEN,
         f"{len(configured)} von {len(gateways)} Gateways konfiguriert" if gateways
-        else "kein DALI-Gateway"))
+        else "kein DALI-Gateway",
+        {DONE: "konfiguriert"}))
 
     # 6 Validierung
     if errors is None or warnings is None:
-        state, detail = OPEN, "noch nicht geprüft"
+        state, detail, labels = OPEN, "noch nicht geprüft", {}
     else:
         state = DONE if errors == 0 and warnings == 0 else PARTIAL if errors == 0 else OPEN
         detail = f"{errors} Fehler, {warnings} Warnungen"
+        # mit Meldungen sagen die Zahlen alles («0 Fehler, 3 Warnungen»)
+        labels = {DONE: "ohne Meldungen", PARTIAL: "", OPEN: ""}
     steps.append(WorkflowStep(
         6, "Validierung", "validation",
         "Fehler und Warnungen abarbeiten, Flags mit «Flags bearbeiten…» bereinigen.",
-        state, detail))
+        state, detail, labels))
 
     # 7 Export an die ETS
     steps.append(WorkflowStep(
@@ -136,7 +151,8 @@ def workflow_steps(project, errors: int | None = None,
         "GA-Liste (CSV) und ETS-Belegungsplan, danach Status «in ETS übertragen».",
         DONE if project.ets_transferred else OPEN,
         f"in ETS übertragen am {project.ets_transferred}" if project.ets_transferred
-        else "noch nicht übertragen"))
+        else "noch nicht übertragen",
+        {DONE: "übertragen"}))
 
     # 8 Unterlagen
     steps.append(WorkflowStep(

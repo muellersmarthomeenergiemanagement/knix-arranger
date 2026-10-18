@@ -29,6 +29,10 @@ def test_nach_dem_wizard_folgt_die_beratung(project):  # noqa: F811
     assert next_step(steps).nav_key == "bauherr_form"
     assert by_key["validation"].state == PARTIAL and "2 Warnungen" in by_key["validation"].detail
     assert by_key["export"].state == OPEN
+    # Eigenes Wort je Schritt statt «erledigt»
+    assert by_key["wizard"].label == "vorhanden"
+    assert by_key["validation"].label == ""             # Zahlen genügen
+    assert by_key["export"].label == "offen"
     # Produkt nur am Aktor (Testvorlage): Materialliste begonnen
     assert _actor(project).order_number == "SA/S4.16"
     material = by_key["material_list"]
