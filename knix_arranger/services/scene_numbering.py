@@ -319,3 +319,38 @@ def scenes_by_actor(project) -> dict[str, tuple[str, list[ActorScene]]]:
     for _label, items in result.values():
         items.sort(key=lambda a: (a.number, a.scene.name or ""))
     return result
+
+
+# ── Konflikte je Szene und freie Nummer (Szenen-Verwaltung) ─────────────────
+
+def conflict_texts(project, conflicts: list[NumberConflict] | None = None) -> dict[int, list[str]]:
+    """id(Szene) -> Hinweise zu Nummernkonflikten (FA-1813), aus Sicht der
+    jeweiligen Szene: «Nr. 1 auch auf 0/4/3 … «Anwesend» – beide erreichen …»."""
+    conflicts = number_conflicts(project) if conflicts is None else conflicts
+    result: dict[int, list[str]] = {}
+    for c in conflicts:
+        why = ("gleiche Szenen-Adresse" if c.same_channel
+               else "beide erreichen " + ", ".join(c.shared))
+        for scene, other, channel in ((c.first, c.second, c.second_channel),
+                                      (c.second, c.first, c.first_channel)):
+            result.setdefault(id(scene), []).append(
+                f"Nr. {c.number} auch auf {channel} «{other.name}» – {why}")
+    return result
+
+
+def free_number_for(project, scene) -> int | None:
+    """Nächste Nummer für die Szene, die weder auf ihrer Szenen-Adresse noch
+    an einem Empfänger, den sie mit einer anderen Szene teilt, belegt ist --
+    im Bereich ihrer Ebene (suggest_scene_number). None, wenn alle belegt."""
+    ctx = _context(project)
+    key, _shown = scene_channel(scene, ctx)
+    own = set(scene_receivers(project, scene, ctx))
+    used: set[int] = set()
+    for other in project.scenes:
+        if (other is scene or not other.name or other.scene_number <= 0
+                or other.detection_kind == "pattern"):
+            continue
+        other_key, _ = scene_channel(other, ctx)
+        if other_key == key or own & set(scene_receivers(project, other, ctx)):
+            used.add(other.scene_number)
+    return suggest_scene_number(project, scene.scope, used)

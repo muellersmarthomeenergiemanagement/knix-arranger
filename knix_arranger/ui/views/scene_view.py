@@ -26,7 +26,9 @@ from ...services.scene_detection_service import detect_scenes
 from ...services.scene_value_linking import (
     link_scene_values, link_scene_triggers, link_scene_names,
 )
-from ...services.scene_numbering import action_targets, suggest_scene_number
+from ...services.scene_numbering import (
+    action_targets, conflict_texts, free_number_for, suggest_scene_number,
+)
 from ...services.scene_numbering import _context as numbering_context
 from ...services.scene_addressing import (
     build_scope_label_lookup, group_named_scenes, is_bound_scene, scene_group_key,
@@ -62,6 +64,7 @@ class SceneView(QWidget):
         self._templates: list[dict] = []
         self._overview = None
         self._trigger_index: dict[str, list[str]] = {}
+        self._conflicts: dict[int, list[str]] = {}   # id(Szene) -> Hinweise FA-1813
         self._numbering_ctx = None      # Aktor-Kanäle je GA, beim Neuaufbau verworfen
         self._load_templates()
 
@@ -221,7 +224,22 @@ class SceneView(QWidget):
             "welche Szenen-Adresse eine Nummer kommt: Nummernbereiche je Ebene "
             "unter Projekteigenschaften → Szenennummern."
         )
-        detail_form.addRow("Szenen-Nr. (1-64):", self._scene_number)
+        # Nummer mit Knopf für eine freie Nummer bei Konflikt (FA-1813)
+        number_row = QHBoxLayout()
+        number_row.addWidget(self._scene_number)
+        self._btn_free_number = QPushButton("Freie Nummer wählen")
+        self._btn_free_number.setObjectName("secondary")
+        self._btn_free_number.setToolTip(
+            "Nächste Nummer im Bereich der Ebene, die weder auf dieser Szenen-Adresse "
+            "noch an einem gemeinsamen Aktor/Gateway belegt ist, und übernehmen.")
+        self._btn_free_number.clicked.connect(self._choose_free_number)
+        number_row.addWidget(self._btn_free_number)
+        number_row.addStretch()
+        detail_form.addRow("Szenen-Nr. (1-64):", number_row)
+        self._scene_conflict = QLabel()
+        self._scene_conflict.setWordWrap(True)
+        self._scene_conflict.setStyleSheet(f"color: {_COLOR_WARN.name()};")
+        detail_form.addRow("", self._scene_conflict)
 
         self._scene_address = QComboBox()
         self._scene_address.setToolTip(
@@ -359,6 +377,7 @@ class SceneView(QWidget):
         self._overview = build_scene_overview(self._project)
         self._trigger_index = scene_trigger_index(self._project, snapshot=False)
         self._numbering_ctx = None
+        self._conflicts = conflict_texts(self._project)
         labels = build_scope_label_lookup(self._project.areal)
         target_item = None
 
@@ -403,6 +422,13 @@ class SceneView(QWidget):
                 item.setForeground(2, _COLOR_HINT)
             if len(triggers) > 1:
                 item.setToolTip(2, "\n".join(triggers))
+            conflicts = self._conflicts.get(id(scene))
+            if conflicts:
+                # Gleiche Nummer an einem gemeinsamen Aktor (FA-1813)
+                item.setForeground(1, _COLOR_WARN)
+                item.setText(1, f"{item.text(1)} ⚠")
+                item.setToolTip(1, "\n".join(conflicts))
+                item.setToolTip(0, "\n".join(conflicts))
             item.setData(0, _ROLE, ("scene", scene))
             if select is scene:
                 target_item = item
@@ -437,6 +463,9 @@ class SceneView(QWidget):
                if self._overview.visu else "")
             + (f" · {len(self._overview.unclear)} nicht eindeutig"
                if self._overview.unclear else "")
+            + (f" · {self._conflict_count()} "
+               f"{'Nummernkonflikt' if self._conflict_count() == 1 else 'Nummernkonflikte'}"
+               if self._conflicts else "")
         )
         self._update_stale_banner()
         if target_item is not None:
@@ -572,6 +601,10 @@ class SceneView(QWidget):
         self._scene_name.setText(scene.name)
         self._scene_number.setValue(max(1, scene.scene_number))
         self._scene_trigger.setText(scene.trigger)
+        conflicts = self._conflicts.get(id(scene), [])
+        self._scene_conflict.setText("\n".join(conflicts))
+        self._scene_conflict.setVisible(bool(conflicts))
+        self._btn_free_number.setVisible(bool(conflicts))
         buttons = self._trigger_index.get(scene.id, [])
         self._scene_buttons.setText(
             "\n".join(buttons) if buttons else
@@ -611,6 +644,23 @@ class SceneView(QWidget):
             self._actions_table.setItem(i, 4, self._target_item(action))
         self._actions_table.blockSignals(False)
         fit_columns(self._actions_table)
+
+    def _conflict_count(self) -> int:
+        """Konflikte (Paare von Szenen), nicht betroffene Szenen."""
+        return sum(len(texts) for texts in self._conflicts.values()) // 2
+
+    def _choose_free_number(self) -> None:
+        """Freie Nummer für die gewählte Szene setzen und übernehmen."""
+        scene = self._get_selected_scene()
+        if scene is None or self._project is None:
+            return
+        number = free_number_for(self._project, scene)
+        if number is None:
+            QMessageBox.information(self, "Keine freie Nummer",
+                                    "An den gemeinsamen Aktoren sind alle 64 Nummern belegt.")
+            return
+        self._scene_number.setValue(number)
+        self._apply_changes()
 
     def _target_item(self, action: SceneAction) -> QTableWidgetItem:
         """Nicht editierbare Zelle: Aktor/Gateway-Kanäle der Aktion."""

@@ -17,7 +17,8 @@ from knix_arranger.models.project import KnxProject, ProjectConfig
 from knix_arranger.models.scene import Scene, SceneAction
 from knix_arranger.services.recalc_service import RecalcService
 from knix_arranger.services.scene_numbering import (
-    DEFAULT_RANGES, action_targets, number_conflicts, scene_level, scene_range_problem,
+    DEFAULT_RANGES, action_targets, conflict_texts, free_number_for, number_conflicts,
+    scene_level, scene_range_problem,
     scene_ranges, scenes_by_actor, suggest_scene_number,
 )
 from knix_arranger.services.topology_engine import TopologyEngine
@@ -98,6 +99,33 @@ def test_same_number_on_different_gas_with_shared_actor(gewerk_catalog):
               if i.rule_id == "FA-1813"]
     assert [i.level for i in issues] == ["warning"]
     assert "Abend" in issues[0].message and "Alles aus" in issues[0].message
+
+
+def test_conflict_shown_in_scene_view_and_free_number(gewerk_catalog):
+    """Szenen-Verwaltung: Konflikt im Baum und in den Details, «Freie Nummer
+    wählen» nimmt eine Nummer, die am gemeinsamen Aktor frei ist."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from knix_arranger.ui.views.scene_view import SceneView
+    QApplication.instance() or QApplication([])
+    project, wohnen, _kueche, _apt = _project(gewerk_catalog)
+    licht = _licht(project, wohnen)
+    abend = _scene("Abend", 1, "room", wohnen.id, licht)
+    aus = _scene("Alles aus", 1, "central", "", licht)
+    project.scenes = [abend, aus]
+    texts = conflict_texts(project)
+    assert "«Alles aus»" in texts[id(abend)][0] and "«Abend»" in texts[id(aus)][0]
+    assert free_number_for(project, aus) not in (None, 1)
+    view = SceneView()
+    view.set_project(project)
+    assert "1 Nummernkonflikt" in view._info.text()
+    view._select_scene(aus)
+    assert "⚠" in view._tree.currentItem().text(1)
+    assert view._btn_free_number.isVisibleTo(view)
+    view._choose_free_number()
+    assert aus.scene_number not in (0, 1)
+    assert number_conflicts(project) == []
+    assert "Nummernkonflikt" not in view._info.text()
 
 
 def test_rooms_on_same_actor_conflict_other_actor_not(gewerk_catalog):
