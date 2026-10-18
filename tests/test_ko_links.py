@@ -324,3 +324,10 @@ def test_remembered_unlinked_does_not_hide_suggestion():
     finally:
         actor_channels.suggested_co_map = original
     assert result == {"E/A": 5, "RM": 7, "WERT": -1}
+
+
+def test_device_message_needs_no_receiver():
+    """ABB BE/S «System» (In-Betrieb-Telegramm) ist kein Befehl (FA-628)."""
+    binary = _device("1.1.126", (0, "System", "KL-Ü--", ["3/3/22"]))
+    project = _project([binary], [_ga("3/3/22", "System")])
+    assert _issues(project, "FA-628") == []

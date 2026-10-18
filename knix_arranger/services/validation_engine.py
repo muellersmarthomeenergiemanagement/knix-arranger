@@ -227,7 +227,9 @@ class ValidationEngine:
                     "L-Flag nur am KO lassen, das den Wert liefert",
                     designation=designation,
                     details={"devices": [l.device.physical_address for l in readers]}))
-            if (ga is not None and ga_functions.role_of(ga.function_name) == ga_functions.COMMAND
+            # Nur bekannte Befehle: Herstellertexte wie «System» (In-Betrieb-
+            # Telegramm) brauchen keinen Empfänger
+            if (ga is not None and ga_functions.is_known_command(ga.function_name)
                     and not any(WRITE in l.flags for l in known)):
                 if unresolved is None:
                     unresolved = self._actors_without_kos(project)
@@ -408,16 +410,22 @@ class ValidationEngine:
     @staticmethod
     def _actors_without_kos(project) -> set[str]:
         """GAs geplanter Projekte, an denen ein Aktor laut Belegungsplan hängt,
-        dessen KOs noch nicht zugeordnet sind -- dort ist «kein Empfänger»
-        noch nicht entscheidbar."""
+        dessen KOs für diesen Stromkreis noch nicht zugeordnet sind -- dort ist
+        «kein Empfänger» noch nicht entscheidbar. Eine Auswahl nur aus «nicht
+        verknüpfen» gilt als nicht zugeordnet (DALI-Gateway ohne Produkt,
+        Projekt_23 1.1.2)."""
+        from .actor_channels import circuit_key
         from .belegungsplan_service import BelegungsplanService
         devices = {d.physical_address: d for area in project.topology.areas
                    for line in area.lines for d in line.devices}
         result = set()
         for row in BelegungsplanService().generate(project).actor_rows:
             device = devices.get(row.physical_address)
-            if device is not None and not device.co_map and not any(
-                    co.connected_gas for co in device.communication_objects):
+            if device is None or any(co.connected_gas for co in device.communication_objects):
+                continue
+            selection = (device.co_map or {}).get(
+                circuit_key(row.room_id, row.gewerk_code, row.element_number)) or {}
+            if not any(n is not None and n >= 0 for n in selection.values()):
                 result.add(row.ga_address)
         return result
 

@@ -10,9 +10,15 @@ from .gewerk_service import GewerkService
 
 
 def ets_gewerk(ga) -> str:
-    """Gewerk, wie es aus dem ETS-Namen folgt ("T.EG.01.03_ea" -> "T")."""
+    """Gewerk, wie es aus dem ETS-Namen folgt ("T.EG.01.03_ea" -> "T"), auch
+    aus einem KNiX-Namen ("LDA_CEG01_05 DIM (…)" -> "LDA") -- so heisst die GA
+    auch in der ETS. Ohne diesen Rückfall galt jedes Gewerk einer KNiX-GA
+    als Abweichung zur ETS ("LDA statt –", Projekt_23)."""
     matched = GewerkService._match_ga_designation(ga.designation or "")
-    return matched[0] if matched else ""
+    if matched:
+        return matched[0]
+    from .naming_engine import NamingEngine
+    return NamingEngine.parse_designation(ga.designation or "").get("gewerk_code", "") or ""
 
 
 def effective_gewerk(project, ga) -> str:

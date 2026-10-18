@@ -158,5 +158,13 @@ def role_of(name: str) -> str:
     return COMMAND
 
 
+def is_known_command(name: str) -> bool:
+    """Bekannte Befehlsfunktion (E/A, DIM, AUF/AB …) -- nicht nur nach dem
+    Namen vermutet wie bei Herstellertexten («System» = In-Betrieb-Telegramm
+    des ABB-Binäreingangs)."""
+    function = _BY_NAME.get((name or "").strip().upper())
+    return function is not None and function.role == COMMAND
+
+
 def role_label(name: str) -> str:
     return ROLE_LABELS.get(role_of(name), "")

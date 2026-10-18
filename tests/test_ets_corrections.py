@@ -220,3 +220,19 @@ def test_raum_korrektur_entfaellt_wenn_ets_nachgefuehrt():
     taster.room_id = carnotzet.id                       # wie frisch aus der ETS
     assert check_rooms_after_import(project) == 0
     assert "1.2.6" in project.ets_corrections.room_by_device
+
+
+def test_knix_name_ist_kein_ets_unterschied():
+    """Projekt_23: GA mit KNiX-Namen trägt ihr Gewerk im Namen -- eine
+    gespeicherte Korrektur auf dasselbe Gewerk ist erledigt, keine Abweichung."""
+    project = _project(imported=False)
+    mg = project.group_addresses.main_groups[0].middle_groups[0]
+    dim = GroupAddress(main_group=2, middle_group=2, sub_group=121, gewerk_code="LDA",
+                       function_name="DIM",
+                       designation="LDA_CEG01_05 DIM (Wohnung / Haupteingang Spots)")
+    mg.group_addresses.append(dim)
+    project.ets_corrections.gewerk_by_address["2/2/121"] = "LDA"
+    assert deviations(project) == []
+    apply_ets_corrections(project)
+    assert project.ets_corrections.gewerk_by_address == {}
+    assert dim.gewerk_code == "LDA"
