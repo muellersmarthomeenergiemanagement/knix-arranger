@@ -2,6 +2,17 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.4",
+      "date": "2026-10-18",
+      "neu": [
+        "Topologie: Flags eines KOs per Rechtsklick «Flags bearbeiten…» setzen, wie in der ETS parametriert (geplante Projekte)."
+      ],
+      "behoben": [
+        "Falsche Warnung «Mehrere Antworten beim Lesen» bei Feller-Tastern («Object 2»), nachdem die CO-Verknüpfung die GAs verbunden hatte.",
+        "CO-Verknüpfung legte «Ist-Temperatur» am Heizungsaktor als sendendes KO mit L-Flag an; neu als empfangendes KO."
+      ]
+    },
+    {
       "version": "1.4.3",
       "date": "2026-10-18",
       "neu": [
