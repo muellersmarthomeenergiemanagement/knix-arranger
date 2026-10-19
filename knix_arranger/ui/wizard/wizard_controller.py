@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QStackedWidget, QProgressBar, QWidget, QMessageBox, QFrame,
     QTextBrowser, QDialogButtonBox, QScrollArea,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 
 from .step01_building import Step01Building
@@ -55,6 +55,7 @@ NUM_STEPS = len(STEP_TITLES)
 
 # Schritt-Index fuer Deep-Links aus anderen Ansichten (siehe start_step),
 # z.B. der "Jetzt generieren"-Hinweis in scene_view.py.
+STEP_INDEX_GEWERKE = 4    # "5. Gewerke" (Step05Gewerke), Produkt je Zuweisung
 STEP_INDEX_ADDRESSES = 8  # "9. Gruppenadressen" (Step07Addresses)
 STEP_INDEX_SCENES = 9     # "10. Szenen" (Step07bScenes)
 
@@ -69,7 +70,8 @@ def help_topic_key(step_index: int) -> str:
 class WizardController(QDialog):
     """Steuert den 13-Schritt-Wizard."""
 
-    def __init__(self, project: KnxProject, parent=None, start_step: int = 0):
+    def __init__(self, project: KnxProject, parent=None, start_step: int = 0,
+                 focus: tuple = ()):
         super().__init__(parent)
         self.setWindowTitle("KNiX Arranger - Projektassistent")
         self.setMinimumSize(900, 650)
@@ -237,6 +239,11 @@ class WizardController(QDialog):
         # einer anderen Ansicht heraus, siehe main_window._start_wizard).
         if 0 < start_step < NUM_STEPS:
             self._go_to_step(start_step)
+            # Stelle im Schritt (z.B. Produkt einer Zuweisung), erst wenn
+            # der Assistent sichtbar ist
+            step = self._steps[start_step]
+            if focus and hasattr(step, "show_focus"):
+                QTimer.singleShot(0, lambda: step.show_focus(*focus))
 
     def _go_to_step(self, index: int):
         current = self._steps[self._current_step]

@@ -193,3 +193,42 @@ def test_scene_action_by_address_counts_as_operation(gewerk_catalog, monkeypatch
     assert (scene.actions[-1].ga_address, scene.actions[-1].group_address) == (
         ea.address, ea.designation)
     assert not any(u.ga.address == ea.address for u in unoperated_elements(project))
+
+
+def test_generated_duplicate_designation_leads_to_product(gewerk_catalog):
+    """FA-625: gleiche Bezeichnungen aus den KOs eines Produkts -- KNiX ist
+    die Ursache, der Sprung führt zur Produkt-/KO-Auswahl der Zuweisung."""
+    project = _project(gewerk_catalog)
+    room = project.all_rooms[0]
+    light = next(a for a in room.gewerk_assignments if a.gewerk_code == "L")
+    light.linked_product = {"manufacturer": "X", "order_number": "1", "com_objects": []}
+    gas = [g for g in project.group_addresses.all_addresses() if g.assignment_id == light.id]
+    gas[0].designation = gas[1].designation = "L_U02 Wert"
+    issue = next(i for i in ValidationEngine(gewerk_catalog).validate(
+        project.group_addresses, project=project)
+        if i.rule_id == "FA-625" and i.designation == "L_U02 Wert")
+    assert "von KNiX aus den KOs des Produkts erzeugt" in issue.message
+    assert "Schritt 5" in issue.suggestion
+    targets = vt.targets_for(issue.to_dict(), project)
+    assert (targets[0].kind, targets[0].key) == (vt.PRODUCT, light.id)
+    assert targets[1].kind == vt.GA
+    # von Hand angelegt: wie bisher
+    gas[1].is_manual = True
+    issue = next(i for i in ValidationEngine(gewerk_catalog).validate(
+        project.group_addresses, project=project)
+        if i.rule_id == "FA-625" and i.designation == "L_U02 Wert")
+    assert issue.suggestion == "Bezeichnungen eindeutig machen"
+    assert vt.targets_for(issue.to_dict(), project)[0].kind == vt.GA
+
+
+def test_wizard_step5_opens_product_of_assignment(gewerk_catalog, monkeypatch):
+    from knix_arranger.ui.wizard.step05_gewerke import Step05Gewerke
+    project = _project(gewerk_catalog)
+    light = next(a for a in project.all_rooms[0].gewerk_assignments if a.gewerk_code == "L")
+    step = Step05Gewerke(project)
+    step.on_enter()
+    opened = []
+    monkeypatch.setattr(step, "_select_product", lambda room, ga: opened.append((room, ga)))
+    assert step.show_focus("assignment", light.id)
+    assert opened == [(project.all_rooms[0], light)]
+    assert not step.show_focus("assignment", "gibt-es-nicht")

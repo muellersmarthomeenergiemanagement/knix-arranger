@@ -23,6 +23,7 @@ VIEW = "view"              # Ansicht ohne Auswahl, key = Ansichts-Schlüssel
 KEYS = "keys"              # Dialog «Tasten anpassen» (FA-629), key = physikalische Adresse
 KOS = "kos"                # Dialog «Kanäle und KOs zuordnen», key = physikalische
                            # Adresse, focus = (Stromkreis/ga_key, Funktion, KO-Vorschlag)
+PRODUCT = "product"        # Assistent Schritt 5, Produkt einer Zuweisung, key = Zuweisungs-id
 
 _GA_RE = re.compile(r"^\d{1,2}/\d/\d{1,3}$")
 _PA_RE = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{1,3}$")
@@ -110,6 +111,18 @@ def targets_for(issue: dict, project) -> list[Target]:
         add(Target(KOS, pa, f"Kanäle und KOs von {pa} zuordnen (an dieser Stelle)…",
                    (ko_focus.get("key", ""), ko_focus.get("function", ""),
                     ko_focus.get("suggested", -1))))
+    # Von KNiX aus Produkt-KOs erzeugte gleiche Bezeichnungen (FA-625):
+    # Produktzuordnung der Zuweisung im Assistenten
+    assignment_id = (issue.get("details") or {}).get("assignment_id")
+    if rule == "FA-625" and assignment_id:
+        for room in project.all_rooms:
+            assignment = next((a for a in room.gewerk_assignments
+                               if a.id == assignment_id), None)
+            if assignment is not None:
+                add(Target(PRODUCT, assignment_id,
+                           f"Produkt von {assignment.gewerk_code} in Raum "
+                           f"{room.number} {room.name} prüfen (Assistent, Schritt 5)…"))
+                break
     # Zu wenige Tasten (FA-629): Dialog mit den Wegen, dann Bauherrenberatung
     room_id = (issue.get("details") or {}).get("room_id")
     if rule == "FA-629" and address in devices:

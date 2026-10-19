@@ -674,6 +674,9 @@ class MainWindow(QMainWindow):
     def _jump_to_target(self, target) -> None:
         """Zur Stelle springen, an der eine Meldung korrigiert wird (FA-615a)."""
         from ..services import validation_targets as vt
+        if target.kind == vt.PRODUCT:
+            self._open_wizard_at_product(target.key)
+            return
         views = {vt.GA: "addresses", vt.DEVICE: "topology", vt.LINE: "topology",
                  vt.ROOM: "building", vt.FLOOR: "building", vt.BAUHERR: "bauherr_form",
                  vt.KEYS: "topology", vt.KOS: "material_list"}
@@ -2163,7 +2166,7 @@ class MainWindow(QMainWindow):
         self._navigate("validation")
         self._status_bar.set_status(f"Validierung: {len(issues)} Probleme gefunden.")
 
-    def _start_wizard(self, start_step: int = 0):
+    def _start_wizard(self, start_step: int = 0, focus: tuple = ()):
         if not self._project:
             self._new_project()
             if not self._project:
@@ -2177,7 +2180,8 @@ class MainWindow(QMainWindow):
         # Archiv jedes Mal mit neuem Salt und sähe immer verändert aus.
         before = self._project.content_fingerprint()
         self._on_begin_change("Projektassistent")
-        wizard = WizardController(self._project, self, start_step=start_step)
+        wizard = WizardController(self._project, self, start_step=start_step,
+                                  focus=focus)
         completed = wizard.exec()
         if self._project.content_fingerprint() != before:
             self._refresh_bedienelemente()
@@ -2197,6 +2201,13 @@ class MainWindow(QMainWindow):
         Wizard-Schritt 9 "Gruppenadressen generieren"."""
         from .wizard.wizard_controller import STEP_INDEX_ADDRESSES
         self._start_wizard(start_step=STEP_INDEX_ADDRESSES)
+
+    def _open_wizard_at_product(self, assignment_id: str):
+        """Sprung aus der Validierung (FA-625): Assistent Schritt 5 mit der
+        Produkt-/KO-Auswahl dieser Zuweisung."""
+        from .wizard.wizard_controller import STEP_INDEX_GEWERKE
+        self._start_wizard(start_step=STEP_INDEX_GEWERKE,
+                           focus=("assignment", assignment_id))
 
     def _undo(self):
         if self._undo_manager.undo():

@@ -430,6 +430,22 @@ class Step05Gewerke(QWidget):
 
         self._auto_detect_group.setVisible(self._project.topology.is_imported)
 
+    def show_focus(self, kind: str, key: str) -> bool:
+        """Sprung aus der Validierung (FA-625): Zeile der Zuweisung wählen
+        und ihre Produkt-/KO-Auswahl öffnen."""
+        if kind != "assignment":
+            return False
+        for row in range(self._table.rowCount()):
+            item = self._table.item(row, _COL_LABEL)
+            ga = item.data(Qt.UserRole) if item is not None else None
+            if isinstance(ga, GewerkAssignment) and ga.id == key:
+                self._table.selectRow(row)
+                self._table.scrollToItem(item)
+                _floor, _apt, room = self._context_from_row(row)
+                self._select_product(room, ga)
+                return True
+        return False
+
     # ── Kontext-Lookup ──
 
     def _context_from_row(self, row: int):

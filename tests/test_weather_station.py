@@ -115,3 +115,35 @@ def test_geplant_wetter_gas_wandern_nach_hg0(gewerk_catalog):
     project, _old = _project_with_floor_weather(gewerk_catalog)
     regenerate_addresses(project)
     assert {ga.main_group for ga in _weather_gas(project.group_addresses)} == {0}
+
+
+def test_ga_names_from_product_kos_use_the_ets_name():
+    """Produkt-KOs (Theben Meteodata): ETS-Name «Helligkeitswert vorne»,
+    Objektfunktion nur «Physikalischer Wert» -- die GA heisst nach dem Namen;
+    reiner Kanalname bekommt die Funktion dazu; gleiche Namen werden
+    nummeriert (keine doppelten Bezeichnungen, FA-625)."""
+    from knix_arranger.services.address_generator import _com_object_function_name
+
+    def name(label, function):
+        return _com_object_function_name({"name": label, "function_text": function,
+                                          "object_size": "1 Bit"})
+    assert name("Helligkeitswert vorne", "Physikalischer Wert") == "Helligkeitswert vorne"
+    assert name("F1", "Schalten") == "F1: Schalten"
+    assert name("Zentral - Allgemein: ", "in Betrieb") == "Zentral - Allgemein: in Betrieb"
+    # bis 1.4.9 eingelesen (ohne Grösse): «name» ist die interne Kennung
+    assert _com_object_function_name(
+        {"name": "Obj_SwitchOnOff", "function_text": "P1: Bewegung"}) == "P1: Bewegung"
+
+
+def test_product_block_numbers_equal_names(gewerk_catalog):
+    from knix_arranger.services.address_generator import AddressGenerator
+    def co(number, name):
+        return {"number": number, "name": name, "function_text": "Senden",
+                "datapoint_type": "DPST-1-1", "object_size": "1 Bit", "communication_flag": True,
+                "transmit_flag": True, "write_flag": False, "read_flag": False,
+                "update_flag": False}
+    assignment = GewerkAssignment(gewerk_code="W", count=1, linked_product={
+        "com_objects": [co(1, "Wert"), co(2, "Wert"), co(3, "Wert")]})
+    schema = AddressGenerator(gewerk_catalog)._get_block_schema(
+        gewerk_catalog.get("W"), assignment=assignment)
+    assert [e.function for e in schema.entries] == ["Wert", "Wert 2", "Wert 3"]

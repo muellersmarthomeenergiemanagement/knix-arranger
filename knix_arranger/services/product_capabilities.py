@@ -213,7 +213,8 @@ def plan_conflicts(project) -> tuple[list[KeyShortage], list[TemperatureOffer]]:
                 if caps.keys and be.element_type == "Tastereinheit" and planned > caps.keys:
                     shortages.append(KeyShortage(device, room, planned, caps.keys, be))
                 co = caps.sensors.get(TEMPERATURE)
-                if co is None or be.element_type == "Raumthermostat":
+                # Raumthermostat regelt selbst; die Wetterstation misst draussen
+                if co is None or be.element_type in ("Raumthermostat", "Wetterstation"):
                     continue
                 for assignment in room.gewerk_assignments:
                     if assignment.gewerk_code not in HEATING_GEWERKE:

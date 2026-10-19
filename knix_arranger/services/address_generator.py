@@ -80,11 +80,38 @@ def _com_object_function_name(co: dict) -> str:
     (ohne ETS-Platzhalter wie "{{0}}" und ohne Klammerzusätze wie
     "(0 = Aus | 1 = An)" -- Klammern tragen in der Bezeichnung den Klartext)."""
     from .knxprod_catalog_service import clean_co_text
-    name = clean_co_text(co.get("function_text", "")) or clean_co_text(co.get("name", ""))
+    if not co.get("object_size"):
+        # Bis 1.4.9 eingelesen: «name» ist die interne Kennung
+        # («Obj_SwitchOnOff»), im Funktionsfeld steht der ETS-Name
+        name = clean_co_text(co.get("function_text", "")) or clean_co_text(co.get("name", ""))
+        name = " ".join(re.sub(r"\([^()]*\)", " ", name).split()) or name
+        return name[:40].strip() if len(name) > 40 else name
+    raw_name = co.get("name", "") or ""
+    label = clean_co_text(raw_name)
+    function = clean_co_text(co.get("function_text", ""))
+    # Der ETS-Name trägt die Aussage (Theben Meteodata «Helligkeitswert
+    # vorne», Objektfunktion nur «Physikalischer Wert»); ist er nur ein Kanal
+    # («F1», «Kanal C1», «Taste 1, links») oder endet er auf «:» (ABB
+    # «Zentral - Allgemein:»), kommt die Funktion dazu. Bis 1.4.9 stand der
+    # Name im Funktionsfeld (siehe oben).
+    if not label or not function or function in label:
+        name = label or function
+    elif label in function:
+        name = function
+    elif raw_name.rstrip().endswith(":") or _CHANNEL_ONLY.fullmatch(label):
+        name = f"{label.rstrip(' :')}: {function}"
+    else:
+        name = label
     name = " ".join(re.sub(r"\([^()]*\)", " ", name).split()) or name
     if len(name) > 40:
         name = name[:40].strip()
     return name
+
+
+# Name, der nur einen Kanal bzw. eine Taste nennt
+_CHANNEL_ONLY = re.compile(
+    r"[A-Za-zÄÖÜäöü .\-]{0,14}\d+[A-Za-z]?(?:,? ?(?:links|rechts|left|right|oben|unten))?",
+    re.IGNORECASE)
 
 
 # Pseudo-Gewerk für Taster-Zusatzsensorik (Bedienelement.linked_product,
@@ -886,6 +913,14 @@ class AddressGenerator:
             if co.get("number") in excluded:
                 continue
             function = _com_object_function_name(co)
+            # Gleich benannte KOs (Meteodata «Senden» für Zeit und Datum)
+            # unterscheidbar machen, sonst gleiche GA-Bezeichnungen (FA-625)
+            taken = {e.function for e in entries}
+            if function in taken:
+                n = 2
+                while f"{function} {n}" in taken:
+                    n += 1
+                function = f"{function} {n}"
             is_fb = not co.get("write_flag", False) and (
                 co.get("transmit_flag", False) or co.get("read_flag", False)
             )

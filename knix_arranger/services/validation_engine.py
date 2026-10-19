@@ -536,17 +536,39 @@ class ValidationEngine:
                         f"Raum {label}: Gewerk {code} ist {n}-mal zugewiesen", room.number,
                         "In Schritt 5 zusammenfassen (Anzahl erhöhen)" if planned
                         else "Gewerk der GAs über «Gewerk zuordnen» korrigieren"))
-        names: dict[str, list[str]] = {}
+        names: dict[str, list] = {}
         for ga in project.group_addresses.all_addresses():
             if ga.designation and ga.designation != "--" and not ga.is_placeholder:
-                names.setdefault(ga.designation, []).append(ga.address)
-        for name, addresses in names.items():
-            if len(addresses) > 1:
-                issues.append(ValidationIssue(
-                    level, "FA-625",
-                    f"GA-Bezeichnung mehrfach: {', '.join(addresses)}", addresses[0],
-                    "Bezeichnungen eindeutig machen" if planned
-                    else "In der ETS eindeutig benennen", designation=name))
+                names.setdefault(ga.designation, []).append(ga)
+        assignments = {a.id: (room, a) for room in project.all_rooms
+                       for a in room.gewerk_assignments}
+        for name, gas in names.items():
+            if len(gas) < 2:
+                continue
+            addresses = [ga.address for ga in gas]
+            message = f"GA-Bezeichnung mehrfach: {', '.join(addresses)}"
+            suggestion = ("Bezeichnungen eindeutig machen" if planned
+                          else "In der ETS eindeutig benennen")
+            details: dict = {}
+            # Von KNiX erzeugt: von Hand umbenennen hilft nicht (beim nächsten
+            # Generieren wieder gleich) -- Ursache ist die Produkt-KO-Auswahl
+            sources = {ga.assignment_id for ga in gas}
+            if planned and all(not ga.is_manual and ga.assignment_id in assignments
+                               for ga in gas):
+                with_product = [aid for aid in sorted(sources)
+                                if assignments[aid][1].has_product()]
+                if with_product:
+                    message += " (von KNiX aus den KOs des Produkts erzeugt)"
+                    suggestion = ("Im Assistenten, Schritt 5 «Produkt…», die KO-Auswahl "
+                                  "prüfen; danach Schritt 9 (GAs neu generieren)")
+                    details["assignment_id"] = with_product[0]
+                else:
+                    message += " (von KNiX erzeugt)"
+                    suggestion = ("Im Assistenten, Schritt 5, die Elemente unterschiedlich "
+                                  "bezeichnen; danach Schritt 9 (GAs neu generieren)")
+            issues.append(ValidationIssue(
+                level, "FA-625", message, addresses[0], suggestion,
+                designation=name, details=details))
         return issues
 
     def _check_ets_deviations(self, project) -> list[ValidationIssue]:
