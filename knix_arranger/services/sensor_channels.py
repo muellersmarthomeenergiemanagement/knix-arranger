@@ -387,14 +387,26 @@ def link_family(link) -> str:
     return _GEWERK_FAMILY.get(parts[1], "") if len(parts) > 2 else ""
 
 
+def co_families(co) -> frozenset:
+    """Belegungen, unter denen die Variante aktiv ist: aus den Parameter-
+    bedingungen der Herstellerdatei (ets_parameters.attach_families, z.B.
+    «Taste 1, links › Funktion Taste = Dimmen» -> dimmen), sonst aus dem
+    Textzusatz «…, Dimmen». Leer = ohne Angabe (Signal-LED, Zwangsführung)."""
+    families = getattr(co, "families", None)
+    if families is not None:
+        return families
+    family = co_family(co)
+    return frozenset({family}) if family else frozenset()
+
+
 def family_variants(cos: list, link) -> list:
     """Nur die Varianten, die zur Belegung der Taste passen (und die ohne
     Angabe); ohne Belegung oder ohne passende Variante alle."""
     family = link_family(link)
-    if not family or not any(co_family(co) for co in cos):
+    if not family or not any(co_families(co) for co in cos):
         return cos
-    fitting = [co for co in cos if co_family(co) in ("", family)]
-    return fitting if any(co_family(co) == family for co in fitting) else cos
+    fitting = [co for co in cos if not co_families(co) or family in co_families(co)]
+    return fitting if any(family in co_families(co) for co in fitting) else cos
 
 
 # Sendende KOs für Befehle an den Aktor, nach Vorrang: ein Melder schaltet
@@ -424,6 +436,9 @@ def suggested_sensor_co_map(device, links: list[SensorLink], all_cos: list) -> d
     haben (in der ETS sendet er auf der ersten, hört auf die weiteren) -- ein
     Melder schaltet über «P1: Bewegung (Master)» auch das Licht; innerhalb
     jedes Durchgangs aber nur einmal (Taste 1 kurz und lang)."""
+    # Belegungen der Varianten aus den Parameterbedingungen des Katalogs
+    from .ets_parameters import attach_families
+    attach_families(device)
     result: dict[str, int] = {}
     named_used: set[int] = set()
     occurrences: dict[str, int] = {}

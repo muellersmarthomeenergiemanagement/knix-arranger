@@ -163,3 +163,33 @@ def test_catalog_keeps_parameters_per_application():
     found = fresh.find_product(product.manufacturer, product.order_number)
     assert any(co.get("conditions") for co in found["com_objects"])
     assert fresh.parameters_of(found)[f"{_APP}_P-1"][1] == "Funktion Taste"
+
+
+def test_variant_choice_follows_conditions_not_text():
+    """Der Textzusatz «…, Dimming» (englisch) sagt der Textregel nichts; die
+    Bedingung «Taste 1, links › Funktion Taste = Dimmen» schon."""
+    from knix_arranger.services import ets_parameters, product_sync
+    from knix_arranger.services.product_sync import communication_objects_of
+    from knix_arranger.services.sensor_channels import SensorLink, family_variants
+    catalog_product = _product().to_catalog_dict()
+
+    class Catalog:
+        def find_product(self, *_args):
+            return catalog_product
+
+        def parameters_of(self, prod):
+            return prod["parameters"]
+
+    device = Device(manufacturer="Test", order_number="TP-1",
+                    communication_objects=communication_objects_of(
+                        catalog_product["com_objects"]))
+    link = SensorLink(key="a|LD|1|DIM", channel="Taste 1 lang", function="DIM",
+                      ga_address="", ga_designation="", ga_function="DIM", dpt="DPST-3-7",
+                      feedback=False)
+    variants = [co for co in device.communication_objects if co.object_number == 1]
+    assert len(family_variants(variants, link)) == len(variants)     # ohne Bedingungen
+    ets_parameters.reset_family_cache()
+    ets_parameters.attach_families(device, Catalog())
+    chosen = family_variants(variants, link)
+    assert [co.object_function for co in chosen if co.families] == ["brighter/darker, Dimming"]
+    product_sync.reset_shared_catalog()

@@ -323,6 +323,8 @@ class ValidationEngine:
                 if sensor_rows is None:
                     sensor_rows = sensor_plan(project)
                 links = {l.key: l for l in sensor_links(project, device, sensor_rows)}
+                from .ets_parameters import attach_families
+                attach_families(device)
                 problems = sensor_selection_problems(list(links.values()), selection, variants)
                 suggested = (suggested_sensor_co_map(device, list(links.values()),
                                                      device.communication_objects)

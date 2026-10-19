@@ -625,6 +625,9 @@ class ProductSearchService:
             self._hidden.discard(self._key(product))
         if products:
             self._save_user_catalog()
+            # Belegungen der KO-Varianten aus den neuen Bedingungen
+            from .ets_parameters import reset_family_cache
+            reset_family_cache()
 
     ETS_ID_FIELDS = ("manufacturer_id", "product_ref_id", "hw2prog_id", "application_program_id")
 

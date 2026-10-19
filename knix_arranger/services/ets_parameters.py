@@ -146,6 +146,7 @@ def chosen_for_sensor(device, links: list, selection: dict) -> list:
     """Varianten der gewählten KOs eines Tasters/Sensors (ga_key -> Nummer),
     je Zeile die passende wie im Dialog."""
     from .sensor_channels import display_variant, split_rocker
+    attach_families(device)
     by_number = _by_number(device)
     result = []
     for link in links:
@@ -226,3 +227,86 @@ def project_settings(project, catalog=None) -> list[DeviceSettings]:
                 if found.settings or found.conflicts:
                     result.append(found)
     return result
+
+
+# ── Belegung je Variante (für die Variantenwahl) ──────────────────────────
+
+# Wort im Parameterwert -> Belegung (sensor_channels.link_family)
+_FAMILY_WORDS = (
+    ("dimm", "dimmen"), ("jalousie", "jalousie"), ("rollladen", "jalousie"),
+    ("rolladen", "jalousie"), ("storen", "jalousie"), ("shutter", "jalousie"),
+    ("blind", "jalousie"), ("beschattung", "jalousie"), ("szene", "szene"),
+    ("scene", "szene"), ("schalt", "schalten"), ("switch", "schalten"),
+)
+_DIGIT = re.compile(r"\d")
+_FAMILY_CACHE: dict[tuple, dict] = {}
+_FAMILY_CACHE_MAX = 64
+# Steigt mit jedem Neueinlesen: Geräte berechnen ihre Belegungen dann neu
+_generation = 0
+
+
+def families_of(variant: dict, parameters: dict) -> frozenset:
+    """Belegungen einer Katalogvariante aus ihren Bedingungen -- nur Parameter
+    einer Taste bzw. eines Kanals (Nummer in Seite oder Name: «Taste 1, links
+    › Funktion Taste = Dimmen»); allgemeine Seiten («Konfiguration Szenen ›
+    Szenenfunktion = dezentrale Szenenspeicherung») zählen nicht."""
+    found = set()
+    for param, test in variant.get("conditions") or []:
+        info = parameters.get(param)
+        if not info:
+            continue
+        block, label, values, visible = info
+        if not visible or not (_DIGIT.search(block or "") or _DIGIT.search(label or "")):
+            continue
+        text = value_text(values, test).lower()
+        for word, family in _FAMILY_WORDS:
+            if word in text:
+                found.add(family)
+    return frozenset(found)
+
+
+def attach_families(device, catalog=None) -> None:
+    """Je KO des Geräts die Belegungen der passenden Katalogvariante als
+    Attribut «families» (None = unbekannt, dann gilt der Textzusatz) --
+    nur zur Laufzeit, nicht gespeichert."""
+    cos = getattr(device, "communication_objects", None)
+    if not cos or not (device.manufacturer and device.order_number):
+        return
+    if catalog is None:
+        from .product_sync import shared_catalog
+        catalog = shared_catalog()
+    if catalog is None:
+        return
+    stamp = (id(catalog), _generation, id(cos), len(cos))
+    if getattr(device, "_families_stamp", None) == stamp             and all(hasattr(co, "families") for co in cos):
+        return
+    product_key = (device.manufacturer, device.order_number, device.product_name)
+    key = (id(catalog), *product_key)
+    mapping = _FAMILY_CACHE.get(key)
+    if mapping is None:
+        product = catalog.find_product(*product_key)
+        mapping = {}
+        if product:
+            parameters = catalog.parameters_of(product) if hasattr(catalog, "parameters_of") \
+                else product.get("parameters") or {}
+            if parameters:
+                for variant in product.get("com_objects") or []:
+                    if variant.get("conditions"):
+                        mapping[(variant.get("number"), variant.get("name", ""),
+                                 variant.get("function_text", ""),
+                                 variant.get("object_size", ""))] = families_of(variant,
+                                                                                parameters)
+        if len(_FAMILY_CACHE) >= _FAMILY_CACHE_MAX:
+            _FAMILY_CACHE.clear()
+        _FAMILY_CACHE[key] = mapping
+    for co in cos:
+        co.families = mapping.get((co.object_number, co.name, co.object_function,
+                                   co.object_size))
+    device._families_stamp = stamp
+
+
+def reset_family_cache() -> None:
+    """Nach dem Neueinlesen der Herstellerdateien (Katalog geändert)."""
+    global _generation
+    _FAMILY_CACHE.clear()
+    _generation += 1
