@@ -3,7 +3,7 @@ Szenen-Verwaltung (FA-1801 bis FA-1807, FA-1812)
 
 Gegliedert wie der Szenenreport nach der Szenen-Gruppenadresse
 (services/scene_overview): oben die Adresse, darunter ihre Szenennummern.
-Geplante Szenen, deren Adresse erst in Schritt 10 entsteht, bilden eine
+Geplante Szenen, deren Adresse erst beim Generieren entsteht, bilden eine
 künftige Adresse je Geltungsbereich. Szenen der Visualisierung und nicht
 eindeutig erkannte Adressen stehen in eigenen, zugeklappten Abschnitten.
 """
@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QPushButton, QComboBox, QSpinBox,
     QLineEdit, QGroupBox, QFormLayout, QAbstractItemView,
     QMessageBox, QDoubleSpinBox, QTreeWidget, QTreeWidgetItem, QInputDialog,
-    QListWidget, QListWidgetItem,
+    QListWidget, QListWidgetItem, QCompleter,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QStringListModel
 from PySide6.QtGui import QColor
 from ...models.project import KnxProject
 from ...models.scene import Scene, SceneAction
@@ -56,7 +56,8 @@ class SceneView(QWidget):
 
     # Wird ausgeloest, wenn der Nutzer im Veraltet-Hinweisbanner auf
     # "Jetzt generieren" klickt -- main_window verbindet dies mit dem
-    # Oeffnen des Wizards direkt bei Schritt 10 (Gruppenadressen).
+    # Oeffnen des Wizards direkt bei Schritt 9 (Gruppenadressen); im Wizard
+    # erzeugt der Szenen-Schritt die GAs selbst (step07b_scenes).
     request_generate_addresses = Signal()
 
     def __init__(self, parent=None):
@@ -82,8 +83,8 @@ class SceneView(QWidget):
 
         # Hinweisbanner: Szenen ohne (aktuelle) Gruppenadresse. Szenen sind
         # zunaechst nur Datensaetze -- die eigentliche Szenenaufruf-GA
-        # entsteht erst durch "Gruppenadressen generieren" in Schritt 10
-        # des Wizards, nicht automatisch beim Anlegen/Aendern einer Szene.
+        # entsteht erst beim Generieren der Gruppenadressen (Wizard: beim
+        # Verlassen von Schritt 10), nicht beim Anlegen/Aendern einer Szene.
         self._stale_banner = QWidget()
         stale_layout = QHBoxLayout(self._stale_banner)
         stale_layout.setContentsMargins(8, 6, 8, 6)
@@ -123,7 +124,7 @@ class SceneView(QWidget):
         self._btn_add = QPushButton("+ Neue Szenen-Adresse")
         self._btn_add.setToolTip(
             "Neue Szene mit eigenem Geltungsbereich anlegen. Szenen mit gleichem "
-            "Geltungsbereich teilen sich eine Szenen-Adresse (Schritt 10)."
+            "Geltungsbereich teilen sich eine Szenenaufruf-GA."
         )
         self._btn_add.clicked.connect(self._add_scene)
         self._btn_add_same_ga = QPushButton("+ Szene auf dieser Adresse")
@@ -193,8 +194,8 @@ class SceneView(QWidget):
         self._scene_target = QComboBox()
         self._scene_target.setToolTip(
             "Gilt für alle Szenen dieser Adresse. Szenen mit gleichem "
-            "Geltungsbereich teilen sich beim Generieren der Adressen "
-            "(Schritt 10) eine gemeinsame Szenenaufruf-GA."
+            "Geltungsbereich teilen sich beim Generieren der "
+            "Gruppenadressen eine gemeinsame Szenenaufruf-GA."
         )
         address_form.addRow("Gilt für:", self._scene_target)
         self._btn_apply_address = QPushButton("Geltungsbereich übernehmen")
@@ -249,7 +250,7 @@ class SceneView(QWidget):
         )
         detail_form.addRow("Szenen-Adresse:", self._scene_address)
 
-        # Taster, die die Szene laut Tastenbelegung (Schritt 8) aufrufen
+        # Taster, die die Szene laut Funktionszuordnung (Schritt 11) aufrufen
         self._scene_buttons = QLabel()
         self._scene_buttons.setWordWrap(True)
         self._scene_buttons.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -261,7 +262,7 @@ class SceneView(QWidget):
         )
         self._scene_trigger.setToolTip(
             "Weitere Auslöser als Notiz. Taster mit der Bedienart «Szene abrufen» "
-            "(Schritt 8) erscheinen automatisch unter «Ausgelöst durch»."
+            "(Schritt 11) erscheinen automatisch unter «Ausgelöst durch»."
         )
         detail_form.addRow("Weitere Auslöser:", self._scene_trigger)
 
@@ -300,6 +301,12 @@ class SceneView(QWidget):
         add_action_layout = QHBoxLayout()
         self._action_ga = QLineEdit()
         self._action_ga.setPlaceholderText("GA (z.B. 4/2/0), Bezeichnung oder Gewerk")
+        # Vorschläge aus den vorhandenen GAs (Adresse oder Bezeichnung)
+        self._action_ga_model = QStringListModel(self)
+        completer = QCompleter(self._action_ga_model, self._action_ga)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        self._action_ga.setCompleter(completer)
         add_action_layout.addWidget(self._action_ga)
 
         self._action_value = QLineEdit()
@@ -350,7 +357,21 @@ class SceneView(QWidget):
         if project is not None:
             normalize_scene_scopes(project)
         self._update_scope_combos()
+        self._update_action_suggestions()
         self._refresh_table()
+
+    def _update_action_suggestions(self):
+        """GA-Vorschläge für neue Aktionen: Bezeichnungen und Adressen der
+        schaltbaren GAs (ohne Reserven und Szenenaufrufe)."""
+        entries: list[str] = []
+        if self._project:
+            for ga in self._project.group_addresses.all_addresses():
+                if ga.is_placeholder or ga.function_name == "SZENE":
+                    continue
+                if ga.designation:
+                    entries.append(ga.designation)
+                entries.append(ga.address)
+        self._action_ga_model.setStringList(sorted(set(entries)))
 
     def _update_scope_combos(self):
         """Füllt "Gilt für" mit Zentral, den Zonen und den Räumen."""
@@ -385,7 +406,7 @@ class SceneView(QWidget):
         def add_address(parent, group: SceneAddress, warn: str = ""):
             nonlocal target_item
             if group.planned:
-                text = f"{group.designation}  (wird in Schritt 10 erzeugt)"
+                text = f"{group.designation}  (GA noch nicht erzeugt)"
             else:
                 text = f"{group.ga.address}  {' '.join(group.designation.split())}"
             anchor = group.anchor_scene
@@ -480,9 +501,8 @@ class SceneView(QWidget):
     def _update_stale_banner(self):
         """
         Zeigt einen Hinweis, wenn fuer benannte, nicht-erkannte Szenen noch
-        keine passende Szenenaufruf-GA existiert (weil "Gruppenadressen
-        generieren" in Schritt 10 noch nie oder seit der letzten Aenderung
-        nicht mehr gelaufen ist). Nutzt dieselbe Gruppierung/Benennung wie
+        keine passende Szenenaufruf-GA existiert (weil die GA-Generierung
+        noch nie oder seit der letzten Aenderung nicht mehr gelaufen ist). Nutzt dieselbe Gruppierung/Benennung wie
         die tatsaechliche Generierung (services/scene_addressing.py), damit
         der Vergleich exakt zum spaeter erzeugten Ergebnis passt.
         """
@@ -508,9 +528,9 @@ class SceneView(QWidget):
             return
 
         self._stale_label.setText(
-            "Für folgende Szenen-Geltungsbereiche fehlt noch die Gruppenadresse "
-            "(wird erst durch \"Gruppenadressen generieren\" in Schritt 10 des "
-            f"Wizards erzeugt): {', '.join(sorted(missing))}."
+            "Für folgende Szenen-Geltungsbereiche fehlt noch die Szenenaufruf-GA "
+            "(wird beim Generieren der Gruppenadressen erzeugt): "
+            f"{', '.join(sorted(missing))}."
         )
         self._stale_banner.show()
 
@@ -565,7 +585,7 @@ class SceneView(QWidget):
 
     def _fill_address(self, group: SceneAddress):
         if group.planned:
-            self._address_label.setText(f"{group.designation}\n(wird in Schritt 10 erzeugt)")
+            self._address_label.setText(f"{group.designation}\n(GA noch nicht erzeugt)")
             self._address_dpt.setText("–")
             self._address_comment.setText("–")
             self._address_devices.clear()
@@ -609,7 +629,7 @@ class SceneView(QWidget):
         buttons = self._trigger_index.get(scene.id, [])
         self._scene_buttons.setText(
             "\n".join(buttons) if buttons else
-            "kein Taster – in Schritt 8 eine Taste mit der Bedienart "
+            "kein Taster – in Schritt 11 eine Taste mit der Bedienart "
             "«Szene abrufen» belegen")
 
         # Verschieben nur bei selbst angelegten Szenen; erkannte gehören zu
@@ -966,8 +986,8 @@ class SceneView(QWidget):
                 self, "Bestehende Szenen-Adresse",
                 f"Die Szenen-Adresse {group.ga.address} "
                 f"«{' '.join(group.designation.split())}» besteht bereits.\n\n"
-                f"Soll sie in Schritt 10 als Szenen-GA für «{label}» neu erzeugt "
-                f"werden? Die bisherige GA wird entfernt, die Szenen behalten "
+                f"Soll sie beim nächsten Generieren als Szenen-GA für «{label}» "
+                f"neu erzeugt werden? Die bisherige GA wird entfernt, die Szenen behalten "
                 f"Namen und Nummern.\n\n"
                 f"Nein: Geltungsbereich nur als Beschriftung, GA bleibt.",
                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
@@ -987,7 +1007,7 @@ class SceneView(QWidget):
 
     def _release_address(self, group, scope: str, scope_id: str) -> list:
         """Löst die Szenen von ihrer bestehenden GA: Sie werden geplante
-        Szenen des neuen Geltungsbereichs (GA entsteht in Schritt 10), der
+        Szenen des neuen Geltungsbereichs (GA entsteht beim Generieren), der
         Erkennungs-Eintrag der GA (Nr. 0) und die GA selbst entfallen."""
         address = group.ga.address
         if group.channel is not None and group.channel in self._project.scenes:

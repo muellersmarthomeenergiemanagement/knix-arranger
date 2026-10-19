@@ -76,4 +76,4 @@ def test_szene_ohne_gruppenadresse(tmp_path):
     doc = fitz.open(path)
     text = "\n".join(p.get_text() for p in doc)
     doc.close()
-    assert "Ohne Gruppenadresse" in text and "Kino" in text and "Schritt 10" in text
+    assert "Ohne Gruppenadresse" in text and "Kino" in text and "Schritt 9" in text

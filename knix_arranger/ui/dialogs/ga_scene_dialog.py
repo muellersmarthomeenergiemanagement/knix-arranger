@@ -52,7 +52,7 @@ class GaSceneDialog(QDialog):
             box.setChecked(slot.value is not None)
             self._table.setCellWidget(row, _COL_IN, box)
             self._boxes.append(box)
-            address = slot.address or "neu (Schritt 10)"
+            address = slot.address or "neu (beim Generieren)"
             self._table.setItem(row, _COL_ADDRESS, QTableWidgetItem(
                 f"{address}  {slot.address_label}".strip()))
             self._table.setItem(row, _COL_NR, QTableWidgetItem(

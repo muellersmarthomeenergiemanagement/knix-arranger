@@ -150,7 +150,7 @@ def release_generated_bindings(project) -> int:
 
 
 def is_callable_scene(scene) -> bool:
-    """Szene, die ein Taster gezielt aufrufen kann (Schritt 8,
+    """Szene, die ein Taster gezielt aufrufen kann (Schritt 11,
     Bauherren-Formular): benannt und -- falls aus dem Import erkannt -- mit
     Szenennummer. Erkannte Szenen ohne Nummer (Nr. 0) sind nur der
     Szenenaufruf-Kanal selbst (z.B. "ZENTRAL Szenenaufruf")."""

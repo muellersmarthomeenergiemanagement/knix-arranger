@@ -44,8 +44,8 @@ STEP_TITLES = [
     "6. Gerätekonfiguration",    # 5
     "7. Topologie",              # 6
     "8. Aktor-Ermittlung",       # 7
-    "9. Szenen",                 # 8
-    "10. Gruppenadressen",       # 9
+    "9. Gruppenadressen",        # 8
+    "10. Szenen",                # 9
     "11. Funktionszuordnung",    # 10
     "12. Tastenbelegung prüfen", # 11
     "13. Export",                # 12
@@ -55,7 +55,8 @@ NUM_STEPS = len(STEP_TITLES)
 
 # Schritt-Index fuer Deep-Links aus anderen Ansichten (siehe start_step),
 # z.B. der "Jetzt generieren"-Hinweis in scene_view.py.
-STEP_INDEX_ADDRESSES = 9  # "10. Gruppenadressen" (Step07Addresses)
+STEP_INDEX_ADDRESSES = 8  # "9. Gruppenadressen" (Step07Addresses)
+STEP_INDEX_SCENES = 9     # "10. Szenen" (Step07bScenes)
 
 _HELP_PATH = Path(__file__).parent.parent.parent / "config" / "help_contents.json"
 
@@ -129,8 +130,10 @@ class WizardController(QDialog):
             Step05cDevices(project),    # 6.  Gerätekonfiguration (vor Topologie)
             Step04Topology(project),    # 7.  Topologie und Linienzuteilung
             Step06Actors(project),      # 8.  Aktor-Ermittlung
-            Step07bScenes(project),     # 9.  Szenen
-            Step07Addresses(project),   # 10. Gruppenadress-Generierung
+            # Szenen nach den GAs: Aktionen verweisen auf vorhandene GAs, die
+            # Szenenaufruf-GAs erzeugt der Szenen-Schritt selbst nach
+            Step07Addresses(project),   # 9.  Gruppenadress-Generierung
+            Step07bScenes(project),     # 10. Szenen
             Step08Sensors(project),     # 11. Funktionszuordnung
             Step09Functions(project),   # 12. Tastenbelegung prüfen
             Step10Export(project),      # 13. Export
@@ -177,7 +180,7 @@ class WizardController(QDialog):
                 separator.setFrameShape(QFrame.VLine)
                 separator.setFrameShadow(QFrame.Sunken)
                 separator.setToolTip(
-                    "Ab hier: Ausführungsplanung (Szenen, Gruppenadressen, "
+                    "Ab hier: Ausführungsplanung (Gruppenadressen, Szenen, "
                     "Funktionszuordnung, Export)"
                 )
                 nav.addWidget(separator)
@@ -359,7 +362,7 @@ class WizardController(QDialog):
                         True,
                     )
 
-            elif step_index == 9:   # Gruppenadressen
+            elif step_index == 8:   # Gruppenadressen
                 if len(p.group_addresses.all_addresses()) == 0:
                     return (
                         False,
@@ -443,11 +446,11 @@ class WizardController(QDialog):
                     for line in area.lines
                 )
                 return "complete" if devs >= 1 else "empty"
-            elif step_index == 8:    # Szenen
-                return "complete" if p.scenes else "partial"  # optional
-            elif step_index == 9:    # Gruppenadressen
+            elif step_index == 8:    # Gruppenadressen
                 n = len(p.group_addresses.all_addresses())
                 return "complete" if n >= 10 else ("partial" if n > 0 else "empty")
+            elif step_index == 9:    # Szenen
+                return "complete" if p.scenes else "partial"  # optional
             elif step_index == 10:   # Funktionszuordnung
                 n = sum(
                     len(be.funktionen)
@@ -541,11 +544,11 @@ class WizardController(QDialog):
                 )
                 return f"{n} Gerät{'e' if n != 1 else ''}"
             elif step_index == 8:
-                n = len(p.scenes)
-                return f"{n} Szene{'n' if n != 1 else ''}"
-            elif step_index == 9:
                 n = len(p.group_addresses.all_addresses())
                 return f"{n} Gruppenadresse{'n' if n != 1 else ''}"
+            elif step_index == 9:
+                n = len(p.scenes)
+                return f"{n} Szene{'n' if n != 1 else ''}"
             elif step_index == 10:
                 n = sum(
                     len(be.funktionen)

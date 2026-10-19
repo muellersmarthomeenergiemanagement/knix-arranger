@@ -9,7 +9,7 @@ zuoberst, darunter die Szenennummern.
 Einteilung:
 - Szenen-Adressen: bestehende GA mit Szenen-DPT, Szenennummern oder geplanten
   Szenen; geplante Szenen ohne generierte GA bilden eine "künftige" Adresse
-  je Geltungsbereich (entsteht in Schritt 10),
+  je Geltungsbereich (entsteht beim Generieren),
 - Visualisierung: über einzelne Schalt-Adressen ausgelöste Szenen (z.B.
   UniPro H/M/L/0) – keine KNX-Szenenadressen,
 - nicht eindeutig: beim Import erkannte Adressen ohne Szenen-DPT und ohne
@@ -113,8 +113,8 @@ def scene_scope_sort_key(project):
 
 def scene_target_ga(project, scene, label_lookup: dict, ga_by_address: dict | None = None):
     """Tatsächliche Szenen-GA einer Szene, None wenn (noch) keine existiert:
-    gebundene/erkannte Szenen über source_ga_addresses, geplante über die in
-    Schritt 10 generierte Szenenaufruf-GA ihres Geltungsbereichs."""
+    gebundene/erkannte Szenen über source_ga_addresses, geplante über die
+    generierte Szenenaufruf-GA ihres Geltungsbereichs."""
     if ga_by_address is None:
         ga_by_address = {g.address: g for g in project.group_addresses.all_addresses()}
     if scene.source_ga_addresses:
@@ -228,7 +228,7 @@ def resolve_legacy_scene_id(candidates: list) -> str:
 
 def scene_trigger_index(project, snapshot: bool = True) -> dict[str, list[str]]:
     """scene.id -> Klartext aller Taster/Bedienelemente, die die Szene per
-    SensorFunktion (bedienart "Szene abrufen", Schritt 8) aufrufen, z.B.
+    SensorFunktion (bedienart "Szene abrufen", Schritt 11) aufrufen, z.B.
     "Raum E01 Wohnen, Taster 1.1.5, Taste 3". Im Unterschied zu Scene.trigger
     (freies Notizfeld) die tatsächlich konfigurierte Zuordnung – auch mehrere
     Taster je Szene. Gemeinsam für Szenen-Verwaltung und Szenenreport.

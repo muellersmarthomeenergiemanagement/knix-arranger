@@ -2164,7 +2164,7 @@ class MainWindow(QMainWindow):
 
     def _open_wizard_at_addresses_step(self):
         """Deep-Link aus der Szenen-Ansicht (Veraltet-Banner) direkt zu
-        Wizard-Schritt 10 "Gruppenadressen generieren"."""
+        Wizard-Schritt 9 "Gruppenadressen generieren"."""
         from .wizard.wizard_controller import STEP_INDEX_ADDRESSES
         self._start_wizard(start_step=STEP_INDEX_ADDRESSES)
 

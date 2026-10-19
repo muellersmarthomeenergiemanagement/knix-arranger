@@ -20,7 +20,7 @@ from .scene_overview import build_scene_overview
 @dataclass
 class SceneSlot:
     scene: object            # Scene
-    address: str             # Szenen-GA, "" wenn erst in Schritt 10 erzeugt
+    address: str             # Szenen-GA, "" wenn noch nicht erzeugt
     address_label: str      # Bezeichnung der Szenen-GA
     value: str | None        # Wert der GA in dieser Szene, None = nicht drin
     reaches: bool            # Geltungsbereich umfasst den Raum der GA

@@ -132,7 +132,7 @@ VALIDATION_RULES = {
         "In Variante B gehören Rückmeldungen in eine eigene Mittelgruppe "
         "(Licht MG 6, Jalousie MG 7), jeweils unter derselben Untergruppe "
         "wie ihr Befehl in MG 0/1 (GA-07).",
-        "Bei geplanten Projekten Adressen in Schritt 10 neu erzeugen.",
+        "Bei geplanten Projekten Adressen in Schritt 9 neu erzeugen.",
     ),
     "FA-609": (
         "Geräteanzahl je Linie",
@@ -2179,7 +2179,7 @@ class ReportService:
             pdf.add_note(
                 "Hinweis:",
                 "Für diese Szenen ist noch keine Szenen-Adresse generiert – in "
-                "Schritt 10 des Wizards ('Gruppenadressen generieren') aktualisieren.")
+                "Schritt 9 des Wizards ('Gruppenadressen generieren') aktualisieren.")
             pdf.add_table(
                 ["Nr.", "Szene", "Künftige Adresse", "Ausgelöst durch",
                  "Aktionen (programmiert auf)"],

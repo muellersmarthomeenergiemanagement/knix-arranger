@@ -16,12 +16,13 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from knix_arranger.models.building import GewerkAssignment
-from knix_arranger.ui.wizard import step07_addresses
+from knix_arranger.models.scene import Scene
+from knix_arranger.ui.wizard import step07_addresses, step07b_scenes
 from knix_arranger.ui.wizard.recompute_guard import (
     RecomputeGuard, KEY_ADDRESSES, KEY_FUNCTIONS,
 )
 from knix_arranger.ui.wizard.wizard_controller import (
-    WizardController, NUM_STEPS, STEP_INDEX_ADDRESSES, STEP_TITLES,
+    WizardController, NUM_STEPS, STEP_INDEX_ADDRESSES, STEP_INDEX_SCENES, STEP_TITLES,
     _HELP_PATH, help_topic_key,
 )
 
@@ -91,10 +92,65 @@ class TestWizardGuardSharing:
         with patch("knix_arranger.ui.wizard.wizard_controller.QMessageBox"):
             for i in range(NUM_STEPS):
                 wizard._go_to_step(i)
-            with patch.object(step07_addresses, "regenerate_addresses") as ga10,                  patch.object(step05_gewerke, "regenerate_addresses") as ga5,                  patch.object(SensorService, "auto_assign_functions") as fn,                  patch.object(TopologyEngine, "populate_devices") as dev:
+            with patch.object(step07_addresses, "regenerate_addresses") as ga10,                  patch.object(step05_gewerke, "regenerate_addresses") as ga5,                  patch.object(step07b_scenes, "regenerate_addresses") as ga_sz,                  patch.object(SensorService, "auto_assign_functions") as fn,                  patch.object(TopologyEngine, "populate_devices") as dev:
                 for i in range(NUM_STEPS):
                     wizard._go_to_step(i)
-        assert (ga10.call_count, ga5.call_count, fn.call_count, dev.call_count) == (0, 0, 0, 0)
+        assert (ga10.call_count, ga5.call_count, ga_sz.call_count,
+                fn.call_count, dev.call_count) == (0, 0, 0, 0, 0)
+
+
+def _scene_call_gas(project):
+    """Szenenaufruf-GAs benannter Szenen (Beschreibung "Nr.=Name")."""
+    return [ga for ga in project.group_addresses.all_addresses()
+            if ga.function_name == "SZENE" and "Kino" in (ga.description or "")]
+
+
+class TestScenesAfterAddresses:
+    """Szenen folgen auf die GA-Generierung: Aktionen brauchen vorhandene
+    GAs, die Szenenaufruf-GAs erzeugt der Szenen-Schritt beim Verlassen."""
+
+    def test_scenes_step_follows_addresses_step(self, test_project):
+        wizard = WizardController(test_project)
+        assert STEP_INDEX_SCENES == STEP_INDEX_ADDRESSES + 1
+        assert isinstance(wizard._steps[STEP_INDEX_ADDRESSES], step07_addresses.Step07Addresses)
+        assert isinstance(wizard._steps[STEP_INDEX_SCENES], step07b_scenes.Step07bScenes)
+        assert "Szenen" in STEP_TITLES[STEP_INDEX_SCENES]
+
+    def test_leaving_scenes_step_creates_scene_call_ga(self, test_project):
+        wizard = WizardController(test_project)
+        wizard._go_to_step(STEP_INDEX_ADDRESSES)
+        wizard._go_to_step(STEP_INDEX_SCENES)
+        assert not _scene_call_gas(test_project)
+
+        test_project.scenes.append(Scene(name="Kino", scene_number=1, scope="central"))
+        wizard._go_to_step(STEP_INDEX_SCENES + 1)
+        assert _scene_call_gas(test_project)
+
+    def test_leaving_unchanged_scenes_step_does_not_regenerate(self, test_project):
+        wizard = WizardController(test_project)
+        wizard._go_to_step(STEP_INDEX_ADDRESSES)
+        wizard._go_to_step(STEP_INDEX_SCENES)
+        with patch.object(step07b_scenes, "regenerate_addresses") as regen:
+            wizard._go_to_step(STEP_INDEX_SCENES + 1)
+        assert regen.call_count == 0
+
+    def test_imported_project_is_not_regenerated(self, test_project):
+        test_project.topology.is_imported = True
+        wizard = WizardController(test_project)
+        wizard._go_to_step(STEP_INDEX_SCENES)
+        test_project.scenes.append(Scene(name="Kino", scene_number=1, scope="central"))
+        with patch.object(step07b_scenes, "regenerate_addresses") as regen:
+            wizard._go_to_step(STEP_INDEX_SCENES + 1)
+        assert regen.call_count == 0
+
+    def test_action_suggestions_offer_existing_gas(self, test_project):
+        wizard = WizardController(test_project)
+        wizard._go_to_step(STEP_INDEX_ADDRESSES)
+        wizard._go_to_step(STEP_INDEX_SCENES)
+        suggestions = wizard._steps[STEP_INDEX_SCENES]._action_ga_model.stringList()
+        some_ga = next(ga for ga in test_project.group_addresses.all_addresses()
+                       if not ga.is_placeholder and ga.function_name != "SZENE")
+        assert some_ga.address in suggestions
 
 
 class TestJumpToStep:

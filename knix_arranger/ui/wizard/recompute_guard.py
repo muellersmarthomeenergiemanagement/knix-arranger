@@ -16,7 +16,7 @@ import hashlib
 import json
 
 # Schlüssel der überwachten Berechnungen
-KEY_ADDRESSES = "addresses"   # GA-Generierung (Schritt 5 beim Verlassen, Schritt 10)
+KEY_ADDRESSES = "addresses"   # GA-Generierung (Schritte 5 und 10 beim Verlassen, Schritt 9)
 KEY_FUNCTIONS = "functions"   # auto_assign_functions (Schritte 6, 11, 12)
 KEY_DEVICES = "devices"       # populate_devices (Schritt 7)
 

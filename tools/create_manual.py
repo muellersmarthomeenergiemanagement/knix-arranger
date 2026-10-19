@@ -281,11 +281,12 @@ def build():
         ("Schritt 8 – Aktoren",
          "Übersicht der ermittelten Aktoren nach Gerätetyp, Kanal und Raum. "
          "Kontrollieren Sie die automatische Kanalzuweisung."),
-        ("Schritt 9 – Szenen",
-         "Definieren Sie Licht- und Jalousie-Szenen vor der Gruppenadress-Generierung."),
-        ("Schritt 10 – Gruppenadressen",
+        ("Schritt 9 – Gruppenadressen",
          "Die Gruppenadressen werden automatisch generiert. Prüfen und ergänzen Sie "
          "bei Bedarf einzelne Adressen."),
+        ("Schritt 10 – Szenen",
+         "Definieren Sie Licht- und Jalousie-Szenen mit Aktionen auf den generierten "
+         "Gruppenadressen. Die Szenenaufruf-GAs entstehen beim Verlassen des Schritts."),
         ("Schritt 11 – Sensoren",
          "Übersicht der ermittelten Sensoren, Taster und Systemsensoren "
          "mit ihren Funktionszuordnungen."),

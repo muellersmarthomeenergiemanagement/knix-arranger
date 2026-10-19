@@ -1039,7 +1039,7 @@ def adopt_manual_detectors(project) -> int:
     """Melder, die ausserhalb der Gewerke angelegt wurden (Bauherrenberatung
     «Sonstige», Gebäude), bekommen ein Element im Gewerk A ihres Raums, mit
     dem Meldertyp als Bezeichnung -- sonst erzeugt die GA-Generierung
-    (Wizard Schritt 10) keine Adressen für sie (Projekt_23 Technik:
+    (Wizard Schritt 9) keine Adressen für sie (Projekt_23 Technik:
     Rauchmelder 1.2.109, Wassermelder 1.2.113 ohne GA).
 
     Das bestehende Bedienelement und sein Gerät werden mit dem Element

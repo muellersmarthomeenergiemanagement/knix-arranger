@@ -386,7 +386,7 @@ class Step05Gewerke(QWidget):
         """GAs beim Verlassen sofort aktualisieren.
 
         Stellt sicher, dass Schritt 11 (Funktionszuordnung) und Schritt 12 (Funktionsdefinition)
-        aktuelle GAs vorfinden – auch wenn der User Schritt 10 überspringt.
+        aktuelle GAs vorfinden – auch wenn der User Schritt 9 überspringt.
         Manuelle GAs (is_manual=True) bleiben erhalten.
 
         Bei importierten Projekten (topology.is_imported) NICHT automatisch

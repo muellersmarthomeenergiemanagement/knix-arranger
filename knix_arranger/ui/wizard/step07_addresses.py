@@ -1,5 +1,5 @@
 """
-Wizard Schritt 10: Gruppenadressen generieren
+Wizard Schritt 9: Gruppenadressen generieren
 """
 from __future__ import annotations
 

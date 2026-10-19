@@ -4,7 +4,7 @@ Ermöglicht das Bearbeiten einer einzelnen Gruppenadresse.
 
 Mit project: nur, was nach der Herkunft der GA bearbeitbar ist (services/
 ga_edit); Funktion und DPT generierter GAs bleiben als Nachbearbeitung über
-Neuberechnungen erhalten. Ohne project (neue GA in Schritt 10): alle Felder
+Neuberechnungen erhalten. Ohne project (neue GA in Schritt 9): alle Felder
 direkt ins GA-Objekt.
 """
 from __future__ import annotations

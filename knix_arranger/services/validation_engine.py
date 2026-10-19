@@ -375,7 +375,7 @@ class ValidationEngine:
                             be.participant_number,
                             # Melder mit Element im Gewerk A (adopt_manual_detectors):
                             # die GAs entstehen bei der nächsten GA-Generierung
-                            "Gruppenadressen generieren (Wizard Schritt 10)"
+                            "Gruppenadressen generieren (Wizard Schritt 9)"
                             if any(sf.gewerk_code == "A" for sf in be.funktionen) else
                             "GA manuell anlegen oder über die Materialliste erzeugen; "
                             "sonst das Gerät entfernen",

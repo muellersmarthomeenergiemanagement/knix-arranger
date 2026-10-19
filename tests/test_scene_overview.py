@@ -110,7 +110,7 @@ def test_baum_zeigt_adressen_mit_szenen(qapp):
     view = _view(project)
     tops = _top_texts(view)
     assert tops[0].startswith("0/4/1") and "Anwesendheit Chalet" in tops[0]
-    assert tops[1] == "Szenenaufruf Küche  (wird in Schritt 10 erzeugt)"
+    assert tops[1] == "Szenenaufruf Küche  (GA noch nicht erzeugt)"
     assert tops[2] == "Szenen der Visualisierung (1)"
     assert tops[3] == "Nicht eindeutig (1)"
     chalet = view._tree.topLevelItem(0)

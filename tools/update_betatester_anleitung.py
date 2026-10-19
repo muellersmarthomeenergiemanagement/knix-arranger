@@ -521,7 +521,7 @@ def build_document() -> Document:
                     "mit Bearbeiten → Rückgängig (Ctrl+Z) als Ganzes zurücknehmen.")
     add_tip(doc,
         "Die Schritte 1–8 liefern eine vollständige Geräteliste für die Kundenofferte. "
-        "Die Schritte 9–13 (Szenen, Gruppenadressen, Funktionszuordnung, Export) "
+        "Die Schritte 9–13 (Gruppenadressen, Szenen, Funktionszuordnung, Export) "
         "brauchen Sie erst für die Ausführungsplanung.")
     doc.add_paragraph()
 
@@ -678,22 +678,7 @@ def build_document() -> Document:
             "Kanalzuordnung optimiert nach UV-Standort",
         ])
 
-    add_wizard_step(doc, 9, "Szenen",
-        "Definieren Sie Licht- und Jalousie-Szenen vor der Gruppenadress-Generierung. "
-        "Szenen werden in Hauptgruppe 0 / Mittelgruppe 5 eingetragen.",
-        eingabe=[
-            "Szenenname (z. B. Kino, Dinner, Lesen, Abwesenheit)",
-            "Szenennummer (1–64, KNX-Standard)",
-            "Geltungsbereich: Raum, Zone, Wohnung oder Zentral",
-            "Aktionen: Gruppenadresse + Zielwert + optionale Verzögerung",
-        ],
-        berechnet=[
-            "Szenen-GAs automatisch in HG 0 / MG 5 eingeplant",
-        ],
-        tipp="Vorlagen (Kino, Dinner, Panik usw.) können per Klick als Ausgangspunkt "
-             "geladen werden.")
-
-    add_wizard_step(doc, 10, "Gruppenadressen",
+    add_wizard_step(doc, 9, "Gruppenadressen",
         "Die Gruppenadressen werden automatisch nach den KNX Swiss Projektrichtlinien "
         "generiert. Wählen Sie die Mittelgruppen-Variante und starten Sie die Generierung.",
         eingabe=[
@@ -711,7 +696,26 @@ def build_document() -> Document:
         tipp="Das Protokoll unter der Vorschau zeigt nach jeder Generierung, welche "
              "Gruppenadressen hinzugekommen (+) oder weggefallen (−) sind. Die Astro-"
              "Gruppenadressen der Zeitsteuerung (0/7/x) bleiben erhalten. Anschliessend "
-             "empfiehlt sich ein Klick auf «Validieren».")
+             "empfiehlt sich ein Klick auf «Validieren». Hier lassen sich nur manuelle "
+             "GAs entfernen, generierte löschen Sie in der Ansicht Gruppenadressen (8.1).")
+
+    add_wizard_step(doc, 10, "Szenen",
+        "Definieren Sie Licht- und Jalousie-Szenen. Der Schritt folgt auf die "
+        "Gruppenadressen: Aktionen wählen Sie aus den GAs von Schritt 9, die Spalte "
+        "«Programmiert auf» zeigt Aktor und Kanal, Nummernkonflikte an gemeinsamen "
+        "Aktoren werden sofort markiert.",
+        eingabe=[
+            "Szenenname (z. B. Kino, Dinner, Lesen, Abwesenheit)",
+            "Szenennummer (1–64, KNX-Standard)",
+            "Geltungsbereich: Raum, Zone, Wohnung oder Zentral",
+            "Aktionen: Gruppenadresse (Vorschlagsliste) + Zielwert + optionale Verzögerung",
+        ],
+        berechnet=[
+            "Szenenaufruf-GA je Geltungsbereich in HG 0 / MG 5, erzeugt beim Verlassen "
+            "des Schritts (oder sofort mit «Jetzt generieren»)",
+        ],
+        tipp="Vorlagen (Kino, Dinner, Panik usw.) können per Klick als Ausgangspunkt "
+             "geladen werden. Auf Taster legen Sie die Szenen in Schritt 11.")
 
     add_wizard_step(doc, 11, "Funktionszuordnung",
         "Legen Sie fest, welche Gruppenadressen jedes Bedienelement steuert. "
@@ -796,7 +800,7 @@ def build_document() -> Document:
              "(F2). Funktion mit Rolle (Befehl, Rückmeldung, Messwert) aus einer Liste; "
              "Nachbearbeitungen bleiben bei Neuberechnungen erhalten (✎). Im "
              "Kontextmenü: Funktionsumfang eines Elements (z. B. Heizung nur Ein/Aus), "
-             "Zur Szene hinzufügen, Gewerk zuordnen, Löschen."),
+             "Zur Szene hinzufügen, Gewerk zuordnen, Löschen (siehe 8.1)."),
             ("Gewerke",
              "Übersicht aller verfügbaren Gewerk-Codes mit Beschreibung. "
              "Zum Nachschlagen während der Gewerke-Zuweisung (Schritt 5)."),
@@ -837,8 +841,37 @@ def build_document() -> Document:
     )
     doc.add_paragraph()
 
-    # ── 8.1  Flags ────────────────────────────────────────────────────────────
-    add_heading2(doc, "8.1  Wer schaltet, wer liest: Flags der Kommunikationsobjekte")
+    # ── 8.1  GAs löschen ──────────────────────────────────────────────────────
+    add_heading2(doc, "8.1  Gruppenadressen löschen")
+    add_body(doc,
+        "In der Ansicht Gruppenadressen eine oder mehrere GAs im Baum markieren und "
+        "Entf drücken oder im Kontextmenü «Löschen…» wählen. Nach der Rückfrage ist "
+        "jede Löschung ein Rückgängig-Punkt (Ctrl+Z).")
+    add_table_2col(doc,
+        header=("GA", "Ergebnis"),
+        rows=[
+            ("Aus einem Gewerk erzeugt (geplantes Projekt)",
+             "Die Funktion wird für das Element weggelassen, die Adresse bleibt als "
+             "Reserve «--» frei. Die übrigen Adressen verschieben sich nicht, auch nicht "
+             "beim Neugenerieren. Zurückholen: Kontextmenü der Reserve → «Funktion … "
+             "wieder einschalten»."),
+            ("Manuell (blau) oder importiert",
+             "Wird entfernt, ebenso ihre Verknüpfungen (Tasten, Szenen, DALI, "
+             "Zeitprogramme, Kommunikationsobjekte). Bei importierten Projekten bleibt "
+             "die ETS massgebend: ein erneuter Import bringt sie zurück."),
+            ("Reserven und Zentraladressen",
+             "Nicht löschbar, sie entstehen bei jeder Neuberechnung. Die Rückfrage "
+             "nennt den Grund."),
+        ])
+    doc.add_paragraph()
+    add_tip(doc,
+        "Soll eine Funktion für ein Element ganz wegfallen (z. B. die Rückmeldung), "
+        "wählen Sie im Kontextmenü «Funktionsumfang des Elements…», z. B. «Schalten "
+        "ohne Rückmeldung». Weniger Elemente eines Gewerks ändern Sie in Schritt 5.")
+    doc.add_paragraph()
+
+    # ── 8.2  Flags ────────────────────────────────────────────────────────────
+    add_heading2(doc, "8.2  Wer schaltet, wer liest: Flags der Kommunikationsobjekte")
     add_body(doc,
         "Eine Gruppenadresse hat selbst keine Rechte. Ob ein Gerät eine GA schaltet, "
         "von ihr geschaltet wird oder ihren Wert liefert, bestimmen die Flags der "
