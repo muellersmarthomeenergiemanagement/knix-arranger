@@ -2,6 +2,14 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.9",
+      "date": "2026-10-19",
+      "verbessert": [
+        "Wizard: Szenen kommen jetzt nach den Gruppenadressen (Schritt 9 Gruppenadressen, Schritt 10 Szenen). Aktionen wählen Sie aus den vorhandenen GAs (Vorschlagsliste), Aktor und Kanal sowie Nummernkonflikte sind sofort sichtbar. Die Szenenaufruf-GAs entstehen beim Verlassen des Szenen-Schritts.",
+        "Bedienungsanleitung und Hilfe (F1): neuer Abschnitt «Gruppenadressen löschen» – was mit erzeugten, manuellen und importierten GAs geschieht und wie eine weggelassene Funktion zurückkommt."
+      ]
+    },
+    {
       "version": "1.4.8",
       "date": "2026-10-18",
       "behoben": [
