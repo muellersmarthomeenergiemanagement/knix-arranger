@@ -1907,6 +1907,48 @@ class ReportService:
         from .scene_overview import scene_trigger_index
         return scene_trigger_index(self.project)
 
+    def generate_ets_parameters_report(self, filepath: str, catalog=None) -> int:
+        """ETS-Parametrierung (FA-2304l): je Gerät die Parameter, die in der
+        ETS so einzustellen sind, dass die von KNiX gewählten KOs existieren
+        (aus dem Dynamic-Abschnitt der Herstellerdatei, services/
+        ets_parameters). Gibt die Anzahl Geräte zurück."""
+        from .ets_parameters import project_settings
+        title = "ETS-Parametrierung"
+        pdf = self._make_pdf(title)
+        pdf.add_heading(title, level=1)
+        pdf.add_paragraph(
+            f"Projekt: {self.project.name} | "
+            f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        pdf.add_paragraph(
+            "Je Gerät die Parameter, die in der ETS so einzustellen sind, dass die "
+            "Kommunikationsobjekte bestehen, die KNiX den Gruppenadressen zugeordnet hat. "
+            "Übrige Parameter nach Bedarf.")
+        pdf.add_separator()
+        found = project_settings(self.project, catalog)
+        if not found:
+            pdf.add_paragraph(
+                "Keine Angaben: Geräte ohne KO-Zuordnung, oder die Herstellerdateien sind "
+                "noch nicht mit der aktuellen Auswertung eingelesen (Produktauswahl › "
+                "«Herstellerdateien neu einlesen»).")
+        rooms = {r.id: f"{r.number} {r.name}".strip() for r in self.project.all_rooms}
+        for entry in found:
+            device = entry.device
+            where = rooms.get(device.room_id, "") or device.installation_location
+            heading = " ".join(p for p in (device.physical_address, device.manufacturer,
+                                           device.product_name or device.order_number) if p)
+            pdf.add_heading(heading + (f" – {where}" if where else ""), level=2)
+            if entry.conflicts:
+                pdf.add_note("Widerspruch:", "; ".join(
+                    f"{block} › {label}: {' / '.join(values)}"
+                    for (block, label), values in entry.conflicts.items())
+                    + " – die Zuordnung verlangt verschiedene Werte, im "
+                    "Zuordnungsdialog prüfen.")
+            pdf.add_table(["Parameterseite", "Parameter", "Wert"],
+                          [[s.block or "–", s.label, s.value] for s in entry.settings])
+        pdf.save(filepath)
+        logger.info(f"ETS-Parametrierung erstellt: {filepath}")
+        return len(found)
+
     def generate_szenen_report(self, filepath: str):
         """Erzeugt den Szenenreport als PDF (FA-1811).
 

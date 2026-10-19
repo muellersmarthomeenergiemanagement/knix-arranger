@@ -25,13 +25,15 @@ _CO_FIELDS = ("number", "name", "function_text", "datapoint_type")
 _CO_FLAGS = ("communication_flag", "read_flag", "write_flag", "transmit_flag",
              "update_flag")
 _CO_KEYS = frozenset(_CO_FIELDS + _CO_FLAGS)
-_CO_KEYS_SIZE = _CO_KEYS | {"object_size"}
+# Optional: Grösse (ab 1.4.10), Parameterbedingungen (READER_VERSION 3)
+_CO_OPTIONAL = frozenset({"object_size", "conditions"})
 
 
 def pack_com_object(co):
-    """KO als Zeile, wenn es genau die Standardfelder hat (jeder KNXPROD-
-    Import); sonst bleibt es unverändert ein Dict (verlustfrei)."""
-    if not isinstance(co, dict) or co.keys() not in (_CO_KEYS, _CO_KEYS_SIZE):
+    """KO als Zeile, wenn es die Standardfelder hat (jeder KNXPROD-Import);
+    sonst bleibt es unverändert ein Dict (verlustfrei). Zeile: [Nummer, Name,
+    Funktion, DPT, Flags-Bits, Grösse, Bedingungen]."""
+    if not isinstance(co, dict) or not (_CO_KEYS <= co.keys() <= _CO_KEYS | _CO_OPTIONAL):
         return co
     bits = 0
     for i, flag in enumerate(_CO_FLAGS):
@@ -39,8 +41,10 @@ def pack_com_object(co):
             bits |= 1 << i
     row = [co.get("number", 0), co.get("name", ""), co.get("function_text", ""),
            co.get("datapoint_type", ""), bits]
-    if "object_size" in co:
-        row.append(co["object_size"])
+    if "object_size" in co or co.get("conditions"):
+        row.append(co.get("object_size", ""))
+    if co.get("conditions"):
+        row.append(co["conditions"])
     return row
 
 
@@ -53,6 +57,8 @@ def unpack_com_object(row):
         co[flag] = bool(bits >> i & 1)
     if len(row) > 5:
         co["object_size"] = row[5]
+    if len(row) > 6:
+        co["conditions"] = row[6]
     return co
 
 
@@ -89,7 +95,49 @@ class ComObjectStore:
         con = sqlite3.connect(self._path)
         con.execute("CREATE TABLE IF NOT EXISTS com_objects "
                     "(key TEXT PRIMARY KEY, data BLOB NOT NULL)")
+        # Parametertexte je Applikation (ETS-Parametrier-Anleitung)
+        con.execute("CREATE TABLE IF NOT EXISTS app_parameters "
+                    "(key TEXT PRIMARY KEY, data BLOB NOT NULL)")
         return con
+
+    def get_parameters(self, app_id: str) -> dict:
+        """Parametertabelle einer Applikation, {} wenn keine gespeichert."""
+        if not app_id or not os.path.exists(self._path):
+            return {}
+        cache_key = "\x1eapp\x1e" + app_id
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+        try:
+            con = self._connect()
+            try:
+                row = con.execute("SELECT data FROM app_parameters WHERE key = ?",
+                                  (app_id,)).fetchone()
+            finally:
+                con.close()
+            data = json.loads(zlib.decompress(row[0])) if row else {}
+        except (sqlite3.Error, zlib.error, ValueError) as e:
+            logger.warning(f"Parameter von {app_id!r} konnten nicht gelesen werden: {e}")
+            return {}
+        self._cache[cache_key] = data
+        if len(self._cache) > self._CACHE_SIZE:
+            self._cache.popitem(last=False)
+        return data
+
+    def put_parameters(self, items: dict[str, dict]) -> None:
+        """Parametertabellen je Applikation speichern (ersetzt vorhandene)."""
+        if not items:
+            return
+        con = self._connect()
+        try:
+            with con:
+                for app_id, table in items.items():
+                    self._cache.pop("\x1eapp\x1e" + app_id, None)
+                    con.execute("INSERT OR REPLACE INTO app_parameters VALUES (?, ?)",
+                                (app_id, zlib.compress(json.dumps(
+                                    table, ensure_ascii=False,
+                                    separators=(",", ":")).encode("utf-8"))))
+        finally:
+            con.close()
 
     def get(self, key: tuple[str, str]) -> list[dict]:
         """KOs des Produkts (Kopie der Liste), [] wenn keine gespeichert."""

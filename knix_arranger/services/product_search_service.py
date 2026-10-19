@@ -132,6 +132,8 @@ class ProductSearchService:
         # gespeicherte KOs je Schlüssel ([] = Eintrag entfernen)
         self._store = ComObjectStore(_com_object_store_path())
         self._pending_com_objects: dict[tuple[str, str], list] = {}
+        # Parametertexte je Applikation, bis zum nächsten Speichern
+        self._pending_parameters: dict[str, dict] = {}
         self._load_catalog()
 
     def _load_catalog(self):
@@ -243,6 +245,9 @@ class ProductSearchService:
     def _detach_com_objects(self, product: dict) -> None:
         """KOs eines eigenen Produkts zum Speichern vormerken; im Katalog
         bleibt nur die Anzahl ("co_count")."""
+        parameters = product.pop("parameters", None)
+        if parameters and product.get("application_program_id"):
+            self._pending_parameters[product["application_program_id"]] = parameters
         if "com_objects" not in product:
             return
         com_objects = product.pop("com_objects") or []
@@ -259,6 +264,16 @@ class ProductSearchService:
         if key in self._pending_com_objects:
             return list(self._pending_com_objects[key])
         return self._store.get(key)
+
+    def parameters_of(self, product: dict) -> dict:
+        """Parametertexte der Applikation eines Produkts ({ParameterRef/
+        Parameter-Id: [Block, Name, {Wert: Text}, sichtbar]})."""
+        if product.get("parameters"):
+            return product["parameters"]
+        app_id = product.get("application_program_id", "")
+        if app_id in self._pending_parameters:
+            return self._pending_parameters[app_id]
+        return self._store.get_parameters(app_id)
 
     def _co_loader(self, product: dict):
         return lambda: self.com_objects_of(product)
@@ -307,6 +322,8 @@ class ProductSearchService:
             # Zuerst die KOs: die JSON-Datei verweist per co_count darauf
             self._store.put_many(self._pending_com_objects)
             self._pending_com_objects = {}
+            self._store.put_parameters(self._pending_parameters)
+            self._pending_parameters = {}
             # Erst vollständig in eine Zwischendatei, dann ersetzen: ein
             # Abbruch beim Schreiben lässt den bisherigen Katalog intakt
             tmp = path + ".tmp"

@@ -949,6 +949,12 @@ def build_document() -> Document:
                     "heller/dunkler, Dimmen», Jalousie auf «Taste 1, rechts – AUF/AB, "
                     "Jalousie». Die Rückmeldung liegt auf dem Schaltobjekt, das mithört. In "
                     "der ETS die Tasten entsprechend parametrieren.")
+    add_bullet(doc, "Was in der ETS einzustellen ist, zeigt der Zuordnungsdialog unter «ETS-"
+                    "Parameter für diese Zuordnung», z.B. «Konfiguration Tasten › "
+                    "Bedienphilosophie Taste 1: 2x 1-Tastenbedienung», «Taste 1, links › "
+                    "Funktion Taste: Dimmen». Für alle Geräte: Berichte › «ETS-"
+                    "Parametrierung» (PDF). Widersprüche (zwei Werte für denselben "
+                    "Parameter) sind markiert.")
     add_bullet(doc, "Die Validierung meldet KOs, die nicht zur GA passen (Eingangs-KO für "
                     "eine Rückmeldung, andere Grösse), und nennt den passenden KO. "
                     "Doppelklick auf die Meldung öffnet «Kanäle und KOs zuordnen» genau an "

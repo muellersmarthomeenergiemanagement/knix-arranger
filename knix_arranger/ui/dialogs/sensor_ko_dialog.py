@@ -25,7 +25,7 @@ from ...services.sensor_channels import (
     display_variant, ga_key, split_rocker,
     sensor_co_map, sensor_links, sensor_plan, suggested_sensor_co_map,
 )
-from .actor_channel_dialog import focus_banner, ko_combo, mark_focus_row
+from .actor_channel_dialog import EtsParametersBox, focus_banner, ko_combo, mark_focus_row
 from ...services.ko_size import dpt_bits, size_text
 
 
@@ -79,6 +79,8 @@ class SensorKoDialog(QDialog):
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self._table, 1)
+        self._ets_box = EtsParametersBox(self)
+        layout.addWidget(self._ets_box)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -174,11 +176,21 @@ class SensorKoDialog(QDialog):
             index = combo.findData(selection.get(link.key, -1))
             combo.setCurrentIndex(index if index >= 0 else 0)
             combo.currentIndexChanged.connect(
-                lambda _i, k=link.key, cb=combo, sel=selection: sel.__setitem__(k, cb.currentData()))
+                lambda _i, k=link.key, cb=combo, sel=selection: (
+                    sel.__setitem__(k, cb.currentData()), self._update_ets()))
             table.setCellWidget(row, 3, combo)
             if (self._focus is not None and self._device.id == self._focus[0]
                     and link.key == self._focus[1]):
                 mark_focus_row(table, row, combo)
+        self._update_ets()
+
+    def _update_ets(self) -> None:
+        from ...services.ets_parameters import chosen_for_sensor
+        if self._device is None:
+            return
+        state = self._state_for(self._device)
+        self._ets_box.show_for(self._device, chosen_for_sensor(
+            self._device, state["links"], state["selection"]))
 
     def _copy_to_others(self):
         """Zuordnung des gewählten Geräts auf die übrigen übertragen."""

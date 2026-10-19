@@ -34,8 +34,9 @@ logger = logging.getLogger("knix_arranger.knxprod_catalog")
 # Version des Einlesens: steigt, wenn dieselbe Datei andere Produktdaten
 # ergibt. Ältere Einträge im Produktordner-Index gelten als neu einzulesen
 # (product_folder.pending_files). 2: Name/Objektfunktion richtig, deutsche
-# Übersetzung, Grösse (1.4.10)
-READER_VERSION = 2
+# Übersetzung, Grösse (1.4.10); 3: Parameterbedingungen je KO-Variante
+# aus dem Dynamic-Abschnitt (ETS-Parametrier-Anleitung)
+READER_VERSION = 3
 
 # Objektfunktion, die nur die Grösse nennt ("1 bit", "4 Byte")
 _SIZE_ONLY = re.compile(r"\s*\d+\s*(bit|bits|byte|bytes)\s*", re.IGNORECASE)
@@ -61,6 +62,22 @@ def is_placeholder_text(text: str) -> bool:
     """Nur ETS-Platzhalter wie "{{0:GO}}" (oder leer): der Text hängt von
     Parametern ab und sagt nichts über die Funktion."""
     return bool(_PLACEHOLDER_ONLY.fullmatch(text or ""))
+
+
+def merge_conditions(*chains: list) -> list:
+    """Bedingungen einer Variante, die an mehreren Stellen vorkommt: alle
+    Parameter mit nur einem Wert; ein Parameter mit verschiedenen Werten an
+    verschiedenen Stellen entscheidet nicht über die Variante und entfällt.
+    Reihenfolge der ersten Nennung."""
+    values: dict[str, set] = {}
+    order: list = []
+    for chain in chains:
+        for ref, test in chain:
+            if ref not in values:
+                values[ref] = set()
+                order.append((ref, test))
+            values[ref].add(test)
+    return [[ref, test] for ref, test in order if len(values[ref]) == 1]
 
 
 def unique_com_objects(com_objects: list[dict]) -> list[dict]:
@@ -103,6 +120,10 @@ class ComObjectInfo:
     function_text: str = ""       # FunctionText = ETS «Objektfunktion», z.B. "Dimmwert"
     datapoint_type: str = ""      # z.B. "DPT-1", "DPT-5.001"
     object_size: str = ""         # ObjectSize, z.B. "1 Bit", "1 Byte"
+    # Parameterbedingungen, unter denen diese Variante in der ETS aktiv ist
+    # ([ParameterRef-Id, Test], z.B. [..._P-12_R-34, "3"]); Texte dazu in
+    # KnxprodProduct.parameters
+    conditions: list = field(default_factory=list)
     communication_flag: bool = True
     read_flag: bool = False
     write_flag: bool = False
@@ -139,6 +160,7 @@ class ComObjectInfo:
             "function_text": self.function_text,
             "datapoint_type": self.datapoint_type,
             "object_size": self.object_size,
+            **({"conditions": [list(c) for c in self.conditions]} if self.conditions else {}),
             "communication_flag": self.communication_flag,
             "read_flag": self.read_flag,
             "write_flag": self.write_flag,
@@ -154,6 +176,7 @@ class ComObjectInfo:
             function_text=data.get("function_text", ""),
             datapoint_type=data.get("datapoint_type", ""),
             object_size=data.get("object_size", ""),
+            conditions=[list(c) for c in data.get("conditions") or []],
             communication_flag=data.get("communication_flag", True),
             read_flag=data.get("read_flag", False),
             write_flag=data.get("write_flag", False),
@@ -181,6 +204,9 @@ class KnxprodProduct:
     sensor_type: str = ""
     com_objects: list[ComObjectInfo] = field(default_factory=list)
     secure_supported: bool = False   # KNX Secure Unterstuetzung (FA-2705)
+    # Parameter der Bedingungen: {ParameterRef-Id: [Block, Name, {Wert: Text},
+    # sichtbar]} (aus dem Dynamic-Abschnitt der Applikation)
+    parameters: dict = field(default_factory=dict)
 
     @property
     def ga_min(self) -> int:
@@ -217,6 +243,7 @@ class KnxprodProduct:
             "product_ref_id": self.product_ref_id,
             "hw2prog_id": self.hw2prog_id,
             "application_program_id": self.application_program_id,
+            **({"parameters": self.parameters} if self.parameters else {}),
         }
 
 
@@ -228,6 +255,8 @@ class KnxprodCatalogService:
         # manche Hersteller (z.B. Weinzierl) setzen SupportsTPSecure an der
         # Hardware nicht, nur an der Applikation.
         self._secure_app_ids: set[str] = set()
+        # Parametertabelle je Applikation (_dynamic_conditions)
+        self._app_parameters: dict[str, dict] = {}
 
     def import_file(self, filepath: str) -> list[KnxprodProduct]:
         """
@@ -332,6 +361,9 @@ class KnxprodCatalogService:
                     actor_type=device_type if category == "actor" else "",
                     sensor_type=device_type if category == "sensor" else "",
                     com_objects=com_objects,
+                    parameters=self._app_parameters.get(app_id) or (
+                        next(iter(self._app_parameters.values()))
+                        if len(app_comobjects) == 1 and self._app_parameters else {}),
                     secure_supported=(
                         hw.get("secure_supported", False) or app_id in secure_app_ids
                     ),
@@ -585,6 +617,8 @@ class KnxprodCatalogService:
                     break
 
             com_objects = self._extract_com_objects(root)
+            if self._last_parameters:
+                self._app_parameters[app_id] = self._last_parameters
             if com_objects:
                 result[app_id] = com_objects
                 logger.debug(
@@ -661,13 +695,15 @@ class KnxprodCatalogService:
 
         # Deutsche Texte (Übersetzung je Id), sonst die Grundsprache
         german = self._german_texts(root)
+        # Parameterbedingungen je ComObjectRef (Dynamic-Abschnitt)
+        conditions, self._last_parameters = self._dynamic_conditions(root)
 
         def _translated(attrs: dict) -> dict:
             return {**attrs, **german.get(attrs.get("Id", ""), {})}
 
         com_objects: list[ComObjectInfo] = []
         consumed_base_ids: set[str] = set()
-        seen: set[tuple] = set()
+        seen: dict[tuple, ComObjectInfo] = {}
 
         for ref in refs:
             ref_id = ref.get("RefId", "")
@@ -676,13 +712,18 @@ class KnxprodCatalogService:
             # Texte der Ref (auch übersetzt) haben Vorrang vor dem Basisobjekt
             merged = {**_translated(base), **_translated(ref)}
             co = _build(merged)
+            co.conditions = conditions.get(ref.get("Id", ""), [])
             # Varianten, die sich nur in der Grösse unterscheiden, sind ein KO
             # (Viessmann Vitogate: sieben Grössen je Objektplatz)
             key = (ref_id, co.number, co.name, co.function_text,
                    merged.get("DatapointType", ""), co.flags_display)
             if key in seen:
+                # Gleiche Variante an anderer Stelle: es gelten nur die
+                # Bedingungen, die beide Stellen teilen
+                kept = seen[key]
+                kept.conditions = merge_conditions(kept.conditions, co.conditions)
                 continue
-            seen.add(key)
+            seen[key] = co
             com_objects.append(co)
 
         for base_id, base in base_by_id.items():
@@ -690,6 +731,130 @@ class KnxprodCatalogService:
                 com_objects.append(_build(_translated(base)))
 
         return com_objects
+
+    _last_parameters: dict = {}
+
+    @staticmethod
+    def _local(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1]
+
+    def _dynamic_conditions(self, root: ET.Element) -> tuple[dict, dict]:
+        """Unter welchen Parameterwerten ist eine KO-Variante aktiv?
+
+        Wertet den Dynamic-Abschnitt der Applikation aus (choose/when über
+        Parameter, KNX-Standard): je ComObjectRef die Kette der expliziten
+        Bedingungen [ParameterRef-Id, Test] bis zum ComObjectRefRef (erste
+        Fundstelle; Standardzweige «sonst» zählen nicht). Dazu die Texte der
+        beteiligten Parameter: {ParameterRef-Id: [Block, Name, {Wert: Text},
+        sichtbar]} -- Block = Parameterseite, auf der die ETS den Parameter
+        zeigt («Taste 1, links»); unsichtbare Parameter stehen in keinem Block.
+        Module (ModuleDef, Stufe 2) werden nicht aufgelöst."""
+        local = self._local
+        program = next((el for el in root.iter() if local(el.tag) == "ApplicationProgram"),
+                       None)
+        dynamic = next((el for el in (program if program is not None else [])
+                        if local(el.tag) == "Dynamic"), None)
+        if dynamic is None:
+            return {}, {}
+        german = self._german_all_texts(root)
+
+        def text_of(el) -> str:
+            return ((german.get(el.get("Id", "")) or {}).get("Text")
+                    or el.get("Text") or "")
+
+        chains: dict[str, list] = {}
+        placed: dict[str, str] = {}
+
+        def walk(el, conds, block, choose_param=None):
+            tag = local(el.tag)
+            if tag in ("ParameterBlock", "Channel"):
+                block = text_of(el) or el.get("Name", "") or block
+            elif tag == "ParameterRefRef":
+                placed.setdefault(el.get("RefId", ""), block)
+                return
+            elif tag == "ComObjectRefRef":
+                chains.setdefault(el.get("RefId", ""), []).append(list(conds))
+                return
+            elif tag == "choose":
+                for child in el:
+                    walk(child, conds, block, el.get("ParamRefId", ""))
+                return
+            elif tag == "when":
+                test = el.get("test")
+                new = conds + [(choose_param, test)] if test is not None and choose_param \
+                    else conds
+                for child in el:
+                    walk(child, new, block)
+                return
+            for child in el:
+                walk(child, conds, block, choose_param)
+
+        walk(dynamic, [], "")
+        params, param_refs, type_values = {}, {}, {}
+        for el in program.iter():
+            tag = local(el.tag)
+            if tag == "Parameter":
+                params[el.get("Id", "")] = el
+            elif tag == "ParameterRef":
+                param_refs[el.get("Id", "")] = el
+            elif tag == "ParameterType":
+                values = {}
+                for item in el.iter():
+                    if local(item.tag) == "Enumeration":
+                        values[item.get("Value", "")] = text_of(item)
+                if values:
+                    type_values[el.get("Id", "")] = values
+        # Bedingungen über den Parameter selbst: mehrere ParameterRefs zeigen
+        # auf denselben Parameter (Feller «Anzahl Tasten» = 2 bzw. 4)
+        def parameter_of(ref_id: str) -> str:
+            ref = param_refs.get(ref_id)
+            return ref.get("RefId", ref_id) if ref is not None else ref_id
+
+        refs_of: dict[str, list[str]] = {}
+        for ref_id, ref in param_refs.items():
+            refs_of.setdefault(ref.get("RefId", ""), []).append(ref_id)
+        result: dict[str, list] = {}
+        for ref_id, found in chains.items():
+            converted = [[(parameter_of(ref), test) for ref, test in chain] for chain in found]
+            # Dieselbe Variante an mehreren Stellen (z.B. unter «Szenenfunktion
+            # = lokal» und «= dezentral»): die Szenenfunktion entscheidet nicht
+            result[ref_id] = merge_conditions(*converted)
+        used = {param for chain in result.values() for param, _test in chain}
+        table = {}
+        for param_id in used:
+            par = params.get(param_id)
+            own_refs = refs_of.get(param_id, [])
+            ref = next((param_refs[r] for r in own_refs if text_of(param_refs[r])), None)
+            name = (text_of(ref) if ref is not None else "") \
+                or (text_of(par) if par is not None else "") \
+                or (par.get("Name", "") if par is not None else "")
+            values = type_values.get(par.get("ParameterType", ""), {}) if par is not None else {}
+            block = next((placed[r] for r in own_refs if r in placed), "")
+            table[param_id] = [block, " ".join(name.split()).rstrip(" :"), values,
+                               any(r in placed for r in own_refs)]
+        return result, table
+
+    def _german_all_texts(self, root: ET.Element) -> dict[str, dict[str, str]]:
+        """Deutsche Texte aller Elemente ({Id: {Attribut: Text}}), für
+        Parameter, Aufzählungswerte und Parameterseiten."""
+        by_language: dict[str, dict] = {}
+        for language in root.iter():
+            if self._local(language.tag) != "Language":
+                continue
+            identifier = language.get("Identifier", "")
+            if not identifier.lower().startswith("de"):
+                continue
+            texts = by_language.setdefault(identifier.lower(), {})
+            for element in language.iter():
+                if self._local(element.tag) == "TranslationElement":
+                    for translation in element:
+                        if translation.get("Text"):
+                            texts.setdefault(element.get("RefId", ""), {})[
+                                translation.get("AttributeName", "")] = translation.get("Text")
+        for identifier in self._GERMAN:
+            if identifier.lower() in by_language:
+                return by_language[identifier.lower()]
+        return next(iter(by_language.values()), {})
 
     # Bevorzugte Sprachen der Übersetzungen (Schweiz zuerst)
     _GERMAN = ("de-CH", "de-DE", "de-AT", "de")

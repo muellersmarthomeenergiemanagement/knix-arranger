@@ -106,6 +106,8 @@ class ReportsDialog(QDialog):
              self._gen_room_gewerk),
             ("Szenenreport", "Bedienung, Gewerke und Aktoren je Szene als PDF",
              self._gen_szenen),
+            ("ETS-Parametrierung", "Je Gerät die Parameter für die zugeordneten KOs",
+             self._gen_ets_parameters),
             ("Zeitsteuerungsplan (PDF)",
              "Alle Wochenprogramme und Schaltzeitpunkte als druckbares Dokument",
              self._gen_time_programs),
@@ -583,6 +585,23 @@ class ReportsDialog(QDialog):
             ReportService(project, company_profile=company).generate_szenen_report(path)
 
         self._run("Szenenreport wird erstellt…", do, f"Szenenreport erstellt: {path}")
+
+    def _gen_ets_parameters(self):
+        path, _ = license_gate.get_save_file_name(
+            self, "ETS-Parametrierung speichern",
+            self._default_export_path(f"{self._project.name}_ETS_Parametrierung.pdf"),
+            "PDF-Dateien (*.pdf)",
+        )
+        if not path:
+            return
+        project, company = self._project, self._company_profile
+
+        def do():
+            from ...services.report_service import ReportService
+            ReportService(project, company_profile=company).generate_ets_parameters_report(path)
+
+        self._run("ETS-Parametrierung wird erstellt…", do,
+                  f"ETS-Parametrierung erstellt: {path}")
 
     def _gen_time_programs(self):
         """Zeitsteuerungsplan (FA-3307c)."""

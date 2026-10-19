@@ -119,6 +119,8 @@ class ActorChannelDialog(QDialog):
         self._co_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         co_layout.addWidget(self._co_table)
         layout.addWidget(self._co_group, 2)
+        self._ets_box = EtsParametersBox(self)
+        layout.addWidget(self._ets_box)
 
         # Nur so viele GAs wie nötig: Funktionen ohne KO im Kanal weglassen
         # (nur geplante, noch nicht in die ETS übertragene Projekte)
@@ -329,11 +331,21 @@ class ActorChannelDialog(QDialog):
             combo.setCurrentIndex(index if index >= 0 else 0)
             combo.currentIndexChanged.connect(
                 lambda _i, f=function, cb=combo, sel=selection: (
-                    sel.__setitem__(f, cb.currentData()), self._update_omit_info()))
+                    sel.__setitem__(f, cb.currentData()), self._update_omit_info(),
+                    self._update_ets()))
             table.setCellWidget(row, 2, combo)
             if (self._focus is not None and self._device.id == self._focus[0]
                     and circuit.key == self._focus[1] and function == self._focus[2]):
                 mark_focus_row(table, row, combo)
+        self._update_ets()
+
+    def _update_ets(self) -> None:
+        from ...services.ets_parameters import chosen_for_actor
+        if self._device is None:
+            return
+        state = self._state_for(self._device)
+        self._ets_box.show_for(self._device,
+                               chosen_for_actor(self._device, state["circuits"], state["co"]))
 
     # ── Ergebnis ──
 
@@ -401,3 +413,40 @@ def mark_focus_row(table, row: int, combo) -> None:
     combo.setStyleSheet(f"QComboBox {{ background-color: {_FOCUS_COLOR}; }}")
     table.scrollToItem(table.item(row, 0) or table.item(row, 1))
     table.setCurrentCell(row, 0)
+
+
+# ── ETS-Parameter zur Zuordnung (FA-2304l) ────────────────────────────────
+
+class EtsParametersBox(QGroupBox):
+    """Was in der ETS einzustellen ist, damit die gewählten KOs bestehen
+    (services/ets_parameters); ändert sich mit der Auswahl."""
+
+    def __init__(self, parent=None):
+        super().__init__("ETS-Parameter für diese Zuordnung", parent)
+        layout = QVBoxLayout(self)
+        self._label = QLabel()
+        self._label.setWordWrap(True)
+        self._label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self._label)
+
+    def show_for(self, device, chosen: list) -> None:
+        from ...services.ets_parameters import settings_for
+        from ...services.product_sync import shared_catalog
+        try:
+            result = settings_for(device, chosen, shared_catalog())
+        except Exception:   # Anzeige darf den Dialog nie blockieren
+            result = None
+        if result is None or (not result.settings and not result.conflicts):
+            if result is not None and result.unknown:
+                text = ("Keine Angaben – die Herstellerdatei ist noch nicht mit der "
+                        "aktuellen Auswertung eingelesen (Produktauswahl).")
+            else:
+                text = "Keine besonderen Einstellungen nötig."
+            self._label.setText(f"<span style='color:#666'>{text}</span>")
+            return
+        lines = [f"• {s.block + ' › ' if s.block else ''}{s.label}: <b>{s.value}</b>"
+                 for s in result.settings]
+        for (block, label), values in result.conflicts.items():
+            lines.append(f"<span style='color:#b26a00'>⚠ Widerspruch {block} › {label}: "
+                         f"{' / '.join(values)}</span>")
+        self._label.setText("<br>".join(lines))

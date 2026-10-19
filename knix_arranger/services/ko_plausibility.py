@@ -45,6 +45,16 @@ def _dpt_main(text: str) -> str:
     return _dpt_key(text)[0]
 
 
+def _named(variants: list) -> list:
+    """Varianten mit sprechendem Text; die generische («Object 25», alle
+    Flags) entlastet nicht, wenn die Nummer benannte Varianten hat -- sonst
+    galt Feller KO 24 «alle teilnehmenden Tasten – sperren» als Rückmeldung
+    einer Taste als unbedenklich."""
+    from .ko_names import is_generic
+    named = [co for co in variants if not is_generic(co)]
+    return named or variants
+
+
 def _first_problem(problems: list[str]) -> str:
     return "" if not problems or "" in problems else problems[0]
 
@@ -67,7 +77,7 @@ def actor_ko_problem(variants: list, function: str, ga_dpt: str = "") -> str:
             return (f"Grösse passt nicht (KO {size_text(co_bits(co))}, "
                     f"GA {size_text(dpt_bits(ga_dpt))})")
         return ""
-    return _first_problem([problem(co) for co in variants])
+    return _first_problem([problem(co) for co in _named(variants)])
 
 
 def button_of(co) -> str:
@@ -111,7 +121,7 @@ def sensor_ko_problem(link, variants: list, command_variants: list) -> str:
                 and button_of(co) not in own_buttons:
             return "KO einer anderen Taste"
         return ""
-    return _first_problem([problem(co) for co in variants])
+    return _first_problem([problem(co) for co in _named(variants)])
 
 
 def ko_variants(device) -> dict[int, list]:
