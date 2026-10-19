@@ -147,3 +147,23 @@ def test_product_block_numbers_equal_names(gewerk_catalog):
     schema = AddressGenerator(gewerk_catalog)._get_block_schema(
         gewerk_catalog.get("W"), assignment=assignment)
     assert [e.function for e in schema.entries] == ["Wert", "Wert 2", "Wert 3"]
+
+
+def test_product_ga_names_find_their_ko():
+    """Die KO-Zuordnung erkennt GA-Namen nach derselben Regel, nach der sie
+    erzeugt wurden: «F1: Schalten» (Kanalname + Funktion), «Wert 2»
+    (nummerierter Doppelname)."""
+    from knix_arranger.models.topology import CommunicationObject
+    from knix_arranger.services.sensor_channels import _named_co
+
+    def co(number, name, function, size="1 Bit"):
+        return CommunicationObject(object_number=number, name=name,
+                                   object_function=function, object_size=size)
+    cos = [co(0, "F1", "Schalten"), co(1, "Wert", "Senden", "2 Bytes"),
+           co(2, "Wert", "Senden", "2 Bytes"), co(3, "Helligkeitswert vorne",
+                                                   "Physikalischer Wert", "2 Bytes")]
+    assert _named_co(cos, "F1: Schalten").object_number == 0
+    assert _named_co(cos, "Helligkeitswert vorne").object_number == 3
+    assert _named_co(cos, "Wert").object_number == 1
+    assert _named_co(cos[2:], "Wert 2").object_number == 2     # KO 1 schon vergeben
+    assert _named_co(cos, "Physikalischer Wert 5") is None

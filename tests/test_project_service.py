@@ -360,3 +360,36 @@ class TestSuggestSavePath:
         svc = ProjectService()
 
         assert svc.suggest_save_path("", "Chalet", str(tmp_path / "fehlt")) == "Chalet.knxarr"
+
+
+def test_project_data_compressed_and_old_files_readable(tmp_path):
+    """Ab 1.4.10 komprimiert (KO-Varianten der Geräte wiederholen sich
+    stark); Dateien bis 1.4.9 (JSON als Text) bleiben lesbar."""
+    import sqlite3
+    from knix_arranger.models.topology import CommunicationObject, Device
+    project = KnxProject(name="Kompakt")
+    device = Device(device_type="sensor", physical_address="1.1.1",
+                    communication_objects=[
+                        CommunicationObject(object_number=n % 50, name=f"Taste {n % 50}",
+                                            object_function="Schalten", object_size="1 Bit")
+                        for n in range(2000)])
+    project.topology = Topology(areas=[Area(area_number=1, lines=[
+        Line(name="Linie 1", line_number=1, devices=[device])])])
+    path = tmp_path / "neu.knxarr"
+    project.save(str(path))
+    with sqlite3.connect(path) as conn:
+        keys = [k for (k,) in conn.execute("SELECT key FROM project")]
+    assert keys == ["project_data_z"]
+    assert path.stat().st_size < len(project.to_json()) / 5
+    loaded = KnxProject.load(str(path))
+    assert len(loaded.topology.areas[0].lines[0].devices[0].communication_objects) == 2000
+
+    old = tmp_path / "alt.knxarr"
+    with sqlite3.connect(old) as conn:
+        conn.execute("CREATE TABLE project (key TEXT PRIMARY KEY, value TEXT)")
+        conn.execute("INSERT INTO project VALUES (?, ?)", ("project_data", project.to_json()))
+    assert KnxProject.load(str(old)).name == "Kompakt"
+    # wieder gespeichert: nur noch das neue Format
+    KnxProject.load(str(old)).save(str(old))
+    with sqlite3.connect(old) as conn:
+        assert [k for (k,) in conn.execute("SELECT key FROM project")] == ["project_data_z"]

@@ -36,8 +36,9 @@ logger = logging.getLogger("knix_arranger.knxprod_catalog")
 # (product_folder.pending_files). 2: Name/Objektfunktion richtig, deutsche
 # Übersetzung, Grösse (1.4.10); 3: Parameterbedingungen je KO-Variante
 # aus dem Dynamic-Abschnitt (ETS-Parametrier-Anleitung); 4: Module je Instanz
-# (MDT, Theben MIX), Bedingungen als Alternativen
-READER_VERSION = 4
+# (MDT, Theben MIX), Bedingungen als Alternativen; 5: unsichtbare Parameter
+# (Access="None") mit ihrem festen Wert, nie aktive Zweige entfallen
+READER_VERSION = 5
 
 # Objektfunktion, die nur die Grösse nennt ("1 bit", "4 Byte")
 _SIZE_ONLY = re.compile(r"\s*\d+\s*(bit|bits|byte|bytes)\s*", re.IGNORECASE)
@@ -95,12 +96,16 @@ def _is_alternatives(conditions: list) -> bool:
                for alt in conditions)
 
 
-def reduce_alternatives(chains: list, canon=None) -> list[list]:
+def reduce_alternatives(chains: list, canon=None, domain=None) -> list[list]:
     """Fundstellen einer Variante zu Alternativen zusammenfassen: gleiche
     entfallen; zwei, die sich nur im Wert EINES Parameters unterscheiden,
-    werden eine ohne diesen Parameter (Feller: dieselbe Taste unter
-    «Szenenfunktion = lokal» und «= dezentral» -> die Szenenfunktion
-    entscheidet nicht). Andere bleiben getrennt (MDT: «Schalten» unter
+    werden eine mit beiden Werten («1 2» = 1 oder 2, Theben MIX: dieselben
+    KOs unter «Art des Grundmoduls» = RMG 8 S und RMG 8 T, nicht beim HMG 6 T)
+    -- kommen damit alle Werte des Parameters vor (domain(Parameter) ->
+    Werte), entfällt er (Feller: dieselbe Taste unter «Szenenfunktion =
+    lokal» und «= dezentral» -> die Szenenfunktion entscheidet nicht). Ohne
+    bekannte Werte oder bei Vergleichen («!=0») entfällt er wie bisher.
+    Andere bleiben getrennt (MDT: «Schalten» unter
     «Einzel-Tastenfunktion = Schalten, Unterfunktion = Schalten» ODER «=
     Werte senden, Unterfunktion (Werte) = Werte senden, DPT 1.001») -- sonst
     entstünde eine Mischung, die es in der ETS nicht gibt. Höchstens
@@ -115,7 +120,15 @@ def reduce_alternatives(chains: list, canon=None) -> list[list]:
         conds = {}
         for ref, test in chain:
             view, value = canon(ref, test)
-            conds.setdefault(view, (ref, test, value))
+            if view in conds:
+                # Derselbe Parameter zweimal in der Kette (Theben MIX: «Art
+                # des Grundmoduls > 0», darin «= 1»): beide gelten, der
+                # genauere Wert zählt
+                test = _narrower(conds[view][1], test)
+                if test == conds[view][1]:
+                    continue
+                view, value = canon(ref, test)
+            conds[view] = (ref, test, value)
         if not any(_same_values(conds, other) for other in alternatives):
             alternatives.append(conds)
     changed = True
@@ -127,7 +140,11 @@ def reduce_alternatives(chains: list, canon=None) -> list[list]:
                     continue
                 differing = [k for k in a if a[k][2] != b[k][2]]
                 if len(differing) == 1:
-                    merged = {k: v for k, v in a.items() if k != differing[0]}
+                    key = differing[0]
+                    merged = {k: v for k, v in a.items() if k != key}
+                    combined = _combined_test(a[key], b[key], domain)
+                    if combined is not None:
+                        merged[key] = combined
                     alternatives = [x for x in alternatives if x is not a and x is not b]
                     if not any(_same_values(merged, other) for other in alternatives):
                         alternatives.append(merged)
@@ -140,11 +157,48 @@ def reduce_alternatives(chains: list, canon=None) -> list[list]:
             for alt in alternatives[:_MAX_ALTERNATIVES]]
 
 
+def _narrower(outer: str, inner: str) -> str:
+    """Von zwei Bedingungen an denselben Parameter die engere: Werte statt
+    Vergleich, sonst die gemeinsamen Werte, sonst die innere."""
+    outer_cmp = bool(_TEST_OPERATOR.match(outer or ""))
+    inner_cmp = bool(_TEST_OPERATOR.match(inner or ""))
+    if outer_cmp != inner_cmp:
+        return outer if inner_cmp else inner
+    if not inner_cmp:
+        common = [v for v in (inner or "").split() if v in (outer or "").split()]
+        if common:
+            return " ".join(common)
+    return inner
+
+
+def _combined_test(a: tuple, b: tuple, domain) -> tuple | None:
+    """(Parameter, Test, Wert-Sicht) zweier Fundstellen als eine mit beiden
+    Werten; None, wenn der Parameter entfällt (alle Werte, unbekannte Werte,
+    verschiedene Parameter oder Vergleiche)."""
+    ref_a, test_a, view_a = a
+    ref_b, test_b, view_b = b
+    known = domain(ref_a) if domain else None
+    if ref_a != ref_b or not known or _TEST_OPERATOR.match(test_a or "")             or _TEST_OPERATOR.match(test_b or ""):
+        return None
+    values = set((test_a or "").split()) | set((test_b or "").split())
+    if set(known) <= values:
+        return None
+    views = (view_a if isinstance(view_a, frozenset) else frozenset([view_a]))         | (view_b if isinstance(view_b, frozenset) else frozenset([view_b]))
+    return ref_a, " ".join(sorted(values, key=_value_order)), views
+
+
+def _value_order(value: str) -> tuple:
+    try:
+        return 0, float(value), value
+    except ValueError:
+        return 1, 0.0, value
+
+
 def _same_values(a: dict, b: dict) -> bool:
     return a.keys() == b.keys() and all(a[k][2] == b[k][2] for k in a)
 
 
-def merge_conditions(*chains: list, canon=None) -> list:
+def merge_conditions(*chains: list, canon=None, domain=None) -> list:
     """Bedingungen mehrerer Fundstellen zusammenführen (Alternativen, siehe
     reduce_alternatives); nimmt flache Ketten und Alternativen-Listen."""
     flat = []
@@ -153,7 +207,7 @@ def merge_conditions(*chains: list, canon=None) -> list:
             flat.extend(chain)          # bereits Alternativen
         else:
             flat.append(chain)
-    return reduce_alternatives(flat, canon)
+    return reduce_alternatives(flat, canon, domain)
 
 
 _NOT_ALNUM = re.compile(r"[^a-z0-9]")
@@ -862,7 +916,8 @@ class KnxprodCatalogService:
                 # Bedingungen, die beide Stellen teilen
                 kept = seen[key]
                 kept.conditions = merge_conditions(kept.conditions, co.conditions,
-                                                   canon=self._last_canon)
+                                                   canon=self._last_canon,
+                                                   domain=self._last_domain)
                 return
             seen[key] = co
             com_objects.append(co)
@@ -879,6 +934,8 @@ class KnxprodCatalogService:
                     merged["TextParameterRefId"], ""), "")
                 merged["Text"] = " ".join(_PLACEHOLDER_RE.sub(
                     lambda m: default or (m.group(1) or ""), merged["Text"]).split()).rstrip(" :")
+            if ("", ref.get("Id", "")) not in conditions                     and ("", ref.get("Id", "")) in self._last_pruned:
+                continue            # nur unter festen, nie gültigen Werten
             co = _build(merged)
             co.conditions = conditions.get(("", ref.get("Id", "")), [])
             # Varianten, die sich nur in der Grösse unterscheiden, sind ein KO
@@ -934,6 +991,8 @@ class KnxprodCatalogService:
 
     _last_instances: list = []
     _last_canon = None
+    _last_domain = None
+    _last_pruned: set = set()
 
     _last_parameters: dict = {}
 
@@ -955,6 +1014,8 @@ class KnxprodCatalogService:
         local = self._local
         self._last_instances = []
         self._last_canon = None
+        self._last_domain = None
+        self._last_pruned = set()
         program = next((el for el in root.iter() if local(el.tag) == "ApplicationProgram"),
                        None)
         dynamic = next((el for el in (program if program is not None else [])
@@ -976,6 +1037,37 @@ class KnxprodCatalogService:
                         if local(a.tag) == "Argument"}
                 own_dynamic = next((c for c in el if local(c.tag) == "Dynamic"), None)
                 module_defs[el.get("Id", "")] = (args, own_dynamic)
+
+        # Unsichtbare Parameter (Access="None", Theben MIX: 5540 von 18680
+        # Verzweigungen) kann in der ETS niemand ändern: sie behalten ihren
+        # Wert, nur der passende Zweig ist je aktiv. Ausgenommen, was die
+        # Applikation selbst setzt (Assign, ParameterCalculation).
+        params, param_refs = {}, {}
+        computed: set[str] = set()
+        for el in program.iter():
+            tag = local(el.tag)
+            if tag == "Parameter":
+                params[el.get("Id", "")] = el
+            elif tag == "ParameterRef":
+                param_refs[el.get("Id", "")] = el
+            elif tag == "Assign":
+                computed.add(el.get("TargetParamRefRef", ""))
+            elif tag == "ParameterCalculation":
+                computed.update(ref.get("RefId", "") for ref in el.iter()
+                                if local(ref.tag) == "ParameterRefRef")
+
+        def fixed_value(ref_id: str) -> str | None:
+            ref = param_refs.get(ref_id)
+            if ref is None or ref_id in computed:
+                return None
+            par = params.get(ref.get("RefId", ""))
+            access = ref.get("Access") or (par.get("Access") if par is not None else None)
+            if access != "None":
+                return None
+            value = ref.get("Value")
+            if value is None and par is not None:
+                value = par.get("Value")
+            return None if value is None or "{{" in value else value
 
         # Bedingungen je (Geltungsbereich, ComObjectRef-Id); Geltungsbereich ""
         # = Applikation, sonst die Modul-Instanz («…_MD-1_M-2»). Parameter
@@ -1000,6 +1092,23 @@ class KnxprodCatalogService:
                 chains.setdefault((scope, el.get("RefId", "")), []).append(list(conds))
                 return
             elif tag == "choose":
+                fixed = fixed_value(el.get("ParamRefId", ""))
+                if fixed is not None:
+                    # fester Wert: nur der passende Zweig (sonst «default»),
+                    # ohne Bedingung
+                    whens = [c for c in el if local(c.tag) == "when"]
+                    active = [w for w in whens if w.get("test") is not None
+                              and when_matches(w.get("test"), fixed)]                         or [w for w in whens if w.get("test") is None]
+                    for branch in active:
+                        for child in branch:
+                            walk(child, conds, block, None, scope, subst)
+                    # KOs nur in nie aktiven Zweigen gibt es in der ETS nicht
+                    for branch in whens:
+                        if branch not in active:
+                            self._last_pruned.update(
+                                (scope, ref.get("RefId", "")) for ref in branch.iter()
+                                if local(ref.tag) == "ComObjectRefRef")
+                    return
                 for child in el:
                     walk(child, conds, block, scoped(el.get("ParamRefId", "")), scope, subst)
                 return
@@ -1024,14 +1133,10 @@ class KnxprodCatalogService:
                 walk(child, conds, block, choose_param, scope, subst)
 
         walk(dynamic, [], "")
-        params, param_refs, type_values = {}, {}, {}
+        type_values = {}
         for el in program.iter():
             tag = local(el.tag)
-            if tag == "Parameter":
-                params[el.get("Id", "")] = el
-            elif tag == "ParameterRef":
-                param_refs[el.get("Id", "")] = el
-            elif tag == "ParameterType":
+            if tag == "ParameterType":
                 values = {}
                 for item in el.iter():
                     if local(item.tag) == "Enumeration":
@@ -1088,8 +1193,13 @@ class KnxprodCatalogService:
             block, label, values, _visible = info
             return (block, label), values.get(test, test)
 
+        def domain(param: str):
+            info = table.get(param)
+            return set(info[2]) if info and info[2] else None
+
         self._last_canon = canon
-        result = {key: merge_conditions(*found, canon=canon)
+        self._last_domain = domain
+        result = {key: merge_conditions(*found, canon=canon, domain=domain)
                   for key, found in converted_by_key.items()}
         used = {param for alternatives in result.values() for alt in alternatives
                 for param, _test in alt}

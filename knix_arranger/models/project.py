@@ -11,6 +11,7 @@ import json
 import sqlite3
 import os
 import uuid
+import zlib
 from datetime import datetime
 
 from .building import Areal, Building, Wing, Floor, Apartment, Room
@@ -37,6 +38,10 @@ from ..utils.manufacturers import manufacturer_display_name
 # ein), Wärmepumpe, Energie (PV, Speicher, Wallbox), Lüftung/Klima. DALI und
 # DMX bleiben je Linie -- der Bus ist an seine Leuchten gebunden.
 SHARED_GATEWAY_DEFAULTS = frozenset({"MM", "WP", "PV", "SP", "EV", "LU", "KL"})
+
+# Projektdaten in der .knxarr-Datei: zlib-komprimiertes JSON (ab 1.4.10);
+# «project_data» (JSON als Text) wird weiterhin gelesen
+_COMPRESSED_KEY = "project_data_z"
 
 
 @dataclass
@@ -407,10 +412,16 @@ class KnxProject:
                 "CREATE TABLE IF NOT EXISTS datasheets "
                 "(id TEXT PRIMARY KEY, filename TEXT, data BLOB)"
             )
+            # Komprimiert: die KO-Varianten der Geräte (alle Parameterzweige
+            # der Herstellerdatei) machen sonst den Grossteil der Datei aus
+            # und wiederholen sich stark (Test 148: 4,2 MB -> rund 0,1 MB).
             conn.execute(
                 "INSERT OR REPLACE INTO project (key, value) VALUES (?, ?)",
-                ("project_data", self.to_json()),
+                (_COMPRESSED_KEY, zlib.compress(json.dumps(
+                    self.to_dict(), ensure_ascii=False,
+                    separators=(",", ":")).encode("utf-8"), 6)),
             )
+            conn.execute("DELETE FROM project WHERE key = ?", ("project_data",))
             conn.commit()
             conn.execute("VACUUM")
         finally:
@@ -421,13 +432,20 @@ class KnxProject:
         """Lädt ein Projekt aus einer .knxarr SQLite-Datei."""
         conn = sqlite3.connect(filepath)
         try:
-            cursor = conn.execute(
-                "SELECT value FROM project WHERE key = ?", ("project_data",)
-            )
-            row = cursor.fetchone()
-            if row is None:
-                raise ValueError(f"Keine Projektdaten in {filepath}")
-            project = cls.from_json(row[0])
+            row = conn.execute(
+                "SELECT value FROM project WHERE key = ?", (_COMPRESSED_KEY,)
+            ).fetchone()
+            if row is not None:
+                text = zlib.decompress(row[0]).decode("utf-8")
+            else:
+                # bis 1.4.9: JSON als Text
+                row = conn.execute(
+                    "SELECT value FROM project WHERE key = ?", ("project_data",)
+                ).fetchone()
+                if row is None:
+                    raise ValueError(f"Keine Projektdaten in {filepath}")
+                text = row[0]
+            project = cls.from_json(text)
             project._file_path = filepath
             return project
         finally:

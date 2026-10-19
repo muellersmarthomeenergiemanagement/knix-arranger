@@ -283,11 +283,24 @@ def _named_co(cos: list, text: str):
     for co in cos:
         if target in ((co.object_function or "").strip().lower(), (co.name or "").strip().lower()):
             return co
+    def generated(co) -> str:
+        # wie address_generator: ETS-Name führt, Grösse unterscheidet Altdaten
+        return _com_object_function_name({
+            "function_text": co.object_function, "name": co.name,
+            "object_size": getattr(co, "object_size", "")}).strip().lower()
     for co in cos:
-        name = _com_object_function_name({"function_text": co.object_function, "name": co.name})
-        if name.strip().lower() == target:
+        if generated(co) == target:
             return co
+    # Gleiche Namen nummeriert («Wert 2»): der nächste freie KO dieses Namens
+    numbered = _NUMBERED.match(target)
+    if numbered:
+        for co in cos:
+            if generated(co) == numbered.group(1):
+                return co
     return None
+
+
+_NUMBERED = re.compile(r"^(.+) (\d+)$")
 
 
 _NUMBER = re.compile(r"(\d+)")
