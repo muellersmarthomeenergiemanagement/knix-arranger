@@ -2,6 +2,16 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.11",
+      "date": "2026-10-19",
+      "neu": [
+        "KNX Secure: Gerätezertifikate einlesen statt abtippen – im Reiter Geräte «Zertifikate einlesen (QR/Kamera)…». QR-Code per Kamera (auch iPhone) oder aus einem Foto mit mehreren Karten, oder den Text vom Aufkleber einfügen. Das Gerät wird über die Seriennummer gefunden; geplante Geräte übernehmen die Seriennummer des Zertifikats."
+      ],
+      "behoben": [
+        "KNX Secure: Die FDSK-Eingabe per Doppelklick konnte beim falschen Gerät landen (sortierte Tabelle). Sie nimmt jetzt auch den Text vom Aufkleber an und prüft die Seriennummer."
+      ]
+    },
+    {
       "version": "1.4.10",
       "date": "2026-10-19",
       "neu": [

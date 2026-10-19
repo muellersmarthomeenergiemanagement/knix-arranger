@@ -814,7 +814,10 @@ def build_document() -> Document:
              "importierte: aus den GAs bzw. KO-Namen ermittelt. Nur relevant wenn "
              "DALI-Leuchten (LDA-Gewerk) vorhanden."),
             ("KNX Secure",
-             "Konfiguration der KNX-Secure-Schlüssel für gesicherte Linien und Geräte."),
+             "Archiv der Gerätezertifikate (FDSK) und des ETS-Projektpassworts, "
+             "verschlüsselt mit einem Master-Passwort. Zertifikate über «Zertifikate "
+             "einlesen (QR/Kamera)…»: QR-Code per Kamera oder Foto, oder den Text vom "
+             "Aufkleber einfügen – das Gerät wird über die Seriennummer gefunden."),
             ("Zeitsteuerung",
              "Wochenprogramme mit Astrofunktionen und Feiertagskalender, Wochenraster, "
              "eigene Vorlagen und Datumsbereich je Schaltzeitpunkt. Zeitgesteuerte GAs "

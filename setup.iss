@@ -8,7 +8,7 @@
 ; Ergebnis:    installer\KNiX_Arranger_Setup_v1.0.0.exe
 
 #define AppName      "KNiX Arranger"
-#define AppVersion   "1.4.10"   ; <- hier bei jedem Release anpassen
+#define AppVersion   "1.4.11"   ; <- hier bei jedem Release anpassen
 #define AppPublisher "Michael Mueller SmartHome&EnergieManagement"   ; NFA-132
 #define AppURL       "https://www.muellersmarthomeenergiemanagement.ch"
 #define AppExeName   "KNiX_Arranger.exe"
