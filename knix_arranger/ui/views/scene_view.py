@@ -36,7 +36,8 @@ from ...services.scene_addressing import (
     canonical_zone_id, normalize_scene_scopes, zone_choices,
 )
 from ...services.scene_overview import (
-    SceneAddress, build_scene_overview, linked_devices, scene_trigger_index,
+    SceneAddress, build_scene_overview, is_fixed_scene_address, linked_devices,
+    scene_trigger_index,
     scene_triggers, scope_text,
 )
 from ..column_utils import fit_columns
@@ -396,7 +397,7 @@ class SceneView(QWidget):
             self._show_details(None)
             return
 
-        self._overview = build_scene_overview(self._project)
+        self._overview = build_scene_overview(self._project, include_empty=True)
         self._trigger_index = scene_trigger_index(self._project, snapshot=False)
         self._numbering_ctx = None
         self._conflicts = conflict_texts(self._project)
@@ -609,6 +610,9 @@ class SceneView(QWidget):
         if anchor is not None:
             idx = self._scene_target.findData(self._target_key(anchor.scope, anchor.scope_id))
             self._scene_target.setCurrentIndex(max(idx, 0))
+        # Feste Adresse ohne Szenen: kein Geltungsbereich zum Umstellen
+        self._scene_target.setEnabled(anchor is not None)
+        self._btn_apply_address.setEnabled(anchor is not None)
 
     def _target_key(self, scope: str, scope_id: str) -> str:
         """Eintrag in "Gilt für" zu einem Geltungsbereich."""
@@ -782,6 +786,10 @@ class SceneView(QWidget):
         generierte Szenenaufruf-GA."""
         group = self._get_selected_address()
         source = self._get_selected_scene() or (group.anchor_scene if group else None)
+        if source is None and group is not None and group.ga is not None:
+            # Feste Szenen-Adresse ohne Szenen (z.B. 0/4/1 ZENTRAL Szene
+            # Abwesenheit): erste Szene zentral an diese GA binden
+            source = Scene(scope="central", source_ga_addresses=[group.ga.address])
         if not self._project or not source:
             QMessageBox.information(
                 self, "Hinweis", "Bitte zuerst die Szenen-Adresse oder eine ihrer "
@@ -815,7 +823,10 @@ class SceneView(QWidget):
             return
 
         actions = []
-        if bound_addrs:
+        # Feste Szenen-Adresse: keine Aktion auf die Szenen-GA selbst, die
+        # Aktionen sind die geschalteten GAs (Licht, Jalousie ...)
+        fixed = group is not None and group.ga is not None and is_fixed_scene_address(group.ga)
+        if bound_addrs and not fixed:
             by_addr = {
                 ga.address: ga for ga in self._project.group_addresses.all_addresses()
             }
@@ -931,6 +942,8 @@ class SceneView(QWidget):
             question = f"Szene '{data[1].name}' wirklich entfernen?"
         else:
             scenes = data[1].all_scenes
+            if not scenes:
+                return
             question = (f"Alle {len(scenes)} Szene(n) der Adresse "
                         f"'{data[1].designation}' entfernen? Die Gruppenadresse "
                         "selbst bleibt unverändert.")

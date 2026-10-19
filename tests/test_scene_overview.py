@@ -172,3 +172,45 @@ def test_neue_adresse_mit_geltungsbereich(qapp):
     new = project.scenes[-1]
     assert (new.scope, new.scope_id, new.scene_number) == ("room", kueche.id, 3)
     assert view._get_selected_scene() is new
+
+
+# ── Feste Szenen-Adressen ohne Szenen (0/4/1 ZENTRAL Szene Abwesenheit) ─────
+
+def _planned_project():
+    """Geplantes Projekt mit generierter fester Zentraladresse 0/4/1."""
+    from knix_arranger.services.address_generator import regenerate_addresses
+    project, kueche = _project()
+    project.scenes = [s for s in project.scenes if not s.is_detected]
+    regenerate_addresses(project)
+    return project, kueche
+
+
+def test_feste_szenen_adresse_ohne_szenen_im_baum(qapp):
+    project, _kueche = _planned_project()
+    assert all(g.ga is None or g.ga.address != "0/4/1"
+               for g in build_scene_overview(project).addresses)    # Bericht: unverändert
+    view = _view(project)
+    tops = _top_texts(view)
+    assert tops[0].startswith("0/4/1") and "ZENTRAL Szene Abwesenheit" in tops[0]
+    assert view._tree.topLevelItem(0).text(3) == "0 Szenen"
+    # Erzeugte Szenenaufrufe erscheinen nicht leer
+    assert not any("Szenenaufruf" in t and "0 Szenen" in t for t in tops)
+
+
+def test_szene_auf_fester_adresse_anlegen(qapp):
+    from knix_arranger.services.address_generator import regenerate_addresses
+    project, _kueche = _planned_project()
+    view = _view(project)
+    view._tree.setCurrentItem(view._tree.topLevelItem(0))
+    assert not view._btn_apply_address.isEnabled()           # kein Geltungsbereich
+    view._add_scene_on_same_ga()
+    scene = project.scenes[-1]
+    assert scene.source_ga_addresses == ["0/4/1"] and scene.scope == "central"
+    assert scene.scene_number >= 1 and scene.actions == []
+    scene.name = "Abwesend"
+    regenerate_addresses(project)
+    ga = next(g for g in project.group_addresses.all_addresses() if g.address == "0/4/1")
+    assert ga.description == f"{scene.scene_number - 1}=Abwesend"
+    # keine eigene Szenenaufruf-GA für die gebundene Szene
+    assert not any(g.designation == "ZENTRAL Szenenaufruf"
+                   for g in project.group_addresses.all_addresses())

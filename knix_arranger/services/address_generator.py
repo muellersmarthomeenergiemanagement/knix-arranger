@@ -758,11 +758,15 @@ class AddressGenerator:
         # Aus einem Import erkannte Szenen (FA-1808) werden ausgelassen, ihre
         # GA existiert bereits im importierten Bestand.
         mg_szenen = MiddleGroup(number=4, name="Szenen")
+        # An die feste Zentraladresse gebundene Szenen (Szenen-Verwaltung)
+        bound_central = [s for s in scenes
+                         if not s.is_detected and "0/4/1" in s.source_ga_addresses]
         mg_szenen.group_addresses.append(GroupAddress(
             main_group=0, middle_group=4, sub_group=1,
             designation="ZENTRAL Szene Abwesenheit",
             datapoint_type="DPST-18-1", central="true",
             function_name="SZENE",
+            description=scene_value_mapping_text(bound_central),
         ))
         sub = 2
         groups = group_named_scenes(scenes, areal)

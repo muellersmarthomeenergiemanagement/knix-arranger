@@ -21,7 +21,8 @@ from dataclasses import dataclass, field
 from .dpt_suggestion import dpt_number
 from .report_sorting import group_address_key, physical_address_key, room_order
 from .scene_addressing import (
-    build_scope_label_lookup, scene_channel_designation, scene_group_key,
+    build_scope_label_lookup, is_generated_scene_channel, scene_channel_designation,
+    scene_group_key,
 )
 
 SCOPE_LABELS = {
@@ -125,7 +126,18 @@ def scene_target_ga(project, scene, label_lookup: dict, ga_by_address: dict | No
                  if g.function_name == "SZENE" and g.designation == designation), None)
 
 
-def build_scene_overview(project) -> SceneOverview:
+def is_fixed_scene_address(ga) -> bool:
+    """Bestehende Szenen-GA, an die man Szenen bindet: feste Zentraladresse
+    («ZENTRAL Szene Abwesenheit») oder von Hand angelegt -- nicht der
+    erzeugte Szenenaufruf eines Geltungsbereichs, keine Reserve und kein
+    Szenen-Eingang eines Gewerk-Elements."""
+    return (ga.function_name == "SZENE" and not ga.is_placeholder
+            and not ga.gewerk_code and not is_generated_scene_channel(ga))
+
+
+def build_scene_overview(project, include_empty: bool = False) -> SceneOverview:
+    """include_empty: feste Szenen-Adressen ohne Szenen mitzeigen (Szenen-
+    Verwaltung, damit sich Szenen darauf legen lassen); nur geplante Projekte."""
     label_lookup = build_scope_label_lookup(project.areal)
     ga_by_address = {g.address: g for g in project.group_addresses.all_addresses()}
     groups: dict[str, SceneAddress] = {}
@@ -149,7 +161,17 @@ def build_scene_overview(project) -> SceneOverview:
         else:
             group.scenes.append(scene)
 
+    imported = getattr(getattr(project, "topology", None), "is_imported", False)
+    if include_empty and not imported:
+        for ga in ga_by_address.values():
+            if ga.address not in groups and is_fixed_scene_address(ga):
+                groups[ga.address] = SceneAddress(
+                    key=ga.address, designation=ga.designation, ga=ga)
+
     for group in groups.values():
+        if not group.all_scenes:
+            overview.addresses.append(group)
+            continue
         group.scenes.sort(key=lambda s: (s.scene_number or 99, s.name))
         planned_scenes = any(not s.is_detected for s in group.scenes)
         numbered = any(s.scene_number for s in group.scenes)
