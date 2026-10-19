@@ -642,7 +642,7 @@ def build_document() -> Document:
         ],
         berechnet=[
             "Bedienelemente pro Raum aus den Gewerk-Zuweisungen (Schritt 5)",
-            "Systemsensoren (z. B. Wetterstation) aus zentralen Gewerken",
+            "Systemsensoren (z. B. Wetterstation): je Element ein Gerät auf der Linie seines Raums, die GAs liegen zentral in HG 0",
         ],
         tipp="Welche Gruppenadresse welche Taste steuert, legen Sie erst in Schritt 11 fest – "
              "hier geht es nur um die physischen Geräte.")
@@ -688,7 +688,7 @@ def build_document() -> Document:
         ],
         berechnet=[
             "Vollständige 3-stufige GA-Struktur: HG / MG / UG",
-            "HG 0 = Zentraladressen, Szenen, Astro-GAs",
+            "HG 0 = Zentraladressen, Szenen, Wetterstation (MG 5), Astro-GAs",
             "HG 1+ = Stockwerke aufsteigend",
             "MG 0=Licht, 1=Jalousie, 2=Heizung, 3=Alarm, 4=Allgemein, 5=Szenen usw.",
             "Datenpunkttypen (DPT) für alle GAs",

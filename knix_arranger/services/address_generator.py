@@ -49,6 +49,11 @@ OMITTED_PREFIX = "Weggelassen: "
 
 _FIXED_CENTRAL_ADDRESSES = frozenset({"0/0/1", "0/0/2", "0/1/1", "0/1/2", "0/4/1"})
 
+# Gewerke, deren Blöcke zentral in HG 0 liegen statt beim Stockwerk ihres
+# Raums (FA-442): Gewerk -> Mittelgruppe. Die Wetterstation gilt für das ganze
+# Projekt; der Raum bestimmt nur Linie und Bezeichnung.
+CENTRAL_GEWERK_MIDDLE_GROUPS: dict[str, int] = {"W": 5}
+
 _DPT_DOT_RE = re.compile(r"^(DPST?)-(\d+)\.(\d+)$")
 
 
@@ -108,6 +113,8 @@ class AddressGenerator:
         self._omitted: dict[int, list[str]] = {}
         # Nachbearbeitete Funktionen (GewerkAssignment.function_overrides)
         self._overrides: dict[int, dict[str, dict]] = {}
+        # Zuweisungen zentraler Gewerke, die beim Stockwerk bleiben (generate)
+        self._kept_on_floor: set[str] = set()
 
     def generate(self, areal: Areal, scenes: list | None = None,
                  project=None,
@@ -134,6 +141,16 @@ class AddressGenerator:
         # Variantenwechsel sichern, damit sie keine Neugenerierung verlieren.
         existing_astro = self._existing_astro_middle_group(existing)
         existing_central = self._existing_central_by_address(existing)
+        # In die ETS übertragene Projekte: Blöcke zentraler Gewerke, die noch
+        # beim Stockwerk liegen (vor Version 1.4.10), dort lassen -- ihre
+        # Adressen stehen in der ETS
+        self._kept_on_floor = set()
+        if (existing is not None and project is not None
+                and getattr(project, "ets_transferred", "")):
+            self._kept_on_floor = {
+                ga.assignment_id for ga in existing.all_addresses()
+                if ga.gewerk_code in CENTRAL_GEWERK_MIDDLE_GROUPS
+                and ga.main_group != 0 and ga.assignment_id}
 
         if existing is not None and existing.variant != self.variant:
             existing = None  # Variantenwechsel erzwingt vollständige Neuordnung
@@ -165,6 +182,17 @@ class AddressGenerator:
                         and old.function_name == ga.function_name):
                     ga.designation = old.designation
                     ga.id = old.id
+        # Zentrale Gewerk-Blöcke (Wetterstation, 0/5/x) aus allen Räumen
+        central_blocks = self._generate_merged_floor_addresses(
+            list(areal.all_floors), 0, central_hg.name,
+            is_multi_zone=areal.is_multi_zone, existing=existing,
+            warnings=structure.warnings, central=True,
+            reserved={mg.number for mg in central_hg.middle_groups} | {2, 4, 7},
+        )
+        for mg in central_blocks.middle_groups:
+            mg.name = CENTRAL_MIDDLE_GROUPS.get(mg.number, mg.name)
+            central_hg.middle_groups.append(mg)
+        central_hg.middle_groups.sort(key=lambda m: m.number)
         structure.main_groups.append(central_hg)
 
         # Stockwerke nach HG-Nummer gruppieren (verhindert Duplikate)
@@ -323,8 +351,15 @@ class AddressGenerator:
         is_multi_zone: bool = False,
         existing: GroupAddressStructure | None = None,
         warnings: list[str] | None = None,
+        central: bool = False,
+        reserved: set[int] | None = None,
     ) -> MainGroup:
-        """Generiert Adressen für eine oder mehrere Stockwerke mit gleicher HG."""
+        """Generiert Adressen für eine oder mehrere Stockwerke mit gleicher HG.
+
+        central=True: nur die zentralen Gewerke (CENTRAL_GEWERK_MIDDLE_GROUPS)
+        der Stockwerke, in ihrer Mittelgruppe von HG 0; reserved sind die
+        Mittelgruppen der Zentraladressen (kein Überlauf dorthin). Ohne
+        central fehlen genau diese Gewerke."""
         hg = MainGroup(number=hg_number, name=hg_name)
         if warnings is None:
             warnings = []
@@ -364,13 +399,22 @@ class AddressGenerator:
                     )
 
                     for ga in room.gewerk_assignments:
+                        is_central = (ga.gewerk_code in CENTRAL_GEWERK_MIDDLE_GROUPS
+                                      and ga.id not in self._kept_on_floor)
+                        if is_central != central:
+                            continue
                         gewerk = self.catalog.get(ga.gewerk_code)
                         if not gewerk:
                             logger.warning(f"Unbekanntes Gewerk: {ga.gewerk_code}")
                             continue
-                        mg_data.setdefault(gewerk.middle_group, []).append(
+                        home_mg = (CENTRAL_GEWERK_MIDDLE_GROUPS[ga.gewerk_code]
+                                   if central else gewerk.middle_group)
+                        mg_data.setdefault(home_mg, []).append(
                             (room, ga, gewerk, room_number_ga, room_desc)
                         )
+
+                    if central:
+                        continue
 
                     # Taster-Zusatzsensorik (z.B. eingebauter Temperaturfühler):
                     # jedes nicht unterdrückte Bedienelement mit verknüpftem
@@ -419,8 +463,8 @@ class AddressGenerator:
         # bereits Inhalt hatten (verhindert, dass ein neuer Überlauf-Block
         # eine MG "stiehlt", die eigentlich für eine noch zu verarbeitende
         # Wiederverwendung reserviert ist).
-        claimed: set[int] = set(mg_data.keys()) | set(next_free.keys())
-        if self.variant == "B":
+        claimed: set[int] = set(mg_data.keys()) | set(next_free.keys()) | (reserved or set())
+        if self.variant == "B" and not central:
             if 0 in mg_data:
                 claimed.add(6)
             if 1 in mg_data:

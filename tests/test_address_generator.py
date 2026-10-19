@@ -628,8 +628,9 @@ class TestAddressGeneratorProductSchema:
         structure = gen.generate(eg_room_with_weather_station)
 
         gewerk = gewerk_catalog.get("W")
-        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
-        mg = next(m for m in hg2.middle_groups if m.number == gewerk.middle_group)
+        # Wetterstation zentral in HG 0 / MG 5 (FA-442)
+        hg0 = next(hg for hg in structure.main_groups if hg.number == 0)
+        mg = next(m for m in hg0.middle_groups if m.number == 5)
 
         designations = [ga.designation for ga in mg.group_addresses]
         function_names = [ga.function_name for ga in mg.group_addresses]
@@ -671,8 +672,9 @@ class TestAddressGeneratorProductSchema:
         structure = gen.generate(eg_room_with_weather_station)
 
         gewerk = gewerk_catalog.get("W")
-        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
-        mg = next(m for m in hg2.middle_groups if m.number == gewerk.middle_group)
+        # Wetterstation zentral in HG 0 / MG 5 (FA-442)
+        hg0 = next(hg for hg in structure.main_groups if hg.number == 0)
+        mg = next(m for m in hg0.middle_groups if m.number == 5)
 
         function_names = [ga.function_name for ga in mg.group_addresses]
         assert "ZUSATZ" in function_names
@@ -691,8 +693,9 @@ class TestAddressGeneratorProductSchema:
         structure = gen.generate(eg_room_with_weather_station)
 
         gewerk = gewerk_catalog.get("W")
-        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
-        mg = next(m for m in hg2.middle_groups if m.number == gewerk.middle_group)
+        # Wetterstation zentral in HG 0 / MG 5 (FA-442)
+        hg0 = next(hg for hg in structure.main_groups if hg.number == 0)
+        mg = next(m for m in hg0.middle_groups if m.number == 5)
 
         function_names = [ga.function_name for ga in mg.group_addresses]
         assert "HELLIGKEIT OST" in function_names
@@ -733,8 +736,9 @@ class TestAddressGeneratorProductSchema:
         structure = gen.generate(eg_room_with_weather_station)
 
         gewerk = gewerk_catalog.get("W")
-        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
-        mg = next(m for m in hg2.middle_groups if m.number == gewerk.middle_group)
+        # Wetterstation zentral in HG 0 / MG 5 (FA-442)
+        hg0 = next(hg for hg in structure.main_groups if hg.number == 0)
+        mg = next(m for m in hg0.middle_groups if m.number == 5)
 
         function_names = [ga.function_name for ga in mg.group_addresses if ga.function_name]
         assert "Helligkeit Ost" in function_names
@@ -751,8 +755,9 @@ class TestAddressGeneratorProductSchema:
         structure = gen.generate(eg_room_with_weather_station)
 
         gewerk = gewerk_catalog.get("W")
-        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
-        mg = next(m for m in hg2.middle_groups if m.number == gewerk.middle_group)
+        # Wetterstation zentral in HG 0 / MG 5 (FA-442)
+        hg0 = next(hg for hg in structure.main_groups if hg.number == 0)
+        mg = next(m for m in hg0.middle_groups if m.number == 5)
         function_names = [ga.function_name for ga in mg.group_addresses if ga.function_name]
         assert len(function_names) == 4  # alle needs_ga-ComObjects wie bisher
 
@@ -793,13 +798,13 @@ class TestAddressGeneratorGatewaySchemas:
     """Default-Schemata fuer Gateway-/Sensor-Gewerke ohne Produktverknuepfung
     (W=Wetterstation, WP=Waermepumpe, MM=Multimedia/Musikanlage)."""
 
-    @pytest.mark.parametrize("code,expected_function,expected_mg", [
-        ("W", "HELLIGKEIT OST", 4),
-        ("WP", "BETRIEBSART", 2),
-        ("MM", "EIN/AUS", 4),
+    @pytest.mark.parametrize("code,expected_function,expected_hg,expected_mg", [
+        ("W", "HELLIGKEIT OST", 0, 5),      # Wetterstation zentral (FA-442)
+        ("WP", "BETRIEBSART", 2, 2),
+        ("MM", "EIN/AUS", 2, 4),
     ])
     def test_default_schema_used_without_linked_product(
-        self, gewerk_catalog, code, expected_function, expected_mg,
+        self, gewerk_catalog, code, expected_function, expected_hg, expected_mg,
     ):
         areal = Areal(name="Test")
         building = Building(name="Test")
@@ -818,8 +823,8 @@ class TestAddressGeneratorGatewaySchemas:
         structure = gen.generate(areal)
 
         gewerk = gewerk_catalog.get(code)
-        hg2 = next(hg for hg in structure.main_groups if hg.number == 2)
-        mg = next(m for m in hg2.middle_groups if m.number == expected_mg)
+        hg = next(hg for hg in structure.main_groups if hg.number == expected_hg)
+        mg = next(m for m in hg.middle_groups if m.number == expected_mg)
 
         function_names = [ga.function_name for ga in mg.group_addresses]
         assert expected_function in function_names
@@ -886,7 +891,10 @@ class TestAddressGeneratorStableRegeneration:
         mg4 = next(mg for mg in hg2.middle_groups if mg.number == 4)
         e_before = next(ga for ga in mg4.group_addresses if ga.gewerk_code == "E")
         e_id_before, e_addr_before = e_before.id, e_before.address
-        max_sub_before = max(ga.sub_group for ga in mg4.group_addresses)
+        # Wetterstation zentral in HG 0 / MG 5 (FA-442)
+        hg0 = next(hg for hg in structure1.main_groups if hg.number == 0)
+        mg5 = next(mg for mg in hg0.middle_groups if mg.number == 5)
+        max_sub_before = max(ga.sub_group for ga in mg5.group_addresses)
 
         # Produkt vergroessern: ein zusaetzliches GA-relevantes ComObject
         room.gewerk_assignments[0].linked_product["com_objects"] = list(_WEATHER_COM_OBJECTS) + [{
@@ -906,9 +914,14 @@ class TestAddressGeneratorStableRegeneration:
         assert e_after.address == e_addr_before
 
         # W (vergroessert) wurde verworfen und komplett neu ans Ende angehaengt
-        w_after = [ga for ga in mg4_2.group_addresses if ga.gewerk_code == "W"]
+        hg0_2 = next(hg for hg in structure2.main_groups if hg.number == 0)
+        mg5_2 = next(mg for mg in hg0_2.middle_groups if mg.number == 5)
+        w_after = [ga for ga in mg5_2.group_addresses if ga.gewerk_code == "W"]
         assert len(w_after) == 5  # 4 vorher + 1 neu
-        assert all(ga.sub_group > max_sub_before for ga in w_after)
+        # Allein in MG 5: der neu platzierte Block belegt seinen alten Platz
+        # nicht mehr und beginnt lückenlos wieder vorne
+        assert max_sub_before == 3
+        assert sorted(ga.sub_group for ga in w_after) == list(range(5))
 
     def test_removed_assignment_produces_no_gas_others_unaffected(
         self, eg_room_with_gewerke, gewerk_catalog,

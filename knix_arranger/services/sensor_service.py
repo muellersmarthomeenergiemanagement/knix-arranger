@@ -15,9 +15,28 @@ from ..models.gewerk import GewerkCatalog
 
 logger = logging.getLogger("knix_arranger.sensor_service")
 
-# FA-1408: Gewerke mit interface_type="system_sensor" werden NICHT raumweise geplant,
-# sondern einmalig pro Projekt (→ determine_system_sensors).
+# FA-1408: Gewerke mit interface_type="system_sensor" (W = Wetterstation)
+# gelten für das ganze Projekt: ihre GAs liegen zentral in HG 0 (siehe
+# address_generator.CENTRAL_GEWERK_MIDDLE_GROUPS). Je Element ein eigenes
+# Gerät auf der Linie des Raums, dem das Gewerk zugewiesen ist.
 SYSTEM_SENSOR_GEWERKE: frozenset[str] = frozenset({"W"})
+
+# Was ein Systemsensor sendet -- bewusst nicht in GEWERK_PRIMARY_FUNCTIONS,
+# sonst würde die Wetterstation als Tastenfunktion angeboten. Format wie dort.
+SYSTEM_SENSOR_FUNCTIONS: dict[str, list[tuple[str, str, str, str, str]]] = {
+    "W": [
+        ("Ausgang", "HELLIGKEIT OST",       "Helligkeit Ost",       "", ""),
+        ("Ausgang", "HELLIGKEIT SUED",      "Helligkeit Süd",       "", ""),
+        ("Ausgang", "HELLIGKEIT WEST",      "Helligkeit West",      "", ""),
+        ("Ausgang", "DAEMMERUNG",           "Dämmerung",            "", ""),
+        ("Ausgang", "WIND GESCHWINDIGKEIT", "Windgeschwindigkeit",  "", ""),
+        ("Ausgang", "TEMPERATUR AUSSEN",    "Aussentemperatur",     "", ""),
+        ("Ausgang", "REGEN",                "Regen",                "", ""),
+        ("Ausgang", "FROST ALARM",          "Frostalarm",           "", ""),
+        ("Ausgang", "WIND ALARM",           "Windalarm",            "", ""),
+        ("Ausgang", "STOERUNG",             "Störung",              "", ""),
+    ],
+}
 
 # Melder, die selbst schalten: Kanäle statt Tasten, nur der Befehl (Schalten
 # bzw. Fahren) -- kein langer Druck, kein Dimmen, keine Rückmeldung
@@ -229,11 +248,25 @@ class SensorService:
                 be.element_type for be in room.bedienelemente if be.suppressed
             }
             for assignment in room.gewerk_assignments:
-                # FA-1408: Systemsensoren (W) werden projektweise geplant – hier überspringen.
-                if assignment.gewerk_code in SYSTEM_SENSOR_GEWERKE:
-                    continue
                 auto_type = GEWERK_TO_SENSOR_TYPE.get(assignment.gewerk_code)
                 if not auto_type:
+                    continue
+                if assignment.gewerk_code in SYSTEM_SENSOR_GEWERKE:
+                    # FA-1408: je Element ein eigenes Gerät (Wetterstation)
+                    if auto_type in suppressed_types:
+                        continue
+                    taster_idx = assignment.taster_indices[0] if assignment.taster_indices else 1
+                    for nr in range(1, assignment.count + 1):
+                        aggregated[(room.id, auto_type, taster_idx, assignment.id, nr)] = \
+                            SensorRequirement(
+                                sensor_type=auto_type,
+                                room_id=room.id,
+                                room_name=f"{room.number} {room.name}",
+                                gewerk_code=assignment.gewerk_code,
+                                count=1,
+                                taster_index=taster_idx,
+                                assignment_id=assignment.id,
+                            )
                     continue
 
                 # FA-1407: Override hat Vorrang vor automatisch ermitteltem Typ
@@ -392,10 +425,16 @@ class SensorService:
             element_groups: dict[tuple, list[tuple]] = {}
             for assignment in room.gewerk_assignments:
                 code = assignment.gewerk_code
-                if code in SYSTEM_SENSOR_GEWERKE:
-                    continue
                 auto_type = GEWERK_TO_SENSOR_TYPE.get(code)
                 if not auto_type:
+                    continue
+                if code in SYSTEM_SENSOR_GEWERKE:
+                    # Je Element ein eigenes Bedienelement (wie die Geräte
+                    # in determine_sensors) -- eigener Gruppenschlüssel
+                    taster_idx = assignment.taster_indices[0] if assignment.taster_indices else 1
+                    for nr in range(1, assignment.count + 1):
+                        element_groups[(auto_type, taster_idx, f"{assignment.id}#{nr:03d}")] = [
+                            (assignment, code, auto_type, [nr])]
                     continue
                 if code not in GEWERK_PRIMARY_FUNCTIONS:
                     continue
@@ -691,7 +730,8 @@ class SensorService:
 
             # Globaler Zähler: jede SensorFunktion bekommt eine eindeutige Kanalnummer.
             global_channel += 1
-            primary_fns = GEWERK_PRIMARY_FUNCTIONS.get(sf.gewerk_code, [])
+            primary_fns = (GEWERK_PRIMARY_FUNCTIONS.get(sf.gewerk_code)
+                           or SYSTEM_SENSOR_FUNCTIONS.get(sf.gewerk_code, []))
             feedback_fns = GEWERK_FEEDBACK_FUNCTIONS.get(sf.gewerk_code, [])
             if self._is_switched(ga_lookup, sf, src_room_id, room, primary_fns):
                 # Element nur Ein/Aus (Funktionsumfang Schalten, FA-1003d),
@@ -782,26 +822,28 @@ class SensorService:
         """
         Ermittelt projektweite Systemsensoren (FA-1408).
 
-        Gewerke mit interface_type="system_sensor" (z.B. W = Wetterstation) werden
-        nicht raumweise, sondern einmalig pro Projekt geplant. Pro Gewerk-Code wird
-        genau ein Eintrag erzeugt, sofern das Gewerk in irgendeinem Raum vorkommt.
+        Gewerke mit interface_type="system_sensor" (z.B. W = Wetterstation)
+        gelten für das ganze Projekt (GAs in HG 0). Pro Gewerk-Code ein
+        Eintrag mit der Anzahl Elemente über alle Räume -- je Element ein
+        Gerät.
 
         Gibt eine Liste von Dicts zurueck:
-          {"gewerk_code": str, "sensor_type": str, "count": 1}
+          {"gewerk_code": str, "sensor_type": str, "count": int}
         """
-        found_codes: set[str] = set()
+        counts: dict[str, int] = {}
         for room in all_rooms:
             for assignment in room.gewerk_assignments:
                 if assignment.gewerk_code in SYSTEM_SENSOR_GEWERKE:
-                    found_codes.add(assignment.gewerk_code)
+                    counts[assignment.gewerk_code] = (
+                        counts.get(assignment.gewerk_code, 0) + assignment.count)
 
         result = []
-        for code in sorted(found_codes):
+        for code in sorted(counts):
             sensor_type = GEWERK_TO_SENSOR_TYPE.get(code, code)
             result.append({
                 "gewerk_code": code,
                 "sensor_type": sensor_type,
-                "count": 1,
+                "count": counts[code],
             })
         return result
 

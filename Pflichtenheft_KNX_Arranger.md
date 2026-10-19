@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.44
+**Version:** 3.45
 **Datum:** 19.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -59,6 +59,7 @@
 | 3.42 | 18.10.2026 | M. Mueller / Claude AI | Szenen: je Aktion der Aktor bzw. das Gateway mit Kanal, auf dem sie programmiert wird, im Szenenreport und in der Szenen-Verwaltung (FA-1811, FA-1812); Abschnitt "Szenen je Aktor/Gateway" mit Kanal und Wert (FA-1815); Szenen-Verwaltung zeigt die ausloesenden Taster aus der Tastenbelegung (FA-1812); FA-627 zaehlt nicht parametrierte Produktdaten-KOs nicht, Flags bei geplanten Tastern in der Topologie; neue Pruefung FA-634 "KO passt nicht zur Funktion", der Sammelvorschlag ersetzt solche Zuordnungen (FA-3009); keine Schein-Abweichung zur ETS bei KNiX-Namen (FA-616), FA-628 nur fuer bekannte Befehle und zugeordnete Stromkreise; Aktoren mit Kanaldefizit automatisch aufgeteilt, DALI-Gateways nach Gruppen (FA-1305b); Flags in der Topologie bearbeiten (FA-627); Soll-Flags aus der Rolle mit Annahme fuer Geraete ohne Produkt, Hinweis L-Flag an Empfaengern und Spalte im ETS-Belegungsplan (FA-635); Melder ausserhalb der Gewerke erhalten ein Element im Gewerk A (FA-633); Arbeitsablauf mit Stand auf der Projektuebersicht (FA-1018); Nummernkonflikte in der Szenen-Verwaltung mit "Freie Nummer waehlen" (FA-1813) |
 | 3.43 | 19.10.2026 | M. Mueller / Claude AI | Wizard: Szenen (neu Schritt 10) nach der Gruppenadress-Generierung (neu Schritt 9), Aktionen mit GA-Vorschlaegen, Szenenaufruf-GAs beim Verlassen des Szenen-Schritts (FA-1002, FA-1812) |
 | 3.44 | 19.10.2026 | M. Mueller / Claude AI | Szenen-Verwaltung: feste Szenen-Adressen ohne Szenen (0/4/1 ZENTRAL Szene Abwesenheit) sichtbar und belegbar (FA-1812a) |
+| 3.45 | 19.10.2026 | M. Mueller / Claude AI | Wetterstation: GAs zentral in HG 0 / MG 5, je Element ein Geraet mit Bedienelement, mehrere Wetterstationen, Anzahl in Schritt 6 (FA-1408, FA-1409, FA-442) |
 
 ---
 
@@ -925,8 +926,8 @@ Nach einem Import (KNXPROJ oder XLSX-Reports) soll das Projekt im Wizard weiterg
 
 | ID | Anforderung |
 |----|-------------|
-| FA-1408 | Gewerke vom Typ interface_type="system_sensor" (z.B. W = Wetterstation) werden in Wizard Schritt 6 nicht raumweise, sondern projektweise geplant. Das System muss pruefen, ob ein Gewerk dieses Typs im Projekt vorhanden ist, und automatisch einen Systemsensor-Eintrag in der Materialliste anlegen -- unabhaengig von der Raumanzahl. Pro Projekt wird genau ein Systemsensor-Eintrag pro interface_type="system_sensor"-Gewerk erstellt. **(M)** |
-| FA-1409 | In Wizard Schritt 6 muss ein separater Abschnitt "Systemgeraete" angezeigt werden, der alle geplanten Systemsensoren (interface_type="system_sensor") auflistet. Systemgeraete sind keinem Raum, sondern dem Gesamtprojekt zugeordnet. Ihre Gruppenadressen erscheinen in den empfangenden Gewerken (z.B. Wetterstation-GA "Helligkeit" wird von Gewerk J/Jalousie empfangen). Der Integrator kann Hersteller und Produkt fuer jeden Systemsensor hinterlegen. **(M)** |
+| FA-1408 | Gewerke vom Typ interface_type="system_sensor" (z.B. W = Wetterstation) gelten fuer das ganze Projekt. Der Integrator weist das Gewerk dem Raum zu, ueber dessen Linie das Geraet angeschlossen ist; die Anzahl ist die Anzahl Geraete (mehrere Wetterstationen moeglich). Je Element entsteht ein eigenes Geraet (Sensor mit physikalischer Adresse, Materialliste) und ein Bedienelement, das alle GAs seines Blocks sendet. Die Gruppenadressen liegen zentral in HG 0 / MG 5 "Wetterstation" (FA-442), nicht beim Stockwerk des Raums; die Bezeichnung nennt Raum und Element (z.B. "W_O01_01 HELLIGKEIT SUED (Dach)"). Die Wetterstation wird Tastern nicht als Funktion angeboten. Bei Projekten mit Status "in ETS uebertragen" bleiben Wetter-Bloecke, die noch beim Stockwerk liegen, dort. **(M)** |
+| FA-1409 | In Wizard Schritt 6 muss ein separater Abschnitt "Systemgeraete" angezeigt werden, der alle geplanten Systemsensoren (interface_type="system_sensor") mit ihrer Gesamtanzahl ueber alle Raeume auflistet. Systemgeraete sind keinem Raum, sondern dem Gesamtprojekt zugeordnet. Ihre Gruppenadressen erscheinen in den empfangenden Gewerken (z.B. Wetterstation-GA "Helligkeit" wird von Gewerk J/Jalousie empfangen). Der Integrator kann Hersteller und Produkt fuer jeden Systemsensor hinterlegen. **(M)** |
 
 | ID | Anforderung |
 |----|-------------|

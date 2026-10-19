@@ -285,8 +285,9 @@ class Step05cDevices(QWidget):
         self._sys_group = QGroupBox("Systemgeräte (projektweite Geräte)")
         sys_layout = QVBoxLayout()
         sys_hint = QLabel(
-            "Systemgeräte (z.B. Wetterstation) werden einmalig pro Projekt geplant, "
-            "nicht raumweise."
+            "Systemgeräte (z.B. Wetterstation) gelten für das ganze Projekt: ihre "
+            "Gruppenadressen liegen zentral in HG 0 (Wetterstation 0/5/x). Je Element "
+            "ein Gerät auf der Linie des Raums, dem das Gewerk zugewiesen ist."
         )
         sys_hint.setWordWrap(True)
         sys_hint.setStyleSheet("color: #1565C0; font-style: italic;")
