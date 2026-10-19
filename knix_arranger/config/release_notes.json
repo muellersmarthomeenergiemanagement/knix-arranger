@@ -2,6 +2,29 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.10",
+      "date": "2026-10-19",
+      "neu": [
+        "Wetterstation als Systemgerät: Wetter-GAs liegen zentral in HG 0 / MG 5, mehrere Wetterstationen sind möglich (je Element ein Gerät).",
+        "ETS-Parametrierung: je Gerät die Parameter, die für die zugeordneten KOs in der ETS einzustellen sind – im Dialog «Kanäle und KOs zuordnen» und als Bericht «ETS-Parametrierung». Ausgewertet wird der Parameterteil der Herstellerdatei, auch Funktionsbausteine wie bei MDT-Glastastern.",
+        "Validierung: Doppelklick auf «KO passt nicht zur GA» öffnet «Kanäle und KOs zuordnen» an der betroffenen Stelle mit dem passenden KO als Vorschlag."
+      ],
+      "verbessert": [
+        "KOs werden wie in der ETS gelesen und angezeigt: Name, Objektfunktion und Grösse (z.B. 1 Bit, 2 Bytes). Die automatische Zuordnung bei der Produktwahl trifft deutlich mehr KOs, auch bei Feller, MDT und Theben.",
+        "Theben MIX: ein Gerät enthält nur noch die KOs seines Grundmoduls und der möglichen Erweiterungsmodule.",
+        "GA-Namen aus Produkt-KOs folgen dem ETS-Namen (z.B. «Helligkeitswert vorne» statt «Physikalischer Wert»); gleiche Namen werden nummeriert.",
+        "Doppelte GA-Bezeichnungen, die KNiX selbst erzeugt hat, nennen die Ursache; der Doppelklick öffnet im Wizard die Produkt-/KO-Auswahl der Zuweisung.",
+        "Zeitsteuerungsplan im Layout der übrigen Berichte (Deckblatt, Übersicht der Wochenprogramme).",
+        "Berichte und Dokumente öffnen sich nach dem Speichern sofort.",
+        "Projektdateien sind deutlich kleiner (komprimiert, z.B. 4,2 MB → 0,1 MB). Achtung: Versionen bis 1.4.9 können so gespeicherte Projekte nicht mehr öffnen.",
+        "Herstellerdateien: Die Produktauswahl meldet die Dateien zum Neueinlesen (verbesserte Auswertung)."
+      ],
+      "behoben": [
+        "Szenen-Verwaltung: feste Szenen-Adressen ohne Szenen waren nicht sichtbar und nicht belegbar.",
+        "Wetterstation: keine Raumtemperatur-Hinweise mehr in der Validierung."
+      ]
+    },
+    {
       "version": "1.4.9",
       "date": "2026-10-19",
       "verbessert": [
