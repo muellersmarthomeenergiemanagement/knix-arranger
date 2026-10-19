@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QInputDialog, QMessageBox
 from ..services.product_capabilities import (
     apply_catalog_product, copy_device_product, split_surplus, use_taster_temperature,
 )
+from ..services.ko_size import ko_label
 
 #: Rückgabe von resolve_keys: Raum in der Bauherrenberatung öffnen
 OPEN_BAUHERR = "bauherr"
@@ -71,7 +72,7 @@ def use_temperature(parent, project, bus, offers: list) -> bool:
     offer = offers[0]
     device = offer.device
     text = (f"{device.physical_address} misst die Raumtemperatur (KO "
-            f"{offer.co.object_number} «{offer.co.name or offer.co.object_function}»). "
+            f"{offer.co.object_number} «{ko_label(offer.co, number=False, details=False)}»). "
             f"Die Ist-Temperatur der Heizung in {offer.room.number} {offer.room.name} "
             f"kommt dann von diesem Taster.")
     remove = False

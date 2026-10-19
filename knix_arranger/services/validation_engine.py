@@ -282,26 +282,37 @@ class ValidationEngine:
                    for d in line.devices if d.co_map and d.communication_objects]
         if not devices:
             return []
-        from .actor_channels import device_circuits
+        from .actor_channels import device_channels, device_circuits, device_com_objects
         from .belegungsplan_service import BelegungsplanService
         from .ko_plausibility import actor_ko_problem, ko_variants, sensor_selection_problems
-        from .sensor_channels import sensor_co_map, sensor_links, sensor_plan
+        from .ko_size import ko_label
+        from .sensor_channels import (
+            sensor_co_map, sensor_links, sensor_plan, suggested_sensor_co_map,
+        )
         gas = {ga.address: ga for ga in project.group_addresses.all_addresses()}
         actor_plan = sensor_rows = None
         issues = []
 
-        def add(device, variants, number, function, ga_address, problem):
+        def add(device, variants, number, function, ga_address, problem, focus,
+                better=None):
             co = (variants.get(number) or [None])[0]
-            name = (co.name or co.object_function) if co is not None else ""
+            name = ko_label(co, number=False) if co is not None else ""
             ga = gas.get(ga_address)
+            hint = f"Passend wäre KO {ko_label(better)}. " if better is not None else ""
             issues.append(ValidationIssue(
                 "warning", "FA-634",
                 f"{device.physical_address} KO {number} «{name}» für {function}: {problem}",
                 ga_address,
-                "Materialliste › «KOs aller Geräte zuordnen…» ersetzt die Zuordnung, "
-                "oder das KO von Hand wählen",
+                hint + "Doppelklick öffnet «Kanäle und KOs zuordnen» an dieser Stelle"
+                + (" mit dem Vorschlag" if better is not None else "") + ".",
                 designation=ga.designation if ga else "",
-                details={"devices": [device.physical_address]}))
+                # Sprungziel (validation_targets): Gerät, Stromkreis bzw.
+                # Taste (ga_key), Funktion, vorgeschlagener KO
+                details={"devices": [device.physical_address],
+                         "ko_focus": {"device": device.physical_address, "key": focus,
+                                      "function": function,
+                                      "suggested": better.object_number
+                                      if better is not None else -1}}))
 
         for device in devices:
             variants = ko_variants(device)
@@ -312,14 +323,20 @@ class ValidationEngine:
                 if sensor_rows is None:
                     sensor_rows = sensor_plan(project)
                 links = {l.key: l for l in sensor_links(project, device, sensor_rows)}
-                for key, problem in sensor_selection_problems(
-                        list(links.values()), selection, variants).items():
+                problems = sensor_selection_problems(list(links.values()), selection, variants)
+                suggested = (suggested_sensor_co_map(device, list(links.values()),
+                                                     device.communication_objects)
+                             if problems else {})
+                for key, problem in problems.items():
                     link = links[key]
+                    better = _better_sensor_co(link, selection, suggested.get(key, -1),
+                                               links, variants)
                     add(device, variants, selection[key], link.function, link.ga_address,
-                        problem)
+                        problem, key, better)
                 continue
             if actor_plan is None:
                 actor_plan = BelegungsplanService().generate(project)
+            channels = None
             for circuit in device_circuits(project, device, actor_plan):
                 chosen = device.co_map.get(circuit.key) or {}
                 for function, ga_address in circuit.functions:
@@ -329,7 +346,12 @@ class ValidationEngine:
                     problem = actor_ko_problem(variants.get(number, []), function,
                                                circuit.dpts.get(function, ""))
                     if problem:
-                        add(device, variants, number, function, ga_address, problem)
+                        if channels is None:
+                            channels = {ch.number: ch for ch in device_channels(device)}
+                        better = _better_actor_co(device, circuit, function, chosen,
+                                                  channels, variants)
+                        add(device, variants, number, function, ga_address, problem,
+                            circuit.key, better)
         return issues
 
     @staticmethod
@@ -1049,3 +1071,30 @@ class ValidationEngine:
                         designation=ga.designation,
                     ))
         return issues
+
+
+def _better_actor_co(device, circuit, function: str, chosen: dict, channels: dict,
+                     variants: dict):
+    """KO, den der Vorschlag für die Funktion wählen würde (Kanal des
+    Stromkreises) -- nur, wenn er ein anderer ist und passt."""
+    from .actor_channels import suggested_co_map
+    from .ko_plausibility import actor_ko_problem
+    number = (device.channel_map or {}).get(circuit.key) or circuit.channel
+    better = suggested_co_map(channels.get(number), circuit).get(function)
+    if better is None or better == chosen.get(function):
+        return None
+    if actor_ko_problem(variants.get(better, []), function, circuit.dpts.get(function, "")):
+        return None
+    return (variants.get(better) or [None])[0]
+
+
+def _better_sensor_co(link, selection: dict, number: int, links: dict, variants: dict):
+    """Vorgeschlagener KO eines Tasters/Sensors -- nur, wenn er ein anderer
+    ist und mit ihm keine Meldung mehr bliebe."""
+    from .ko_plausibility import sensor_selection_problems
+    if number is None or number < 0 or number == selection.get(link.key):
+        return None
+    trial = {**selection, link.key: number}
+    if link.key in sensor_selection_problems(list(links.values()), trial, variants):
+        return None
+    return (variants.get(number) or [None])[0]

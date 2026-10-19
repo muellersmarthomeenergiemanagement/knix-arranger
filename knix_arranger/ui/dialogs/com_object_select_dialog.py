@@ -20,6 +20,7 @@ from PySide6.QtCore import Qt
 from ...services.knxprod_catalog_service import (
     ComObjectInfo, clean_co_text, unique_com_objects,
 )
+from ...services.ko_size import co_bits, size_text
 
 _COL_CHECK    = 0
 _COL_NUMBER   = 1
@@ -96,7 +97,8 @@ class ComObjectSelectDialog(QDialog):
         layout.addLayout(toolbar)
 
         self._table = QTableWidget(len(self._relevant), 5)
-        self._table.setHorizontalHeaderLabels(["", "Nr.", "Funktion", "DPT", "Flags"])
+        self._table.setHorizontalHeaderLabels(["", "Nr.", "Name – Funktion", "DPT / Grösse",
+                                               "Flags"])
         self._table.horizontalHeader().setSectionResizeMode(_COL_FUNCTION, QHeaderView.Stretch)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionMode(QAbstractItemView.NoSelection)
@@ -116,9 +118,15 @@ class ComObjectSelectDialog(QDialog):
             self._table.setCellWidget(row, _COL_CHECK, holder)
 
             self._table.setItem(row, _COL_NUMBER, QTableWidgetItem(str(info.number)))
-            func_text = clean_co_text(info.function_text) or clean_co_text(info.name)
+            name, func_text = clean_co_text(info.name), clean_co_text(info.function_text)
+            if not func_text or func_text in name:
+                func_text = name or func_text
+            elif name:
+                func_text = f"{name} – {func_text}"
             self._table.setItem(row, _COL_FUNCTION, QTableWidgetItem(func_text))
-            self._table.setItem(row, _COL_DPT, QTableWidgetItem(info.datapoint_type))
+            size = size_text(co_bits(info.to_dict()))
+            dpt = " · ".join(p for p in (info.datapoint_type, size) if p)
+            self._table.setItem(row, _COL_DPT, QTableWidgetItem(dpt))
             self._table.setItem(row, _COL_FLAGS, QTableWidgetItem(info.flags_display))
 
         layout.addWidget(self._table)

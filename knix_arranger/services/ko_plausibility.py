@@ -24,6 +24,7 @@ import re
 
 from .ko_links import TRANSMIT, WRITE, parse_flags
 from .ko_links import unparametrized_co as _unparametrized
+from .ko_size import co_bits, dpt_bits, size_text, sizes_compatible
 
 _FEEDBACK_FUNCTION = re.compile(
     r"^(RM|STATUS)\b|\b(status|rückmeldung|rueckmeldung|feedback)\b", re.IGNORECASE)
@@ -62,6 +63,9 @@ def actor_ko_problem(variants: list, function: str, ga_dpt: str = "") -> str:
         co_main = _dpt_main(co.data_type)
         if ga_main and co_main and ga_main != co_main:
             return f"DPT passt nicht (KO {co_main}.x, GA {ga_main}.x)"
+        if not sizes_compatible(co, ga_dpt):
+            return (f"Grösse passt nicht (KO {size_text(co_bits(co))}, "
+                    f"GA {size_text(dpt_bits(ga_dpt))})")
         return ""
     return _first_problem([problem(co) for co in variants])
 
@@ -83,6 +87,15 @@ def sensor_ko_problem(link, variants: list, command_variants: list) -> str:
         return ""
     own_numbers = {c.object_number for c in command_variants}
     own_buttons = {button_of(c) for c in command_variants}
+    # Nur die Varianten der Belegung (Feller: Jalousie-Taste -> «…, Jalousie»);
+    # passt keine in der Grösse, passt das KO nicht (Jalousiehöhe 1 Byte auf
+    # «AUF/AB, Jalousie» 1 Bit -- die Variante «Wert, Dimmen» gilt dort nicht)
+    from .sensor_channels import family_variants
+    fitting = family_variants(variants, link)
+    dpt = getattr(link, "dpt", "")
+    if dpt and fitting and not any(sizes_compatible(co, dpt) for co in fitting):
+        return (f"Grösse passt nicht (KO {size_text(co_bits(fitting[0]))}, "
+                f"GA {size_text(dpt_bits(dpt))})")
 
     def problem(co) -> str:
         if _unparametrized(co):

@@ -122,3 +122,31 @@ def test_batch_replaces_unfitting_own_selection(project):  # noqa: F811
     assert actor.co_map[circuit.key]["RM"] == 1           # «Status Schalten»
     assert not [i for i in ValidationEngine().validate(project.group_addresses, project)
                 if i.rule_id == "FA-634"]
+
+
+def test_validation_jumps_into_ko_dialog_with_proposal(project):  # noqa: F811
+    """FA-634: Doppelklick öffnet «Kanäle und KOs zuordnen» am Stromkreis, die
+    Zeile ist markiert, der passende KO vorausgewählt; erst OK übernimmt."""
+    from PySide6.QtWidgets import QApplication
+    from knix_arranger.services.validation_targets import KOS, targets_for
+    from knix_arranger.ui.dialogs.actor_channel_dialog import ActorChannelDialog
+    from knix_arranger.ui.views.validation_view import _issue_fields
+    QApplication.instance() or QApplication([])
+    actor = _actor(project)
+    circuit = device_circuits(project, actor)[0]
+    actor.co_map = {circuit.key: {"E/A": 0, "RM": 0}}
+    issue = next(i for i in ValidationEngine().validate(project.group_addresses, project)
+                 if i.rule_id == "FA-634")
+    assert issue.suggestion.startswith("Passend wäre KO 1:")
+    target = targets_for(_issue_fields(issue), project)[0]
+    assert (target.kind, target.key, target.focus) == (
+        KOS, actor.physical_address, (circuit.key, "RM", 1))
+
+    dlg = ActorChannelDialog(project, [actor], focus=(actor.id, *target.focus))
+    assert dlg._circuit_table.item(dlg._circuit_table.currentRow(), 0).data(256) == circuit.key
+    rows = {dlg._co_table.item(r, 0).text(): r for r in range(dlg._co_table.rowCount())}
+    assert dlg._co_table.cellWidget(rows["RM"], 2).currentData() == 1
+    assert dlg._co_table.item(rows["RM"], 0).background().color().name().lower() == "#fff3cd"
+    assert actor.co_map[circuit.key]["RM"] == 0            # noch nicht übernommen
+    dlg.apply()
+    assert actor.co_map[circuit.key]["RM"] == 1

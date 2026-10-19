@@ -23,7 +23,8 @@ from ...services.knxprod_catalog_service import KnxprodCatalogService
 from ...services.product_classifier import TYPE_GROUPS, type_group
 from ...services.recent_products import load_recent, add_recent
 from ...services.product_folder import (
-    add_to_folder, is_bus_device, mark_imported, missing_manufacturers, pending_files,
+    add_to_folder, is_bus_device, mark_imported, missing_manufacturers, outdated_files,
+    pending_files,
     products_folder, set_products_folder,
 )
 from ...models.material_list import MaterialEntry, MATERIAL_CATEGORIES
@@ -685,10 +686,18 @@ class ProductSelectDialog(QDialog):
         pending = pending_files(folder) if folder else []
         if pending:
             n = len(pending)
-            self._folder_label.setText(
-                f"{n} neue bzw. geänderte Herstellerdatei{'en' if n != 1 else ''} im "
-                f"Produktordner ({', '.join(os.path.basename(p) for p in pending[:3])}"
-                f"{' …' if n > 3 else ''})")
+            outdated = set(outdated_files(folder))
+            if outdated and outdated.issuperset(pending):
+                # Nur die Auswertung ist besser geworden (z.B. Objektfunktion)
+                self._folder_label.setText(
+                    f"{n} Herstellerdatei{'en' if n != 1 else ''} mit verbesserter "
+                    f"Auswertung neu einlesen: Objektfunktion und Grösse der KOs für "
+                    f"die automatische Zuordnung")
+            else:
+                self._folder_label.setText(
+                    f"{n} neue bzw. geänderte Herstellerdatei{'en' if n != 1 else ''} im "
+                    f"Produktordner ({', '.join(os.path.basename(p) for p in pending[:3])}"
+                    f"{' …' if n > 3 else ''})")
         self._folder_label.setVisible(bool(pending))
         self._folder_button.setVisible(bool(pending))
 

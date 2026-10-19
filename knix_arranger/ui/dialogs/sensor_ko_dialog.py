@@ -21,27 +21,34 @@ from ...services.ko_templates import (
     apply_sensor_template, load_template, save_template, sensor_template_entries,
 )
 from ...services.sensor_channels import (
-    BRIGHTNESS_ROLE, SENSOR_CO_KEY, SOURCE_KEY, _channel_cos, brightness_sources, ga_key,
+    BRIGHTNESS_ROLE, SENSOR_CO_KEY, SOURCE_KEY, _channel_cos, brightness_sources,
+    display_variant, ga_key, split_rocker,
     sensor_co_map, sensor_links, sensor_plan, suggested_sensor_co_map,
 )
-from .actor_channel_dialog import ko_combo
+from .actor_channel_dialog import focus_banner, ko_combo, mark_focus_row
+from ...services.ko_size import dpt_bits, size_text
 
 
 class SensorKoDialog(QDialog):
     """devices: Geräte des Materiallisten-Eintrags (gleiches Produkt), je
     Gerät eine eigene Zuordnung."""
 
-    def __init__(self, project, devices: list, parent=None):
+    def __init__(self, project, devices: list, parent=None, focus: tuple | None = None):
         super().__init__(parent)
         self.setWindowTitle("KOs zuordnen")
         self.setMinimumSize(820, 520)
         self._project = project
         self._devices = devices
+        # (Geräte-id, ga_key, Funktion, KO-Vorschlag): Sprung aus der Validierung
+        self._focus = focus
         self._state: dict[str, dict] = {}
         self._device = None
         self._plan = sensor_plan(project)   # einmal für alle Geräte
 
         layout = QVBoxLayout(self)
+        banner = focus_banner(focus)
+        if banner is not None:
+            layout.addWidget(banner)
         top = QHBoxLayout()
         top.addWidget(QLabel("Gerät:"))
         self._device_combo = QComboBox()
@@ -63,7 +70,7 @@ class SensorKoDialog(QDialog):
         layout.addWidget(self._hint)
 
         self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(["Taste / Kanal", "Funktion", "GA", "KO"])
+        self._table.setHorizontalHeaderLabels(["Taste / Kanal", "Funktion", "GA (Grösse)", "KO"])
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(3, QHeaderView.Stretch)
@@ -78,6 +85,14 @@ class SensorKoDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+        if focus is not None:
+            device_id, key, _function, suggested = focus
+            index = next((i for i, d in enumerate(devices) if d.id == device_id), 0)
+            self._device_combo.blockSignals(True)
+            self._device_combo.setCurrentIndex(index)
+            self._device_combo.blockSignals(False)
+            if suggested is not None and suggested >= 0:
+                self._state_for(devices[index])["selection"][key] = suggested
         self._on_device_changed()
 
     @staticmethod
@@ -94,7 +109,7 @@ class SensorKoDialog(QDialog):
             # Vorrang: Auswahl am Gerät, gemerkte Zuordnung des Produkts, Vorschlag
             template = apply_sensor_template(load_template(device), links,
                                              {co.object_number for co in all_cos})
-            suggested = suggested_sensor_co_map(device, links, all_cos)
+            suggested = suggested_sensor_co_map(device, links, device.communication_objects)
             # Gemerkte KOs, die nicht zur Funktion passen (FA-634), gelten nicht
             variants = ko_variants(device)
             for key in sensor_selection_problems(links, template, variants):
@@ -102,6 +117,7 @@ class SensorKoDialog(QDialog):
             selection = {link.key: saved.get(link.key, template.get(
                 link.key, suggested.get(link.key, -1))) for link in links}
             self._state[device.id] = {"links": links, "all_cos": all_cos,
+                                      "variants": variants,
                                       "selection": selection, "saved": saved,
                                       "sources": dict((device.co_map or {}).get(SOURCE_KEY)
                                                       or {}),
@@ -139,17 +155,30 @@ class SensorKoDialog(QDialog):
             if link.role == BRIGHTNESS_ROLE.code and len(state["brightness"]) > 1:
                 table.setCellWidget(row, 2, self._source_combo(state, link))
             else:
-                table.setItem(row, 2, QTableWidgetItem(link.ga_address))
-            own = _channel_cos(all_cos, link.channel)
-            own = own if len(own) < len(all_cos) else []
-            own_numbers = {co.object_number for co in own}
-            others = [co for co in all_cos if co.object_number not in own_numbers]
+                size = size_text(dpt_bits(link.dpt))
+                table.setItem(row, 2, QTableWidgetItem(
+                    f"{link.ga_address} ({size})" if size and link.ga_address else link.ga_address))
+            # Je Nummer die Variante, die zur Taste und ihrer Belegung passt
+            # (Feller: «0: Taste 1 – EIN/AUS, Dimmen» statt «Object 1»)
+            variants = state["variants"]
+            own_all = _channel_cos(self._device.communication_objects, link.channel)
+            own_numbers = list(dict.fromkeys(co.object_number for co in own_all))
+            if len(own_numbers) >= len(all_cos):
+                own_numbers = []
+            split = split_rocker(link, links)
+            own = [display_variant([c for c in own_all if c.object_number == n], link, split)
+                   for n in own_numbers]
+            others = [display_variant(variants.get(co.object_number, [co]), link, split)
+                      for co in all_cos if co.object_number not in set(own_numbers)]
             combo = ko_combo(own, others)
             index = combo.findData(selection.get(link.key, -1))
             combo.setCurrentIndex(index if index >= 0 else 0)
             combo.currentIndexChanged.connect(
                 lambda _i, k=link.key, cb=combo, sel=selection: sel.__setitem__(k, cb.currentData()))
             table.setCellWidget(row, 3, combo)
+            if (self._focus is not None and self._device.id == self._focus[0]
+                    and link.key == self._focus[1]):
+                mark_focus_row(table, row, combo)
 
     def _copy_to_others(self):
         """Zuordnung des gewählten Geräts auf die übrigen übertragen."""

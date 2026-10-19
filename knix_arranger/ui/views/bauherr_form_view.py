@@ -48,6 +48,7 @@ from ..styles import COLOR_ERROR, COLOR_INFO, COLOR_WARNING, KNX_BLUE, KNX_DARK_
 from ..widgets.add_element_menu import OTHER_SENSOR_TYPES, fill_add_element_menu
 from ..widgets.function_palette import FunctionPalette, function_from_mime
 from .topology_view import confirm_unlink
+from ...services.ko_size import ko_label
 
 # ── Farben (identisch zum Excel-Formular) ────────────────────────────────────
 _C_HEADER   = "#1A5276"
@@ -861,7 +862,7 @@ class _SlotWidget(QWidget):
         device, co = self._device_ko(extra)
         if co is not None:
             lines.append(f"{device.physical_address} · KO {co.object_number} "
-                         f"«{co.name or co.object_function}»")
+                         f"«{ko_label(co, number=False, details=False)}»")
         finding = self._findings.get(ga_address_of(extra.ga_designation))
         if finding is not None:
             lines.append(f"Weitere GA am Sendekanal – {finding.verdict_label}: "

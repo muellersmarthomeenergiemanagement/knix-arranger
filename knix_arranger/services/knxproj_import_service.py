@@ -1373,6 +1373,7 @@ class KnxprojImportService:
                     name=meta["name"] if meta else ref_id,
                     object_function=meta.get("function_text", "") if meta else "",
                     data_type=meta.get("object_size", "") if meta else "",
+                    object_size=meta.get("object_size", "") if meta else "",
                     flags=meta.get("flags", "") if meta else "",
                     priority=meta.get("priority", "Niedrig") if meta else "Niedrig",
                     connected_gas=connected_gas,

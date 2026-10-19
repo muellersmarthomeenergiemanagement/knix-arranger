@@ -132,7 +132,6 @@ _CAPS_CACHE_MAX = 512
 
 
 def device_capabilities(device) -> Capabilities:
-    from .actor_channels import device_com_objects
     if not device.communication_objects:
         return Capabilities()
     name = device.product_name or device.product
@@ -142,7 +141,9 @@ def device_capabilities(device) -> Capabilities:
     if caps is None:
         if len(_CAPS_CACHE) >= _CAPS_CACHE_MAX:
             _CAPS_CACHE.clear()
-        caps = _CAPS_CACHE[key] = capabilities(device_com_objects(device), name)
+        # alle Parametervarianten: erst sie zeigen bei Feller die Wippen
+        # («Taste 1, rechts» steht nicht in der ersten Variante «Object 4»)
+        caps = _CAPS_CACHE[key] = capabilities(device.communication_objects, name)
     # Kopie: Aufrufer dürfen sensors nicht für andere Geräte verändern;
     # die KOs gehören zu diesem Gerät (gleiche Nummer)
     from .ko_links import _by_number

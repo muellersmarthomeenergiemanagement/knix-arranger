@@ -118,7 +118,8 @@ def plan_all(project, fresh: bool = False, only=None) -> BatchPlan:
             if not links:
                 continue
             remembered = apply_sensor_template(template, links, known)
-            suggested = suggested_sensor_co_map(device, links, all_cos)
+            # alle Parametervarianten (Feller: KO 0 «Taste 1 – EIN/AUS, Dimmen» …)
+            suggested = suggested_sensor_co_map(device, links, device.communication_objects)
             # Gewähltes KO des Geräts bleibt; Lücken füllt das gemerkte KO,
             # dann der Vorschlag. Ein «nicht verknüpfen» (gewählt oder gemerkt)
             # gilt nur, wenn der Vorschlag auch nichts findet -- es stammt oft

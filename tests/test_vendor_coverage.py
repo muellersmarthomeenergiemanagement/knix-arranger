@@ -50,10 +50,13 @@ def measure() -> dict:
     stats: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
     for sample in samples:
         device_type = sample["device_type"]
+        # Je KO: Nummer, Name, Objektfunktion, DPT[, Grösse, Flags]
         device = Device(product=device_type, communication_objects=[
-            CommunicationObject(object_number=n, name=name, object_function=text,
-                                data_type=dpt)
-            for n, name, text, dpt in sample["com_objects"]])
+            CommunicationObject(object_number=row[0], name=row[1], object_function=row[2],
+                                data_type=row[3],
+                                object_size=row[4] if len(row) > 4 else "",
+                                flags=row[5] if len(row) > 5 else "")
+            for row in sample["com_objects"]])
         channels = [ch for ch in device_channels(device) if ch.com_objects]
         for key in (device_type, "gesamt"):
             stats[key]["Produkte"] += 1
@@ -84,8 +87,11 @@ def _print(stats):
 
 # Erreichter Stand (Anteil an allen Produkten der Sammlung)
 # 2026-10-13: 35/44 Kanäle, 24/44 Hauptfunktion (vorher 21 bzw. 6)
+# 2026-10-19: Objektfunktion, deutsche Texte und Grösse aus der Herstellerdatei
+#             (READER_VERSION 2): 35/44 Kanäle, 32/44 Hauptfunktion, 87 % Funktionen
 _MIN_CHANNELS = 0.75
-_MIN_MAIN = 0.50
+_MIN_MAIN = 0.70
+_MIN_FUNCTIONS = 0.85
 
 
 def test_vendor_coverage_does_not_regress():
@@ -94,3 +100,4 @@ def test_vendor_coverage_does_not_regress():
     total = stats["gesamt"]
     assert total["Kanäle"] / total["Produkte"] >= _MIN_CHANNELS
     assert total["Hauptfunktion"] / total["Produkte"] >= _MIN_MAIN
+    assert total["Funktionen"] / total["Funktionen gesamt"] >= _MIN_FUNCTIONS

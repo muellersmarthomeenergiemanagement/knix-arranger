@@ -421,13 +421,18 @@ class Step07Addresses(QWidget):
         # GA-Bedarf schätzen (über alle Devices mit ComObjects)
         total_ga_min = 0
         total_ga_max = 0
+        from ...services.ko_links import COMMUNICATE, READ, TRANSMIT, UPDATE, WRITE, parse_flags
         for device in devices_with_cos:
+            # je KO-Nummer einmal (Parametervarianten zählen nicht mehrfach)
+            needs_min, needs_max = set(), set()
             for co in device.communication_objects:
-                flags = co.flags or ""
-                if "K" in flags and any(f in flags for f in ("Ü", "S")):
-                    total_ga_min += 1
-                if "K" in flags and any(f in flags for f in ("Ü", "S", "L", "U")):
-                    total_ga_max += 1
+                flags = parse_flags(co.flags or "")
+                if COMMUNICATE in flags and flags & {TRANSMIT, WRITE}:
+                    needs_min.add(co.object_number)
+                if COMMUNICATE in flags and flags & {TRANSMIT, WRITE, READ, UPDATE}:
+                    needs_max.add(co.object_number)
+            total_ga_min += len(needs_min)
+            total_ga_max += len(needs_max)
 
         total_generated = len(self._project.group_addresses.all_addresses())
         n_devices = len(devices_with_cos)

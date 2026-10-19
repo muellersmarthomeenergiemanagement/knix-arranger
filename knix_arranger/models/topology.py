@@ -36,8 +36,9 @@ class CommunicationObject:
     object_function: str = ""     # z.B. "Schalten"
     priority: str = "Niedrig"
     flags: str = ""               # z.B. "K-SUEA-"
-    data_type: str = ""           # z.B. "1 bit"
+    data_type: str = ""           # DPT ("DPST-1-1"), bei ETS-Importen teils "1 bit"
     connected_gas: list[str] = field(default_factory=list)  # z.B. ["3/0/65"]
+    object_size: str = ""         # Grösse laut Herstellerdatei, z.B. "1 Bit", "1 Byte"
 
     def to_dict(self) -> dict:
         return {
@@ -48,6 +49,7 @@ class CommunicationObject:
             "flags": self.flags,
             "data_type": self.data_type,
             "connected_gas": self.connected_gas,
+            "object_size": self.object_size,
         }
 
     @classmethod
@@ -60,6 +62,7 @@ class CommunicationObject:
             flags=normalize_flags(data.get("flags", "")),
             data_type=data.get("data_type", ""),
             connected_gas=data.get("connected_gas", []),
+            object_size=data.get("object_size", ""),
         )
 
 

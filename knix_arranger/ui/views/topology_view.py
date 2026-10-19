@@ -37,6 +37,7 @@ from ..widgets.drag_drop import DragDropTree
 from ..tree_select import select_tree_item
 from ...services.ko_links import flags_text, flags_unparametrized, ko_links
 from ...services.product_capabilities import device_capabilities, plan_conflicts
+from ...services.ko_size import ko_label
 
 # Spalte Details: die KoLinks der Zeile, für «Flags bearbeiten…»
 _FLAG_LINKS_ROLE = Qt.UserRole + 1
@@ -56,7 +57,7 @@ def _set_flags(item: QTreeWidgetItem, column: int, dpt: str, links: list,
     proposed = all(l.proposed for l in links)
     label = ("Flags (Vorschlag) " if proposed else "Flags ") + " | ".join(texts)
     item.setText(column, "  ·  ".join(p for p in (dpt, label) if p))
-    lines = [f"KO {l.co.object_number} «{l.co.name or l.co.object_function}»: "
+    lines = [f"KO {l.co.object_number} «{ko_label(l.co, number=False, details=False)}»: "
              f"{flags_text(l.co.flags) or '–'}"
              f"{'' if l.sending else '  (hört nur mit, sendet auf eine andere GA)'}"
              f"{'  – aus Produktdaten, in der ETS parametrieren' if flags_unparametrized(l, imported) else ''}"
@@ -664,7 +665,7 @@ class TopologyView(QWidget):
         ch_item = QTreeWidgetItem(dev_item, ["Raumtemperatur", "", "", "", f"{len(found)} GA(s)"])
         ch_item.setForeground(0, QColor("#616161"))
         for ga, co in found:
-            ko = f" (KO {co.object_number} «{co.name or co.object_function}»)" if co else ""
+            ko = f" (KO {co.object_number} «{ko_label(co, number=False, details=False)}»)" if co else ""
             item = QTreeWidgetItem(ch_item, [
                 f"Messwert{ko}: {ga.designation}", ga.address, "", "", ga.datapoint_type])
             item.setToolTip(0, "Der Taster sendet die Raumtemperatur auf die Ist-Temperatur "
@@ -903,7 +904,7 @@ class TopologyView(QWidget):
         flag_acts = {}
         cos = {(id(l.device), l.co.object_number): l for l in links}
         for link in cos.values():
-            name = link.co.name or link.co.object_function
+            name = ko_label(link.co, number=False, details=False)
             act = menu.addAction(
                 f"Flags bearbeiten… ({link.device.physical_address} KO "
                 f"{link.co.object_number} «{name}»)")
@@ -1501,7 +1502,7 @@ def confirm_unlink(parent, physical_address: str, co, ga_addr: str) -> bool:
     erbte die Rückfrage deren Stylesheet (QWidget-Rahmen/Hintergrund), die
     Buttons waren dann nicht lesbar."""
     parent = parent.window() if parent is not None else None
-    co_name = co.name or co.object_function
+    co_name = ko_label(co, number=False, details=False)
     others = [g for g in co.connected_gas if g != ga_addr]
     rest = (f"Am KO bleibt: {', '.join(others)}." if others
             else "Das KO hat danach keine Gruppenadresse mehr.")

@@ -22,6 +22,8 @@ import logging
 import os
 import shutil
 
+from .knxprod_catalog_service import READER_VERSION
+
 logger = logging.getLogger("knix_arranger.product_folder")
 
 FOLDER_NAME = "Produkte KNX"
@@ -109,7 +111,19 @@ def pending_files(folder: str | None = None) -> list[str]:
         if not known or (known.get("size"), known.get("mtime")) != (
                 stamp["size"], stamp["mtime"]):
             result.append(path)
+        elif known.get("reader", 1) < READER_VERSION:
+            # mit einer älteren Fassung eingelesen (z.B. ohne Objektfunktion)
+            result.append(path)
     return result
+
+
+def outdated_files(folder: str | None = None) -> list[str]:
+    """Unveränderte Dateien, die eine ältere Fassung von KNiX eingelesen hat."""
+    folder = products_folder() if folder is None else folder
+    index = load_index().get(os.path.normcase(os.path.abspath(folder)), {}) if folder else {}
+    return [path for path in folder_files(folder)
+            if index.get(_rel(path, folder), {}).get("reader", 1) < READER_VERSION
+            and _rel(path, folder) in index]
 
 
 def mark_imported(paths: list[str], products: dict[str, int] | None = None,
@@ -130,6 +144,7 @@ def mark_imported(paths: list[str], products: dict[str, int] | None = None,
         except OSError:
             continue
         entry["products"] = (products or {}).get(path, 0)
+        entry["reader"] = READER_VERSION
         index[_rel(path, folder)] = entry
     _save_index(data)
 

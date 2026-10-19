@@ -22,6 +22,7 @@ from ..column_utils import fit_columns
 from ..widgets.add_element_menu import fill_add_element_menu
 from ..widgets.drag_drop import DragDropTree
 from ..tree_select import select_tree_item
+from ...services.ko_size import ko_label
 
 _DEVICE_TYPE_LABELS: dict[str, str] = {
     "actor":         "Aktor",
@@ -485,7 +486,7 @@ class BuildingView(QWidget):
                     ga_obj = ga_by_address.get(ga_addr)
                     label_text = ga_obj.designation if ga_obj else ga_addr
                     QTreeWidgetItem(ch_item, [
-                        f"{co.name or co.object_function}: {label_text}",
+                        f"{ko_label(co, number=False, details=False)}: {label_text}",
                         "GA",
                         ga_addr,
                         ga_obj.datapoint_type if ga_obj else "",

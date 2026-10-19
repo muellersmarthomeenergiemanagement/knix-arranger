@@ -19,24 +19,29 @@ from collections import OrderedDict
 
 logger = logging.getLogger("knix_arranger.com_object_store")
 
-# KO als Zeile [Nummer, Name, Funktionstext, Datenpunkttyp, Flags-Bits]
+# KO als Zeile [Nummer, Name, Funktionstext, Datenpunkttyp, Flags-Bits,
+# Grösse]; die Grösse ("1 Bit") fehlt in Zeilen bis Version 1.4.9
 _CO_FIELDS = ("number", "name", "function_text", "datapoint_type")
 _CO_FLAGS = ("communication_flag", "read_flag", "write_flag", "transmit_flag",
              "update_flag")
 _CO_KEYS = frozenset(_CO_FIELDS + _CO_FLAGS)
+_CO_KEYS_SIZE = _CO_KEYS | {"object_size"}
 
 
 def pack_com_object(co):
     """KO als Zeile, wenn es genau die Standardfelder hat (jeder KNXPROD-
     Import); sonst bleibt es unverändert ein Dict (verlustfrei)."""
-    if not isinstance(co, dict) or co.keys() != _CO_KEYS:
+    if not isinstance(co, dict) or co.keys() not in (_CO_KEYS, _CO_KEYS_SIZE):
         return co
     bits = 0
     for i, flag in enumerate(_CO_FLAGS):
         if co[flag]:
             bits |= 1 << i
-    return [co.get("number", 0), co.get("name", ""), co.get("function_text", ""),
-            co.get("datapoint_type", ""), bits]
+    row = [co.get("number", 0), co.get("name", ""), co.get("function_text", ""),
+           co.get("datapoint_type", ""), bits]
+    if "object_size" in co:
+        row.append(co["object_size"])
+    return row
 
 
 def unpack_com_object(row):
@@ -46,6 +51,8 @@ def unpack_com_object(row):
     bits = row[4] if len(row) > 4 else 1
     for i, flag in enumerate(_CO_FLAGS):
         co[flag] = bool(bits >> i & 1)
+    if len(row) > 5:
+        co["object_size"] = row[5]
     return co
 
 

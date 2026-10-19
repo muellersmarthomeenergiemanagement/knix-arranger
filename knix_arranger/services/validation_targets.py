@@ -21,6 +21,8 @@ BAUHERR = "bauherr"        # Bauherrenberatung, key = Raum-id
 FLOOR = "floor"            # Gebäude, key = Hauptgruppe
 VIEW = "view"              # Ansicht ohne Auswahl, key = Ansichts-Schlüssel
 KEYS = "keys"              # Dialog «Tasten anpassen» (FA-629), key = physikalische Adresse
+KOS = "kos"                # Dialog «Kanäle und KOs zuordnen», key = physikalische
+                           # Adresse, focus = (Stromkreis/ga_key, Funktion, KO-Vorschlag)
 
 _GA_RE = re.compile(r"^\d{1,2}/\d/\d{1,3}$")
 _PA_RE = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{1,3}$")
@@ -55,6 +57,7 @@ class Target:
     kind: str
     key: str
     label: str
+    focus: tuple = ()
 
 
 def _ga_target(address: str) -> Target:
@@ -100,6 +103,13 @@ def targets_for(issue: dict, project) -> list[Target]:
         add(_ga_target(address))
     if rule in _RULE_VIEWS:
         add(Target(VIEW, _RULE_VIEWS[rule], _VIEW_LABELS[_RULE_VIEWS[rule]]))
+    # KO passt nicht zur GA (FA-634): Zuordnungsdialog an dieser Stelle
+    ko_focus = (issue.get("details") or {}).get("ko_focus") or {}
+    if rule == "FA-634" and ko_focus.get("device") in devices:
+        pa = ko_focus["device"]
+        add(Target(KOS, pa, f"Kanäle und KOs von {pa} zuordnen (an dieser Stelle)…",
+                   (ko_focus.get("key", ""), ko_focus.get("function", ""),
+                    ko_focus.get("suggested", -1))))
     # Zu wenige Tasten (FA-629): Dialog mit den Wegen, dann Bauherrenberatung
     room_id = (issue.get("details") or {}).get("room_id")
     if rule == "FA-629" and address in devices:

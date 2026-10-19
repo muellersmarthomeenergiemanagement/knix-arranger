@@ -345,16 +345,56 @@ def _with_generic_followers(cos: list, own: list) -> list:
         return own
     from .ko_names import is_generic
     own_ids = {id(co) for co in own}
+    # Eine Nummer mit benannter Variante ist nicht generisch, auch wenn eine
+    # ihrer Varianten «Object 10» heisst (Feller: KO 9 «Taste 2, rechts»)
+    named = {co.object_number for co in cos if not is_generic(co)}
     result = list(own)
     following = False
     for co in sorted(cos, key=lambda c: c.object_number):
         if id(co) in own_ids:
             following = True
-        elif not is_generic(co):
+        elif co.object_number in named:
             following = False
         elif following:
             result.append(co)
     return result
+
+
+# Belegung einer Taste, wie sie Parametervarianten im Funktionstext nennen
+# (Feller EDIZIOdue: «EIN/AUS, Schalten», «heller/dunkler, Dimmen», «AUF/AB,
+# Jalousie», «abrufen, Szene») -- je Gewerk die passende
+_FAMILY_RE = re.compile(r",\s*([A-Za-zÄÖÜäöü]+)\s*$")
+_GEWERK_FAMILY = {
+    **dict.fromkeys(("L", "S", "V", "SF"), "schalten"),
+    **dict.fromkeys(("LD", "LDA", "LC", "LCT", "LCW", "DMX", "SD"), "dimmen"),
+    **dict.fromkeys(("J", "R", "M", "T"), "jalousie"),
+}
+
+
+def co_family(co) -> str:
+    """«schalten», «dimmen», «jalousie», «szene» … aus «…, Dimmen»; ""
+    ohne Angabe (Signal LED, Zwangsführung)."""
+    found = _FAMILY_RE.search(co.object_function or "")
+    return found.group(1).lower() if found else ""
+
+
+def link_family(link) -> str:
+    """Belegung der Taste nach dem Gewerk des Elements (ga_key
+    «Zuweisung|LD|1|E/A»); Szenenaufruf = «szene»."""
+    if link.function.lower().startswith("szene") or "szene" in (link.ga_function or "").lower():
+        return "szene"
+    parts = (link.key or "").split("|")
+    return _GEWERK_FAMILY.get(parts[1], "") if len(parts) > 2 else ""
+
+
+def family_variants(cos: list, link) -> list:
+    """Nur die Varianten, die zur Belegung der Taste passen (und die ohne
+    Angabe); ohne Belegung oder ohne passende Variante alle."""
+    family = link_family(link)
+    if not family or not any(co_family(co) for co in cos):
+        return cos
+    fitting = [co for co in cos if co_family(co) in ("", family)]
+    return fitting if any(co_family(co) == family for co in fitting) else cos
 
 
 # Sendende KOs für Befehle an den Aktor, nach Vorrang: ein Melder schaltet
@@ -409,8 +449,9 @@ def suggested_sensor_co_map(device, links: list[SensorLink], all_cos: list) -> d
     # Befehle vor Rückmeldungen: die Rückmeldung kann am KO des Befehls mithören
     rest.sort(key=lambda link: bool(link.feedback))
     for link in rest:
-        candidates = [c for c in _channel_cos(all_cos, link.channel)
-                      if c.object_number not in used]
+        candidates = family_variants(
+            [c for c in _channel_cos(all_cos, link.channel) if c.object_number not in used],
+            link)
         co = None
         role = next((r for r in SENSOR_ROLES + (BRIGHTNESS_ROLE, TEMPERATURE_ROLE)
                      if r.code == link.role), None)
@@ -431,7 +472,12 @@ def suggested_sensor_co_map(device, links: list[SensorLink], all_cos: list) -> d
             if co is None:
                 co = suggest_co(sending, link.ga_function, used)
         else:
-            co = suggest_co(candidates, link.ga_function, used)
+            # Taste mit eigenen KOs: das Schaltobjekt hört die Rückmeldung mit
+            # (Feller «Taste 1 – EIN/AUS, Schalten» sendet und empfängt)
+            if _KEY_CHANNEL.match(link.channel or "") and _own_channel(all_cos, link.channel):
+                co = _key_fallback(candidates, link, result, all_cos)
+            if co is None:
+                co = suggest_co(candidates, link.ga_function, used)
         if co is None and link.dpt and role is None:
             co = _co_by_dpt(candidates, link.dpt, link.feedback, used)
         if co is None and role is None:
@@ -467,12 +513,18 @@ def _key_fallback(candidates: list, link: SensorLink, result: dict, all_cos: lis
     if dpt.split("-")[1:2] not in (["1"], []) or (not dpt and link.ga_function != "RM"):
         return None
     element = link.key.rsplit("|", 1)[0]
-    by_number = {c.object_number: c for c in all_cos}
+    # Varianten je Nummer, nur die zur Belegung der Taste (Feller KO 0:
+    # «EIN/AUS, Schalten» empfängt, «abrufen, Szene» nicht)
+    by_number: dict[int, list] = {}
+    for c in all_cos:
+        by_number.setdefault(c.object_number, []).append(c)
     for key, number in result.items():
-        co = by_number.get(number)
-        if key.rsplit("|", 1)[0] == element and co is not None \
-                and WRITE in parse_flags(co.flags):
-            return co
+        if key.rsplit("|", 1)[0] != element:
+            continue
+        listening = [c for c in family_variants(by_number.get(number, []), link)
+                     if WRITE in parse_flags(c.flags)]
+        if listening:
+            return listening[0]
     return next((c for c in candidates
                  if WRITE in parse_flags(c.flags) and TRANSMIT not in parse_flags(c.flags)),
                 None)
@@ -500,3 +552,54 @@ def chosen_sensor_co(device, ga):
         return False
     from .ko_links import co_by_number
     return co_by_number(device.communication_objects, number)
+
+
+def split_rocker(link, links: list) -> bool | None:
+    """Ist die Wippe dieser KNiX-Taste geteilt (beide Seiten belegt)?
+    Taste 1/2 = Wippe 1 links/rechts. None bei Kanälen ohne Tastennummer."""
+    found = _NUMBER.search(link.channel or "") if _KEY_CHANNEL.match(link.channel or "") else None
+    if not found:
+        return None
+    n = int(found.group(1))
+    used = {int(m.group(1)) for other in links
+            if _KEY_CHANNEL.match(other.channel or "")
+            and (m := _NUMBER.search(other.channel or ""))}
+    left = n if n % 2 else n - 1
+    return left in used and left + 1 in used
+
+
+def display_variant(variants: list, link=None, split: bool | None = None):
+    """Die Variante eines KO, die in einer Zeile gezeigt wird: passend zur
+    Belegung der Taste, zur Grösse und Richtung der GA und zu ihrer Funktion
+    (Feller KO 1 bei «Licht dimmen»: «heller/dunkler, Dimmen (4 Bit)», nicht
+    «Wert, Dimmen (1 Byte)»), mit sprechendem Text vor «Object n»."""
+    from .ko_links import TRANSMIT, WRITE, parse_flags
+    from .ko_names import is_generic
+    from .ko_size import sizes_compatible
+    if not variants:
+        return None
+    pool = family_variants(variants, link) if link is not None else variants
+    named = [co for co in pool if not is_generic(co)] or \
+        [co for co in variants if not is_generic(co)]
+    if not named:
+        return variants[0]
+    if link is None:
+        return named[0]
+    from .actor_channels import _EXTRA_KEYWORDS, _FUNCTION_KEYWORDS
+    keywords = (_FUNCTION_KEYWORDS.get(link.ga_function, ())
+                + _EXTRA_KEYWORDS.get(link.ga_function, ())
+                + _SEND_KEYWORDS.get(link.ga_function, ()))
+
+    def score(co) -> float:
+        flags = parse_flags(co.flags)
+        text = f"{co.name} {co.object_function}".lower()
+        direction = (WRITE in flags) if link.feedback else (TRANSMIT in flags)
+        side = bool(_SIDE.search(text))
+        return (4 * sizes_compatible(co, link.dpt) + 2 * direction
+                + sum(1 for kw in keywords if kw in text)
+                # geteilte Wippe: «Taste 1, links»; sonst die ganze «Taste 1»
+                + (0.5 * (side == split) if split is not None else 0))
+    return max(named, key=score)
+
+
+_SIDE = re.compile(r"\b(?:links|rechts|left|right)\b", re.IGNORECASE)

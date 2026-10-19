@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from ...services.ko_links import (
     COMMUNICATE, INIT, READ, TRANSMIT, UPDATE, WRITE, parse_flags,
 )
+from ...services.ko_size import ko_label
 
 # Reihenfolge und Texte wie in der ETS
 _FLAGS = (
@@ -32,7 +33,7 @@ class KoFlagsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Flags bearbeiten")
         layout = QVBoxLayout(self)
-        name = co.name or co.object_function
+        name = ko_label(co, number=False, details=False)
         title = QLabel(f"<b>{device.physical_address} KO {co.object_number}</b> «{name}»")
         layout.addWidget(title)
         gas = ", ".join(co.connected_gas) if co.connected_gas else ""

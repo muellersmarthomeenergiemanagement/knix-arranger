@@ -19,6 +19,7 @@ from ...services.actor_channels import (
     unneeded_functions,
 )
 from ...services.ko_plausibility import ko_variants
+from ...services.ko_size import dpt_bits, ko_label, size_text
 from ...services.ko_templates import (
     actor_proposal, actor_signature, load_template, save_template,
 )
@@ -27,9 +28,8 @@ _NOT_LINKED = -1   # KO-Nummern beginnen teils bei 0
 
 
 def ko_text(co) -> str:
-    text = co.name if co.object_function in co.name else \
-        f"{co.name} – {co.object_function}".strip(" –")
-    return f"{co.object_number}: {text}"
+    """«9: Kanal C1 – Rückmeldung Ein/Aus (1 Bit, sendet)»."""
+    return ko_label(co)
 
 
 def ko_combo(cos: list, others: list) -> QComboBox:
@@ -53,20 +53,27 @@ def ko_combo(cos: list, others: list) -> QComboBox:
 
 
 class ActorChannelDialog(QDialog):
-    """devices: Geräte des Materiallisten-Eintrags (gleiches Produkt)."""
+    """devices: Geräte des Materiallisten-Eintrags (gleiches Produkt).
+    focus = (Geräte-id, Stromkreis, GA-Funktion, KO-Vorschlag): Sprung aus der
+    Validierung (FA-634) -- Stromkreis gewählt, Zeile markiert, Vorschlag
+    vorausgewählt (übernommen erst mit OK)."""
 
-    def __init__(self, project, devices: list, parent=None):
+    def __init__(self, project, devices: list, parent=None, focus: tuple | None = None):
         super().__init__(parent)
         self.setWindowTitle("Kanäle und KOs zuordnen")
         self.setMinimumSize(760, 560)
         self._project = project
         self._devices = devices
+        self._focus = focus
         # Je Gerät: Stromkreise, Kanäle, gewählter Kanal und KO-Auswahl
         self._state: dict[str, dict] = {}
         self._device = None
         self._circuit = None
 
         layout = QVBoxLayout(self)
+        self._focus_label = focus_banner(focus)
+        if self._focus_label is not None:
+            layout.addWidget(self._focus_label)
         top = QHBoxLayout()
         top.addWidget(QLabel("Gerät:"))
         self._device_combo = QComboBox()
@@ -104,10 +111,10 @@ class ActorChannelDialog(QDialog):
         self._co_hint.setStyleSheet("color: #666;")
         co_layout.addWidget(self._co_hint)
         self._co_table = QTableWidget(0, 3)
-        self._co_table.setHorizontalHeaderLabels(["GA-Funktion", "GA", "KO im Kanal"])
+        self._co_table.setHorizontalHeaderLabels(["GA-Funktion", "GA (Grösse)", "KO im Kanal"])
         self._co_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self._co_table.setColumnWidth(0, 160)
-        self._co_table.setColumnWidth(1, 80)
+        self._co_table.setColumnWidth(1, 110)
         self._co_table.verticalHeader().setVisible(False)
         self._co_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         co_layout.addWidget(self._co_table)
@@ -130,7 +137,28 @@ class ActorChannelDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+        if focus is not None:
+            index = next((i for i, d in enumerate(devices) if d.id == focus[0]), 0)
+            self._device_combo.blockSignals(True)
+            self._device_combo.setCurrentIndex(index)
+            self._device_combo.blockSignals(False)
         self._on_device_changed()
+        if focus is not None:
+            self._apply_focus()
+
+    def _apply_focus(self) -> None:
+        """Stromkreis des Sprungziels wählen, Vorschlag vorauswählen."""
+        _device_id, key, function, suggested = self._focus
+        state = self._state_for(self._device)
+        if suggested is not None and suggested >= 0:
+            state["co"].setdefault(key, {})[function] = suggested
+        table = self._circuit_table
+        for row in range(table.rowCount()):
+            if table.item(row, 0).data(Qt.UserRole) == key:
+                table.selectRow(row)
+                table.scrollToItem(table.item(row, 0))
+                break
+        self._show_cos()
 
     # ── Zustand je Gerät ──
 
@@ -288,7 +316,13 @@ class ActorChannelDialog(QDialog):
         for row, (function, ga) in enumerate(circuit.functions):
             table.insertRow(row)
             table.setItem(row, 0, QTableWidgetItem(function))
-            table.setItem(row, 1, QTableWidgetItem(ga))
+            # Grösse der GA zum Vergleich mit dem KO (gleich gross = verknüpfbar)
+            dpt = circuit.dpts.get(function, "")
+            size = size_text(dpt_bits(dpt))
+            ga_item = QTableWidgetItem(f"{ga} ({size})" if size else ga)
+            if dpt:
+                ga_item.setToolTip(f"DPT {dpt}")
+            table.setItem(row, 1, ga_item)
             combo = ko_combo(cos, others)
             current = selection.get(function)
             index = combo.findData(current) if current is not None else -1
@@ -297,6 +331,9 @@ class ActorChannelDialog(QDialog):
                 lambda _i, f=function, cb=combo, sel=selection: (
                     sel.__setitem__(f, cb.currentData()), self._update_omit_info()))
             table.setCellWidget(row, 2, combo)
+            if (self._focus is not None and self._device.id == self._focus[0]
+                    and circuit.key == self._focus[1] and function == self._focus[2]):
+                mark_focus_row(table, row, combo)
 
     # ── Ergebnis ──
 
@@ -330,3 +367,37 @@ class ActorChannelDialog(QDialog):
                 for key, functions in self._unneeded(device).items():
                     omitted += omit_functions(self._project, key, functions)
         return omitted
+
+
+# ── Sprung aus der Validierung (FA-634) ──────────────────────────────────
+
+_FOCUS_COLOR = "#FFF3CD"
+
+
+def focus_banner(focus) -> QLabel | None:
+    """Hinweis oben im Dialog, wenn er aus der Validierung geöffnet wurde."""
+    if focus is None:
+        return None
+    _device_id, _key, function, suggested = focus
+    text = (f"Aus der Validierung: der KO für <b>{function}</b> passt nicht zur GA "
+            "(gelb markiert). ")
+    text += ("Der passende KO ist vorausgewählt – mit OK übernehmen."
+             if suggested is not None and suggested >= 0 else
+             "Bitte den passenden KO wählen.")
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setStyleSheet(f"background-color: {_FOCUS_COLOR}; color: #856404; "
+                        "padding: 6px; border-radius: 4px;")
+    return label
+
+
+def mark_focus_row(table, row: int, combo) -> None:
+    """Zeile des Sprungziels gelb markieren und dorthin scrollen."""
+    from PySide6.QtGui import QBrush, QColor
+    for col in range(table.columnCount()):
+        item = table.item(row, col)
+        if item is not None:
+            item.setBackground(QBrush(QColor(_FOCUS_COLOR)))
+    combo.setStyleSheet(f"QComboBox {{ background-color: {_FOCUS_COLOR}; }}")
+    table.scrollToItem(table.item(row, 0) or table.item(row, 1))
+    table.setCurrentCell(row, 0)

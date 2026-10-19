@@ -676,7 +676,7 @@ class MainWindow(QMainWindow):
         from ..services import validation_targets as vt
         views = {vt.GA: "addresses", vt.DEVICE: "topology", vt.LINE: "topology",
                  vt.ROOM: "building", vt.FLOOR: "building", vt.BAUHERR: "bauherr_form",
-                 vt.KEYS: "topology"}
+                 vt.KEYS: "topology", vt.KOS: "material_list"}
         key = target.key if target.kind == vt.VIEW else views[target.kind]
         self._sidebar.select(key)
         self._navigate(key)
@@ -686,6 +686,8 @@ class MainWindow(QMainWindow):
             found = self._topology_view.select_device(target.key)
         elif target.kind == vt.KEYS:
             found = self._topology_view.resolve_keys(target.key)
+        elif target.kind == vt.KOS:
+            found = self._material_list_view.open_ko_assignment(target.key, target.focus)
         elif target.kind == vt.LINE:
             found = self._topology_view.select_line(target.key)
         elif target.kind == vt.ROOM:
@@ -1135,6 +1137,7 @@ class MainWindow(QMainWindow):
             if refreshed:
                 cleaned.append(f"Kanalzahl von {refreshed} Materiallisten-Einträgen "
                                "aus dem Produktkatalog nachgeführt")
+            cleaned.extend(self._refresh_ko_texts_on_open())
             if self._devices_follow_rooms_on_open():
                 cleaned.append("Geräte an die Bedienelemente angepasst (Neuberechnung)")
             if cleaned:
@@ -1152,6 +1155,33 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Fehler", f"Projekt konnte nicht geladen werden:\n{e}")
             return
         QTimer.singleShot(0, self._check_plaintext_secrets)
+
+    def _refresh_ko_texts_on_open(self) -> list[str]:
+        """KO-Texte aus dem neu eingelesenen Katalog übernehmen (Objekt-
+        funktion, Grösse) und danach KOs, die nicht zur GA passen, neu
+        vorschlagen wie «KOs aller Geräte zuordnen» -- passende Zuordnungen
+        bleiben. Gibt die Einträge fürs Änderungsprotokoll zurück."""
+        from ..services.product_sync import refresh_device_com_objects
+        try:
+            devices = refresh_device_com_objects(self._project)
+            if not devices:
+                return []
+            notes = [f"KO-Texte von {len(devices)} Gerät(en) aus dem Produktkatalog "
+                     "nachgeführt (Objektfunktion, Grösse)"]
+            from ..services.ko_batch import REPLACED, apply_plan, plan_all
+            batch = plan_all(self._project, only=[d for d in devices if d.co_map])
+            replaced = [i for i in batch.issues if i.problem.startswith(REPLACED)]
+            if batch.plans:
+                # wie «KOs aller Geräte zuordnen»: passende Wahl bleibt, unpassende
+                # wird ersetzt, Lücken füllt der Vorschlag mit den neuen Texten
+                apply_plan(self._project, batch)
+                notes.append(f"KO-Zuordnung von {len(batch.plans)} Gerät(en) mit den neuen "
+                             f"Texten ergänzt" + (f", {len(replaced)} unpassende ersetzt"
+                                                  if replaced else ""))
+            return notes
+        except Exception:
+            logger.exception("KO-Texte konnten nicht nachgeführt werden")
+            return []
 
     def _devices_follow_rooms_on_open(self) -> bool:
         """Geplantes Projekt, noch nicht in die ETS übertragen: haben

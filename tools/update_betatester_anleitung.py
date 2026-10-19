@@ -933,6 +933,34 @@ def build_document() -> Document:
         "«KOs aller Geräte zuordnen» in der Materialliste.")
     doc.add_paragraph()
 
+    # ── 8.3  KOs zuordnen ─────────────────────────────────────────────────────
+    add_heading2(doc, "8.3  Produkt wählen, KOs zuordnen")
+    add_body(doc,
+        "Wählen Sie in der Materialliste ein Produkt mit Herstellerdatei (.knxprod), "
+        "ordnet KNiX die KOs gleich zu: je GA den KO mit passender Objektfunktion und "
+        "Grösse, z.B. beim Theben DM 4 T RM auf KO 9 «Rückmeldung Ein/Aus» (1 Bit, "
+        "sendet) und RM WERT auf KO 10 «Rückmeldung in %» (1 Byte, sendet). Nur "
+        "unsichere Fälle erscheinen als Rückfrage.")
+    add_bullet(doc, "«Kanäle und KOs zuordnen…» zeigt jeden KO mit Name, Objektfunktion, "
+                    "Grösse und Richtung, die GA mit ihrer Grösse. Gleich gross heisst "
+                    "verknüpfbar.")
+    add_bullet(doc, "Taster mit Parametervarianten (Feller EDIZIOdue): KNiX wählt je Taste "
+                    "die Variante der geplanten Belegung – Licht dimmbar auf «Taste 1, links – "
+                    "heller/dunkler, Dimmen», Jalousie auf «Taste 1, rechts – AUF/AB, "
+                    "Jalousie». Die Rückmeldung liegt auf dem Schaltobjekt, das mithört. In "
+                    "der ETS die Tasten entsprechend parametrieren.")
+    add_bullet(doc, "Die Validierung meldet KOs, die nicht zur GA passen (Eingangs-KO für "
+                    "eine Rückmeldung, andere Grösse), und nennt den passenden KO. "
+                    "Doppelklick auf die Meldung öffnet «Kanäle und KOs zuordnen» genau an "
+                    "dieser Stelle: Zeile gelb markiert, Vorschlag vorausgewählt, mit OK "
+                    "übernehmen.")
+    add_tip(doc,
+        "Meldet die Produktauswahl «Herstellerdateien mit verbesserter Auswertung neu "
+        "einlesen», einmal einlesen: Danach kennt KNiX die Objektfunktion und die Grösse "
+        "aller KOs. Beim nächsten Öffnen übernehmen die Projekte die neuen Texte und "
+        "korrigieren unpassende Zuordnungen (siehe Änderungsprotokoll).")
+    doc.add_paragraph()
+
     # ── 9  Tastenkürzel ───────────────────────────────────────────────────────
     add_heading1(doc, "9  Wichtige Tastenkürzel")
 

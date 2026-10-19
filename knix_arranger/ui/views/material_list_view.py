@@ -1403,20 +1403,48 @@ class MaterialListView(QWidget):
     def _assign_channels_selected(self) -> None:
         self._assign_channels(self._channel_devices(self._selected_entry()))
 
-    def _assign_channels(self, devices: list) -> None:
+    def open_ko_assignment(self, physical_address: str, focus: tuple = ()) -> bool:
+        """«Kanäle und KOs zuordnen» für ein Gerät öffnen (Sprung aus der
+        Validierung, FA-634); focus = (Stromkreis bzw. ga_key, Funktion,
+        vorgeschlagener KO) markiert die Zeile und setzt den Vorschlag.
+        False, wenn das Gerät nicht (mehr) da ist."""
+        if not self._project:
+            return False
+        device = next((d for area in self._project.topology.areas for line in area.lines
+                       for d in line.devices if d.physical_address == physical_address), None)
+        if device is None or not device.communication_objects:
+            return False
+        entry = next((e for e in (self._material_list.entries if self._material_list else [])
+                      if physical_address in e.physical_addresses
+                      or (e.device_id and e.device_id == device.id)), None)
+        if entry is not None:
+            self._select_entry(entry)
+        self._assign_channels([device], focus=(device.id, *focus) if focus else None)
+        return True
+
+    def _select_entry(self, entry) -> None:
+        for row in range(self._table.rowCount()):
+            item = self._table.item(row, 0)
+            if item is not None and item.data(Qt.UserRole) == entry.id:
+                self._table.selectRow(row)
+                self._table.scrollToItem(item)
+                return
+
+    def _assign_channels(self, devices: list, focus: tuple | None = None) -> None:
+        """focus = (Geräte-id, Stromkreis bzw. ga_key, Funktion, KO-Vorschlag)."""
         from ..dialogs.actor_channel_dialog import ActorChannelDialog
         if not devices:
             return
         sensors = [d for d in devices if d.device_type == "sensor"]
         if sensors:
             from ..dialogs.sensor_ko_dialog import SensorKoDialog
-            dlg = SensorKoDialog(self._project, sensors, parent=self)
+            dlg = SensorKoDialog(self._project, sensors, parent=self, focus=focus)
             if dlg.exec() == QDialog.Accepted:
                 dlg.apply()
                 self.list_changed.emit()
             return
         self._release_sensor_products(devices)
-        dlg = ActorChannelDialog(self._project, devices, parent=self)
+        dlg = ActorChannelDialog(self._project, devices, parent=self, focus=focus)
         if dlg.exec() != QDialog.Accepted:
             return
         if dlg.apply():
@@ -1466,6 +1494,9 @@ class MaterialListView(QWidget):
         from ..dialogs.ko_batch_dialog import KoBatchDialog
         if not self._project:
             return
+        # Neu eingelesene Herstellerdateien: Objektfunktion und Grösse der KOs
+        from ...services.product_sync import refresh_device_com_objects
+        refresh_device_com_objects(self._project)
         batch = plan_all(self._project)
         if not batch.plans and not batch.kept:
             QMessageBox.information(
@@ -1523,6 +1554,8 @@ class MaterialListView(QWidget):
         if not self._project or not devices:
             return
         from ...services.ko_batch import NO_KO, UNNEEDED, apply_plan, plan_all
+        from ...services.product_sync import refresh_device_com_objects
+        refresh_device_com_objects(self._project)
         batch = plan_all(self._project, only=devices)
         if not batch.plans:
             if entry is not None:

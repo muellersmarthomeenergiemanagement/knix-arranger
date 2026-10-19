@@ -310,6 +310,81 @@ def refresh_entry_channels(project, catalog=_DEFAULT) -> int:
     return changed
 
 
+def refresh_device_com_objects(project, catalog=_DEFAULT) -> list:
+    """KO-Texte der Geräte aus dem Katalog nachführen, wenn er sie neu kennt:
+    bis 1.4.9 las KNiX statt der Objektfunktion den Namen («Channel C1»)
+    und keine Grösse -- nach dem Neueinlesen der Herstellerdateien stehen
+    im Katalog «Dimmwert», «1 Byte». Je KO-Nummer Name, Funktion, DPT und
+    Grösse; Flags (in der Topologie bearbeitbar) und Verknüpfungen bleiben.
+    Nur geplante Projekte (importierte haben die Texte der ETS) und nur
+    Katalogprodukte, die schon neu eingelesen sind (mit Grösse). Gibt die
+    nachgeführten Geräte zurück."""
+    from .knxprod_catalog_service import is_placeholder_text
+    if project.topology.is_imported:
+        return []
+    if catalog is _DEFAULT:
+        catalog = shared_catalog()
+    if catalog is None:
+        return []
+    changed = []
+    products: dict[tuple, list] = {}
+    for area in project.topology.areas:
+        for line in area.lines:
+            for device in line.devices:
+                if not (device.communication_objects and device.manufacturer
+                        and device.order_number):
+                    continue
+                key = (device.manufacturer, device.order_number, device.product_name)
+                if key not in products:
+                    product = catalog.find_product(*key)
+                    products[key] = (product or {}).get("com_objects") or []
+                cos = products[key]
+                if not any(co.get("object_size") for co in cos):
+                    continue        # noch mit der alten Fassung eingelesen
+                if _refresh_variants(device, cos):
+                    changed.append(device)
+    return changed
+
+
+def _refresh_variants(device, cos: list[dict]) -> bool:
+    """Je KO-Nummer die Varianten des Katalogs übernehmen (Feller EDIZIOdue:
+    KO 0 = «Taste 1 – EIN/AUS, Schalten», «Taste 1, links – AUF/AB, Jalousie»
+    … je nach Parameter). Die n-te Variante behält Flags und Verknüpfungen
+    der bisherigen n-ten Variante; die Reihenfolge der Nummern bleibt.
+    True, wenn sich etwas geändert hat."""
+    fresh: dict[int, list] = {}
+    for co in communication_objects_of(cos):
+        fresh.setdefault(co.object_number, []).append(co)
+    old: dict[int, list] = {}
+    for co in device.communication_objects:
+        old.setdefault(co.object_number, []).append(co)
+    result, changed = [], False
+    for number, variants in old.items():
+        new = fresh.get(number)
+        if not new:
+            result.extend(variants)
+            continue
+        # Gleich viele Varianten = gleiche Refs: Flags (in der Topologie
+        # bearbeitbar) übernehmen; sonst gelten die Flags des Katalogs
+        same_shape = len(new) == len(variants)
+        for i, co in enumerate(new):
+            if i < len(variants):
+                co.connected_gas = variants[i].connected_gas
+                co.priority = variants[i].priority
+                if same_shape:
+                    co.flags = variants[i].flags
+        before = [(c.name, c.object_function, c.data_type, c.object_size) for c in variants]
+        after = [(c.name, c.object_function, c.data_type, c.object_size) for c in new]
+        if before != after:
+            changed = True
+            result.extend(new)
+        else:
+            result.extend(variants)
+    if changed:
+        device.communication_objects = result
+    return changed
+
+
 def communication_objects_of(com_objects: list[dict]) -> list:
     """Kommunikationsobjekte eines Katalogprodukts für Device.communication_objects."""
     from ..models.topology import CommunicationObject
@@ -329,6 +404,7 @@ def communication_objects_of(com_objects: list[dict]) -> list:
         object_number=co.get("number", 0), name=co.get("name", ""),
         object_function=co.get("function_text", ""),
         data_type=co.get("datapoint_type", ""), flags=flags(co),
+        object_size=co.get("object_size", ""),
     ) for co in com_objects]
 
 
@@ -339,6 +415,7 @@ def _co_dict(co) -> dict:
     return {
         "number": co.object_number, "name": co.name,
         "function_text": co.object_function, "datapoint_type": co.data_type,
+        "object_size": co.object_size,
         "communication_flag": COMMUNICATE in flags, "read_flag": READ in flags,
         "write_flag": WRITE in flags, "transmit_flag": TRANSMIT in flags,
         "update_flag": UPDATE in flags,

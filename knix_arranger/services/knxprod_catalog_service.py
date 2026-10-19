@@ -27,8 +27,18 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
 from ..utils.manufacturers import canonical_manufacturer
+from .ko_size import dpt_from_size
 
 logger = logging.getLogger("knix_arranger.knxprod_catalog")
+
+# Version des Einlesens: steigt, wenn dieselbe Datei andere Produktdaten
+# ergibt. Ältere Einträge im Produktordner-Index gelten als neu einzulesen
+# (product_folder.pending_files). 2: Name/Objektfunktion richtig, deutsche
+# Übersetzung, Grösse (1.4.10)
+READER_VERSION = 2
+
+# Objektfunktion, die nur die Grösse nennt ("1 bit", "4 Byte")
+_SIZE_ONLY = re.compile(r"\s*\d+\s*(bit|bits|byte|bytes)\s*", re.IGNORECASE)
 
 # Platzhalter in KO-Texten, die die ETS aus Parametern füllt, z.B.
 # "{{0}}Leckage Alarm Text" oder "{{0:Room 1}}: Room Status" (mit Standardtext)
@@ -89,9 +99,10 @@ _AREA_TO_CATEGORY: dict[str, str] = {
 class ComObjectInfo:
     """Kommunikationsobjekt eines KNX-Geräts, aus Applikationsprogramm gelesen."""
     number: int = 0
-    name: str = ""
-    function_text: str = ""       # Text/FunctionText-Attribut (Funktion des Objekts)
+    name: str = ""                # Text-Attribut = ETS-Spalte «Name», z.B. "Kanal C1"
+    function_text: str = ""       # FunctionText = ETS «Objektfunktion», z.B. "Dimmwert"
     datapoint_type: str = ""      # z.B. "DPT-1", "DPT-5.001"
+    object_size: str = ""         # ObjectSize, z.B. "1 Bit", "1 Byte"
     communication_flag: bool = True
     read_flag: bool = False
     write_flag: bool = False
@@ -127,6 +138,7 @@ class ComObjectInfo:
             "name": self.name,
             "function_text": self.function_text,
             "datapoint_type": self.datapoint_type,
+            "object_size": self.object_size,
             "communication_flag": self.communication_flag,
             "read_flag": self.read_flag,
             "write_flag": self.write_flag,
@@ -141,6 +153,7 @@ class ComObjectInfo:
             name=data.get("name", ""),
             function_text=data.get("function_text", ""),
             datapoint_type=data.get("datapoint_type", ""),
+            object_size=data.get("object_size", ""),
             communication_flag=data.get("communication_flag", True),
             read_flag=data.get("read_flag", False),
             write_flag=data.get("write_flag", False),
@@ -171,16 +184,17 @@ class KnxprodProduct:
 
     @property
     def ga_min(self) -> int:
-        """Minimaler GA-Bedarf: ComObjects mit Schreib- oder Sendeobjekt."""
-        return sum(
-            1 for co in self.com_objects
+        """Minimaler GA-Bedarf: ComObjects mit Schreib- oder Sendeobjekt
+        (je Nummer einmal -- Parametervarianten zählen nicht mehrfach)."""
+        return len({
+            co.number for co in self.com_objects
             if co.communication_flag and (co.write_flag or co.transmit_flag)
-        )
+        })
 
     @property
     def ga_max(self) -> int:
-        """Maximaler GA-Bedarf: alle aktiven ComObjects."""
-        return sum(1 for co in self.com_objects if co.needs_ga)
+        """Maximaler GA-Bedarf: alle aktiven ComObjects (je Nummer einmal)."""
+        return len({co.number for co in self.com_objects if co.needs_ga})
 
     def to_catalog_dict(self) -> dict:
         """Kompatibles Format für product_catalog.json / ProductSearchService."""
@@ -606,11 +620,28 @@ class KnxprodCatalogService:
                 number = int(attrs.get("Number", 0))
             except (ValueError, TypeError):
                 number = 0
+            # ETS: Text = «Name» ("Kanal C1"), FunctionText = «Objekt-
+            # funktion» ("Dimmwert"). Bis 1.4.9 galt Text als Funktion --
+            # bei 87 % der KOs ging so die Funktion verloren. Name ist nur
+            # die interne Kennung.
+            name = attrs.get("Text") or attrs.get("Name", "")
+            internal = attrs.get("Name", "")
+            if is_placeholder_text(name) and internal and not is_placeholder_text(internal):
+                # Nur Platzhalter ohne Standardtext (Theben-Module «{{ObjName}}
+                # {{ChannelNr}} {{0}}»): dann die Kennung, falls sprechend.
+                # «{{0:Kanal A}}» (ABB) bleibt -- daraus wird «Kanal A».
+                name = internal
+            function = attrs.get("FunctionText") or ""
+            size = attrs.get("ObjectSize", "")
+            if not function or _SIZE_ONLY.fullmatch(function):
+                # «1 Byte» als Objektfunktion (Viessmann) sagt nichts
+                function = attrs.get("Text", "")
             return ComObjectInfo(
                 number=number,
-                name=attrs.get("Name", ""),
-                function_text=attrs.get("Text", attrs.get("FunctionText", "")),
-                datapoint_type=attrs.get("DatapointType", ""),
+                name=name,
+                function_text=function,
+                datapoint_type=attrs.get("DatapointType", "") or dpt_from_size(size),
+                object_size=size,
                 communication_flag=_flag(attrs, "CommunicationFlag"),
                 read_flag=_flag(attrs, "ReadFlag"),
                 write_flag=_flag(attrs, "WriteFlag"),
@@ -628,6 +659,12 @@ class KnxprodCatalogService:
                 if eid:
                     base_by_id[eid] = dict(elem.attrib)
 
+        # Deutsche Texte (Übersetzung je Id), sonst die Grundsprache
+        german = self._german_texts(root)
+
+        def _translated(attrs: dict) -> dict:
+            return {**attrs, **german.get(attrs.get("Id", ""), {})}
+
         com_objects: list[ComObjectInfo] = []
         consumed_base_ids: set[str] = set()
         seen: set[tuple] = set()
@@ -636,9 +673,13 @@ class KnxprodCatalogService:
             ref_id = ref.get("RefId", "")
             base = base_by_id.get(ref_id, {})
             consumed_base_ids.add(ref_id)
-            merged = {**base, **ref}
+            # Texte der Ref (auch übersetzt) haben Vorrang vor dem Basisobjekt
+            merged = {**_translated(base), **_translated(ref)}
             co = _build(merged)
-            key = (ref_id, *co.to_dict().values())
+            # Varianten, die sich nur in der Grösse unterscheiden, sind ein KO
+            # (Viessmann Vitogate: sieben Grössen je Objektplatz)
+            key = (ref_id, co.number, co.name, co.function_text,
+                   merged.get("DatapointType", ""), co.flags_display)
             if key in seen:
                 continue
             seen.add(key)
@@ -646,9 +687,40 @@ class KnxprodCatalogService:
 
         for base_id, base in base_by_id.items():
             if base_id not in consumed_base_ids:
-                com_objects.append(_build(base))
+                com_objects.append(_build(_translated(base)))
 
         return com_objects
+
+    # Bevorzugte Sprachen der Übersetzungen (Schweiz zuerst)
+    _GERMAN = ("de-CH", "de-DE", "de-AT", "de")
+
+    def _german_texts(self, root: ET.Element) -> dict[str, dict[str, str]]:
+        """Übersetzte Texte der ComObjects/Refs: {Id: {"Text": …,
+        "FunctionText": …}} aus <Languages><Language Identifier="de-DE">.
+        Leer, wenn die Applikation nur eine Sprache hat."""
+        by_language: dict[str, dict[str, dict[str, str]]] = {}
+        for language in root.iter():
+            if not language.tag.endswith("Language"):
+                continue
+            identifier = language.get("Identifier", "")
+            if not identifier.lower().startswith("de"):
+                continue
+            texts = by_language.setdefault(identifier, {})
+            for element in language.iter():
+                if not element.tag.endswith("TranslationElement"):
+                    continue
+                ref_id = element.get("RefId", "")
+                if "_O-" not in ref_id:
+                    continue        # nur Kommunikationsobjekte
+                for translation in element:
+                    attr = translation.get("AttributeName", "")
+                    if attr in ("Text", "FunctionText") and translation.get("Text"):
+                        texts.setdefault(ref_id, {})[attr] = translation.get("Text")
+        for identifier in self._GERMAN:
+            for found, texts in by_language.items():
+                if found.lower() == identifier.lower():
+                    return texts
+        return next(iter(by_language.values()), {})
 
     def _parse_xml(self, data: bytes) -> ET.Element:
         """Parst XML-Bytes, entfernt ggf. störende Namespaces."""

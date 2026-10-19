@@ -19,6 +19,7 @@ import re
 from dataclasses import dataclass, field
 
 from .gewerk_channel_matching import _FUNCTION_KEYWORDS, _is_feedback_co
+from .ko_size import co_bits, dpt_bits, sizes_compatible
 
 
 def circuit_key(room_id: str, gewerk_code: str, element_number: int) -> str:
@@ -160,11 +161,12 @@ def device_circuits(project, device, plan=None) -> list[Circuit]:
 
 # Zusätzliche englische/französische Stichworte zu _FUNCTION_KEYWORDS
 _EXTRA_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "E/A": ("switch", "on/off", "commutation"),
-    "RM": ("status", "feedback", "état", "etat"),
+    "E/A": ("switch", "on/off", "commutation", "ein/aus", "ein / aus"),
+    "RM": ("status", "feedback", "état", "etat", "ein/aus", "schaltzustand"),
     "DIM": ("dimming", "relative", "variation"),
-    "WERT": ("value", "brightness", "valeur"),
-    "RM WERT": ("value", "brightness"),
+    "WERT": ("value", "brightness", "valeur", "dimmwert", "helligkeitswert", "absolut"),
+    # Theben «Rückmeldung in %», MDT «Status Dimmwert», ABB «Status Helligkeit»
+    "RM WERT": ("value", "brightness", "in %", "prozent", "dimmwert", "helligkeit"),
     # Griesser JAX-9: "End position" = Auf/Ab, "Tilt" = Schritt/Stopp
     "AUF/AB": ("up/down", "move", "montée", "monter", "end position", "endlage"),
     "STOPP": ("stop", "step", "tilt", "wippen", "arrêt"),
@@ -226,6 +228,9 @@ def suggest_co(channel_cos: list, function: str, used=frozenset(), dpt: str = ""
         co_main = _dpt_key(co.data_type)[0]
         if ga_main and co_main and co_main != ga_main:
             continue
+        # Grösse muss passen: «Dimmwert» (1 Byte) nie auf «Soft schalten» (1 Bit)
+        if not sizes_compatible(co, dpt):
+            continue
         text = _norm(f"{co.object_function} {co.name}")
         compact = _compact(text)
         # Allgemeine Wörter zählen halb: "Height" schlägt "Position";
@@ -286,7 +291,16 @@ def _co_by_dpt(channel_cos: list, dpt: str, feedback: bool, used: set):
 
     candidates = [co for co in channel_cos if co.object_number not in used and fits(co)]
     preferred = [co for co in candidates if _is_feedback(co) == feedback]
-    return (preferred or candidates or [None])[0]
+    if preferred or candidates:
+        return (preferred or candidates)[0]
+    # Ohne DPT im KO (Theben: nur «1 Byte»): gleiche Grösse und Richtung
+    bits = dpt_bits(dpt)
+    if not bits:
+        return None
+    same_size = [co for co in channel_cos if co.object_number not in used
+                 and not _dpt_key(co.data_type)[0] and co_bits(co) == bits
+                 and _is_feedback(co) == feedback]
+    return same_size[0] if same_size else None
 
 
 def unneeded_functions(channel: DeviceChannel | None, circuit: Circuit,

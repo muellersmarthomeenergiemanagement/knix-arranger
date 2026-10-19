@@ -574,3 +574,101 @@ class TestProductMissingFromCatalog:
         prod = self._import("Geraet XY")["TP-1"]
         assert prod.device_type == "Sonstiges"
         assert len(prod.com_objects) == 3
+
+
+class TestObjectFunctionAndTranslation:
+    """ETS-Spalten: Text = «Name», FunctionText = «Objektfunktion» (bis 1.4.9
+    las KNiX Text als Funktion -- 87 % der KOs ohne Funktion, Theben DM 4 T
+    «Kanal C1 – Channel C1» für alle KOs)."""
+
+    _BODY = """
+        <ComObjectTable>
+          <ComObject Id="M-0001_A-0001-01_O-0" Number="0" Name="Kanal C1" Text="Channel C1"
+                     FunctionText="Switching ON/OFF" ObjectSize="1 Bit"
+                     CommunicationFlag="Enabled" WriteFlag="Enabled"/>
+          <ComObject Id="M-0001_A-0001-01_O-2" Number="2" Name="Kanal C1" Text="Channel C1"
+                     FunctionText="Dimming value" ObjectSize="1 Byte"
+                     CommunicationFlag="Enabled" WriteFlag="Enabled"/>
+          <ComObject Id="M-0001_A-0001-01_O-9" Number="9" Name="Kanal C1" Text="Channel C1"
+                     FunctionText="Status ON/OFF" ObjectSize="1 Bit"
+                     CommunicationFlag="Enabled" TransmitFlag="Enabled" ReadFlag="Enabled"/>
+        </ComObjectTable>
+        <Languages>
+          <Language Identifier="fr-FR">
+            <TranslationUnit RefId="M-0001_A-0001-01">
+              <TranslationElement RefId="M-0001_A-0001-01_O-0">
+                <Translation AttributeName="FunctionText" Text="Commutation" />
+              </TranslationElement>
+            </TranslationUnit>
+          </Language>
+          <Language Identifier="de-DE">
+            <TranslationUnit RefId="M-0001_A-0001-01">
+              <TranslationElement RefId="M-0001_A-0001-01_O-0">
+                <Translation AttributeName="Text" Text="Kanal C1" />
+                <Translation AttributeName="FunctionText" Text="Schalten EIN/AUS" />
+              </TranslationElement>
+              <TranslationElement RefId="M-0001_A-0001-01_O-9">
+                <Translation AttributeName="FunctionText" Text="Rückmeldung Ein/Aus" />
+              </TranslationElement>
+            </TranslationUnit>
+          </Language>
+        </Languages>
+    """
+
+    def _cos(self, body):
+        path = _build_knxprod(body)
+        try:
+            return {co.number: co for co in KnxprodCatalogService().import_file(path)[0].com_objects}
+        finally:
+            os.remove(path)
+
+    def test_name_function_size_and_german(self):
+        cos = self._cos(self._BODY)
+        assert (cos[0].name, cos[0].function_text) == ("Kanal C1", "Schalten EIN/AUS")
+        assert cos[9].function_text == "Rückmeldung Ein/Aus"
+        # ohne deutsche Übersetzung: Grundsprache
+        assert (cos[2].name, cos[2].function_text) == ("Channel C1", "Dimming value")
+        assert [cos[n].object_size for n in (0, 2)] == ["1 Bit", "1 Byte"]
+
+    def test_dpt_from_unique_size_only(self):
+        cos = self._cos(self._BODY)
+        assert cos[0].datapoint_type == "DPT-1"      # 1 Bit ist immer DPT 1
+        assert cos[2].datapoint_type == ""           # 1 Byte: 5, 17, 20 … offen
+
+    def test_module_placeholder_name_uses_resolved_identifier(self):
+        cos = self._cos("""
+        <ComObjectTable>
+          <ComObject Id="CO-1" Number="1" Name="RMG 4 I Kanal C1"
+                     Text="{{ObjName}}{{ChannelNr}} {{0}}" FunctionText="Schaltobjekt"
+                     CommunicationFlag="Enabled" WriteFlag="Enabled"/>
+          <ComObject Id="CO-2" Number="2" Name="Obj_Switch_A" Text="{{0:Kanal A}}: "
+                     FunctionText="Schalten" CommunicationFlag="Enabled" WriteFlag="Enabled"/>
+        </ComObjectTable>""")
+        assert cos[1].name == "RMG 4 I Kanal C1"
+        assert cos[2].name == "{{0:Kanal A}}: "      # Standardtext «Kanal A» bleibt
+
+    def test_size_only_function_text_falls_back_to_text(self):
+        cos = self._cos("""
+        <ComObjectTable>
+          <ComObject Id="CO-1" Number="1" Text="Aussentemperatur" FunctionText="2 Byte"
+                     ObjectSize="2 Bytes" CommunicationFlag="Enabled" TransmitFlag="Enabled"/>
+        </ComObjectTable>""")
+        assert cos[1].function_text == "Aussentemperatur"
+
+    def test_ga_need_counts_each_number_once(self):
+        path = _build_knxprod("""
+        <ComObjectTable>
+          <ComObject Id="CO-7" Number="7" Text="Kanal C1" FunctionText="Zwang = 1"
+                     ObjectSize="1 Bit" CommunicationFlag="Enabled" WriteFlag="Enabled"/>
+        </ComObjectTable>
+        <ComObjectRefs>
+          <ComObjectRef Id="COR-1" RefId="CO-7"/>
+          <ComObjectRef Id="COR-2" RefId="CO-7" FunctionText="Dimmwert bei Zwang" ObjectSize="1 Byte"/>
+        </ComObjectRefs>""")
+        try:
+            prod = KnxprodCatalogService().import_file(path)[0]
+            assert sorted(co.function_text for co in prod.com_objects) == [
+                "Dimmwert bei Zwang", "Zwang = 1"]           # Varianten bleiben
+            assert (prod.ga_min, prod.ga_max) == (1, 1)
+        finally:
+            os.remove(path)
