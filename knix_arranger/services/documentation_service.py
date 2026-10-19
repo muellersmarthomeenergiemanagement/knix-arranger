@@ -1207,23 +1207,35 @@ class DocumentationService:
 
     def generate_time_programs_doc(self, filepath: str):
         """Zeitsteuerungsplan: alle Wochenprogramme und Schaltzeitpunkte
-        (FA-3307b/c), auch im Revisionspaket."""
-        pdf = self._make_pdf("Zeitsteuerungsplan")
-        pdf.add_heading("Zeitsteuerungsplan", level=1)
-        pdf.add_paragraph(f"Projekt: {self.project.name}")
-        pdf.add_paragraph(f"Erstellt: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
-
+        (FA-3307b/c), auch im Revisionspaket. Aufbau wie die Berichte:
+        Deckblatt mit Bauherrschaft, Kopfzeile Projekt | Datum, je
+        Wochenprogramm ein Abschnitt mit PDF-Lesezeichen."""
+        title = "Zeitsteuerungsplan"
+        pdf = self._make_pdf(title)
+        cp = self.project.client_profile
+        if cp and cp.name:
+            pdf.set_client_profile(cp)
+        pdf.add_heading(title, level=1)
         loc = self.project.location
         pdf.add_paragraph(
+            f"Projekt: {self.project.name} | "
+            f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')} | "
             f"Standort: {loc.latitude:.4f}°N / {loc.longitude:.4f}°O "
             f"({loc.country}, {loc.region})"
         )
+        pdf.add_separator()
 
         if not self.project.time_programs:
             pdf.add_paragraph("Keine Zeitprogramme konfiguriert.")
         else:
+            pdf.add_heading("Übersicht", level=2)
+            pdf.add_table(
+                ["Wochenprogramm", "Status", "Tagesprofile", "Schaltzeitpunkte"],
+                [[tp.name, "aktiv" if tp.active else "inaktiv",
+                  str(len(tp.day_profiles)), str(tp.switch_point_count)]
+                 for tp in self.project.time_programs],
+                col_widths=[0.46, 0.14, 0.18, 0.22])
             for tp in self.project.time_programs:
-                pdf.add_separator()
                 status = "aktiv" if tp.active else "inaktiv"
                 pdf.add_heading(f"{tp.name} ({status})", level=2)
                 pdf.add_paragraph(

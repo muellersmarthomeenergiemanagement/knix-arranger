@@ -9,10 +9,17 @@ from PySide6.QtWidgets import (
     QGroupBox, QGridLayout, QFileDialog, QMessageBox, QTextEdit,
     QSizePolicy, QInputDialog, QLineEdit,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from ..styles import KNX_GREEN, KNX_DARK_GREEN
 from ..export_worker import run_export
 from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
+
+
+def open_report(path: str) -> None:
+    """Gespeicherten Bericht gleich mit dem Standardprogramm öffnen."""
+    if path and os.path.exists(path):
+        QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(path)))
 
 
 def export_worklist(parent, project, default_path: str, company_profile, worker_ref,
@@ -39,6 +46,7 @@ def export_worklist(parent, project, default_path: str, company_profile, worker_
     def on_success(worklist):
         if on_done:
             on_done(path, worklist)
+        open_report(path)
 
     run_export(parent, "ETS-Arbeitsliste wird erstellt…", do, on_success, worker_ref)
     return changed
@@ -108,7 +116,7 @@ class ReportsDialog(QDialog):
              self._gen_szenen),
             ("ETS-Parametrierung", "Je Gerät die Parameter für die zugeordneten KOs",
              self._gen_ets_parameters),
-            ("Zeitsteuerungsplan (PDF)",
+            ("Zeitsteuerungsplan",
              "Alle Wochenprogramme und Schaltzeitpunkte als druckbares Dokument",
              self._gen_time_programs),
         ]
@@ -219,10 +227,12 @@ class ReportsDialog(QDialog):
         berichte_dir = self._export_dir("Berichte")
         return os.path.join(berichte_dir, filename) if berichte_dir else filename
 
-    def _run(self, label: str, fn, log_msg: str):
-        """Wrapper: führt fn() im Hintergrund aus, loggt bei Erfolg."""
+    def _run(self, label: str, fn, log_msg: str, path: str = ""):
+        """Wrapper: führt fn() im Hintergrund aus, loggt bei Erfolg und
+        öffnet die gespeicherte Datei (path)."""
         def on_success(_result):
             self._log_msg(log_msg)
+            open_report(path)
 
         run_export(self, label, fn, on_success, self._worker_ref)
 
@@ -246,6 +256,7 @@ class ReportsDialog(QDialog):
 
         def on_success(issues):
             self._log_msg(f"Validierungsbericht erstellt: {path} ({len(issues)} Probleme)")
+            open_report(path)
 
         run_export(self, "Validierungsbericht wird erstellt…", do, on_success, self._worker_ref)
 
@@ -263,7 +274,7 @@ class ReportsDialog(QDialog):
             from ...services.report_service import ReportService
             ReportService(project, company_profile=company).generate_ga_report(path)
 
-        self._run("GA-Übersicht wird erstellt…", do, f"GA-Übersicht erstellt: {path}")
+        self._run("GA-Übersicht wird erstellt…", do, f"GA-Übersicht erstellt: {path}", path)
 
     def _gen_summary(self):
         path, _ = license_gate.get_save_file_name(
@@ -279,7 +290,7 @@ class ReportsDialog(QDialog):
             from ...services.report_service import ReportService
             ReportService(project, company_profile=company).generate_project_summary(path)
 
-        self._run("Projektzusammenfassung wird erstellt…", do, f"Projektzusammenfassung erstellt: {path}")
+        self._run("Projektzusammenfassung wird erstellt…", do, f"Projektzusammenfassung erstellt: {path}", path)
 
     def _gen_topology(self):
         path, _ = license_gate.get_save_file_name(
@@ -295,7 +306,7 @@ class ReportsDialog(QDialog):
             from ...services.report_service import ReportService
             ReportService(project, company_profile=company).generate_topology_report(path)
 
-        self._run("Topologie-Bericht wird erstellt…", do, f"Topologie-Bericht erstellt: {path}")
+        self._run("Topologie-Bericht wird erstellt…", do, f"Topologie-Bericht erstellt: {path}", path)
 
     def _gen_worklist(self):
         def done(path, worklist):
@@ -320,7 +331,7 @@ class ReportsDialog(QDialog):
             from ...services.documentation_service import DocumentationService
             DocumentationService(project, company_profile=self._company_profile).export_checklists_pdf(path)
 
-        self._run("Checklisten werden erstellt…", do, f"Checklisten erstellt: {path}")
+        self._run("Checklisten werden erstellt…", do, f"Checklisten erstellt: {path}", path)
 
     def _gen_checklists_excel(self):
         path, _ = license_gate.get_save_file_name(
@@ -336,7 +347,7 @@ class ReportsDialog(QDialog):
             from ...services.documentation_service import DocumentationService
             DocumentationService(project, company_profile=self._company_profile).export_checklists_excel(path)
 
-        self._run("Checklisten (Excel) werden erstellt…", do, f"Checklisten Excel erstellt: {path}")
+        self._run("Checklisten (Excel) werden erstellt…", do, f"Checklisten Excel erstellt: {path}", path)
 
     def _gen_acceptance(self):
         path, _ = license_gate.get_save_file_name(
@@ -352,7 +363,7 @@ class ReportsDialog(QDialog):
             from ...services.documentation_service import DocumentationService
             DocumentationService(project, company_profile=self._company_profile).export_acceptance_protocol(path)
 
-        self._run("Abnahmeprotokoll wird erstellt…", do, f"Abnahmeprotokoll erstellt: {path}")
+        self._run("Abnahmeprotokoll wird erstellt…", do, f"Abnahmeprotokoll erstellt: {path}", path)
 
     def _gen_manual(self):
         path, _ = license_gate.get_save_file_name(
@@ -368,7 +379,7 @@ class ReportsDialog(QDialog):
             from ...services.documentation_service import DocumentationService
             DocumentationService(project, company_profile=self._company_profile).generate_user_manual(path)
 
-        self._run("Bedienungsanleitung wird erstellt…", do, f"Bedienungsanleitung erstellt: {path}")
+        self._run("Bedienungsanleitung wird erstellt…", do, f"Bedienungsanleitung erstellt: {path}", path)
 
     def _edit_manual(self):
         """Anpassungen der Bedienungsanleitung für dieses Projekt (FA-2005)."""
@@ -392,7 +403,7 @@ class ReportsDialog(QDialog):
             from ...services.bauherr_form_service import BauherrFormService
             BauherrFormService(project).generate_form(path)
 
-        self._run("Bauherr-Formular wird erstellt…", do, f"Bauherr-Formular erstellt: {path}")
+        self._run("Bauherr-Formular wird erstellt…", do, f"Bauherr-Formular erstellt: {path}", path)
 
     def _gen_revision(self):
         if not license_gate.export_allowed(self):  # NFA-066
@@ -535,7 +546,7 @@ class ReportsDialog(QDialog):
             )
 
         self._run("Vertraulicher KNX-Secure-Bericht wird erstellt…", do,
-                  f"Vertraulicher KNX-Secure-Bericht erstellt: {path}")
+                  f"Vertraulicher KNX-Secure-Bericht erstellt: {path}", path)
 
     def _gen_bedienelemente(self):
         path, _ = license_gate.get_save_file_name(
@@ -551,7 +562,7 @@ class ReportsDialog(QDialog):
             from ...services.report_service import ReportService
             ReportService(project, company_profile=company).generate_bedienelemente_report(path)
 
-        self._run("Bedienelemente-Bericht wird erstellt…", do, f"Bedienelemente-Bericht erstellt: {path}")
+        self._run("Bedienelemente-Bericht wird erstellt…", do, f"Bedienelemente-Bericht erstellt: {path}", path)
 
     def _gen_aktoren_gateways(self):
         path, _ = license_gate.get_save_file_name(
@@ -568,7 +579,7 @@ class ReportsDialog(QDialog):
             ReportService(project, company_profile=company).generate_aktoren_gateway_report(path)
 
         self._run("Aktoren-und-Gateways-Bericht wird erstellt…", do,
-                  f"Aktoren-und-Gateways-Bericht erstellt: {path}")
+                  f"Aktoren-und-Gateways-Bericht erstellt: {path}", path)
 
     def _gen_szenen(self):
         path, _ = license_gate.get_save_file_name(
@@ -584,7 +595,7 @@ class ReportsDialog(QDialog):
             from ...services.report_service import ReportService
             ReportService(project, company_profile=company).generate_szenen_report(path)
 
-        self._run("Szenenreport wird erstellt…", do, f"Szenenreport erstellt: {path}")
+        self._run("Szenenreport wird erstellt…", do, f"Szenenreport erstellt: {path}", path)
 
     def _gen_ets_parameters(self):
         path, _ = license_gate.get_save_file_name(
@@ -601,7 +612,7 @@ class ReportsDialog(QDialog):
             ReportService(project, company_profile=company).generate_ets_parameters_report(path)
 
         self._run("ETS-Parametrierung wird erstellt…", do,
-                  f"ETS-Parametrierung erstellt: {path}")
+                  f"ETS-Parametrierung erstellt: {path}", path)
 
     def _gen_time_programs(self):
         """Zeitsteuerungsplan (FA-3307c)."""
@@ -618,7 +629,7 @@ class ReportsDialog(QDialog):
             from ...services.documentation_service import DocumentationService
             DocumentationService(project, company_profile=company).generate_time_programs_doc(path)
 
-        self._run("Zeitsteuerungsplan wird erstellt…", do, f"Zeitsteuerungsplan erstellt: {path}")
+        self._run("Zeitsteuerungsplan wird erstellt…", do, f"Zeitsteuerungsplan erstellt: {path}", path)
 
     def _gen_room_gewerk(self):
         path, _ = license_gate.get_save_file_name(
@@ -634,4 +645,4 @@ class ReportsDialog(QDialog):
             from ...services.report_service import ReportService
             ReportService(project, company_profile=company).generate_room_gewerk_report(path)
 
-        self._run("Raumbuch KNX wird erstellt…", do, f"Raumbuch KNX erstellt: {path}")
+        self._run("Raumbuch KNX wird erstellt…", do, f"Raumbuch KNX erstellt: {path}", path)

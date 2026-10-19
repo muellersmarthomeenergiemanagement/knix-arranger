@@ -170,3 +170,29 @@ class TestReportsDialogFlow:
         folder = tmp_path / "Revisionen" / "Rev_A"
         assert (folder / "Test_RevA_GA_Export.csv").exists()
         assert [r.number for r in project.revisions] == ["A"]
+
+    def test_time_plan_saved_in_reports_folder_and_opened(self, qapp, tmp_path):
+        """Zeitsteuerungsplan wie die Berichte: Ordner «Berichte», danach
+        geöffnet (wie jeder Bericht)."""
+        from knix_arranger.ui.dialogs import reports_dialog
+        from knix_arranger.ui.dialogs.reports_dialog import ReportsDialog
+        project, company = _complete_project()
+        project._file_path = str(tmp_path / "Test.knxarr")
+        dlg = ReportsDialog(project, company_profile=company)
+
+        def run_now(_parent, _text, do, on_success, _ref):
+            on_success(do())
+
+        def save_as(_parent, _title, default, _filter):
+            return default, ""
+
+        with patch.object(reports_dialog, "run_export", run_now), \
+             patch.object(reports_dialog.license_gate, "get_save_file_name", save_as), \
+             patch.object(reports_dialog.QDesktopServices, "openUrl") as opened:
+            dlg._gen_time_programs()
+            dlg._gen_topology()
+        plan = tmp_path / "Berichte" / f"{project.name}_Zeitsteuerungsplan.pdf"
+        assert plan.exists()
+        assert [call.args[0].toLocalFile() for call in opened.call_args_list] == [
+            str(plan).replace("\\", "/"),
+            str(tmp_path / "Berichte" / f"{project.name}_Topologie.pdf").replace("\\", "/")]

@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.50
+**Version:** 3.51
 **Datum:** 19.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -65,6 +65,7 @@
 | 3.48 | 19.10.2026 | M. Mueller / Claude AI | ETS-Parametrierung aus dem Dynamic-Abschnitt (Stufe 1): Bedingungen je KO-Variante, Anleitung im Zuordnungsdialog und als Bericht; generische Varianten entlasten die KO-Pruefung nicht mehr (FA-2304l, FA-634) |
 | 3.49 | 19.10.2026 | M. Mueller / Claude AI | Module der Herstellerdatei je Instanz (Stufe 2), Bedingungen als Alternativen, Taster-Zuordnung fuer MDT (F n, Befehle nur sendend, Rueckmeldung im Zweig des Befehls) (FA-2304m) |
 | 3.50 | 19.10.2026 | M. Mueller / Claude AI | Wetterstation: GA-Namen aus dem ETS-Namen der KOs, keine Raumtemperatur-Hinweise; FA-625 fuehrt bei von KNiX erzeugten Bezeichnungen zur Produkt-/KO-Auswahl (FA-625) |
+| 3.51 | 19.10.2026 | M. Mueller / Claude AI | Zeitsteuerungsplan im Berichtslayout; Berichte oeffnen sich nach dem Speichern (FA-3307c) |
 
 ---
 
@@ -1718,7 +1719,7 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 |----|-------------|
 | FA-3307a | Die Bauherr-Bedienungsanleitung (FA-2001) muss um einen Abschnitt "Automatische Zeitsteuerung" erweitert werden. Dieser enthaelt pro aktivem Zeitprogramm eine Tabelle: Name des Programms, Zeitpunkt, Ziel (GA-Bezeichnung, Raum, Gewerk), Aktion, Wochentage, Datumsbereich. **(C)** Umsetzung: Abschnitt im Teil Allgemeines in Alltagssprache (Zeitpunkt, Raum und Objekt, Aktion Ein/Aus/Auf/Ab/%, Tage, Zeitraum), ohne GA-Nummern; ausblendbar (FA-2005). |
 | FA-3307b | Das Revisionspaket (FA-2101) muss eine separate Datei `{Projektkuerzel}_Zeitsteuerungsplan.pdf` enthalten, die alle aktiven Zeitprogramme vollstaendig auflistet (inkl. inaktiver SwitchPoints, die als "(inaktiv)" markiert sind). **(C)** Umsetzung: Datei {Projekt}_Zeitsteuerungsplan.pdf mit Spalte Zeitraum. Schaltzeitpunkte haben kein eigenes aktiv/inaktiv; inaktive Programme sind als "(inaktiv)" markiert. |
-| FA-3307c | Der Reports-Dialog (FA-900) erhaelt einen neuen Eintrag "Zeitsteuerungsplan (PDF)" mit dem Beschreibungstext "Alle Wochenprogramme und Schaltzeitpunkte als druckbares Dokument". **(C)** Umgesetzt. |
+| FA-3307c | Der Reports-Dialog (FA-900) erhaelt einen Eintrag "Zeitsteuerungsplan" mit dem Beschreibungstext "Alle Wochenprogramme und Schaltzeitpunkte als druckbares Dokument". Gespeichert und aufgebaut wie die uebrigen Berichte: Vorschlag {Projektordner}/Berichte/{Projekt}_Zeitsteuerungsplan.pdf, Deckblatt mit Bauherrschaft, Kopfzeile Projekt / Datum / Standort, Uebersicht der Wochenprogramme, je Programm ein Abschnitt. Jeder Bericht und jedes Dokument des Dialogs oeffnet sich nach dem Speichern sofort im Standardprogramm. **(C)** Umgesetzt. |
 
 #### FA-3308 Zentralgruppen-GA-Anlage fuer Astro-Funktionen
 
