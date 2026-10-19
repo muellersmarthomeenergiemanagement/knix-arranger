@@ -6,4 +6,5 @@ PyMuPDF>=1.23.0
 cryptography>=41.0.0
 nuitka==4.2.2  # 4.3: Release-Build stuerzte beim Start ab (1.2.5), erst nach Pruefung anheben
 pyzipper>=0.3.6
+zxing-cpp>=2.3  # QR-Code der KNX-Secure-Zertifikate (Foto, Kamera)
 pywin32>=306; sys_platform == "win32"

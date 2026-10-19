@@ -442,12 +442,21 @@ class KnxSecureView(QWidget):
             "ab Werk mit dem Gerät mitgeliefert (Aufkleber/QR-Code/Zertifikatskarte). "
             "ETS6 leitet daraus einmalig die eigentlichen Laufzeitschlüssel ab -- "
             "KNiX Arranger kann diesen Wert nicht generieren, nur archivieren. "
-            "Doppelklick auf FDSK-Spalte zum Eingeben."
+            "«Zertifikate einlesen» liest QR-Code oder Aufkleber-Text; Doppelklick "
+            "auf die FDSK-Spalte zum Eingeben für ein einzelnes Gerät."
         )
         fdsk_info.setWordWrap(True)
         layout.addWidget(fdsk_info)
 
         btn_row = QHBoxLayout()
+        self._btn_certificates = QPushButton("Zertifikate einlesen (QR/Kamera)…")
+        self._btn_certificates.setToolTip(
+            "Zertifikat vom Aufkleber oder von der Secure-Karte: Text eintippen, "
+            "Foto laden oder Karten vor die Kamera halten. Das Gerät wird über "
+            "die Seriennummer gefunden.")
+        self._btn_certificates.clicked.connect(self._read_certificates)
+        btn_row.addWidget(self._btn_certificates)
+
         self._btn_refresh_compat = QPushButton("Kompatibilität prüfen")
         self._btn_refresh_compat.setToolTip(
             "Aktualisiert Secure-Flags anhand der Topologie-Gerätedaten"
@@ -523,7 +532,8 @@ class KnxSecureView(QWidget):
             return
         if not self._ensure_unlocked():
             return
-        infos = list(self._project.knx_secure.device_infos.values())
+        # Dieselbe Reihenfolge wie die Tabelle (sortiert)
+        infos = sorted_device_infos(self._project.knx_secure)
         if row >= len(infos):
             return
         info = infos[row]
@@ -531,21 +541,49 @@ class KnxSecureView(QWidget):
         text, ok = QInputDialog.getText(
             self,
             f"FDSK eingeben – {info.device_name}",
-            "FDSK (32 Hex-Zeichen, vom Zertifikat / QR-Code):",
+            "Zertifikat vom Aufkleber (36 Zeichen, z.B. ADCQCC-EKHG54-…)\n"
+            "oder FDSK (32 Hex-Zeichen):",
             QLineEdit.Normal,
             current,
         )
         if not ok:
             return
-        text = text.strip().upper().replace(" ", "").replace("-", "")
-        if text and not is_valid_knx_key(text):
+        if not text.strip():
+            info.fdsk = ""
+            self._populate_devices_tab(self._project.knx_secure)
+            return
+        from ...services.knx_secure_certificate import parse_certificate
+        cert = parse_certificate(text)
+        if cert is None:
             QMessageBox.warning(
-                self, "Ungültiger FDSK",
-                "Der FDSK muss genau 32 Hex-Zeichen enthalten (0–9, A–F)."
+                self, "Ungültiges Zertifikat",
+                "Erwartet wird der Text vom Aufkleber (36 Zeichen, Bindestriche "
+                "erlaubt) oder der FDSK mit genau 32 Hex-Zeichen (0–9, A–F)."
             )
             return
-        info.fdsk = text
+        device = next((d for a in self._project.topology.areas for l in a.lines
+                       for d in l.devices if d.id == info.device_id), None)
+        if cert.serial and device is not None:
+            if device.serial_number and device.serial_number.upper() != cert.serial:
+                QMessageBox.warning(
+                    self, "Anderes Gerät",
+                    f"Das Zertifikat gehört zur Seriennummer {cert.serial}, dieses "
+                    f"Gerät hat {device.serial_number}. Nicht übernommen.")
+                return
+            device.serial_number = device.serial_number or cert.serial
+        info.fdsk = cert.fdsk
         self._populate_devices_tab(self._project.knx_secure)
+
+    def _read_certificates(self):
+        """Zertifikate per QR-Code (Foto, Kamera) oder Aufkleber-Text einlesen."""
+        if not self._ensure_unlocked():
+            return
+        from ..dialogs.secure_certificate_dialog import SecureCertificateDialog
+        self._service.update_device_compatibility(self._project.knx_secure, self._project)
+        dialog = SecureCertificateDialog(self._project, self)
+        if dialog.exec() and dialog.applied:
+            self._project.knx_secure.enabled = True
+            self.refresh()
 
     def _refresh_compatibility(self):
         self._service.update_device_compatibility(

@@ -78,6 +78,19 @@ def _check_excel() -> None:
     openpyxl.Workbook()
 
 
+def _check_qr() -> None:
+    """QR-Erkennung der Secure-Zertifikate (zxing-cpp) und Kamera-Modul:
+    beides wird erst im Dialog «Zertifikate einlesen» geladen."""
+    from PySide6.QtGui import QImage
+    from PySide6.QtMultimedia import QMediaDevices  # noqa: F401
+    from PySide6.QtMultimediaWidgets import QVideoWidget  # noqa: F401
+    from ..services.knx_secure_certificate import read_qr_texts
+    image = QImage(64, 64, QImage.Format_Grayscale8)
+    image.fill(255)
+    if read_qr_texts(image):
+        raise RuntimeError("QR-Code in leerem Bild erkannt")
+
+
 def _check_main_window() -> None:
     """Hauptfenster aufbauen (ohne Anzeigen und ohne Startdialoge): 1.2.5
     stürzte mit Nuitka 4.3 schon dabei ab (Segmentation Fault), der übrige
@@ -97,6 +110,7 @@ CHECKS = [
     ("PDF-Erzeugung", _check_pdf),
     ("Kryptografie", _check_crypto),
     ("Excel", _check_excel),
+    ("QR-Code und Kamera", _check_qr),
     ("Hauptfenster", _check_main_window),
 ]
 

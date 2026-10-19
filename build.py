@@ -111,7 +111,8 @@ def build():
         "--assume-yes-for-downloads",
         "--msvc=latest",
         "--enable-plugin=pyside6",
-        "--include-qt-plugins=sensible,iconengines,imageformats",
+        # multimedia: Kamera für den QR-Code der Secure-Zertifikate
+        "--include-qt-plugins=sensible,iconengines,imageformats,multimedia",
         "--windows-console-mode=disable",      # Kein Konsolenfenster
         f"--windows-icon-from-ico={ICO_PATH}",
         f"--output-dir={BUILD_DIR}",

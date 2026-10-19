@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.52
+**Version:** 3.53
 **Datum:** 19.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -67,6 +67,7 @@
 | 3.50 | 19.10.2026 | M. Mueller / Claude AI | Wetterstation: GA-Namen aus dem ETS-Namen der KOs, keine Raumtemperatur-Hinweise; FA-625 fuehrt bei von KNiX erzeugten Bezeichnungen zur Produkt-/KO-Auswahl (FA-625) |
 | 3.51 | 19.10.2026 | M. Mueller / Claude AI | Zeitsteuerungsplan im Berichtslayout; Berichte oeffnen sich nach dem Speichern (FA-3307c) |
 | 3.52 | 19.10.2026 | M. Mueller / Claude AI | Theben MIX: Bedingungen je Grundmodul, feste unsichtbare Parameter (FA-2304n); Projektdatei komprimiert (NFA-044) |
+| 3.53 | 19.10.2026 | M. Mueller / Claude AI | KNX-Secure-Zertifikate per QR-Code (Foto, Kamera) oder Aufkleber-Text einlesen, Zuordnung ueber die Seriennummer (FA-2704b) |
 
 ---
 
@@ -1455,6 +1456,7 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 |----|-------------|
 | FA-2703 | Das System muss fuer jede Gruppenadresse die Secure-Konfiguration (Feld "Security" gemaess FA-802) mit den Werten Auto / Ein / Aus verwalten koennen. Bei aktiviertem KNX Secure muss das System automatisch alle sicherheitsrelevanten Gruppenadressen (Schalten, Szenen, Zentralfunktionen) als "Ein" vorschlagen. **(C)** |
 | FA-2704 | Das System muss eine Secure-Geraetekompatibilitaetsliste fuehren: Fuer jedes Geraet im Projekt wird auf Basis der KNXPROD-Daten (FA-2304) angezeigt, ob es KNX Secure unterstuetzt. Nicht-Secure-faehige Geraete werden in der Topologie-Ansicht farblich markiert. **(C)** |
+| FA-2704b | Zertifikate einlesen: Der Dialog «Zertifikate einlesen (QR/Kamera)» im Reiter Geraete nimmt das Geraetezertifikat als Text vom Aufkleber (36 Zeichen Base32 in Sechsergruppen, auch mehrere eingefuegt), als QR-Code aus einem Foto (alle Codes im Bild) oder live von der Kamera entgegen (QR-Code = Aufkleber-Text ohne Bindestriche). Inhalt: Seriennummer (6 Byte), FDSK (16 Byte), 4 Bit Pruefsumme (noch nicht bestimmt, nicht geprueft). Das Geraet wird ueber die Seriennummer gefunden (ETS-Import); geplante Geraete ohne Seriennummer waehlt man, sie uebernehmen die Seriennummer des Zertifikats. Bereits erfasste FDSK bleiben; ein abweichender wird nur auf ausdruecklichen Wunsch ersetzt. Ein Geraet mit Zertifikat gilt als Secure-faehig. Die Einzeleingabe per Doppelklick nimmt den Aufkleber-Text oder 32 Hex-Zeichen und prueft die Seriennummer. QR-Erkennung mit zxing-cpp, Kamera ueber Qt Multimedia. **(S)** |
 | FA-2705 | Das System muss eine Secure-Kompatibilitaetspruefung durchfuehren und warnen, wenn eine Linie gemischte Geraete enthaelt (Secure und Non-Secure), da dies die Sicherheit der gesamten Linie kompromittiert. Die Warnung benennt die betroffenen Geraete konkret. **(C)** |
 | FA-2706 | Schluesselinformationen muessen im Projektformat (.knxarr) verschluesselt gespeichert werden (AES-128 oder gleichwertig). Die Einbettung in den KNXPROJ-Export (FA-2400) ist mit diesem entfallen. Bringt ein ETS-Import Geraete-Zertifikate (FDSK) oder das Projektpasswort mit und ist kein Master-Passwort gesetzt, muss das System eines verlangen, sonst werden sie nicht uebernommen. Enthaelt ein geoeffnetes Projekt solche Werte unverschluesselt, muss es darauf hinweisen. Beim Speichern muessen ueberschriebene Staende aus der Projektdatei entfernt werden (kein Klartext im freien Speicher der Datei). **(C)** |
 
