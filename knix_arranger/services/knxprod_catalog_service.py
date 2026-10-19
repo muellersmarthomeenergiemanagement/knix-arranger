@@ -35,8 +35,9 @@ logger = logging.getLogger("knix_arranger.knxprod_catalog")
 # ergibt. Ältere Einträge im Produktordner-Index gelten als neu einzulesen
 # (product_folder.pending_files). 2: Name/Objektfunktion richtig, deutsche
 # Übersetzung, Grösse (1.4.10); 3: Parameterbedingungen je KO-Variante
-# aus dem Dynamic-Abschnitt (ETS-Parametrier-Anleitung)
-READER_VERSION = 3
+# aus dem Dynamic-Abschnitt (ETS-Parametrier-Anleitung); 4: Module je Instanz
+# (MDT, Theben MIX), Bedingungen als Alternativen
+READER_VERSION = 4
 
 # Objektfunktion, die nur die Grösse nennt ("1 bit", "4 Byte")
 _SIZE_ONLY = re.compile(r"\s*\d+\s*(bit|bits|byte|bytes)\s*", re.IGNORECASE)
@@ -64,20 +65,156 @@ def is_placeholder_text(text: str) -> bool:
     return bool(_PLACEHOLDER_ONLY.fullmatch(text or ""))
 
 
-def merge_conditions(*chains: list) -> list:
-    """Bedingungen einer Variante, die an mehreren Stellen vorkommt: alle
-    Parameter mit nur einem Wert; ein Parameter mit verschiedenen Werten an
-    verschiedenen Stellen entscheidet nicht über die Variante und entfällt.
-    Reihenfolge der ersten Nennung."""
-    values: dict[str, set] = {}
-    order: list = []
+_ARGUMENT_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+
+
+def _argument_substitution(values: dict[str, str]):
+    """Setzt Argumente einer Modul-Instanz in Texte ein: «F{{ChNo}}: {{0}}»
+    mit ChNo=2 -> «F2: {{0}}» ({{0}} = Textparameter, bleibt)."""
+    def subst(text: str) -> str:
+        return _ARGUMENT_RE.sub(lambda m: values.get(m.group(1), m.group(0)), text or "")
+    return subst
+
+
+_MAX_ALTERNATIVES = 6
+
+
+def condition_alternatives(conditions: list) -> list[list]:
+    """Bedingungen einer Variante als Alternativen (jede eine Liste von
+    [Parameter, Test], die alle gelten müssen). Ältere Daten (READER 3 vor
+    Stufe 2) führten eine einzige flache Liste."""
+    if not conditions:
+        return []
+    return conditions if _is_alternatives(conditions) else [conditions]
+
+
+def _is_alternatives(conditions: list) -> bool:
+    """Liste von Alternativen (Listen von Paaren) statt einer flachen Kette
+    von Paaren [Parameter, Test]; eine leere Alternative = immer aktiv."""
+    return all(isinstance(alt, list) and (not alt or not isinstance(alt[0], str))
+               for alt in conditions)
+
+
+def reduce_alternatives(chains: list, canon=None) -> list[list]:
+    """Fundstellen einer Variante zu Alternativen zusammenfassen: gleiche
+    entfallen; zwei, die sich nur im Wert EINES Parameters unterscheiden,
+    werden eine ohne diesen Parameter (Feller: dieselbe Taste unter
+    «Szenenfunktion = lokal» und «= dezentral» -> die Szenenfunktion
+    entscheidet nicht). Andere bleiben getrennt (MDT: «Schalten» unter
+    «Einzel-Tastenfunktion = Schalten, Unterfunktion = Schalten» ODER «=
+    Werte senden, Unterfunktion (Werte) = Werte senden, DPT 1.001») -- sonst
+    entstünde eine Mischung, die es in der ETS nicht gibt. Höchstens
+    _MAX_ALTERNATIVES, die kürzesten.
+
+    canon(param, test) -> (Parameter-Sicht, Wert-Sicht): verglichen wird, was
+    die ETS zeigt (Seite, Name, Wert als Text) -- Feller führt «Funktion
+    Taste» je Szenen-Zweig als eigenen Parameter mit gleichem Namen."""
+    canon = canon or (lambda param, test: (param, test))
+    alternatives: list[dict] = []      # Sicht -> (Parameter, Test, Wert-Sicht)
     for chain in chains:
+        conds = {}
         for ref, test in chain:
-            if ref not in values:
-                values[ref] = set()
-                order.append((ref, test))
-            values[ref].add(test)
-    return [[ref, test] for ref, test in order if len(values[ref]) == 1]
+            view, value = canon(ref, test)
+            conds.setdefault(view, (ref, test, value))
+        if not any(_same_values(conds, other) for other in alternatives):
+            alternatives.append(conds)
+    changed = True
+    while changed and len(alternatives) > 1:
+        changed = False
+        for i, a in enumerate(alternatives):
+            for b in alternatives[i + 1:]:
+                if a.keys() != b.keys():
+                    continue
+                differing = [k for k in a if a[k][2] != b[k][2]]
+                if len(differing) == 1:
+                    merged = {k: v for k, v in a.items() if k != differing[0]}
+                    alternatives = [x for x in alternatives if x is not a and x is not b]
+                    if not any(_same_values(merged, other) for other in alternatives):
+                        alternatives.append(merged)
+                    changed = True
+                    break
+            if changed:
+                break
+    alternatives.sort(key=len)
+    return [[[ref, test] for ref, test, _value in alt.values()]
+            for alt in alternatives[:_MAX_ALTERNATIVES]]
+
+
+def _same_values(a: dict, b: dict) -> bool:
+    return a.keys() == b.keys() and all(a[k][2] == b[k][2] for k in a)
+
+
+def merge_conditions(*chains: list, canon=None) -> list:
+    """Bedingungen mehrerer Fundstellen zusammenführen (Alternativen, siehe
+    reduce_alternatives); nimmt flache Ketten und Alternativen-Listen."""
+    flat = []
+    for chain in chains:
+        if chain and _is_alternatives(chain):
+            flat.extend(chain)          # bereits Alternativen
+        else:
+            flat.append(chain)
+    return reduce_alternatives(flat, canon)
+
+
+_NOT_ALNUM = re.compile(r"[^a-z0-9]")
+_TEST_OPERATOR = re.compile(r"^\s*(!=|<=|>=|<|>|=)\s*(-?\d+(?:\.\d+)?)\s*$")
+
+
+def when_matches(test: str, value: str) -> bool:
+    """Erfüllt der Parameterwert die Bedingung einer when-Klausel? «3»,
+    «1 2 3» (einer davon), «!=0», «>2» …"""
+    found = _TEST_OPERATOR.match(test or "")
+    if found:
+        try:
+            left, right = float(value), float(found.group(2))
+        except ValueError:
+            return False
+        return {"!=": left != right, "<=": left <= right, ">=": left >= right,
+                "<": left < right, ">": left > right, "=": left == right}[found.group(1)]
+    return value in (test or "").split()
+
+
+def product_fixed_values(parameters: dict, product_name: str, order_number: str = "") -> dict:
+    """Parameter, deren Wert das Gerät selbst festlegt: genau ein Wert
+    heisst wie das Gerät (Theben MIX «Art des Grundmoduls» = «HMG 6 T..»
+    beim HMG 6 T). {Parameter-Id: Wert}."""
+    names = {_NOT_ALNUM.sub("", t.lower()) for t in (product_name, order_number) if t}
+    names = {n for n in names if len(n) >= 4}
+    fixed = {}
+    for param, (_block, _label, values, visible) in parameters.items():
+        if not visible or "|" in param:
+            continue
+        matches = []
+        for value, text in values.items():
+            norm = _NOT_ALNUM.sub("", (text or "").lower())
+            if norm and any(norm == n or (len(norm) > len(n) and norm.startswith(n))
+                            for n in names):
+                matches.append(value)
+        if len(matches) == 1:
+            fixed[param] = matches[0]
+    return fixed
+
+
+def restrict_to_product(com_objects: list, parameters: dict, product_name: str,
+                        order_number: str = "") -> list:
+    """Nur die KO-Varianten, die bei den vom Gerät festgelegten Parametern
+    (product_fixed_values) bestehen; diese Parameter fallen aus den
+    Bedingungen (keine Anweisung nötig). Varianten ohne Bedingungen bleiben."""
+    import dataclasses
+    fixed = product_fixed_values(parameters, product_name, order_number)
+    if not fixed:
+        return com_objects
+    result = []
+    for co in com_objects:
+        alternatives = condition_alternatives(co.conditions)
+        if not alternatives:
+            result.append(co)
+            continue
+        kept = [[[p, t] for p, t in alt if p not in fixed] for alt in alternatives
+                if all(when_matches(t, fixed[p]) for p, t in alt if p in fixed)]
+        if kept:
+            result.append(dataclasses.replace(co, conditions=kept))
+    return result
 
 
 def unique_com_objects(com_objects: list[dict]) -> list[dict]:
@@ -334,6 +471,13 @@ class KnxprodCatalogService:
                 # fremder Produkte zuordnen (z.B. Sammel-Produktdatenbanken).
                 if not com_objects and len(app_comobjects) == 1:
                     com_objects = next(iter(app_comobjects.values()))
+                # Eine Applikation für mehrere Geräte (Theben MIX: «Art des
+                # Grundmoduls» = RMG 8 S, HMG 6 T …): nur die KOs dieses Geräts
+                parameters = self._app_parameters.get(app_id) or (
+                    next(iter(self._app_parameters.values()))
+                    if len(app_comobjects) == 1 and self._app_parameters else {})
+                com_objects = restrict_to_product(
+                    com_objects, parameters, full_name or order_number, order_number)
 
                 # Gerätetyp und Kanäle aus Name und KOs (product_classifier).
                 # Die Kategorie der Herstellerdatei (ApplicationArea) behält
@@ -361,9 +505,7 @@ class KnxprodCatalogService:
                     actor_type=device_type if category == "actor" else "",
                     sensor_type=device_type if category == "sensor" else "",
                     com_objects=com_objects,
-                    parameters=self._app_parameters.get(app_id) or (
-                        next(iter(self._app_parameters.values()))
-                        if len(app_comobjects) == 1 and self._app_parameters else {}),
+                    parameters=parameters,
                     secure_supported=(
                         hw.get("secure_supported", False) or app_id in secure_app_ids
                     ),
@@ -685,17 +827,26 @@ class KnxprodCatalogService:
 
         base_by_id: dict[str, dict] = {}
         refs: list[dict] = []
+        module_refs: list[dict] = []          # ComObjectRefs in Bausteinen (_MD-)
+        param_ref_target: dict[str, str] = {}
+        param_value: dict[str, str] = {}
         for elem in root.iter():
-            if elem.tag.endswith("ComObjectRef"):
-                refs.append(dict(elem.attrib))
-            elif elem.tag.endswith("ComObject"):
+            tag = self._local(elem.tag)
+            if tag == "ComObjectRef":
+                (module_refs if "_MD-" in elem.get("Id", "") else refs).append(dict(elem.attrib))
+            elif tag == "ComObject":
                 eid = elem.get("Id", "")
                 if eid:
                     base_by_id[eid] = dict(elem.attrib)
+            elif tag == "ParameterRef":
+                param_ref_target[elem.get("Id", "")] = elem.get("RefId", "")
+            elif tag == "Parameter":
+                param_value[elem.get("Id", "")] = elem.get("Value", "")
 
         # Deutsche Texte (Übersetzung je Id), sonst die Grundsprache
         german = self._german_texts(root)
-        # Parameterbedingungen je ComObjectRef (Dynamic-Abschnitt)
+        # Parameterbedingungen je (Geltungsbereich, ComObjectRef) und die
+        # Modul-Instanzen (Dynamic-Abschnitt)
         conditions, self._last_parameters = self._dynamic_conditions(root)
 
         def _translated(attrs: dict) -> dict:
@@ -705,32 +856,84 @@ class KnxprodCatalogService:
         consumed_base_ids: set[str] = set()
         seen: dict[tuple, ComObjectInfo] = {}
 
+        def add(co: ComObjectInfo, key: tuple) -> None:
+            if key in seen:
+                # Gleiche Variante an anderer Stelle: es gelten nur die
+                # Bedingungen, die beide Stellen teilen
+                kept = seen[key]
+                kept.conditions = merge_conditions(kept.conditions, co.conditions,
+                                                   canon=self._last_canon)
+                return
+            seen[key] = co
+            com_objects.append(co)
+
         for ref in refs:
             ref_id = ref.get("RefId", "")
             base = base_by_id.get(ref_id, {})
             consumed_base_ids.add(ref_id)
             # Texte der Ref (auch übersetzt) haben Vorrang vor dem Basisobjekt
             merged = {**_translated(base), **_translated(ref)}
+            if "{{" in merged.get("Text", "") and merged.get("TextParameterRefId"):
+                # «Logik 1 {{0}}»: {{0}} = Textparameter, dessen Vorgabe
+                default = param_value.get(param_ref_target.get(
+                    merged["TextParameterRefId"], ""), "")
+                merged["Text"] = " ".join(_PLACEHOLDER_RE.sub(
+                    lambda m: default or (m.group(1) or ""), merged["Text"]).split()).rstrip(" :")
             co = _build(merged)
-            co.conditions = conditions.get(ref.get("Id", ""), [])
+            co.conditions = conditions.get(("", ref.get("Id", "")), [])
             # Varianten, die sich nur in der Grösse unterscheiden, sind ein KO
             # (Viessmann Vitogate: sieben Grössen je Objektplatz)
-            key = (ref_id, co.number, co.name, co.function_text,
-                   merged.get("DatapointType", ""), co.flags_display)
-            if key in seen:
-                # Gleiche Variante an anderer Stelle: es gelten nur die
-                # Bedingungen, die beide Stellen teilen
-                kept = seen[key]
-                kept.conditions = merge_conditions(kept.conditions, co.conditions)
-                continue
-            seen[key] = co
-            com_objects.append(co)
+            add(co, (ref_id, co.number, co.name, co.function_text,
+                     merged.get("DatapointType", ""), co.flags_display))
+
+        # Bausteine (Stufe 2): je Instanz die KOs, die ihr Dynamic-Abschnitt
+        # nennt -- Nummer = Basis-Argument + relative Nummer, Texte mit den
+        # Argumenten («F{{ChNo}}: {{0}}» -> «F2: …»)
+        by_module: dict[str, list[dict]] = {}
+        for ref in module_refs:
+            by_module.setdefault(ref.get("Id", "").split("_O-")[0], []).append(ref)
+        argument_names = {a.get("Id", ""): a.get("Name", "") for a in root.iter()
+                          if self._local(a.tag) == "Argument"} if self._last_instances else {}
+        for instance, module_id, values in self._last_instances:
+            subst = _argument_substitution(values)
+            args = argument_names
+            for ref in by_module.get(module_id, []):
+                key = (instance, ref.get("Id", ""))
+                if key not in conditions:
+                    continue        # in dieser Instanz nie aktiv
+                base = base_by_id.get(ref.get("RefId", ""), {})
+                merged = {**_translated(base), **_translated(ref)}
+                default = param_value.get(param_ref_target.get(
+                    merged.get("TextParameterRefId", ""), ""), "")
+                for attr in ("Text", "FunctionText", "Name"):
+                    if merged.get(attr):
+                        text = subst(merged[attr])
+                        # {{0}} = Textparameter: dessen Vorgabe, sonst Standardtext
+                        text = _PLACEHOLDER_RE.sub(lambda m: default or (m.group(1) or ""),
+                                                   text)
+                        # «F2: » mit leerem Textparameter -> «F2»
+                        merged[attr] = " ".join(text.split()).rstrip(" :")
+                try:
+                    offset = int(values.get(args.get(base.get("BaseNumber", ""), ""), 0) or 0)
+                except ValueError:
+                    offset = 0
+                co = _build(merged)
+                co.number += offset
+                co.conditions = conditions[key]
+                add(co, (instance, ref.get("RefId", ""), co.number, co.name,
+                         co.function_text, merged.get("DatapointType", ""), co.flags_display))
+            for base_id in base_by_id:
+                if base_id.startswith(module_id + "_"):
+                    consumed_base_ids.add(base_id)
 
         for base_id, base in base_by_id.items():
-            if base_id not in consumed_base_ids:
+            if base_id not in consumed_base_ids and "_MD-" not in base_id:
                 com_objects.append(_build(_translated(base)))
 
         return com_objects
+
+    _last_instances: list = []
+    _last_canon = None
 
     _last_parameters: dict = {}
 
@@ -750,6 +953,8 @@ class KnxprodCatalogService:
         zeigt («Taste 1, links»); unsichtbare Parameter stehen in keinem Block.
         Module (ModuleDef, Stufe 2) werden nicht aufgelöst."""
         local = self._local
+        self._last_instances = []
+        self._last_canon = None
         program = next((el for el in root.iter() if local(el.tag) == "ApplicationProgram"),
                        None)
         dynamic = next((el for el in (program if program is not None else [])
@@ -762,32 +967,61 @@ class KnxprodCatalogService:
             return ((german.get(el.get("Id", "")) or {}).get("Text")
                     or el.get("Text") or "")
 
-        chains: dict[str, list] = {}
-        placed: dict[str, str] = {}
+        # Bausteine (ModuleDef, z.B. MDT «ModuleDefOneButton»): Argumente
+        # (Id -> Name) und eigener Dynamic-Abschnitt
+        module_defs: dict[str, tuple[dict, ET.Element | None]] = {}
+        for el in program.iter():
+            if local(el.tag) == "ModuleDef":
+                args = {a.get("Id", ""): a.get("Name", "") for a in el.iter()
+                        if local(a.tag) == "Argument"}
+                own_dynamic = next((c for c in el if local(c.tag) == "Dynamic"), None)
+                module_defs[el.get("Id", "")] = (args, own_dynamic)
 
-        def walk(el, conds, block, choose_param=None):
+        # Bedingungen je (Geltungsbereich, ComObjectRef-Id); Geltungsbereich ""
+        # = Applikation, sonst die Modul-Instanz («…_MD-1_M-2»). Parameter
+        # eines Bausteins gelten je Instanz: ihre Kennung wird «Instanz|Id»
+        chains: dict[tuple, list] = {}
+        placed: dict[str, str] = {}
+        self._last_instances = []
+
+        def walk(el, conds, block, choose_param=None, scope="", subst=None):
             tag = local(el.tag)
+
+            def scoped(ref_id: str) -> str:
+                return f"{scope}|{ref_id}" if scope and "_MD-" in ref_id else ref_id
+
             if tag in ("ParameterBlock", "Channel"):
-                block = text_of(el) or el.get("Name", "") or block
+                text = text_of(el) or el.get("Name", "")
+                block = clean_co_text(subst(text) if subst else text).rstrip(" :") or block
             elif tag == "ParameterRefRef":
-                placed.setdefault(el.get("RefId", ""), block)
+                placed.setdefault(scoped(el.get("RefId", "")), block)
                 return
             elif tag == "ComObjectRefRef":
-                chains.setdefault(el.get("RefId", ""), []).append(list(conds))
+                chains.setdefault((scope, el.get("RefId", "")), []).append(list(conds))
                 return
             elif tag == "choose":
                 for child in el:
-                    walk(child, conds, block, el.get("ParamRefId", ""))
+                    walk(child, conds, block, scoped(el.get("ParamRefId", "")), scope, subst)
                 return
             elif tag == "when":
                 test = el.get("test")
                 new = conds + [(choose_param, test)] if test is not None and choose_param \
                     else conds
                 for child in el:
-                    walk(child, new, block)
+                    walk(child, new, block, None, scope, subst)
+                return
+            elif tag == "Module" and el.get("RefId") in module_defs:
+                args, own_dynamic = module_defs[el.get("RefId")]
+                values = {args.get(a.get("RefId", ""), ""): a.get("Value", "")
+                          for a in el if local(a.tag) in ("NumericArg", "TextArg")}
+                instance = el.get("Id", "")
+                self._last_instances.append((instance, el.get("RefId"), values))
+                if own_dynamic is not None:
+                    module_subst = _argument_substitution(values)
+                    walk(own_dynamic, conds, block, None, instance, module_subst)
                 return
             for child in el:
-                walk(child, conds, block, choose_param)
+                walk(child, conds, block, choose_param, scope, subst)
 
         walk(dynamic, [], "")
         params, param_refs, type_values = {}, {}, {}
@@ -805,34 +1039,61 @@ class KnxprodCatalogService:
                 if values:
                     type_values[el.get("Id", "")] = values
         # Bedingungen über den Parameter selbst: mehrere ParameterRefs zeigen
-        # auf denselben Parameter (Feller «Anzahl Tasten» = 2 bzw. 4)
-        def parameter_of(ref_id: str) -> str:
-            ref = param_refs.get(ref_id)
-            return ref.get("RefId", ref_id) if ref is not None else ref_id
+        # auf denselben Parameter (Feller «Anzahl Tasten» = 2 bzw. 4); in
+        # Bausteinen je Instanz («Instanz|Parameter-Id»)
+        def split(scoped_id: str) -> tuple[str, str]:
+            scope, _sep, raw = scoped_id.rpartition("|")
+            return scope, raw
+
+        def parameter_of(scoped_ref: str) -> str:
+            scope, raw = split(scoped_ref)
+            ref = param_refs.get(raw)
+            param = ref.get("RefId", raw) if ref is not None else raw
+            return f"{scope}|{param}" if scope else param
 
         refs_of: dict[str, list[str]] = {}
         for ref_id, ref in param_refs.items():
             refs_of.setdefault(ref.get("RefId", ""), []).append(ref_id)
-        result: dict[str, list] = {}
-        for ref_id, found in chains.items():
-            converted = [[(parameter_of(ref), test) for ref, test in chain] for chain in found]
-            # Dieselbe Variante an mehreren Stellen (z.B. unter «Szenenfunktion
-            # = lokal» und «= dezentral»): die Szenenfunktion entscheidet nicht
-            result[ref_id] = merge_conditions(*converted)
-        used = {param for chain in result.values() for param, _test in chain}
+        substs = {instance: _argument_substitution(values)
+                  for instance, _md, values in self._last_instances}
+        converted_by_key = {
+            key: [[(parameter_of(ref), test) for ref, test in chain] for chain in found]
+            for key, found in chains.items()}
+        used = {param for found in converted_by_key.values() for chain in found
+                for param, _test in chain}
         table = {}
         for param_id in used:
-            par = params.get(param_id)
-            own_refs = refs_of.get(param_id, [])
-            ref = next((param_refs[r] for r in own_refs if text_of(param_refs[r])), None)
+            scope, raw = split(param_id)
+            subst = substs.get(scope)
+            par = params.get(raw)
+            own_refs = [f"{scope}|{r}" if scope else r for r in refs_of.get(raw, [])]
+            ref = next((param_refs[split(r)[1]] for r in own_refs
+                        if text_of(param_refs[split(r)[1]])), None)
             name = (text_of(ref) if ref is not None else "") \
                 or (text_of(par) if par is not None else "") \
                 or (par.get("Name", "") if par is not None else "")
+            if subst:
+                name = clean_co_text(subst(name))
             values = type_values.get(par.get("ParameterType", ""), {}) if par is not None else {}
             block = next((placed[r] for r in own_refs if r in placed), "")
             table[param_id] = [block, " ".join(name.split()).rstrip(" :"), values,
                                any(r in placed for r in own_refs)]
-        return result, table
+
+        # Dieselbe Variante an mehreren Stellen (z.B. unter «Szenenfunktion
+        # = lokal» und «= dezentral»): verglichen wird, was die ETS zeigt
+        def canon(param: str, test: str) -> tuple:
+            info = table.get(param)
+            if not info:
+                return param, test
+            block, label, values, _visible = info
+            return (block, label), values.get(test, test)
+
+        self._last_canon = canon
+        result = {key: merge_conditions(*found, canon=canon)
+                  for key, found in converted_by_key.items()}
+        used = {param for alternatives in result.values() for alt in alternatives
+                for param, _test in alt}
+        return result, {param: info for param, info in table.items() if param in used}
 
     def _german_all_texts(self, root: ET.Element) -> dict[str, dict[str, str]]:
         """Deutsche Texte aller Elemente ({Id: {Attribut: Text}}), für

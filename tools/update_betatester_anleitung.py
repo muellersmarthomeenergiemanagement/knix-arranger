@@ -954,7 +954,9 @@ def build_document() -> Document:
                     "Bedienphilosophie Taste 1: 2x 1-Tastenbedienung», «Taste 1, links › "
                     "Funktion Taste: Dimmen». Für alle Geräte: Berichte › «ETS-"
                     "Parametrierung» (PDF). Widersprüche (zwei Werte für denselben "
-                    "Parameter) sind markiert.")
+                    "Parameter) sind markiert. Das gilt auch für Geräte mit "
+                    "Funktionsbausteinen wie die MDT-Glastaster («F2 › Einzel-"
+                    "Tastenfunktion: Schalten»).")
     add_bullet(doc, "Die Validierung meldet KOs, die nicht zur GA passen (Eingangs-KO für "
                     "eine Rückmeldung, andere Grösse), und nennt den passenden KO. "
                     "Doppelklick auf die Meldung öffnet «Kanäle und KOs zuordnen» genau an "

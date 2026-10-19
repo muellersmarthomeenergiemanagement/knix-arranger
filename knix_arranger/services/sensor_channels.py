@@ -327,7 +327,8 @@ def _channel_cos(cos: list, channel: str) -> list:
     rocker = _KEY_CHANNEL.match(channel or "") and _is_rocker_product(cos)
     product_key = (n + 1) // 2 if rocker else n
     pattern = re.compile(
-        rf"\b(?:taste|kanal|button|channel|wippe|rocker|t|k|p|ch)\s*{product_key}\b",
+        # «F1» = MDT-Glastaster (Funktion 1, aus den aufgelösten Modulen)
+        rf"\b(?:taste|kanal|button|channel|wippe|rocker|t|k|p|ch|f)\s*{product_key}\b",
         re.IGNORECASE)
     own = [co for co in cos if pattern.search(f"{co.name} {co.object_function}")]
     if rocker:
@@ -417,6 +418,9 @@ _SEND_KEYWORDS = {
 }
 
 
+_SPECIAL_PRESS = re.compile(r"doppelklick|double[\s-]*click", re.IGNORECASE)
+
+
 def _sends(co) -> bool:
     from .ko_links import TRANSMIT, parse_flags
     return TRANSMIT in parse_flags(co.flags)
@@ -463,10 +467,19 @@ def suggested_sensor_co_map(device, links: list[SensorLink], all_cos: list) -> d
     used: set[int] = set()
     # Befehle vor Rückmeldungen: die Rückmeldung kann am KO des Befehls mithören
     rest.sort(key=lambda link: bool(link.feedback))
+    chosen_commands: dict[str, list] = {}       # Element -> gewählte Befehlsvarianten
+    from .ets_parameters import views_compatible
     for link in rest:
         candidates = family_variants(
             [c for c in _channel_cos(all_cos, link.channel) if c.object_number not in used],
             link)
+        # Die Rückmeldung gehört in denselben Zweig wie ihr Befehl (MDT F1:
+        # «Unterfunktion = Schalten», nicht «= Zustand senden»)
+        commands = chosen_commands.get(link.key.rsplit("|", 1)[0], [])
+        if link.feedback and commands:
+            fitting = [c for c in candidates
+                       if all(views_compatible(c, command) for command in commands)]
+            candidates = fitting or candidates
         co = None
         role = next((r for r in SENSOR_ROLES + (BRIGHTNESS_ROLE, TEMPERATURE_ROLE)
                      if r.code == link.role), None)
@@ -479,20 +492,26 @@ def suggested_sensor_co_map(device, links: list[SensorLink], all_cos: list) -> d
         # (LED, Status)
         elif not link.feedback:
             sending = [c for c in candidates if _sends(c) and not _is_status(c)]
+            # Sonderfunktionen nur, wenn nichts anderes da ist (Feller KO 10
+            # «Taste 2, Doppelklick – AUF/AB, fahren Beschattung» schlug sonst
+            # «Taste 2 – AUF/AB, Jalousie»)
+            sending = [c for c in sending
+                       if not _SPECIAL_PRESS.search(f"{c.name} {c.object_function}")] or sending
             for kw in _SEND_KEYWORDS.get(link.ga_function, ()):
                 co = next((c for c in sending
                            if kw in f"{c.name} {c.object_function}".lower()), None)
                 if co is not None:
                     break
             if co is None:
-                co = suggest_co(sending, link.ga_function, used)
+                co = suggest_co(sending, link.ga_function, used, link.dpt, is_feedback=_is_status)
         else:
             # Taste mit eigenen KOs: das Schaltobjekt hört die Rückmeldung mit
             # (Feller «Taste 1 – EIN/AUS, Schalten» sendet und empfängt)
             if _KEY_CHANNEL.match(link.channel or "") and _own_channel(all_cos, link.channel):
                 co = _key_fallback(candidates, link, result, all_cos)
             if co is None:
-                co = suggest_co(candidates, link.ga_function, used)
+                co = suggest_co(candidates, link.ga_function, used, link.dpt,
+                                is_feedback=_is_status)
         if co is None and link.dpt and role is None:
             co = _co_by_dpt(candidates, link.dpt, link.feedback, used)
         if co is None and role is None:
@@ -505,6 +524,8 @@ def suggested_sensor_co_map(device, links: list[SensorLink], all_cos: list) -> d
         if co is not None:
             result[link.key] = co.object_number
             used.add(co.object_number)
+            if not link.feedback and not link.role:
+                chosen_commands.setdefault(link.key.rsplit("|", 1)[0], []).append(co)
     return result
 
 

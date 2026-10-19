@@ -97,8 +97,8 @@ def test_conditions_and_german_parameter_texts():
     dim = next(c for c in product.com_objects if "Dimming" in c.function_text)
     shutter = next(c for c in product.com_objects if "Shutter" in c.function_text)
     # Dimm-Variante unter beiden Szenen-Einstellungen: die Szenen entscheiden nicht
-    assert dim.conditions == [[f"{_APP}_P-1", "3"]]
-    assert shutter.conditions == [[f"{_APP}_P-2", "0"], [f"{_APP}_P-1", "5"]]
+    assert dim.conditions == [[[f"{_APP}_P-1", "3"]]]          # eine Alternative
+    assert shutter.conditions == [[[f"{_APP}_P-2", "0"], [f"{_APP}_P-1", "5"]]]
     block, label, values, visible = product.parameters[f"{_APP}_P-1"]
     assert (block, label, values["3"], visible) == ("Taste 1, links", "Funktion Taste",
                                                     "Dimmen", True)
@@ -141,7 +141,12 @@ def test_value_text_and_merge():
     assert value_text(values, "3") == "Dimmen"
     assert value_text(values, "0 1") == "aus oder ein"
     assert value_text(values, "!=0") == "nicht aus"
-    assert merge_conditions([("a", "1"), ("b", "2")], [("a", "1"), ("b", "3")]) == [["a", "1"]]
+    # nur EIN Parameter verschieden: entscheidet nicht (Feller Szenenfunktion)
+    assert merge_conditions([("a", "1"), ("b", "2")], [("a", "1"), ("b", "3")]) == [[["a", "1"]]]
+    # verschiedene Zweige bleiben Alternativen (MDT «Schalten» unter
+    # «Einzel-Tastenfunktion = Schalten» oder «= Werte senden»)
+    assert merge_conditions([("f", "1"), ("u", "0")], [("f", "2"), ("w", "0"), ("d", "10")]) == [
+        [["f", "1"], ["u", "0"]], [["f", "2"], ["w", "0"], ["d", "10"]]]
 
 
 def test_store_row_keeps_conditions():

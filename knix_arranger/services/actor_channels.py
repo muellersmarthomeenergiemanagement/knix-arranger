@@ -209,13 +209,18 @@ def _is_feedback(co) -> bool:
     return bool(flags) and WRITE not in flags and TRANSMIT in flags
 
 
-def suggest_co(channel_cos: list, function: str, used=frozenset(), dpt: str = ""):
+def suggest_co(channel_cos: list, function: str, used=frozenset(), dpt: str = "",
+               is_feedback=None):
     """KO des Kanals für eine GA-Funktion (z.B. "E/A" -> "Kanal A:
     Schalten"); der mit den meisten passenden Stichworten, ohne bereits
     vergebene (used: KO-Nummern). Mit dpt (der GA) nur KOs mit gleichem
     DPT-Haupttyp, sonst traf «RM WERT» (5.001) über das Stichwort «status» die
-    Zwangsführungs-Rückmeldung (1.011, Hager). None, wenn keiner passt."""
+    Zwangsführungs-Rückmeldung (1.011, Hager). None, wenn keiner passt.
+    is_feedback: Rückmelde-KO erkennen -- Standard für Aktoren (sendet nur =
+    Rückmeldung); Taster übergeben eine Textregel, ihre Befehle senden nur
+    (MDT «F4 – Stopp / Lamellen Auf/Zu», K Ü)."""
     from .ko_plausibility import is_feedback_function
+    is_feedback = is_feedback or _is_feedback
     keywords = _FUNCTION_KEYWORDS.get(function, ()) + _EXTRA_KEYWORDS.get(function, ())
     if not keywords:
         keywords = (function.lower(),)
@@ -223,7 +228,7 @@ def suggest_co(channel_cos: list, function: str, used=frozenset(), dpt: str = ""
     ga_main = _dpt_key(dpt)[0]
     best, best_score = None, 0
     for co in channel_cos:
-        if co.object_number in used or _is_feedback(co) != feedback:
+        if co.object_number in used or is_feedback(co) != feedback:
             continue
         co_main = _dpt_key(co.data_type)[0]
         if ga_main and co_main and co_main != ga_main:

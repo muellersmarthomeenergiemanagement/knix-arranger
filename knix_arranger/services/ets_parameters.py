@@ -60,27 +60,56 @@ def value_text(values: dict, test: str) -> str:
     return " oder ".join(values.get(part, part) for part in parts) or test
 
 
-def _settings_of(variant: dict, parameters: dict) -> dict[tuple[str, str], str]:
+def _alternatives(variant: dict) -> list[list]:
+    from .knxprod_catalog_service import condition_alternatives
+    return condition_alternatives(variant.get("conditions") or [])
+
+
+def _alt_settings(alternative: list, parameters: dict) -> dict[str, Setting]:
+    """Sichtbare Einstellungen einer Alternative, je Parameter-Kennung (zwei
+    Parameter können gleich heissen: MDT «Unterfunktion» für Schalten und
+    für Werte senden)."""
     result = {}
-    for param, test in variant.get("conditions") or []:
+    for param, test in alternative:
         info = parameters.get(param)
         if not info:
             continue
         block, label, values, visible = info
         if visible and label:
-            result.setdefault((block, label), value_text(values, test))
+            result.setdefault(param, Setting(block, label, value_text(values, test)))
     return result
+
+
+def _variant_choice(variant: dict, siblings: list[dict], parameters: dict,
+                    prefer: dict | None = None) -> list[tuple[str, Setting]]:
+    """Einstellungen der Variante, die sie von den übrigen Varianten derselben
+    KO-Nummer unterscheiden. Bei mehreren Alternativen (dieselbe Variante in
+    verschiedenen Zweigen) die, die zu den schon gewählten Einstellungen des
+    Geräts passt (prefer: Parameter -> Wert), sonst die kürzeste."""
+    alternatives = [_alt_settings(alt, parameters) for alt in (_alternatives(variant) or [[]])]
+    others = [_alt_settings(alt, parameters)
+              for sibling in siblings if sibling is not variant
+              for alt in (_alternatives(sibling) or [[]])]
+    if not others:
+        return []
+    prefer = prefer or {}
+
+    def cost(settings: dict) -> tuple:
+        conflicts = sum(1 for param, setting in settings.items()
+                        if param in prefer and prefer[param] != setting.value)
+        agreeing = sum(1 for param, setting in settings.items()
+                       if prefer.get(param) == setting.value)
+        return (conflicts, -agreeing, len(settings))
+    chosen = min(alternatives, key=cost)
+    return [(param, setting) for param, setting in chosen.items()
+            if any(param not in other or other[param].value != setting.value
+                   for other in others)]
 
 
 def variant_settings(variant: dict, siblings: list[dict], parameters: dict) -> list[Setting]:
     """Einstellungen, die diese Variante von den übrigen Varianten derselben
     KO-Nummer unterscheiden (siblings: alle Varianten der Nummer)."""
-    own = _settings_of(variant, parameters)
-    others = [_settings_of(v, parameters) for v in siblings if v is not variant]
-    if not others:
-        return []
-    return [Setting(block, label, value) for (block, label), value in own.items()
-            if any(other.get((block, label)) != value for other in others)]
+    return [setting for _param, setting in _variant_choice(variant, siblings, parameters)]
 
 
 def _catalog_variant(catalog_by_number: dict, co) -> tuple[dict | None, list]:
@@ -111,7 +140,9 @@ def settings_for(device, chosen: list, catalog) -> DeviceSettings:
     by_number: dict[int, list] = {}
     for variant in product.get("com_objects") or []:
         by_number.setdefault(variant.get("number"), []).append(variant)
-    values: dict[tuple[str, str], list[str]] = {}
+    values: dict[str, list[str]] = {}         # Parameter -> verlangte Werte
+    labels: dict[str, tuple[str, str]] = {}
+    prefer: dict[str, str] = {}
     for co in chosen:
         variant, siblings = _catalog_variant(by_number, co)
         if variant is None:
@@ -119,12 +150,14 @@ def settings_for(device, chosen: list, catalog) -> DeviceSettings:
             continue
         if len(siblings) > 1 and not variant.get("conditions"):
             result.unknown += 1
-        for setting in variant_settings(variant, siblings, parameters):
-            key = (setting.block, setting.label)
-            if setting.value not in values.setdefault(key, []):
-                values[key].append(setting.value)
-                result.settings.append(setting)
-    result.conflicts = {key: vals for key, vals in values.items() if len(vals) > 1}
+        for param, setting in _variant_choice(variant, siblings, parameters, prefer):
+            prefer.setdefault(param, setting.value)
+            labels[param] = (setting.block, setting.label)
+            if setting.value not in values.setdefault(param, []):
+                values[param].append(setting.value)
+                if setting not in result.settings:
+                    result.settings.append(setting)
+    result.conflicts = {labels[param]: vals for param, vals in values.items() if len(vals) > 1}
     result.settings.sort(key=_setting_order)
     return result
 
@@ -251,7 +284,7 @@ def families_of(variant: dict, parameters: dict) -> frozenset:
     › Funktion Taste = Dimmen»); allgemeine Seiten («Konfiguration Szenen ›
     Szenenfunktion = dezentrale Szenenspeicherung») zählen nicht."""
     found = set()
-    for param, test in variant.get("conditions") or []:
+    for param, test in (pair for alt in _alternatives(variant) for pair in alt):
         info = parameters.get(param)
         if not info:
             continue
@@ -294,15 +327,43 @@ def attach_families(device, catalog=None) -> None:
                     if variant.get("conditions"):
                         mapping[(variant.get("number"), variant.get("name", ""),
                                  variant.get("function_text", ""),
-                                 variant.get("object_size", ""))] = families_of(variant,
-                                                                                parameters)
+                                 variant.get("object_size", ""))] = (
+                            families_of(variant, parameters),
+                            condition_views(variant, parameters))
         if len(_FAMILY_CACHE) >= _FAMILY_CACHE_MAX:
             _FAMILY_CACHE.clear()
         _FAMILY_CACHE[key] = mapping
     for co in cos:
-        co.families = mapping.get((co.object_number, co.name, co.object_function,
-                                   co.object_size))
+        found = mapping.get((co.object_number, co.name, co.object_function, co.object_size))
+        co.families, co.condition_views = found if found else (None, None)
     device._families_stamp = stamp
+
+
+def condition_views(variant: dict, parameters: dict) -> list[dict]:
+    """Bedingungen je Alternative, wie die ETS sie zeigt: {(Seite, Name):
+    Wert} -- Feller führt «Funktion Taste» je Zweig als eigenen Parameter."""
+    views = []
+    for alt in _alternatives(variant):
+        view = {}
+        for param, test in alt:
+            info = parameters.get(param)
+            if info and info[1]:
+                view.setdefault((info[0], info[1]), value_text(info[2], test))
+        views.append(view)
+    return views
+
+
+def views_compatible(a, b) -> bool:
+    """Können zwei KO-Varianten gleichzeitig aktiv sein? Ja, wenn je eine
+    Alternative keinem Parameter einen anderen Wert gibt (unbekannt = ja).
+    MDT F1: «Status für Anzeige» aus «Unterfunktion = Zustand senden» passt
+    nicht zum Befehl «Schalten» aus «Unterfunktion = Schalten»."""
+    va = getattr(a, "condition_views", None)
+    vb = getattr(b, "condition_views", None)
+    if not va or not vb:
+        return True
+    return any(all(x.get(key, value) == value for key, value in y.items())
+               for x in va for y in vb)
 
 
 def reset_family_cache() -> None:
