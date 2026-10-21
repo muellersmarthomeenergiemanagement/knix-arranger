@@ -18,8 +18,8 @@ from ...services import ets_function_plan as plan
 from ..styles import COLOR_WARNING
 
 _COLUMNS = ["Raum / Funktion", "Rolle", "Adresse", "Name in der ETS", "DPT", "Hinweis"]
-_PLAN_COLUMNS = ["Ort / Funktion", "Funktionspunkt / Element", "Adresse", "Bezeichnung",
-                 "Stand in der ETS"]
+_PLAN_COLUMNS = ["Ort / Funktion", "Funktionspunkt", "Adresse", "Bezeichnung",
+                 "Stand in der ETS / Aktorkanal"]
 _STATE_TEXT = {"anlegen": "in der ETS anlegen", "ergänzen": "GAs zuordnen", "ok": "vorhanden"}
 
 
@@ -149,6 +149,7 @@ class EtsFunctionsView(QWidget):
         if project:
             for ga in plan.function_gas(project.group_addresses):
                 gas_by_function.setdefault(ga.function_id, []).append(ga)
+        channels = self._actor_channels(project) if statuses else {}
         for status in statuses:
             function = status.function
             location = status.location
@@ -172,8 +173,14 @@ class EtsFunctionsView(QWidget):
                 fn_item.setForeground(4, warn)
             place.addChild(fn_item)
             missing = {ga.address for ga in status.missing}
-            for ga in sorted(gas_by_function.get(function.id, []),
-                             key=lambda g: (g.middle_group, g.sub_group)):
+            gas = sorted(gas_by_function.get(function.id, []),
+                         key=lambda g: (g.middle_group, g.sub_group))
+            gas_node = QTreeWidgetItem([f"Funktions-GAs ({len(gas)})"])
+            gas_node.setToolTip(0, "Eigene Befehls-GAs der Funktion; sie kommen zusätzlich "
+                                   "auf die Aktorkanäle der bedienten Elemente")
+            gas_node.setData(0, Qt.UserRole, function.id)
+            fn_item.addChild(gas_node)
+            for ga in gas:
                 ga_state = "" if not ets_read or status.ets is None else (
                     "fehlt" if ga.address in missing else "zugeordnet")
                 item = QTreeWidgetItem(["", plan._point_label(function.function_type,
@@ -182,15 +189,52 @@ class EtsFunctionsView(QWidget):
                 item.setData(0, Qt.UserRole, function.id)
                 if ga_state == "fehlt":
                     item.setForeground(4, warn)
-                fn_item.addChild(item)
-            for member in plan.resolve_members(project, function):
-                text = member.label if member else "Element entfernt"
-                item = QTreeWidgetItem(["", "Element", "", text, ""])
-                item.setData(0, Qt.UserRole, function.id)
+                gas_node.addChild(item)
+            own_gas = {}
+            for member, _fga, own in plan.member_links(project, function):
+                if own is not None:
+                    own_gas.setdefault(
+                        (member.assignment.id, member.element_number), own)
+            members = plan.resolve_members(project, function)
+            members_node = QTreeWidgetItem([f"Bediente Elemente ({len(members)})"])
+            members_node.setToolTip(0, "Elemente der Gewerke, die die Funktion gemeinsam "
+                                       "bedient; angegeben ist ihre eigene GA")
+            members_node.setData(0, Qt.UserRole, function.id)
+            fn_item.addChild(members_node)
+            for member in members:
                 if member is None:
+                    item = QTreeWidgetItem(["", "", "", "Element entfernt", ""])
                     item.setForeground(3, warn)
-                fn_item.addChild(item)
+                else:
+                    own = own_gas.get((member.assignment.id, member.element_number))
+                    channel = channels.get(own.address, "") if own else ""
+                    item = QTreeWidgetItem([
+                        "", plan._point_label(function.function_type, own.function_name)
+                        if own else "", own.address if own else "", member.label,
+                        channel or "noch kein Aktorkanal"])
+                item.setData(0, Qt.UserRole, function.id)
+                members_node.addChild(item)
         self._finish(self._plan_tree, len(_PLAN_COLUMNS))
+
+    @staticmethod
+    def _actor_channels(project) -> dict[str, str]:
+        """GA des Elements -> "Aktor 1.1.3, Kanal A" aus dem Belegungsplan."""
+        if project is None or not project.topology.areas:
+            return {}
+        try:
+            from ...services.belegungsplan_service import BelegungsplanService
+            rows = BelegungsplanService().generate(project).actor_rows
+        except Exception:
+            return {}
+        result = {}
+        for row in rows:
+            if row.ga_address and row.physical_address:
+                text = f"Aktor {row.physical_address}"
+                if row.channel_label:
+                    text += f", Kanal {row.channel_label}" if row.channel_label.isdigit() \
+                        else f", {row.channel_label}"
+                result.setdefault(row.ga_address, text)
+        return result
 
     def _selected_function(self):
         item = self._plan_tree.currentItem()

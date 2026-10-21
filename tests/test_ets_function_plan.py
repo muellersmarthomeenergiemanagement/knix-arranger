@@ -254,7 +254,14 @@ def test_view_dialog_and_button_choice(project):
     view.set_project(project)
     function_item = view._plan_tree.topLevelItem(0).child(0)
     assert function_item.text(0) == "Fensterfront (Sonnenschutz)"
-    assert function_item.childCount() == 5 + 3
+    assert function_item.childCount() == 2
+    gas_node, members_node = function_item.child(0), function_item.child(1)
+    assert gas_node.text(0) == "Funktions-GAs (5)" and gas_node.childCount() == 5
+    assert members_node.text(0) == "Bediente Elemente (3)"
+    first = members_node.child(0)
+    assert (first.text(1), first.text(2)) == ("Bewegen", "2/1/0")
+    assert first.text(3) == "J_01_01 (Links)"
+    assert first.text(4).startswith("Aktor ")
 
     dialog = FunctionEditDialog(project, project.functions[0])
     assert dialog._members.count() == 3
@@ -283,7 +290,7 @@ def test_view_dialog_and_button_choice(project):
 def test_bauherr_form_offers_and_reads_functions(project, tmp_path):
     from openpyxl import load_workbook
     from knix_arranger.services.bauherr_form_service import (
-        BauherrFormService, FUNCTION_PREFIX, dropdown_formula)
+        BauherrFormService, CHOICES_SHEET, FUNCTION_PREFIX)
     wohnen = _room(project, "Wohnen")
     be = Bedienelement(element_type="Tastereinheit", channels=4, is_auto=False,
                        funktionen=[SensorFunktion(gewerk_code="LD", element_number=1)])
@@ -294,7 +301,11 @@ def test_bauherr_form_offers_and_reads_functions(project, tmp_path):
     wb = load_workbook(path)
     formulas = [dv.formula1 for ws in wb.worksheets
                 for dv in ws.data_validations.dataValidation]
-    assert any(f.startswith('"Funktion: Fensterfront,') for f in formulas)
+    assert formulas and all(f.startswith(f"'{CHOICES_SHEET}'!$") for f in formulas)
+    choices = wb[CHOICES_SHEET]
+    column = [c.value for c in next(choices.iter_cols(min_col=1, max_col=1))]
+    assert column[1] == "Funktion: Fensterfront" and "Garagentor" in column
+    assert "Sonstiges" in column
     # Bauherr wählt die Funktion für Taste 2
     for ws in wb.worksheets:
         for row in ws.iter_rows():
@@ -306,9 +317,6 @@ def test_bauherr_form_offers_and_reads_functions(project, tmp_path):
     sf = next(f for f in be.funktionen if f.function_id)
     assert sf.function_id == project.functions[0].id
     assert sf.ga_designation.startswith("2/1/200")
-    # Liste bleibt unter der Excel-Grenze, "Sonstiges" bleibt
-    long = dropdown_formula([f"Funktion {n}" for n in range(30)])
-    assert len(long) - 2 <= 255 and long.rstrip('"').endswith("Sonstiges")
 
 
 def test_heating_operating_mode_for_zone(project):

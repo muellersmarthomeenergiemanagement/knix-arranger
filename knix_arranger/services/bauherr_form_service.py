@@ -117,9 +117,10 @@ _GEWERK_BTN_LABEL: dict[tuple[str, bool], str] = {
     ("EV",  False): "E-Auto laden",
 }
 
-# Dropdown-Auswahl für leere Taster-Slots – als Excel-Inline-Liste (max. 255 Zeichen)
-# Excel erlaubt keine DataValidation-Referenz auf versteckte Blätter;
-# daher werden die Optionen direkt als Literal-String in die Formel eingebettet.
+# Dropdown-Auswahl für leere Taster-Slots. Die Listen stehen je Raum in einer
+# Spalte des Blatts "Auswahlliste" (sichtbar: nicht jedes Programm liest
+# Verweise auf ausgeblendete Blätter) -- eine Inline-Liste wäre auf 255
+# Zeichen begrenzt, mit Funktionen fielen sonst Wünsche weg.
 _DROPDOWN_OPTIONS = [
     "Licht Ein/Aus", "Licht heller", "Licht dunkler",
     "Jalousie auf", "Jalousie ab",
@@ -134,24 +135,19 @@ _DROPDOWN_OPTIONS = [
     "DALI Licht", "Farblicht",
     "Sonstiges",
 ]
-# Fertige formula1-Zeichenkette (inkl. umschliessender Anführungszeichen)
-_DROPDOWN_FORMULA1 = '"' + ",".join(_DROPDOWN_OPTIONS) + '"'
 # Funktionen (FA-530) stehen im Formular als "Funktion: <Name>"
 FUNCTION_PREFIX = "Funktion: "
-_LIST_LIMIT = 255   # Excel: Inline-Liste höchstens 255 Zeichen
+CHOICES_SHEET = "Auswahlliste"
 
 
-def dropdown_formula(function_names: list[str]) -> str:
-    """Auswahlliste eines Raums: zuerst seine Funktionen, dann die üblichen
-    Wünsche -- gekürzt (von hinten, "Sonstiges" bleibt), bis sie passt."""
-    functions = [FUNCTION_PREFIX + n.replace(",", " ").replace('"', "'")
-                 for n in function_names]
-    base = list(_DROPDOWN_OPTIONS)
-    while len(",".join(functions + base)) > _LIST_LIMIT and len(base) > 1:
-        base.pop(-2)
-    while len(",".join(functions + base)) > _LIST_LIMIT and functions:
-        functions.pop()
-    return '"' + ",".join(functions + base) + '"'
+def room_options(function_names: list[str]) -> list[str]:
+    """Auswahl eines Raums: zuerst seine Funktionen, dann die üblichen Wünsche."""
+    return [FUNCTION_PREFIX + n for n in function_names] + list(_DROPDOWN_OPTIONS)
+
+
+def _column_letter(index: int) -> str:
+    from openpyxl.utils import get_column_letter
+    return get_column_letter(index)
 
 
 class BauherrFormService:
@@ -702,6 +698,7 @@ class BauherrFormService:
 
         rooms = sorted_rooms(self.project.areal)
         floors = self._floor_by_room()
+        choice_columns: list[tuple[str, list[str]]] = []   # Blatt "Auswahlliste"
         headers = ["Raum-Nr.", "Raumname", "Bedienelemente", "Gewerke"]
         rows = []
         for room in rooms:
@@ -816,10 +813,12 @@ class BauherrFormService:
             # Ein leeres sqref wäre ungültiges OOXML und führt zu XML-Fehlern in Excel.
             if empty_refs:
                 from openpyxl.worksheet.datavalidation import DataValidation
+                options = room_options([f.name for f in self._room_functions(room)])
+                choice_columns.append((sheet_name, options))
+                col = _column_letter(len(choice_columns))
                 dv = DataValidation(
                     type="list",
-                    formula1=dropdown_formula(
-                        [f.name for f in self._room_functions(room)]),
+                    formula1=f"'{CHOICES_SHEET}'!${col}$2:${col}${len(options) + 1}",
                     showDropDown=False,
                     allow_blank=True,
                     showErrorMessage=False,
@@ -835,8 +834,24 @@ class BauherrFormService:
                 ws, current_row, col=1, end_col=device_end_col
             )
 
+        if choice_columns:
+            self._write_choices(excel.wb, choice_columns)
         excel.save(filepath)
         logger.info(f"Bauherr-Formular erstellt: {filepath}")
+
+    @staticmethod
+    def _write_choices(wb, columns: list[tuple[str, list[str]]]) -> None:
+        """Blatt "Auswahlliste": je Raum eine Spalte mit seiner Auswahl."""
+        from openpyxl.styles import Font as OFont
+        ws = wb.create_sheet(CHOICES_SHEET)
+        for index, (room_sheet, options) in enumerate(columns, start=1):
+            header = ws.cell(row=1, column=index, value=room_sheet)
+            header.font = OFont(name="Inter", bold=True, size=9)
+            for row, option in enumerate(options, start=2):
+                ws.cell(row=row, column=index, value=option).font = OFont(name="Inter", size=9)
+            ws.column_dimensions[_column_letter(index)].width = max(
+                18, min(40, max(len(o) for o in options) + 2))
+        ws.sheet_properties.tabColor = "BBBBBB"
 
     def _room_functions(self, room: Room) -> list:
         """Funktionen (FA-530) des Raums oder seiner Zone."""
@@ -851,7 +866,7 @@ class BauherrFormService:
     def _function_by_name(self, room: Room, name: str):
         """Funktion zum Namen aus dem Formular: am Ort des Raums zuerst."""
         candidates = [f for f in getattr(self.project, "functions", [])
-                      if f.name.replace(",", " ").replace('"', "'") == name]
+                      if f.name == name]
         own = {f.id for f in self._room_functions(room)}
         candidates.sort(key=lambda f: f.id not in own)
         return candidates[0] if candidates else None
@@ -937,7 +952,7 @@ class BauherrFormService:
                 be.is_auto = False
 
         for sheet_name in wb.sheetnames:
-            if sheet_name == "Funktionsdefinition"[:31]:
+            if sheet_name in ("Funktionsdefinition"[:31], CHOICES_SHEET):
                 continue
 
             ws = wb[sheet_name]
