@@ -4,6 +4,8 @@ Gemaess FA-1900, FA-2000, FA-2100
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
+from datetime import date, datetime
+import re
 import uuid
 
 
@@ -16,6 +18,34 @@ RESULT_DEFECT = "Mangel"
 RESULT_NA     = "n/a"
 
 RESULT_CHOICES = [RESULT_OPEN, RESULT_OK, RESULT_DEFECT, RESULT_NA]
+
+
+def parse_check_date(value) -> str:
+    """Prüfdatum als ISO-Text (JJJJ-MM-TT) aus Eingabe oder Excel-Zelle:
+    datetime/date, "21.10.2026", "21.10.26", "2026-10-21". Unlesbar -> ""."""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})", text)
+    try:
+        if m:
+            day, month, year = (int(g) for g in m.groups())
+            return date(year + 2000 if year < 100 else year, month, day).isoformat()
+        return date.fromisoformat(text[:10]).isoformat()
+    except ValueError:
+        return ""
+
+
+def display_check_date(iso: str) -> str:
+    """ISO-Prüfdatum als TT.MM.JJJJ (unlesbar: unverändert)."""
+    try:
+        return date.fromisoformat(iso).strftime("%d.%m.%Y")
+    except (TypeError, ValueError):
+        return iso or ""
 
 
 @dataclass
@@ -33,6 +63,22 @@ class ChecklistItem:
     be_type: str = ""         # Stabiler Schlüssel: element_type des BE
     be_number: str = ""       # Stabiler Schlüssel: participant_number des BE
     gewerk_code: str = ""
+    checked_date: str = ""    # Prüfdatum ISO (JJJJ-MM-TT)
+    checked_by: str = ""      # Visum (Initialen) des Prüfers
+
+    def set_result(self, result: str, visum: str = "",
+                   day: date | None = None) -> bool:
+        """Ergebnis setzen und mit Datum/Visum abzeichnen; "offen" leert
+        beides. Unverändertes Ergebnis behält die bisherige Abzeichnung."""
+        if result == self.result:
+            return False
+        self.result = result
+        if result == RESULT_OPEN:
+            self.checked_date = self.checked_by = ""
+        else:
+            self.checked_date = (day or date.today()).isoformat()
+            self.checked_by = visum or self.checked_by
+        return True
 
     def to_dict(self) -> dict:
         return {
@@ -48,6 +94,8 @@ class ChecklistItem:
             "be_type": self.be_type,
             "be_number": self.be_number,
             "gewerk_code": self.gewerk_code,
+            "checked_date": self.checked_date,
+            "checked_by": self.checked_by,
         }
 
     @classmethod
@@ -65,6 +113,8 @@ class ChecklistItem:
             be_type=data.get("be_type", ""),
             be_number=data.get("be_number", ""),
             gewerk_code=data.get("gewerk_code", ""),
+            checked_date=data.get("checked_date", ""),
+            checked_by=data.get("checked_by", ""),
         )
 
 

@@ -193,6 +193,14 @@ class SettingsDialog(QDialog):
         self._user_role.setPlaceholderText("KNX-Systemintegrator")
         user_form.addRow("Funktion:", self._user_role)
 
+        self._user_initials = QLineEdit()
+        self._user_initials.setMaxLength(8)
+        self._user_initials.setPlaceholderText("aus dem Namen, z.B. MM")
+        self._user_initials.setToolTip(
+            "Initialen zum Abzeichnen der Inbetriebnahme-Checkliste.\n"
+            "Leer: Anfangsbuchstaben des Namens.")
+        user_form.addRow("Visum:", self._user_initials)
+
         user_group.setLayout(user_form)
         layout.addWidget(user_group)
 
@@ -297,6 +305,7 @@ class SettingsDialog(QDialog):
         self._company_website.setText(p.website)
         self._user_name.setText(p.user_name)
         self._user_role.setText(p.role)
+        self._user_initials.setText(p.initials)
         self._rate_mounting.setValue(p.hourly_rate_mounting)
         self._rate_programming.setValue(p.hourly_rate_programming)
         self._rate_commissioning.setValue(p.hourly_rate_commissioning)
@@ -320,6 +329,7 @@ class SettingsDialog(QDialog):
         p.website = self._company_website.text().strip()
         p.user_name = self._user_name.text().strip()
         p.role = self._user_role.text().strip()
+        p.initials = self._user_initials.text().strip()
         p.logo_path = self._logo_path
         p.hourly_rate_mounting = self._rate_mounting.value()
         p.hourly_rate_programming = self._rate_programming.value()

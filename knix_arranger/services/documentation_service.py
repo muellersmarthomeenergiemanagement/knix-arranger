@@ -6,7 +6,7 @@ Bedienungsanleitungen und Revisionspakete.
 from __future__ import annotations
 import logging
 import os
-from datetime import datetime
+from datetime import date, datetime
 
 from .building_service import BuildingService
 from ..models.project import KnxProject
@@ -14,6 +14,7 @@ from ..models.building import Room
 from ..models.documentation import (
     CommissioningChecklist, ChecklistItem, AcceptanceProtocol, Defect,
     ITEM_KIND_DEVICE, ITEM_KIND_FUNCTION, RESULT_OPEN,
+    parse_check_date, display_check_date,
 )
 from ..utils.pdf_generator import PdfGenerator
 from .report_sorting import physical_address_key, sorted_rooms
@@ -48,6 +49,16 @@ def _period_text(sp) -> str:
     if not (sp.date_range_start or sp.date_range_end):
         return "ganzjährig"
     return f"{fmt(sp.date_range_start)} – {fmt(sp.date_range_end)}"
+
+def _date_span(first: str, last: str) -> str:
+    """Prüfzeitraum aus ISO-Daten: "14.10.2026" oder "14.10.–16.10.2026"."""
+    if first == last:
+        return display_check_date(first)
+    start = display_check_date(first)
+    if first[:4] == last[:4]:
+        start = start[:6]
+    return f"{start}–{display_check_date(last)}"
+
 
 class DocumentationService:
     """Erzeugt Dokumentation für KNX-Projekte."""
@@ -261,11 +272,13 @@ class DocumentationService:
                           "Applikation geladen · Kommunikation")
 
     # Ausdruck (PDF/Excel): eine Zeile je Taste, breite Bemerkungsspalte
-    _CL_HEADERS = ["Taste", "Funktion", "Gruppenadressen", "OK", "Bemerkung"]
-    _CL_PDF_WIDTHS = [0.09, 0.24, 0.31, 0.06, 0.30]
-    _CL_XL_WIDTHS = [13, 30, 42, 11, 44]  # A–E in Zeichen
-    _XL_CENTER_COLS = [4]                 # OK-Spalte zentrieren
-    _XL_WRAP_COLS = [2, 3, 5]
+    _CL_HEADERS = ["Taste", "Funktion", "Gruppenadressen", "OK", "Datum", "Visum",
+                   "Bemerkung"]
+    _CL_PDF_WIDTHS = [0.08, 0.21, 0.25, 0.05, 0.12, 0.07, 0.22]
+    _CL_XL_WIDTHS = [13, 30, 42, 11, 11, 8, 40]  # A–G in Zeichen
+    _XL_CENTER_COLS = [4, 5, 6]           # OK, Datum, Visum zentrieren
+    _XL_WRAP_COLS = [2, 3, 7]
+    _XL_REF_COL = 8                       # ausgeblendeter Bezug (H)
     _XL_CHECKBOX = "☐"
 
     def _checklist_rooms(self):
@@ -372,6 +385,15 @@ class DocumentationService:
             return "OK", notes
         return "", notes
 
+    @staticmethod
+    def _combined_check_mark(keys: list, saved: dict) -> tuple[str, str]:
+        """Datum (ISO, das späteste) und Visum (alle Prüfer) einer
+        Ausdruckzeile aus den abgezeichneten Prüfpunkten."""
+        items = [saved[k] for k in keys if k in saved]
+        dates = [i.checked_date for i in items if i.checked_date]
+        visum = ", ".join(dict.fromkeys(i.checked_by for i in items if i.checked_by))
+        return (max(dates) if dates else ""), visum
+
     def export_checklists_pdf(self, filepath: str,
                               checklists: list[CommissioningChecklist] | None = None):
         """Inbetriebnahme-Checkliste als PDF (FA-1904): Stockwerk → Raum →
@@ -383,11 +405,14 @@ class DocumentationService:
         pdf.add_paragraph(
             f"Projekt: {self.project.name} | Datum: {datetime.now().strftime('%d.%m.%Y')}")
         pdf.add_note("Hinweis:", "Je Taste eine Zeile mit allen Gruppenadressen. "
-                                 "OK ankreuzen, Mängel in der Spalte Bemerkung festhalten.")
+                                 "OK ankreuzen, Datum und Visum eintragen, Mängel in "
+                                 "der Spalte Bemerkung festhalten.")
 
         def mark(keys):
             result, notes = self._combined_result(keys, saved)
-            return {"OK": "[x]", "Mangel": "[!]"}.get(result, "[ ]"), notes
+            day, visum = self._combined_check_mark(keys, saved)
+            return ({"OK": "[x]", "Mangel": "[!]"}.get(result, "[ ]"),
+                    display_check_date(day), visum, notes)
 
         current_floor = None
         for floor, room_label, cards in self._checklist_sections():
@@ -403,8 +428,7 @@ class DocumentationService:
                 pdf.add_card_header(title, "", bookmark=f"{room_label}: {title}")
                 table = []
                 for taste, function, gas, keys in rows:
-                    ok, notes = mark(keys)
-                    table.append([taste, function, gas, ok, notes])
+                    table.append([taste, function, gas, *mark(keys)])
                 pdf.add_table(self._CL_HEADERS, table, col_widths=self._CL_PDF_WIDTHS)
 
         # DALI-Notlicht-Prüfpunkte (FA-2804)
@@ -414,7 +438,7 @@ class DocumentationService:
             pdf.add_page_break()
             pdf.add_heading("DALI Notbeleuchtung", level=2)
             for gw in self.project.dali_configs.values():
-                rows = [[d["category"], d["text"], "", "[ ]", ""]
+                rows = [[d["category"], d["text"], "", "[ ]", "", "", ""]
                         for d in svc.generate_emergency_checklist_items(gw)]
                 if rows:
                     pdf.add_table(self._CL_HEADERS, rows, col_widths=self._CL_PDF_WIDTHS)
@@ -434,10 +458,9 @@ class DocumentationService:
                     number = device.physical_address or f"#{idx + 1}"
                     keys = [(f"__verteiler__{location}", device.product or device.device_type,
                              number, pt, "") for pt, _ in self._DEVICE_CHECKS]
-                    ok, notes = mark(keys)
-                    table.append([number, label, "", ok, notes])
-                pdf.add_table(["Adresse", "Gerät", "", "OK", "Bemerkung"], table,
-                              col_widths=[0.09, 0.45, 0.10, 0.06, 0.30])
+                    table.append([number, label, *mark(keys)])
+                pdf.add_table(["Adresse", "Gerät", "OK", "Datum", "Visum", "Bemerkung"],
+                              table, col_widths=[0.09, 0.38, 0.05, 0.12, 0.07, 0.29])
 
         pdf.save(filepath)
         logger.info(f"Checklisten exportiert: {filepath}")
@@ -457,7 +480,8 @@ class DocumentationService:
         - Blatt "Übersicht" mit Fortschritt je Stockwerk (Formeln),
         - je Stockwerk ein Blatt, dazu "Verteiler" und ggf. "DALI Notlicht",
         - Spalte OK als Auswahlliste (offen / OK / Mangel / n/a) mit Farbe,
-        - ausgeblendete Spalte F mit dem Bezug zu den Prüfpunkten der App."""
+        - Spalten Datum und Visum zum Abzeichnen,
+        - ausgeblendete Spalte H mit dem Bezug zu den Prüfpunkten der App."""
         if not HAS_OPENPYXL:
             raise ImportError("openpyxl wird für Excel-Export benötigt.")
         import json
@@ -472,7 +496,9 @@ class DocumentationService:
 
         def row_cells(keys, taste, function, gas):
             result, notes = self._combined_result(keys, saved)
-            return [taste, function, gas, self._xl_choice(result), notes,
+            day, visum = self._combined_check_mark(keys, saved)
+            return [taste, function, gas, self._xl_choice(result),
+                    date.fromisoformat(day) if day else "", visum, notes,
                     json.dumps([list(k) for k in keys], ensure_ascii=False)]
 
         excel = ExcelGenerator(title="Übersicht", project_name=self.project.name)
@@ -546,11 +572,14 @@ class DocumentationService:
             for r in range(1, last + 1):
                 if ws.cell(r, 4).value in self.XL_CHOICES:
                     dv.add(ws.cell(r, 4))
-            area = f"A1:E{last}"
+                ref = ws.cell(r, self._XL_REF_COL).value
+                if isinstance(ref, str) and ref.startswith("[["):
+                    ws.cell(r, 5).number_format = "DD.MM.YYYY"
+            area = f"A1:G{last}"
             ws.conditional_formatting.add(area, FormulaRule(formula=['$D1="✓ OK"'], fill=green))
             ws.conditional_formatting.add(area, FormulaRule(formula=['$D1="⚠ Mangel"'], fill=red))
             ws.conditional_formatting.add(area, FormulaRule(formula=['$D1="– n/a"'], fill=grey))
-            ws.column_dimensions["F"].hidden = True
+            ws.column_dimensions["H"].hidden = True
             ws.print_area = area
 
         # Übersicht: Fortschritt je Blatt per Formel
@@ -562,7 +591,8 @@ class DocumentationService:
         excel.add_header()
         excel.add_empty_row()
         excel.add_paragraph("In den Blättern je Stockwerk in der Spalte OK auswählen "
-                            "(Zelle anklicken, Pfeil): offen, OK, Mangel oder n/a. "
+                            "(Zelle anklicken, Pfeil): offen, OK, Mangel oder n/a, "
+                            "dazu Datum und Visum des Prüfers. "
                             "Die ausgefüllte Datei lässt sich in KNiX wieder einlesen "
                             "(Inbetriebnahme → Excel einlesen).")
         excel.add_empty_row()
@@ -592,15 +622,19 @@ class DocumentationService:
         excel.save(filepath)
         logger.info(f"Checklisten Excel exportiert: {filepath}")
 
-    def import_checklists_excel(self, filepath: str) -> dict:
+    def import_checklists_excel(self, filepath: str, visum: str = "") -> dict:
         """Liest eine ausgefüllte Checkliste (export_checklists_excel) ein:
-        Ergebnis der Spalte OK und Bemerkung gehen auf alle Prüfpunkte der
-        Zeile (Bezug in Spalte F). "offen" bzw. leer lässt vorhandene
-        Ergebnisse unverändert. Fehlen die Prüfpunkte noch, werden sie aus
-        dem aktuellen Projektstand angelegt.
+        Ergebnis der Spalte OK, Datum, Visum und Bemerkung gehen auf alle
+        Prüfpunkte der Zeile (Bezug in Spalte H, bei älteren Dateien ohne
+        Datum/Visum in Spalte F). "offen" bzw. leer lässt vorhandene
+        Ergebnisse unverändert. Neu gesetzte Ergebnisse ohne Datum erhalten
+        das Speicherdatum der Datei, ohne Visum das Visum des Einlesenden.
+        Fehlen die Prüfpunkte noch, werden sie aus dem aktuellen
+        Projektstand angelegt.
 
         Gibt {"rows": gelesene Zeilen, "items": geänderte Prüfpunkte,
-        "unknown": Zeilen ohne passenden Prüfpunkt} zurück."""
+        "unknown": Zeilen ohne passenden Prüfpunkt, "unrated": Zeilen mit
+        Datum oder Visum, aber ohne Ergebnis} zurück."""
         import json
         from openpyxl import load_workbook
 
@@ -614,22 +648,32 @@ class DocumentationService:
                 by_key[(item.room_id, item.be_type, item.be_number,
                         item.check_type, item.function_ga)] = item
 
-        stats = {"rows": 0, "items": 0, "unknown": 0}
+        def text(value) -> str:
+            return value.strip() if isinstance(value, str) else ""
+
+        file_day = date.fromtimestamp(os.path.getmtime(filepath))
+        stats = {"rows": 0, "items": 0, "unknown": 0, "unrated": 0}
         wb = load_workbook(filepath, data_only=True)
         for ws in wb.worksheets:
             if ws.title == "Übersicht":
                 continue
-            for row in ws.iter_rows(min_row=1, max_col=6, values_only=True):
-                ref = row[5] if len(row) > 5 else None
-                if not isinstance(ref, str) or not ref.startswith("[["):
+            for row in ws.iter_rows(min_row=1, max_col=self._XL_REF_COL, values_only=True):
+                # Bezug in H (mit Datum/Visum) oder F (Dateien bis 1.4.11)
+                ref_idx = next((i for i in (self._XL_REF_COL - 1, 5) if i < len(row)
+                                and isinstance(row[i], str) and row[i].startswith("[[")),
+                               None)
+                if ref_idx is None:
                     continue
                 try:
-                    keys = [tuple(k) for k in json.loads(ref)]
+                    keys = [tuple(k) for k in json.loads(row[ref_idx])]
                 except (ValueError, TypeError):
                     continue
-                choice = (row[3] or "").strip() if isinstance(row[3], str) else ""
-                result = self.XL_CHOICES.get(choice, "")
-                notes = (row[4] or "").strip() if isinstance(row[4], str) else ""
+                result = self.XL_CHOICES.get(text(row[3]), "")
+                if ref_idx == 5:
+                    day, row_visum, notes = "", "", text(row[4])
+                else:
+                    day = parse_check_date(row[4])
+                    row_visum, notes = text(row[5]), text(row[6])
                 items = [by_key[k] for k in keys if k in by_key]
                 stats["rows"] += 1
                 if not items:
@@ -638,13 +682,23 @@ class DocumentationService:
                 for item in items:
                     changed = False
                     if result and item.result != result:
-                        item.result = result
+                        item.set_result(result, row_visum or visum,
+                                        date.fromisoformat(day) if day else file_day)
+                        changed = True
+                    # Datum/Visum aus der Datei gelten auch ohne Ergebnis
+                    if day and item.checked_date != day:
+                        item.checked_date = day
+                        changed = True
+                    if row_visum and item.checked_by != row_visum:
+                        item.checked_by = row_visum
                         changed = True
                     if notes and item.notes != notes:
                         item.notes = notes
                         changed = True
                     if changed:
                         stats["items"] += 1
+                if (day or row_visum) and not any(i.result for i in items):
+                    stats["unrated"] += 1
         logger.info(f"Checklisten Excel eingelesen: {filepath} {stats}")
         return stats
 
@@ -691,6 +745,21 @@ class DocumentationService:
             ["Aktoren und Gateways", str(actors), "Gruppenadressen", str(gas)],
             ["Räume mit Bedienung", str(rooms), "KNX Secure", "ja" if secure else "nein"],
         ]
+
+    def _checked_by_room(self) -> list[list[str]]:
+        """Je Checkliste: Prüfpunkte, Mängel, offen, Prüfzeitraum, Prüfer."""
+        rows = []
+        for cl in self.project.checklists:
+            if not cl.items:
+                continue
+            done = [i for i in cl.items if i.result]
+            defects = sum(1 for i in done if i.result == "Mangel")
+            days = sorted(i.checked_date for i in done if i.checked_date)
+            visums = ", ".join(sorted({i.checked_by for i in done if i.checked_by}))
+            rows.append([cl.room_name, str(len(cl.items)), str(defects),
+                         str(len(cl.items) - len(done)),
+                         _date_span(days[0], days[-1]) if days else "–", visums or "–"])
+        return rows
 
     def export_acceptance_protocol(self, filepath: str,
                                    protocol: AcceptanceProtocol | None = None):
@@ -745,6 +814,13 @@ class DocumentationService:
                           [[str(len(items)), str(ok), str(defects), str(na),
                             str(len(items) - ok - defects - na)]],
                           align=["right"] * 5)
+            room_rows = self._checked_by_room()
+            if room_rows:
+                pdf.add_heading("Prüfung je Raum", level=3)
+                pdf.add_table(["Raum / Verteiler", "Prüfpunkte", "Mängel", "offen",
+                               "geprüft", "Visum"], room_rows,
+                              col_widths=[0.34, 0.11, 0.09, 0.08, 0.24, 0.14],
+                              align=["left", "right", "right", "right", "left", "left"])
         else:
             pdf.add_paragraph("Die Prüfergebnisse sind in der beiliegenden "
                               "Inbetriebnahme-Checkliste festgehalten.")

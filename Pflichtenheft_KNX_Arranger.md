@@ -1,7 +1,7 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.53
-**Datum:** 19.10.2026
+**Version:** 3.54
+**Datum:** 21.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
 **Status:** Entwurf
@@ -68,6 +68,7 @@
 | 3.51 | 19.10.2026 | M. Mueller / Claude AI | Zeitsteuerungsplan im Berichtslayout; Berichte oeffnen sich nach dem Speichern (FA-3307c) |
 | 3.52 | 19.10.2026 | M. Mueller / Claude AI | Theben MIX: Bedingungen je Grundmodul, feste unsichtbare Parameter (FA-2304n); Projektdatei komprimiert (NFA-044) |
 | 3.53 | 19.10.2026 | M. Mueller / Claude AI | KNX-Secure-Zertifikate per QR-Code (Foto, Kamera) oder Aufkleber-Text einlesen, Zuordnung ueber die Seriennummer (FA-2704b) |
+| 3.54 | 21.10.2026 | M. Mueller / Claude AI | Inbetriebnahme-Checkliste: Datum und Visum je Pruefpunkt (FA-1906): beim Setzen eines Ergebnisses automatisch abgezeichnet, von Hand aenderbar, in PDF und Excel als eigene Spalten, beim Einlesen uebernommen; Visum in den Einstellungen (Bearbeiter); Abnahmeprotokoll mit Pruefung je Raum (Zeitraum, Pruefer) |
 
 ---
 
@@ -1210,6 +1211,7 @@ Nach einem Import (KNXPROJ oder XLSX-Reports) soll das Projekt im Wizard weiterg
 | FA-1903 | Die Checkliste muss als druckbares Dokument (PDF) exportiert werden koennen, damit sie waehrend der Inbetriebnahme vor Ort auf Papier ausgefuellt werden kann. |
 | FA-1904 | Die Checkliste muss alternativ als Excel-Datei exportiert werden koennen, damit sie digital auf einem Tablet ausgefuellt werden kann. |
 | FA-1905 | Die ausgefuellte Checkliste (Excel) muss wieder eingelesen werden koennen, um die Ergebnisse im Projekt zu dokumentieren. |
+| FA-1906 | Jeder Pruefpunkt muss mit Datum und Visum (Initialen des Pruefers) abgezeichnet werden koennen. Umsetzung: Beim Setzen von OK, Mangel oder n/a traegt die Inbetriebnahme-Ansicht das heutige Datum und das eigene Visum ein (auch fuer mehrere Zeilen); beides ist von Hand aenderbar, "offen" leert es. Das Visum steht in den Einstellungen unter Bearbeiter (leer: Anfangsbuchstaben des Namens; fehlt beides, fragt das Programm einmal nach). PDF und Excel haben die Spalten Datum und Visum (Zeile je Taste: spaetestes Datum, alle Pruefer). Beim Einlesen werden Datum und Visum uebernommen; fehlen sie bei einem neu gesetzten Ergebnis, gelten das Speicherdatum der Datei und das Visum des Einlesenden. Dateien ohne diese Spalten (bis 1.4.11) bleiben einlesbar. Das Abnahmeprotokoll zeigt je Raum Pruefzeitraum und Pruefer. |
 
 #### 3.20.2 Abnahmeprotokoll
 

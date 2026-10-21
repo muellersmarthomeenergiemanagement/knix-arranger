@@ -422,8 +422,11 @@ class MainWindow(QMainWindow):
         self._knx_secure_view = KnxSecureView(self._project)
         self._time_program_view = TimeProgramView(self._project)
         self._bauherr_form_view = BauherrFormView()
-        self._commissioning_view = CommissioningView(self._project)
-        self._commissioning_view.checklist_changed.connect(self._set_dirty)
+        self._commissioning_view = CommissioningView(
+            self._project, visum_provider=self._commissioning_visum)
+        # Signal ohne Argument: _set_dirty(True) ausdrücklich aufrufen (vorher
+        # TypeError bei jeder Änderung, Prüfergebnisse galten nicht als ungespeichert)
+        self._commissioning_view.checklist_changed.connect(lambda: self._set_dirty(True))
         self._changelog_view = ChangelogView()
         self._changelog_view.changed.connect(
             lambda: self._bus.any_change.emit("changelog")
@@ -2273,6 +2276,25 @@ class MainWindow(QMainWindow):
         if export_worklist(self, self._project, default, profile,
                            self._export_worker_ref, done):
             self._set_dirty(True)
+
+    def _commissioning_visum(self) -> str:
+        """Visum zum Abzeichnen der Inbetriebnahme: aus dem Firmenprofil
+        (Initialen oder Name); fehlt beides, einmal nachfragen und speichern."""
+        if not self._app:
+            return ""
+        profile = self._app.project_service.load_company_profile()
+        if profile.visum:
+            return profile.visum
+        from PySide6.QtWidgets import QInputDialog
+        text, ok = QInputDialog.getText(
+            self, "Visum",
+            "Ihre Initialen zum Abzeichnen der Prüfergebnisse\n"
+            "(änderbar unter Einstellungen → Bearbeiter):")
+        if not ok or not text.strip():
+            return ""
+        profile.initials = text.strip()
+        self._app.project_service.save_company_profile(profile)
+        return profile.visum
 
     def _show_settings(self):
         from ..utils.workspace import projects_folder

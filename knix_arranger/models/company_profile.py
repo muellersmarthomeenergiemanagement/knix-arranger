@@ -15,6 +15,7 @@ class CompanyProfile:
     logo_path: str = ""       # Pfad zur Logo-Datei
     user_name: str = ""       # Vor- und Nachname
     role: str = ""            # z.B. "KNX-Systemintegrator"
+    initials: str = ""        # Visum, z.B. "MM" (leer: aus user_name)
     address: str = ""
     phone: str = ""
     email: str = ""
@@ -45,12 +46,22 @@ class CompanyProfile:
     payment_terms: str = "30 Tage netto"
     quote_validity_days: int = 60
 
+    @property
+    def visum(self) -> str:
+        """Visum für Abzeichnungen: eigene Initialen, sonst die
+        Anfangsbuchstaben des Namens ("Max Muster" -> "MM")."""
+        if self.initials.strip():
+            return self.initials.strip()
+        return "".join(w[0] for w in self.user_name.replace("-", " ").split()
+                       if w[0].isalpha()).upper()
+
     def to_dict(self) -> dict:
         return {
             "company_name": self.company_name,
             "logo_path": self.logo_path,
             "user_name": self.user_name,
             "role": self.role,
+            "initials": self.initials,
             "address": self.address,
             "phone": self.phone,
             "email": self.email,
@@ -79,6 +90,7 @@ class CompanyProfile:
             logo_path=data.get("logo_path", ""),
             user_name=data.get("user_name", ""),
             role=data.get("role", ""),
+            initials=data.get("initials", ""),
             address=data.get("address", ""),
             phone=data.get("phone", ""),
             email=data.get("email", ""),

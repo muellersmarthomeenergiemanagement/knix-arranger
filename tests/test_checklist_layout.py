@@ -71,12 +71,12 @@ def test_excel_ausfuellen_und_einlesen(tmp_path):
     wb = openpyxl.load_workbook(path)
     assert wb.sheetnames[0] == "Übersicht" and "EG" in wb.sheetnames
     ws = wb["EG"]
-    assert ws.column_dimensions["F"].hidden
+    assert ws.column_dimensions["H"].hidden
     assert ws.data_validations.dataValidation
     row = next(r for r in range(1, ws.max_row + 1) if ws.cell(r, 1).value == "1 links")
     assert ws.cell(row, 4).value == "☐ offen"
     ws.cell(row, 4).value = "⚠ Mangel"
-    ws.cell(row, 5).value = "LED dunkel"
+    ws.cell(row, 7).value = "LED dunkel"
     wb.save(path)
 
     stats = DocumentationService(project).import_checklists_excel(path)

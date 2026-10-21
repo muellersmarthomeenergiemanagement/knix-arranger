@@ -6,6 +6,9 @@ Resultate werden in project.checklists persistiert und beim Excel-Export
 als ausgefüllte Zellen ausgegeben.
 """
 from __future__ import annotations
+import os
+from typing import Callable
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTreeWidget, QTreeWidgetItem, QTableWidget, QTableWidgetItem,
@@ -20,6 +23,7 @@ from ...models.documentation import (
     CommissioningChecklist, ChecklistItem,
     ITEM_KIND_DEVICE, ITEM_KIND_FUNCTION,
     RESULT_OK, RESULT_DEFECT, RESULT_NA, RESULT_OPEN, RESULT_CHOICES,
+    parse_check_date, display_check_date,
 )
 from ...services.documentation_service import DocumentationService
 from ..column_utils import fit_columns
@@ -47,8 +51,10 @@ _COL_CHECK = 1
 _COL_DESC  = 2
 _COL_GA    = 3
 _COL_RES   = 4
-_COL_NOTES = 5
-_NUM_COLS  = 6
+_COL_DATE  = 5
+_COL_VISUM = 6
+_COL_NOTES = 7
+_NUM_COLS  = 8
 
 _TYPE_ROOM = "room"
 _TYPE_BE   = "be"
@@ -59,9 +65,12 @@ class CommissioningView(QWidget):
 
     checklist_changed = Signal()
 
-    def __init__(self, project: KnxProject, parent=None):
+    def __init__(self, project: KnxProject, parent=None,
+                 visum_provider: Callable[[], str] | None = None):
         super().__init__(parent)
         self._project = project
+        # Liefert das Visum (Initialen) zum Abzeichnen gesetzter Ergebnisse
+        self._visum_provider = visum_provider
         self._current_cl: CommissioningChecklist | None = None
         self._current_be_id: str | None = None
         self._populating = False   # verhindert Signalschleifen beim Befüllen
@@ -102,8 +111,9 @@ class CommissioningView(QWidget):
 
         self._btn_import = QPushButton("Excel einlesen…")
         self._btn_import.setToolTip(
-            "Ausgefüllte Checkliste einlesen: Ergebnisse und Bemerkungen werden "
-            "übernommen, «offen» lässt vorhandene Ergebnisse unverändert")
+            "Ausgefüllte Checkliste einlesen: Ergebnisse, Datum, Visum und "
+            "Bemerkungen werden übernommen, «offen» lässt vorhandene Ergebnisse "
+            "unverändert")
         self._btn_import.clicked.connect(self._import_excel)
         hdr.addWidget(self._btn_import)
 
@@ -192,7 +202,7 @@ class CommissioningView(QWidget):
 
         bulk_layout.addStretch()
 
-        lbl_hint = QLabel("Notiz: direkt in Zelle tippen")
+        lbl_hint = QLabel("Datum, Visum, Notiz: direkt in Zelle tippen")
         lbl_hint.setStyleSheet("color: #666666; font-size: 12px;")
         bulk_layout.addWidget(lbl_hint)
 
@@ -203,7 +213,7 @@ class CommissioningView(QWidget):
         self._table.setColumnCount(_NUM_COLS)
         self._table.setHorizontalHeaderLabels([
             "Art", "Prüfpunkt / Kanal", "Beschreibung / Funktion",
-            "GA-Bezeichnung", "Ergebnis", "Notiz",
+            "GA-Bezeichnung", "Ergebnis", "Datum", "Visum", "Notiz",
         ])
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self._table.horizontalHeader().setStretchLastSection(True)
@@ -216,7 +226,7 @@ class CommissioningView(QWidget):
         self._table.setColumnWidth(_COL_DESC,  200)
         self._table.setColumnWidth(_COL_GA,    170)
         self._table.setColumnWidth(_COL_RES,   110)
-        self._table.itemChanged.connect(self._on_notes_edited)
+        self._table.itemChanged.connect(self._on_cell_edited)
 
         right_layout.addWidget(self._table, 1)
         splitter.addWidget(right)
@@ -228,6 +238,12 @@ class CommissioningView(QWidget):
     def set_project(self, project: KnxProject):
         self._project = project
         self.refresh()
+
+    def set_visum_provider(self, provider: Callable[[], str] | None) -> None:
+        self._visum_provider = provider
+
+    def _visum(self) -> str:
+        return (self._visum_provider() if self._visum_provider else "") or ""
 
     def refresh(self):
         self._current_cl = None
@@ -378,11 +394,12 @@ class CommissioningView(QWidget):
         if chosen not in action_map:
             return
         result = action_map[chosen]
+        visum = self._visum() if result != RESULT_OPEN else ""
 
         touched_room_ids: set[str] = set()
         for node in nodes:
             for cl_item in self._items_for_node(node):
-                cl_item.result = result
+                cl_item.set_result(result, visum)
             data = node.data(0, Qt.UserRole)
             if data:
                 touched_room_ids.add(data[1])
@@ -440,10 +457,15 @@ class CommissioningView(QWidget):
             combo.setFocusPolicy(Qt.NoFocus)
             self._table.setCellWidget(row, _COL_RES, combo)
 
-            # Spalte F: Notiz — direkt editierbar
-            notes_cell = QTableWidgetItem(item.notes)
-            notes_cell.setData(Qt.UserRole, item.id)
-            self._table.setItem(row, _COL_NOTES, notes_cell)
+            # Datum, Visum, Notiz — direkt editierbar
+            for col, text in [
+                (_COL_DATE,  display_check_date(item.checked_date)),
+                (_COL_VISUM, item.checked_by),
+                (_COL_NOTES, item.notes),
+            ]:
+                cell = QTableWidgetItem(text)
+                cell.setData(Qt.UserRole, item.id)
+                self._table.setItem(row, col, cell)
 
         fit_columns(self._table)  # NFA-034: Breite nach Inhalt
         self._table.resizeRowsToContents()
@@ -472,7 +494,9 @@ class CommissioningView(QWidget):
             self._apply_bulk(selected, new_result)
             self._select_rows(selected)
             return
-        cl_item.result = new_result
+        cl_item.set_result(new_result, self._visum() if new_result != RESULT_OPEN else "")
+        if row is not None:
+            self._show_check_mark(row, cl_item)
         self._apply_combo_color(combo, new_result)
         self._update_progress()
         self._refresh_current_tree_node()
@@ -492,16 +516,44 @@ class CommissioningView(QWidget):
                 return row
         return None
 
-    def _on_notes_edited(self, cell: QTableWidgetItem):
-        if self._populating or cell.column() != _COL_NOTES:
+    def _show_check_mark(self, row: int, cl_item: ChecklistItem) -> None:
+        """Datum und Visum einer Zeile nach dem Abzeichnen nachführen."""
+        was = self._populating
+        self._populating = True
+        for col, text in ((_COL_DATE, display_check_date(cl_item.checked_date)),
+                          (_COL_VISUM, cl_item.checked_by)):
+            cell = self._table.item(row, col)
+            if cell:
+                cell.setText(text)
+        self._populating = was
+
+    def _on_cell_edited(self, cell: QTableWidgetItem):
+        if self._populating or cell.column() not in (_COL_DATE, _COL_VISUM, _COL_NOTES):
             return
         item_id = cell.data(Qt.UserRole)
-        if not item_id:
+        cl_item = self._find_item(item_id) if item_id else None
+        if cl_item is None:
             return
-        cl_item = self._find_item(item_id)
-        if cl_item:
+        text = cell.text().strip()
+        if cell.column() == _COL_NOTES:
             cl_item.notes = cell.text()
-            self.checklist_changed.emit()
+        elif cell.column() == _COL_VISUM:
+            cl_item.checked_by = text
+        else:
+            iso = parse_check_date(text)
+            if text and not iso:
+                # Unlesbares Datum: bisherigen Wert wieder anzeigen
+                self._populating = True
+                cell.setText(display_check_date(cl_item.checked_date))
+                self._populating = False
+                QMessageBox.information(self, "Datum",
+                                        "Bitte das Datum als TT.MM.JJJJ eingeben.")
+                return
+            cl_item.checked_date = iso
+            self._populating = True
+            cell.setText(display_check_date(iso))
+            self._populating = False
+        self.checklist_changed.emit()
 
     # ── Bulk-Aktionen ─────────────────────────────────────────────────────────
 
@@ -519,6 +571,7 @@ class CommissioningView(QWidget):
     def _apply_bulk(self, rows: list[int], result: str | None = None):
         if result is None:
             result = self._bulk_combo.currentData()
+        visum = self._visum() if result != RESULT_OPEN else ""
         for row in rows:
             kind_cell = self._table.item(row, _COL_KIND)
             if not kind_cell:
@@ -527,7 +580,8 @@ class CommissioningView(QWidget):
             cl_item = self._find_item(item_id)
             if cl_item is None:
                 continue
-            cl_item.result = result
+            cl_item.set_result(result, visum)
+            self._show_check_mark(row, cl_item)
             combo = self._table.cellWidget(row, _COL_RES)
             if isinstance(combo, QComboBox):
                 idx = combo.findData(result)
@@ -623,13 +677,25 @@ class CommissioningView(QWidget):
         )
         self.checklist_changed.emit()
 
+    def _reports_dir(self) -> str:
+        """{Projektordner}/Berichte wie im Berichte-Dialog (FA-1601);
+        ungespeichertes Projekt: "" (Standardordner des Dateidialogs)."""
+        folder = self._project.folder_path
+        if not folder:
+            return ""
+        target = os.path.join(folder, "Berichte")
+        os.makedirs(target, exist_ok=True)
+        return target
+
     def _import_excel(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Ausgefüllte Checkliste einlesen", "", "Excel-Dateien (*.xlsx)")
+            self, "Ausgefüllte Checkliste einlesen", self._reports_dir(),
+            "Excel-Dateien (*.xlsx)")
         if not path:
             return
         try:
-            stats = DocumentationService(self._project).import_checklists_excel(path)
+            stats = DocumentationService(self._project).import_checklists_excel(
+                path, visum=self._visum())
         except Exception as exc:
             QMessageBox.warning(self, "Einlesen fehlgeschlagen",
                                 f"Die Datei konnte nicht gelesen werden:\n{exc}")
@@ -643,15 +709,17 @@ class CommissioningView(QWidget):
             return
         unknown = (f"\n{stats['unknown']} Zeilen passen zu keinem Prüfpunkt mehr "
                    "(Gerät oder Taste inzwischen geändert)." if stats["unknown"] else "")
+        unrated = (f"\n{stats['unrated']} Zeilen haben Datum oder Visum, aber in der "
+                   "Spalte OK noch kein Ergebnis." if stats.get("unrated") else "")
         QMessageBox.information(
             self, "Checkliste eingelesen",
             f"{stats['rows']} Zeilen gelesen, {stats['items']} Prüfpunkte aktualisiert."
-            + unknown)
+            + unknown + unrated)
 
     def _export_excel(self):
         path, _ = license_gate.get_save_file_name(
             self, "Checkliste exportieren",
-            f"{self._project.name}_Checklisten.xlsx",
+            os.path.join(self._reports_dir(), f"{self._project.name}_Checklisten.xlsx"),
             "Excel-Dateien (*.xlsx)",
         )
         if not path:
