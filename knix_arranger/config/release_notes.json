@@ -2,6 +2,18 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.13",
+      "date": "2026-10-21",
+      "neu": [
+        "ETS-Funktionen: Beim Import einer .knxproj liest KNiX die in der ETS je Raum angelegten Funktionen (Licht schalten, Licht dimmen, Sonnenschutz, Heizung, Steckdose, Benutzerdefiniert) mit ihren GAs ein. Neue Ansicht «ETS-Funktionen» unter «Adressen & Logik».",
+        "Die Validierung weist auf von der ETS in HG 12 angelegte GAs, abweichende Datenpunkttypen, GAs ohne KO-Verknüpfung und Funktionen ohne GA hin.",
+        "Funktionen planen: Mit dem Schalter «Funktionen planen» sieht KNiX je Licht, Steckdose, Jalousie und Heizung eine ETS-Funktion mit den KNiX-GAs vor (Reiter «Geplant»). Die ETS-Arbeitsliste führt sie in der neuen Gruppe «ETS-Funktionen anlegen»: Funktion anlegen, KNiX-GAs zuordnen, die von der ETS angelegten löschen. Nach dem Re-Import hakt KNiX Erledigtes ab."
+      ],
+      "verbessert": [
+        "Hauptgruppe 12 bleibt bei der Planung frei, weil die ETS dort die GAs neuer Funktionen anlegt. Schritt 1 markiert ein Stockwerk mit HG 12 und schlägt die nächste freie vor."
+      ]
+    },
+    {
       "version": "1.4.12",
       "date": "2026-10-21",
       "neu": [
