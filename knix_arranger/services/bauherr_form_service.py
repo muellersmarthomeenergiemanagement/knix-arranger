@@ -136,6 +136,22 @@ _DROPDOWN_OPTIONS = [
 ]
 # Fertige formula1-Zeichenkette (inkl. umschliessender Anführungszeichen)
 _DROPDOWN_FORMULA1 = '"' + ",".join(_DROPDOWN_OPTIONS) + '"'
+# Funktionen (FA-530) stehen im Formular als "Funktion: <Name>"
+FUNCTION_PREFIX = "Funktion: "
+_LIST_LIMIT = 255   # Excel: Inline-Liste höchstens 255 Zeichen
+
+
+def dropdown_formula(function_names: list[str]) -> str:
+    """Auswahlliste eines Raums: zuerst seine Funktionen, dann die üblichen
+    Wünsche -- gekürzt (von hinten, "Sonstiges" bleibt), bis sie passt."""
+    functions = [FUNCTION_PREFIX + n.replace(",", " ").replace('"', "'")
+                 for n in function_names]
+    base = list(_DROPDOWN_OPTIONS)
+    while len(",".join(functions + base)) > _LIST_LIMIT and len(base) > 1:
+        base.pop(-2)
+    while len(",".join(functions + base)) > _LIST_LIMIT and functions:
+        functions.pop()
+    return '"' + ",".join(functions + base) + '"'
 
 
 class BauherrFormService:
@@ -802,7 +818,8 @@ class BauherrFormService:
                 from openpyxl.worksheet.datavalidation import DataValidation
                 dv = DataValidation(
                     type="list",
-                    formula1=_DROPDOWN_FORMULA1,
+                    formula1=dropdown_formula(
+                        [f.name for f in self._room_functions(room)]),
                     showDropDown=False,
                     allow_blank=True,
                     showErrorMessage=False,
@@ -820,6 +837,24 @@ class BauherrFormService:
 
         excel.save(filepath)
         logger.info(f"Bauherr-Formular erstellt: {filepath}")
+
+    def _room_functions(self, room: Room) -> list:
+        """Funktionen (FA-530) des Raums oder seiner Zone."""
+        from .ets_function_plan import locate
+        result = []
+        for function in getattr(self.project, "functions", []):
+            location = locate(self.project, function)
+            if location is not None and any(r.id == room.id for r in location.rooms):
+                result.append(function)
+        return result
+
+    def _function_by_name(self, room: Room, name: str):
+        """Funktion zum Namen aus dem Formular: am Ort des Raums zuerst."""
+        candidates = [f for f in getattr(self.project, "functions", [])
+                      if f.name.replace(",", " ").replace('"', "'") == name]
+        own = {f.id for f in self._room_functions(room)}
+        candidates.sort(key=lambda f: f.id not in own)
+        return candidates[0] if candidates else None
 
     def import_form(self, filepath: str) -> int:
         """
@@ -851,13 +886,32 @@ class BauherrFormService:
         _HDR_SKIP = ("anmerkung", "legende", "raum", "projekt")
         _T_RE = re.compile(r'^T(\d+)\s{1,3}(.*)$')
 
-        def _apply(be: Bedienelement, sf_idx: int, val: str):
-            nonlocal imported_count
+        functions_set = False
+
+        def _apply(be: Bedienelement, sf_idx: int, val: str, room: Room):
+            nonlocal imported_count, functions_set
             if not val or "Ihr Wunsch" in val:
                 return
             # Zusatzzeilen der Zelle (Bedienart, "lang: …") gehören nicht zum Namen
             val = val.split("\n")[0].strip()
             buttons = button_funktionen(be)
+            if val.startswith(FUNCTION_PREFIX):
+                function = self._function_by_name(room, val[len(FUNCTION_PREFIX):].strip())
+                if function is not None:
+                    if sf_idx < len(buttons):
+                        sf = buttons[sf_idx]
+                    else:
+                        for _ in range(sf_idx - len(buttons)):
+                            be.funktionen.append(SF())
+                        sf = SF()
+                        be.funktionen.append(sf)
+                    if sf.function_id != function.id:
+                        sf.function_id, sf.label = function.id, function.name
+                        sf.gewerk_code, sf.scene_id, sf.bedienart = "", "", ""
+                        imported_count += 1
+                        functions_set = True
+                        be.is_auto = False
+                    return
             if sf_idx < len(buttons):
                 sf = buttons[sf_idx]
                 auto = self._button_label(sf)
@@ -923,9 +977,13 @@ class BauherrFormService:
                     if m and current_be is not None:
                         sf_idx = int(m.group(1)) - 1
                         fn_val = m.group(2).strip()
-                        _apply(current_be, sf_idx, fn_val)
+                        _apply(current_be, sf_idx, fn_val, room)
 
         wb.close()
+        if functions_set:
+            # GAs der gewählten Funktionen sofort eintragen
+            from .ets_function_plan import apply_function_buttons
+            apply_function_buttons(self.project)
         logger.info(f"Bauherr-Formular importiert: {imported_count} Änderungen")
         return imported_count
 

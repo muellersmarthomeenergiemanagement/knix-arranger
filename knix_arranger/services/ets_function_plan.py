@@ -33,14 +33,17 @@ from .ets_function_service import FUNCTION_TYPES, type_label
 @dataclass(frozen=True)
 class PlanPoint:
     function: str      # KNiX-Funktion, z.B. "E/A" (wie bei den Elementen)
-    role: str          # Rolle in der ETS
+    role: str          # Rolle in der ETS; "" = kein Funktionspunkt der ETS
     dpt: str
     offset: int        # Platz im 5er-Block
+    label: str = ""    # Bezeichnung, wenn die ETS den Punkt nicht kennt
 
 
 _E_A = PlanPoint("E/A", "SwitchOnOff", "DPST-1-1", 0)
 
-#: Funktionstyp -> Funktionspunkte (nur Befehle)
+#: Funktionstyp -> Funktionspunkte (nur Befehle). Positionen beim Sonnen-
+#: schutz z.B. für "Raum beschatten" von einem Sensor aus; die ETS-Funktion
+#: kennt sie nicht (ihre Position/Lamellenstellung sind Rückmeldungen).
 PLAN_POINTS: dict[str, tuple[PlanPoint, ...]] = {
     "FT-1": (_E_A,),
     "FT-10": (_E_A,),
@@ -48,8 +51,16 @@ PLAN_POINTS: dict[str, tuple[PlanPoint, ...]] = {
              PlanPoint("DIM", "DimmingControl", "DPST-3-7", 1),
              PlanPoint("WERT", "DimmingValue", "DPST-5-1", 2)),
     "FT-7": (PlanPoint("AUF/AB", "MoveUpDown", "DPST-1-8", 0),
-             PlanPoint("STOPP", "StopStepUpDown", "DPST-1-7", 1)),
+             PlanPoint("STOPP", "StopStepUpDown", "DPST-1-7", 1),
+             PlanPoint("POSITION HOEHE", "", "DPST-5-1", 2, "Position Höhe"),
+             PlanPoint("POSITION LAMELLEN", "", "DPST-5-1", 3, "Position Lamellen")),
 }
+
+
+def in_ets_function(function_type: str, function_name: str) -> bool:
+    """Funktionspunkt, den die ETS-Funktion kennt (dort zuzuordnen)."""
+    return any(p.function == function_name and p.role
+               for p in PLAN_POINTS.get(function_type, ()))
 #: Planbare Typen in der Reihenfolge der Auswahl
 PLAN_TYPES = ("FT-7", "FT-1", "FT-6", "FT-10")
 TYPE_MIDDLE_GROUP = {"FT-1": 0, "FT-6": 0, "FT-10": 0, "FT-7": 1}
@@ -358,7 +369,8 @@ def compare_plan(project) -> list[PlanStatus]:
         ets_addresses = {r.address for r in status.ets.refs}
         status.missing = sorted(
             (ga for ga in gas_by_function.get(status.function.id, [])
-             if ga.address not in ets_addresses),
+             if ga.address not in ets_addresses
+             and in_ets_function(status.function.function_type, ga.function_name)),
             key=lambda g: (g.middle_group, g.sub_group))
     return statuses
 
@@ -370,6 +382,8 @@ def _point_label(function_type: str, function_name: str) -> str:
                   if p.function == function_name), None)
     if point is None:
         return function_name
+    if not point.role:
+        return point.label or function_name
     ets = next((p for p in FUNCTION_TYPES[function_type][1] if p.role == point.role), None)
     return ets.label if ets else function_name
 
@@ -410,7 +424,8 @@ def check_plan(project) -> list:
         if ets_read:
             point_text = ", ".join(
                 f"{_point_label(function.function_type, ga.function_name)} {ga.address}"
-                for ga in (status.missing if status.ets else gas))
+                for ga in (status.missing if status.ets else gas)
+                if in_ets_function(function.function_type, ga.function_name))
             if status.ets is None:
                 issues.append(_task_issue(
                     function, where, gas[0].address, "anlegen",

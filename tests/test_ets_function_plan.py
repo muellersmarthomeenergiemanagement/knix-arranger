@@ -89,7 +89,8 @@ def _cos_with(project, address):
 def test_command_addresses_from_ug_200(project):
     gas = _gas(project)
     assert {f: (ga.address, ga.datapoint_type) for f, ga in gas.items()} == {
-        "AUF/AB": ("2/1/200", "DPST-1-8"), "STOPP": ("2/1/201", "DPST-1-7")}
+        "AUF/AB": ("2/1/200", "DPST-1-8"), "STOPP": ("2/1/201", "DPST-1-7"),
+        "POSITION HOEHE": ("2/1/202", "DPST-5-1"), "POSITION LAMELLEN": ("2/1/203", "DPST-5-1")}
     assert gas["AUF/AB"].designation == "J_01_F1 AUF/AB (Fensterfront)"
     element = [ga for ga in project.group_addresses.all_addresses()
                if ga.gewerk_code == "J" and not ga.function_id and not ga.is_placeholder]
@@ -99,7 +100,8 @@ def test_command_addresses_from_ug_200(project):
 def test_variant_b_same_addresses_without_findings():
     project = _build("B")
     gas = _gas(project)
-    assert sorted(ga.address for ga in gas.values()) == ["2/1/200", "2/1/201"]
+    assert sorted(ga.address for ga in gas.values()) == [
+        "2/1/200", "2/1/201", "2/1/202", "2/1/203"]
     issues = ValidationEngine(project.gewerk_catalog).validate(
         project.group_addresses, project=project)
     addresses = {ga.address for ga in gas.values()}
@@ -137,7 +139,7 @@ def test_rows_on_all_member_channels(project):
     by_ga = {}
     for row in rows:
         by_ga.setdefault(row.ga_address, set()).add((row.physical_address, row.channel_number))
-    assert len(by_ga["2/1/200"]) == 3 and len(by_ga["2/1/201"]) == 3
+    assert all(len(by_ga[a]) == 3 for a in ("2/1/200", "2/1/201", "2/1/202", "2/1/203"))
 
 
 def test_co_linking_proposals(project):
@@ -187,7 +189,9 @@ def test_button_on_function(project):
     assert sf.label == "Fensterfront"
     assert sf.ga_designation == "2/1/200  J_01_F1 AUF/AB (Fensterfront)"
     assert [(e.ga_designation, e.role) for e in sf.extra_gas] == [
-        ("2/1/201  J_01_F1 STOPP (Fensterfront)", "befehl")]
+        ("2/1/201  J_01_F1 STOPP (Fensterfront)", "befehl"),
+        ("2/1/202  J_01_F1 POSITION HOEHE (Fensterfront)", "befehl"),
+        ("2/1/203  J_01_F1 POSITION LAMELLEN (Fensterfront)", "befehl")]
     # Umbenennen wird nachgeführt
     project.functions[0].name = "Front Süd"
     sync_function_gas(project)
@@ -210,22 +214,22 @@ def test_button_on_function(project):
 def test_restore_after_reimport(project):
     for ga in function_gas(project.group_addresses):
         ga.function_id = ""
-    assert restore_function_ids(project) == 2
-    assert len(_gas(project)) == 2
+    assert restore_function_ids(project) == 4
+    assert len(_gas(project)) == 4
 
 
 def test_renumbering_keeps_function_gas(project):
     from knix_arranger.services.renumber_service import plan_renumbering
     plan = plan_renumbering(project)
     gas = [ga for ga in plan.structure.all_addresses() if ga.function_id]
-    assert sorted(ga.address for ga in gas) == ["2/1/200", "2/1/201"]
+    assert sorted(ga.address for ga in gas) == ["2/1/200", "2/1/201", "2/1/202", "2/1/203"]
     assert not [c for c in plan.changes if "_F1" in c.new_designation]
 
 
 def test_roundtrip(project):
     again = KnxProject.from_dict(project.to_dict())
     assert again.functions == project.functions
-    assert len([ga for ga in again.group_addresses.all_addresses() if ga.function_id]) == 2
+    assert len([ga for ga in again.group_addresses.all_addresses() if ga.function_id]) == 4
 
 
 def test_removed_member_reported(project):
@@ -245,7 +249,7 @@ def test_view_dialog_and_button_choice(project):
     view.set_project(project)
     function_item = view._plan_tree.topLevelItem(0).child(0)
     assert function_item.text(0) == "Fensterfront (Sonnenschutz)"
-    assert function_item.childCount() == 2 + 3
+    assert function_item.childCount() == 4 + 3
 
     dialog = FunctionEditDialog(project, project.functions[0])
     assert dialog._members.count() == 3
@@ -269,3 +273,34 @@ def test_view_dialog_and_button_choice(project):
     assert sf.ga_designation.startswith("2/1/200")
     assert slot._select_current(sf)
     assert slot._combo.currentIndex() == index
+
+
+def test_bauherr_form_offers_and_reads_functions(project, tmp_path):
+    from openpyxl import load_workbook
+    from knix_arranger.services.bauherr_form_service import (
+        BauherrFormService, FUNCTION_PREFIX, dropdown_formula)
+    wohnen = _room(project, "Wohnen")
+    be = Bedienelement(element_type="Tastereinheit", channels=4, is_auto=False,
+                       funktionen=[SensorFunktion(gewerk_code="LD", element_number=1)])
+    wohnen.bedienelemente.append(be)
+    path = tmp_path / "form.xlsx"
+    service = BauherrFormService(project)
+    service.generate_form(str(path))
+    wb = load_workbook(path)
+    formulas = [dv.formula1 for ws in wb.worksheets
+                for dv in ws.data_validations.dataValidation]
+    assert any(f.startswith('"Funktion: Fensterfront,') for f in formulas)
+    # Bauherr wählt die Funktion für Taste 2
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row[:2]:
+                if str(cell.value or "").startswith("T2  "):
+                    cell.value = "T2  " + FUNCTION_PREFIX + "Fensterfront"
+    wb.save(path)
+    assert service.import_form(str(path)) >= 1
+    sf = next(f for f in be.funktionen if f.function_id)
+    assert sf.function_id == project.functions[0].id
+    assert sf.ga_designation.startswith("2/1/200")
+    # Liste bleibt unter der Excel-Grenze, "Sonstiges" bleibt
+    long = dropdown_formula([f"Funktion {n}" for n in range(30)])
+    assert len(long) - 2 <= 255 and long.rstrip('"').endswith("Sonstiges")
