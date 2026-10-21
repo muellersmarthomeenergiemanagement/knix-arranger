@@ -2,6 +2,20 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.14",
+      "date": "2026-10-21",
+      "neu": [
+        "Funktionen: Mehrere Elemente eines Raums oder einer Zone gemeinsam bedienen, z.B. «Fensterfront» für drei Jalousien oder «Wohnzone Abwesend» für die Heizung. Anlegen, bearbeiten und löschen unter ETS-Funktionen → Reiter «Geplant»; angezeigt werden die Funktions-GAs und die bedienten Elemente mit ihrem Aktorkanal.",
+        "Eine Funktion hat eigene, reine Befehls-GAs ohne Rückmeldung: Sonnenschutz mit Bewegen, Stopp, Position Höhe, Position Lamellen und Sperren (z.B. «Raum beschatten» von einem Sensor aus), Licht mit Schalten bzw. Dimmen und Wert, Heizung mit der Betriebsart. Sie liegen in der HG des Stockwerks ab UG 200, z.B. «J_01_F1 AUF/AB (Fensterfront)», und werden zusätzlich auf die Aktorkanäle der Elemente verknüpft.",
+        "Funktionen auf Tasten legen: in der Bauherrenberatung und im Bauherr-Formular als «Funktion: <Name>». Umbenennen oder Verschieben der Funktion wird an der Taste nachgeführt.",
+        "Validierung und ETS-Arbeitsliste: fehlt einem Aktorkanal die Funktions-GA, steht das unter «Muss behoben werden»; geplante Funktionen, die in der ETS fehlen oder unvollständig sind, unter «ETS-Funktionen anlegen»."
+      ],
+      "verbessert": [
+        "Bauherr-Formular: Die Auswahllisten stehen auf dem eigenen Blatt «Auswahlliste» – keine Längengrenze mehr, alle Wünsche bleiben wählbar.",
+        "Ersetzt «Funktionen planen» aus 1.4.13 (eine Funktion je Element): Funktionen bündeln jetzt mehrere Elemente mit eigenen GAs."
+      ]
+    },
+    {
       "version": "1.4.13",
       "date": "2026-10-21",
       "neu": [
