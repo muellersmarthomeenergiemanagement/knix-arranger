@@ -60,6 +60,9 @@ class ProjectConfig:
     # Szenennummern je Ebene (FA-1814): "room"/"apartment"/"central" ->
     # [erste, letzte]; leer = Vorgabe aus services.scene_numbering
     scene_number_ranges: dict[str, list[int]] = field(default_factory=dict)
+    # ETS-Funktionen planen (FA-530): fehlende oder unvollständige Funktionen
+    # kommen in die Validierung und die ETS-Arbeitsliste
+    plan_ets_functions: bool = False
 
     def gateway_shared(self, gewerk_code: str) -> bool:
         scope = self.gateway_scope.get(gewerk_code)
@@ -76,6 +79,7 @@ class ProjectConfig:
             "gateway_scope": dict(self.gateway_scope),
             "gateway_line": dict(self.gateway_line),
             "scene_number_ranges": {k: list(v) for k, v in self.scene_number_ranges.items()},
+            "plan_ets_functions": self.plan_ets_functions,
         }
 
     @classmethod
@@ -91,6 +95,7 @@ class ProjectConfig:
             gateway_line=dict(data.get("gateway_line", {})),
             scene_number_ranges={k: list(v) for k, v in
                                  data.get("scene_number_ranges", {}).items()},
+            plan_ets_functions=bool(data.get("plan_ets_functions", False)),
         )
 
 

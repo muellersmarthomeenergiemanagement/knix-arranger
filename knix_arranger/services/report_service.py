@@ -105,6 +105,13 @@ VALIDATION_RULES = {
         "angelegte GAs, GAs ohne KO, abweichender DPT, eigene GAs in HG 12.",
         "In der ETS die GAs verschieben, benennen und verknüpfen.",
     ),
+    "FA-637": (
+        "Geplante ETS-Funktion",
+        "Eine in KNiX geplante Funktion fehlt in der ETS, ihr fehlen GAs, sie hat "
+        "statt der geplanten GA eine andere oder liegt in einem anderen Raum.",
+        "In der ETS die Funktion anlegen und die geplanten GAs zuordnen "
+        "(siehe ETS-Arbeitsliste).",
+    ),
     "FA-601": (
         "Ungültige Gruppenadresse",
         "Die Adresse liegt ausserhalb des zulässigen Bereichs (HG 0–31, MG 0–7, UG 0–255).",

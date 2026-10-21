@@ -22,7 +22,7 @@ from datetime import date
 
 logger = logging.getLogger("knix_arranger.ets_worklist")
 
-PRIO_MUST, PRIO_CHECK, PRIO_DOCS = 1, 2, 3
+PRIO_MUST, PRIO_CHECK, PRIO_DOCS, PRIO_FUNC = 1, 2, 3, 4
 
 # Befunde, die in KNiX behoben werden, nicht in der ETS: Verweise (FA-623),
 # widersprüchliche Zuteilungen (FA-625), unpassendes Produkt (FA-626)
@@ -31,6 +31,9 @@ PRIORITIES = {
     PRIO_MUST: ("Muss behoben werden", "Wirkt auf den Bus – nach der Korrektur programmieren."),
     PRIO_CHECK: ("Prüfen", "Verdächtig, aber nicht eindeutig falsch."),
     PRIO_DOCS: ("Unterlagen nachführen", "Nur Dokumentation – kein Programmieren nötig."),
+    PRIO_FUNC: ("ETS-Funktionen anlegen",
+                "Geplante Funktionen mit den KNiX-GAs – die von der ETS in HG 12 "
+                "angelegten GAs löschen; kein Programmieren nötig."),
 }
 
 STATUS_NEW, STATUS_OPEN, STATUS_DONE = "neu", "offen", "erledigt"
@@ -142,6 +145,13 @@ def _items_from_issue(issue, project) -> list[WorkItem]:
         return [WorkItem(
             f"{rule}|{addr}", PRIO_CHECK, rule, f"GA {addr}", task, designation,
             sort=(PRIO_CHECK, 1 if rule == "FA-604" else 0, _addr_sort(addr)))]
+
+    if rule == "FA-637":
+        # Schlüssel über Zuteilung + Element: bleibt beim Umbenennen gleich
+        return [WorkItem(
+            f"FA-637|{details.get('key', '')}|{details.get('kind', '')}", PRIO_FUNC, rule,
+            details.get("where", ""), details.get("task", issue.message), "",
+            sort=(PRIO_FUNC, details.get("where", ""), _addr_sort(addr or "")))]
 
     # Übrige Regeln: Meldung der Validierung
     prio = PRIO_MUST if issue.level == "error" else PRIO_CHECK

@@ -104,6 +104,8 @@ class ValidationEngine:
             issues.extend(self._check_ets_function_main_group(project))
             from .ets_function_service import check_functions
             issues.extend(check_functions(project))
+            from .ets_function_plan import check_plan
+            issues.extend(check_plan(project))
             issues.extend(self._check_astro_gas(structure, project))
             issues.extend(self._check_multi_ga_keys(project))
             issues.extend(self._check_ets_deviations(project))

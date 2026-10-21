@@ -424,6 +424,8 @@ class MainWindow(QMainWindow):
         self._co_linking_view = CoLinkingView()
         self._linking_matrix_view = LinkingMatrixView()
         self._ets_functions_view = EtsFunctionsView()
+        # Schalter "Funktionen planen": Validierung und Arbeitsliste ändern sich
+        self._ets_functions_view.changed.connect(lambda: self._set_dirty(True))
         self._cable_length_view = CableLengthView()
         self._topology_diagram_view = TopologyDiagramView()
         self._riser_diagram_view = RiserDiagramView()
