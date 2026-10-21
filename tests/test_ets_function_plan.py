@@ -259,7 +259,8 @@ def test_view_dialog_and_button_choice(project):
     assert gas_node.text(0) == "Funktions-GAs (5)" and gas_node.childCount() == 5
     assert members_node.text(0) == "Bediente Elemente (3)"
     first = members_node.child(0)
-    assert [first.text(c) for c in range(5)] == ["", "J_01_01 (Links)", "", "", ""]
+    assert [first.text(c) for c in range(4)] == ["", "J_01_01 (Links)", "", ""]
+    assert first.text(4).startswith("Aktor ") and ", Kanal " in first.text(4)
 
     dialog = FunctionEditDialog(project, project.functions[0])
     assert dialog._members.count() == 3
