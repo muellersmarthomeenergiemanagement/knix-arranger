@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import uuid
 
 from ..utils.manufacturers import manufacturer_display_name
+from .ets_function import EtsFunction
 
 
 @dataclass
@@ -173,6 +174,8 @@ class Room:
     te_count: int = 0
     # Freitext-Anmerkungen des Bauherrn zu diesem Raum (FA-1501 Bauherrenberatung)
     bauherr_notes: str = ""
+    # In der ETS angelegte Funktionen des Raums (FA-529), nur aus der .knxproj
+    ets_functions: list[EtsFunction] = field(default_factory=list)
 
     def get_te_type(self, te_idx: int) -> str:
         """Gibt den Typ der Tastereinheit zurück ('Taster' oder 'Präsenzmelder')."""
@@ -260,6 +263,8 @@ class Room:
             d["te_count"] = self.te_count
         if self.bauherr_notes:
             d["bauherr_notes"] = self.bauherr_notes
+        if self.ets_functions:
+            d["ets_functions"] = [f.to_dict() for f in self.ets_functions]
         return d
 
     @classmethod
@@ -284,6 +289,9 @@ class Room:
         room.te_types = {str(k): v for k, v in data.get("te_types", {}).items()}
         room.te_count = data.get("te_count", 0)
         room.bauherr_notes = data.get("bauherr_notes", "")
+        room.ets_functions = [
+            EtsFunction.from_dict(f) for f in data.get("ets_functions", [])
+        ]
         return room
 
 
@@ -1130,6 +1138,10 @@ STANDARD_FLOOR_NAMES = {
     "3.OG": "3. Obergeschoss",
     "DG": "Dachgeschoss",
 }
+
+# Hauptgruppe, in der die ETS die GAs neuer Funktionen anlegt (FA-411b):
+# bleibt bei der automatischen Vergabe frei
+ETS_FUNCTION_MAIN_GROUP = 12
 
 # Standard-Hauptgruppen-Zuordnung (FA-411)
 # Jeder Kurzcode bekommt eine eindeutige Nummer.

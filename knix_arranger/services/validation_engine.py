@@ -101,6 +101,9 @@ class ValidationEngine:
         # FA-3308b: Astro-GAs prüfen wenn Zeitprogramme mit ASTRO-Schaltpunkten vorhanden
         if project is not None:
             issues.extend(self._check_shared_main_groups(project))
+            issues.extend(self._check_ets_function_main_group(project))
+            from .ets_function_service import check_functions
+            issues.extend(check_functions(project))
             issues.extend(self._check_astro_gas(structure, project))
             issues.extend(self._check_multi_ga_keys(project))
             issues.extend(self._check_ets_deviations(project))
@@ -171,6 +174,27 @@ class ValidationEngine:
                 details={"hg": hg, "floors": names},
             ))
         return issues
+
+    @staticmethod
+    def _check_ets_function_main_group(project) -> list[ValidationIssue]:
+        """FA-411b: HG 12 legt die ETS mit den GAs ihrer Funktionen an --
+        ein geplantes Stockwerk soll sie nicht belegen."""
+        if project.topology.is_imported:
+            return []
+        from ..models.building import ETS_FUNCTION_MAIN_GROUP
+        floors = [f for f in project.areal.all_floors
+                  if f.main_group_number == ETS_FUNCTION_MAIN_GROUP]
+        if not floors:
+            return []
+        names = ", ".join(f.short_code or f.name for f in floors)
+        return [ValidationIssue(
+            "warning", "FA-411b",
+            f"HG {ETS_FUNCTION_MAIN_GROUP} ist dem Stockwerk {names} zugeordnet: "
+            f"dort legt die ETS die GAs neuer Funktionen an",
+            f"HG {ETS_FUNCTION_MAIN_GROUP}",
+            "In Schritt 1 eine andere Hauptgruppe wählen",
+            details={"hg": ETS_FUNCTION_MAIN_GROUP, "floors": names},
+        )]
 
     #: Massnahme je Art eines gebrochenen Verweises (FA-623)
     _REFERENCE_HINTS = {

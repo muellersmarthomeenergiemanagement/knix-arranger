@@ -93,6 +93,18 @@ VALIDATION_RULES = {
         "aus den Stockwerken zusammengesetzt.",
         "In Schritt 1 jedem Stockwerk eine eigene Hauptgruppe geben.",
     ),
+    "FA-411b": (
+        "Hauptgruppe 12 belegt",
+        "In HG 12 legt die ETS die GAs neuer Funktionen an und füllt Lücken "
+        "zwischen bestehenden Adressen.",
+        "In Schritt 1 dem Stockwerk eine andere Hauptgruppe geben.",
+    ),
+    "FA-636": (
+        "ETS-Funktion",
+        "Hinweise zu den in der ETS angelegten Funktionen: von der ETS in HG 12 "
+        "angelegte GAs, GAs ohne KO, abweichender DPT, eigene GAs in HG 12.",
+        "In der ETS die GAs verschieben, benennen und verknüpfen.",
+    ),
     "FA-601": (
         "Ungültige Gruppenadresse",
         "Die Adresse liegt ausserhalb des zulässigen Bereichs (HG 0–31, MG 0–7, UG 0–255).",

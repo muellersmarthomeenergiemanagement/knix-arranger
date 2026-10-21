@@ -267,6 +267,10 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
                         room.bauherr_notes = old_room.bauherr_notes
                         room.planned_sensors = old_room.planned_sensors
                         room.planned_actors = old_room.planned_actors
+                        # ETS-Funktionen (FA-529) liefert nur die .knxproj;
+                        # ein Excel-Import behält die bisherigen
+                        if not getattr(new_project, "_ets_functions_read", False):
+                            room.ets_functions = old_room.ets_functions
                         if not room.name:
                             room.name = old_room.name
     rooms_new = sorted(

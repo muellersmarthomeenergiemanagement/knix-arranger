@@ -15,7 +15,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QBrush, QColor
 from ...models.project import KnxProject
-from ...models.building import Floor, Wing, STANDARD_FLOOR_NAMES, FLOOR_TO_MAIN_GROUP
+from ...models.building import (
+    Floor, Wing, STANDARD_FLOOR_NAMES, FLOOR_TO_MAIN_GROUP, ETS_FUNCTION_MAIN_GROUP,
+)
 from ...services.building_service import BuildingService
 from ..styles import COLOR_WARNING
 from .building_bar import BuildingBar, BuildingSelection
@@ -160,6 +162,13 @@ class Step01Building(QWidget):
                 item.setToolTip(
                     f"HG {floor.main_group_number} ist auch vergeben an: "
                     + ", ".join(others)
+                )
+            elif floor.main_group_number == ETS_FUNCTION_MAIN_GROUP:
+                # FA-411b
+                item.setForeground(QBrush(QColor(COLOR_WARNING)))
+                item.setToolTip(
+                    f"In HG {ETS_FUNCTION_MAIN_GROUP} legt die ETS die GAs "
+                    "neuer Funktionen an."
                 )
             self._floor_list.addItem(item)
 
@@ -325,7 +334,15 @@ class Step01Building(QWidget):
         self._refresh_list()
         self._floor_list.setCurrentRow(row)
         item = self._floor_list.item(row)
-        if item and item.toolTip():
+        if item and item.toolTip() and floor.main_group_number == ETS_FUNCTION_MAIN_GROUP                 and not BuildingService.shared_main_groups(self._project.areal).get(
+                    floor.main_group_number):
+            QMessageBox.warning(
+                self, "Hauptgruppe 12",
+                item.toolTip() + " Sie füllt dabei auch Lücken zwischen eigenen "
+                "Adressen. Nächste freie HG: "
+                f"{self._next_hg(ignore=floor)}.",
+            )
+        elif item and item.toolTip():
             QMessageBox.warning(
                 self, "Hauptgruppe mehrfach vergeben",
                 item.toolTip() + "\n\nDie Adressen beider Stockwerke landen in "

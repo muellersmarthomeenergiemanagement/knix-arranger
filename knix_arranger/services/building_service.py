@@ -8,6 +8,7 @@ import os
 from ..models.building import (
     Areal, Building, Wing, Floor, Apartment, Room,
     GewerkAssignment, STANDARD_FLOOR_NAMES, FLOOR_TO_MAIN_GROUP,
+    ETS_FUNCTION_MAIN_GROUP,
 )
 
 
@@ -35,6 +36,8 @@ class BuildingService:
         """
         used = {f.main_group_number for f in areal.all_floors
                 if f is not ignore and f.main_group_number > 0}
+        # HG 12 belegt die ETS mit den GAs ihrer Funktionen (FA-411b)
+        used.add(ETS_FUNCTION_MAIN_GROUP)
         if 0 < preferred <= 31 and preferred not in used:
             return preferred
         return next((n for n in range(1, 32) if n not in used), preferred)
@@ -118,7 +121,8 @@ class BuildingService:
         """Weist Hauptgruppen automatisch zu (FA-411).
         Stellt sicher, dass jedes Stockwerk eine eindeutige HG-Nummer bekommt.
         """
-        used_numbers: set[int] = set()
+        # HG 12 belegt die ETS mit den GAs ihrer Funktionen (FA-411b)
+        used_numbers: set[int] = {ETS_FUNCTION_MAIN_GROUP}
 
         # Erst alle bereits vergebenen Nummern sammeln
         for floor in areal.all_floors:

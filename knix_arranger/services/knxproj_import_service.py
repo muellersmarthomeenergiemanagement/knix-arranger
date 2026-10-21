@@ -22,6 +22,7 @@ from ..models.topology import (
     is_presence_detector_product, PRESENCE_DETECTOR_FAMILIES,
 )
 from ..models.building import Areal, Building, Wing, Floor, Apartment, Room, Verteiler, Bedienelement
+from ..models.ets_function import EtsFunction, EtsFunctionRef
 
 logger = logging.getLogger("knix_arranger.knxproj_import")
 
@@ -34,6 +35,9 @@ _NSM = {"k": _NS}
 # xlsx_import_service._parse_xlsx_designation, fuer Parität zwischen den
 # beiden Importwegen.
 _GA_PAREN_DESC_RE = re.compile(r'\(\s*([^)]+)\)')
+
+# Rolle einer GA, die schon zu einer anderen Funktion gehört (FA-529)
+_GUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
 
 
 def _tag(local: str) -> str:
@@ -279,6 +283,7 @@ class KnxprojImportService:
 
         project.group_addresses = self._parse_group_addresses(installation)
         project.areal, room_device_refs = self._parse_building(installation)
+        self._resolve_function_refs(installation, project)
         ga_xml_lookup = self._build_ga_xml_id_lookup(installation)
         app_co_lookup = self._build_app_co_lookup(zf)
         project.topology, device_id_to_line = self._parse_topology(
@@ -426,6 +431,7 @@ class KnxprojImportService:
                 installation = self._find_installation(root)
                 project.group_addresses = self._parse_group_addresses(installation)
                 project.areal, room_device_refs = self._parse_building(installation)
+                self._resolve_function_refs(installation, project)
                 ga_xml_lookup = self._build_ga_xml_id_lookup(installation)
                 app_co_lookup = self._build_app_co_lookup(outer_zf)
                 project.topology, device_id_to_line = self._parse_topology(
@@ -880,6 +886,8 @@ class KnxprojImportService:
         """
         areal = Areal()
         room_device_refs: dict[str, list[str]] = {}
+        # (Funktions-GA, ETS-GA-Id) -- aufgelöst in _resolve_function_refs
+        self._pending_function_refs = []
         loc_root = installation.find("k:Locations", _NSM)
         if loc_root is None:
             return areal, room_device_refs
@@ -936,6 +944,7 @@ class KnxprojImportService:
                     if not number:
                         number, room_name = self._split_room_number(raw_name)
                     room = Room(number=number, name=room_name)
+                    room.ets_functions = self._read_functions(child)
                     # Verschachteltes DistributionBoard → Verteiler im Raum anlegen
                     nested_db = child.find("k:Space[@Type='DistributionBoard']", _NSM)
                     if nested_db is not None:
@@ -975,6 +984,7 @@ class KnxprojImportService:
                 number=space.get("Number", ""),
                 name=name,
             )
+            room.ets_functions = self._read_functions(space)
             refs = self._collect_device_refs(space)
             if refs:
                 room_device_refs[room.id] = refs
@@ -1035,6 +1045,54 @@ class KnxprojImportService:
             f"{sum(len(a.lines) for a in topology.areas)} Linien"
         )
         return topology, device_id_to_info
+
+    def _read_functions(self, space: ET.Element) -> list[EtsFunction]:
+        """FA-529: Funktionen eines Raums (Space/Function/GroupAddressRef).
+        Die GAs werden erst in _resolve_function_refs aufgelöst, weil die
+        Gruppenadressen im XML getrennt von der Gebäudestruktur stehen."""
+        functions = []
+        for f_elem in space.findall("k:Function", _NSM):
+            function = EtsFunction(
+                name=f_elem.get("Name", "").strip(),
+                function_type=f_elem.get("Type", ""),
+            )
+            for ref_elem in f_elem.findall("k:GroupAddressRef", _NSM):
+                ref = EtsFunctionRef(role=ref_elem.get("Role", ""))
+                function.refs.append(ref)
+                self._pending_function_refs.append((ref, ref_elem.get("RefId", "")))
+            functions.append(function)
+        return functions
+
+    def _resolve_function_refs(self, installation: ET.Element, project) -> None:
+        """Adresse, Name und DPT der Funktions-GAs eintragen. Gehört eine GA
+        schon zu einer anderen Funktion, steht in der ETS statt der Rolle eine
+        GUID (bei jedem Export eine andere) -- dann gilt die Rolle der anderen
+        Funktion mit derselben GA, sonst bleibt sie leer."""
+        pending = getattr(self, "_pending_function_refs", [])
+        ga_info: dict[str, tuple[str, str, str]] = {}
+        ga_root = installation.find("k:GroupAddresses/k:GroupRanges", _NSM)
+        if ga_root is not None:
+            for ga_elem in ga_root.iter(_tag("GroupAddress")):
+                try:
+                    m, mi, sub = self._decode_address(int(ga_elem.get("Address", "")))
+                except (ValueError, TypeError):
+                    continue
+                ga_info[ga_elem.get("Id", "")] = (
+                    f"{m}/{mi}/{sub}", ga_elem.get("Name", ""),
+                    ga_elem.get("DatapointType", ""))
+        known_roles: dict[str, str] = {}
+        for ref, ref_id in pending:
+            if ref_id in ga_info:
+                ref.address, ref.ga_name, ref.datapoint_type = ga_info[ref_id]
+            if ref.role and not _GUID_RE.match(ref.role):
+                known_roles.setdefault(ref_id, ref.role)
+        for ref, ref_id in pending:
+            if _GUID_RE.match(ref.role):
+                ref.role = known_roles.get(ref_id, "")
+        self._pending_function_refs = []
+        # Kennzeichnet den Import als Quelle der Funktionen (siehe
+        # reconcile_reimport: Excel-Importe behalten die bisherigen)
+        project._ets_functions_read = True
 
     def _collect_device_refs(self, space: ET.Element) -> list[str]:
         """Sammelt DeviceInstanceRef/@RefId-Werte eines Space-Elements."""

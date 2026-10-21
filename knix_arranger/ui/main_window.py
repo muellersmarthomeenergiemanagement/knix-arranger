@@ -34,6 +34,7 @@ from .views.co_linking_view import CoLinkingView
 from .views.topology_diagram_view import TopologyDiagramView
 from .views.riser_diagram_view import RiserDiagramView
 from .views.linking_matrix_view import LinkingMatrixView
+from .views.ets_functions_view import EtsFunctionsView
 from .views.cable_length_view import CableLengthView
 from .views.dali_config_view import DaliConfigView
 from .views.knx_secure_view import KnxSecureView
@@ -296,6 +297,13 @@ class MainWindow(QMainWindow):
         validate_action.triggered.connect(self._validate)
         view_menu.addAction(validate_action)
 
+        ets_functions_action = QAction("ETS-&Funktionen", self)
+        ets_functions_action.setToolTip(
+            "In der ETS je Raum angelegte Funktionen mit ihren GAs (FA-529)")
+        ets_functions_action.triggered.connect(
+            lambda: self._navigate_from_overview("ets_functions"))
+        view_menu.addAction(ets_functions_action)
+
         # Hilfe
         help_menu = menubar.addMenu("&Hilfe")
 
@@ -415,6 +423,7 @@ class MainWindow(QMainWindow):
         self._material_list_view.topology_changed.connect(self._bus.emit_topology_changed)
         self._co_linking_view = CoLinkingView()
         self._linking_matrix_view = LinkingMatrixView()
+        self._ets_functions_view = EtsFunctionsView()
         self._cable_length_view = CableLengthView()
         self._topology_diagram_view = TopologyDiagramView()
         self._riser_diagram_view = RiserDiagramView()
@@ -453,6 +462,7 @@ class MainWindow(QMainWindow):
             "material_list": self._material_list_view,
             "co_linking": self._co_linking_view,
             "linking_matrix": self._linking_matrix_view,
+            "ets_functions": self._ets_functions_view,
             "cable_length": self._cable_length_view,
             "dali_config": self._dali_config_view,
             "knx_secure": self._knx_secure_view,
@@ -561,6 +571,8 @@ class MainWindow(QMainWindow):
                 self._co_linking_view.set_project(self._project)
             elif key == "linking_matrix":
                 self._linking_matrix_view.set_project(self._project)
+            elif key == "ets_functions":
+                self._ets_functions_view.set_project(self._project)
             elif key == "cable_length":
                 self._cable_length_view.set_project(self._project)
             elif key == "dali_config":
@@ -605,6 +617,7 @@ class MainWindow(QMainWindow):
             "material_list": self._material_list_view,
             "co_linking": self._co_linking_view,
             "linking_matrix": self._linking_matrix_view,
+            "ets_functions": self._ets_functions_view,
             "cable_length": self._cable_length_view,
             "topology_diagram": self._topology_diagram_view,
             "riser_diagram": self._riser_diagram_view,
