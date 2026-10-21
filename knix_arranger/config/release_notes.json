@@ -2,6 +2,21 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.12",
+      "date": "2026-10-21",
+      "neu": [
+        "Inbetriebnahme: Jeder Prüfpunkt wird mit Datum und Visum abgezeichnet. Beim Setzen von OK, Mangel oder n/a trägt KNiX das heutige Datum und Ihr Visum ein (auch für mehrere Zeilen); beides lässt sich von Hand ändern. Das Visum hinterlegen Sie unter Einstellungen → Bearbeiter, sonst gelten die Initialen Ihres Namens.",
+        "Checkliste als PDF und Excel mit den Spalten Datum und Visum. Beim Einlesen der Excel-Datei werden beide übernommen; bereits verteilte Checklisten ohne diese Spalten lassen sich weiterhin einlesen.",
+        "Abnahmeprotokoll: Prüfung je Raum mit Prüfzeitraum und Prüfern."
+      ],
+      "verbessert": [
+        "Inbetriebnahme: Excel-Export und -Einlesen schlagen den Ordner «Berichte» im Projektordner vor."
+      ],
+      "behoben": [
+        "Inbetriebnahme: Änderungen an der Checkliste lösten die Meldung «Unerwarteter Fehler» aus, und das Projekt galt danach nicht als geändert – erfasste Prüfergebnisse konnten beim Schliessen ohne Rückfrage verloren gehen."
+      ]
+    },
+    {
       "version": "1.4.11",
       "date": "2026-10-19",
       "neu": [

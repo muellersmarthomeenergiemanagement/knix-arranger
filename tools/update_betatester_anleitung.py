@@ -828,7 +828,9 @@ def build_document() -> Document:
              "Ideal für die Besprechung am Bildschirm vor dem Bauherr-Formular (Export in Schritt 13)."),
             ("Inbetriebnahme",
              "Checkliste und Protokoll für die Projektübergabe "
-             "(siehe auch Abnahmeprotokoll, Schritt 13)."),
+             "(siehe auch Abnahmeprotokoll, Schritt 13). Jeder Prüfpunkt wird mit "
+             "Datum und Visum abgezeichnet (Visum unter Einstellungen → Bearbeiter); "
+             "die Excel-Checkliste nimmt beides beim Einlesen mit."),
             ("Änderungsprotokoll",
              "Automatische Checkpoints und manuelle Notizen zur Änderungshistorie "
              "des Projekts."),
