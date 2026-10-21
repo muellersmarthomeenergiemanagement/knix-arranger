@@ -9,6 +9,7 @@ Rolle eine GUID -- die ersetzt der Import durch die Rolle der anderen
 Funktion (siehe KnxprojImportService._resolve_function_refs).
 """
 from __future__ import annotations
+import uuid
 from dataclasses import dataclass, field
 
 
@@ -58,4 +59,61 @@ class EtsFunction:
             name=data.get("name", ""),
             function_type=data.get("function_type", ""),
             refs=[EtsFunctionRef.from_dict(r) for r in data.get("refs", [])],
+        )
+
+
+@dataclass
+class FunctionMember:
+    """Ein Element eines Gewerks, das die Funktion mitbedient."""
+    assignment_id: str = ""   # GewerkAssignment.id
+    element_number: int = 1
+
+    def to_dict(self) -> dict:
+        return {"assignment_id": self.assignment_id, "element_number": self.element_number}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> FunctionMember:
+        return cls(data.get("assignment_id", ""), data.get("element_number", 1))
+
+
+@dataclass
+class KnixFunction:
+    """In KNiX geplante Funktion (FA-530): Gruppenbedienung mehrerer Elemente
+    eines Raums oder einer Zone, z.B. "Fensterfront" für drei Jalousien.
+
+    Die Funktion hat eigene GAs (GroupAddress.function_id) in der HG des
+    Stockwerks, MG des Gewerks ab UG 200. Sie werden zusätzlich zu den GAs
+    der Elemente auf deren Aktorkanäle verknüpft. Rückmeldungen sendet nur
+    der Leitkanal (eine sendende GA, FA-614), ohne Status keiner.
+    """
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = ""
+    function_type: str = "FT-7"
+    room_id: str = ""         # Raum, oder leer bei einer Zone
+    zone_id: str = ""         # Apartment.id bei einer Funktion der Zone
+    number: int = 1           # "F1" in der Bezeichnung, je Ort fortlaufend
+    members: list[FunctionMember] = field(default_factory=list)
+    with_status: bool = True
+    lead: int = 0             # Index des Mitglieds, das die Rückmeldung sendet
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id, "name": self.name, "function_type": self.function_type,
+            "room_id": self.room_id, "zone_id": self.zone_id, "number": self.number,
+            "members": [m.to_dict() for m in self.members],
+            "with_status": self.with_status, "lead": self.lead,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> KnixFunction:
+        return cls(
+            id=data.get("id") or str(uuid.uuid4()),
+            name=data.get("name", ""),
+            function_type=data.get("function_type", "FT-7"),
+            room_id=data.get("room_id", ""),
+            zone_id=data.get("zone_id", ""),
+            number=data.get("number", 1),
+            members=[FunctionMember.from_dict(m) for m in data.get("members", [])],
+            with_status=data.get("with_status", True),
+            lead=data.get("lead", 0),
         )

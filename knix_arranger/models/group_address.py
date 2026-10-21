@@ -37,6 +37,8 @@ class GroupAddress:
     # (GewerkAssignment.function_overrides), z.B. "STELLGROESSE" bei E/A.
     # Leer = function_name ist die geplante Funktion.
     plan_function: str = ""
+    # Funktions-GA (FA-530): KnixFunction.id der Funktion, deren GA das ist
+    function_id: str = ""
 
     @property
     def address(self) -> str:
@@ -70,6 +72,7 @@ class GroupAddress:
             "is_manual": self.is_manual,
             "assignment_id": self.assignment_id,
             "plan_function": self.plan_function,
+            **({"function_id": self.function_id} if self.function_id else {}),
         }
 
     @classmethod
@@ -95,6 +98,7 @@ class GroupAddress:
             is_manual=data.get("is_manual", False),
             assignment_id=data.get("assignment_id", ""),
             plan_function=data.get("plan_function", ""),
+            function_id=data.get("function_id", ""),
         )
 
 

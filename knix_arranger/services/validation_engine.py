@@ -969,7 +969,8 @@ class ValidationEngine:
                         "Erwartetes Format: GEWERK_RAUM_NR FUNKTION (Klartext)",
                         designation=ga.designation,
                     ))
-                elif room_numbers is not None:
+                elif room_numbers is not None and not ga.function_id:
+                    # Funktionen einer Zone tragen das Stockwerk statt des Raums
                     room = designation_room_number(ga.designation)
                     if room not in room_numbers:
                         issues.append(ValidationIssue(
@@ -1110,6 +1111,11 @@ class ValidationEngine:
                     or (ga.gewerk_code, ga.room_number, ga.element_number)
                     == (cmd.gewerk_code, cmd.room_number, cmd.element_number)
                 )
+                if ga.function_id:
+                    # Funktion (FA-530): Sonnenschutz hat keinen Positions-
+                    # befehl -- es genügt ein Befehl derselben Funktion
+                    same_element = any(c.function_id == ga.function_id
+                                       for c in commands.values())
                 if not same_element:
                     issues.append(ValidationIssue(
                         "warning", "FA-608",

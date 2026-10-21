@@ -761,8 +761,8 @@ class BelegungsplanService:
             for nr in a.element_profiles if a.actor_code(nr) != a.gewerk_code
         }
         for ga in project.group_addresses.all_addresses():
-            if ga.is_placeholder:
-                continue
+            if ga.is_placeholder or ga.function_id:
+                continue   # Funktions-GAs: siehe _function_rows
             if not ga.gewerk_code or ga.gewerk_code not in _ALL_ACTOR_GEWERKE:
                 continue
             code = ("S" if (ga.room_id, ga.gewerk_code, ga.element_number) in switched
@@ -987,6 +987,7 @@ class BelegungsplanService:
         # nur der CO-Verknuepfung, nicht der raumweisen Stromkreis-Nummerierung.
         central_rows = self._collect_central_actor_rows(project, rooms_by_device_addr)
         rows.extend(central_rows)
+        rows.extend(self._function_rows(project, rows))
 
         # Anzeigesortierung: Phys. Adresse ↑ → Kanal ↑ → GA-Adresse ↑
         rows.sort(key=lambda r: (
@@ -1011,6 +1012,29 @@ class BelegungsplanService:
             device = devices.get(addr)
             if device is not None and (device.channel_map or device.communication_objects):
                 apply_channel_overrides(device, circuits)
+
+    @staticmethod
+    def _function_rows(project, rows: list[ActorRow]) -> list[ActorRow]:
+        """Funktions-GAs (FA-530) auf den Kanälen ihrer Mitglieder: dieselbe
+        Zeile wie die GA des Elements mit gleicher Funktion, Rückmeldungen
+        nur beim Leitkanal."""
+        if not getattr(project, "functions", None):
+            return []
+        from dataclasses import replace
+        from .ets_function_plan import member_links
+        by_address: dict[str, list[ActorRow]] = {}
+        for row in rows:
+            by_address.setdefault(row.ga_address, []).append(row)
+        result = []
+        for function in project.functions:
+            for _member, fga, own, wanted in member_links(project, function):
+                if own is None or not wanted:
+                    continue
+                for row in by_address.get(own.address, []):
+                    result.append(replace(
+                        row, ga_address=fga.address, ga_designation=fga.designation,
+                        dpt=fga.datapoint_type))
+        return result
 
     def _collect_central_actor_rows(
         self, project, rooms_by_device_addr: dict[str, set[str]],

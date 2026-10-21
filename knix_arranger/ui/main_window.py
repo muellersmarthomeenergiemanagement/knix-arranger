@@ -424,8 +424,8 @@ class MainWindow(QMainWindow):
         self._co_linking_view = CoLinkingView()
         self._linking_matrix_view = LinkingMatrixView()
         self._ets_functions_view = EtsFunctionsView()
-        # Schalter "Funktionen planen": Validierung und Arbeitsliste ändern sich
-        self._ets_functions_view.changed.connect(lambda: self._set_dirty(True))
+        # Funktion angelegt/geändert/gelöscht: GAs und KO-Verknüpfungen geändert
+        self._ets_functions_view.changed.connect(self._on_functions_edited)
         self._cable_length_view = CableLengthView()
         self._topology_diagram_view = TopologyDiagramView()
         self._riser_diagram_view = RiserDiagramView()
@@ -492,6 +492,7 @@ class MainWindow(QMainWindow):
         self._address_table.set_bus(self._bus)
         self._topology_view.set_bus(self._bus)
         self._linking_matrix_view.set_bus(self._bus)
+        self._ets_functions_view.set_bus(self._bus)
         self._bauherr_form_view.set_bus(self._bus)
         self._customer_quote_view.set_bus(self._bus)
         # Matrix = Übersicht, bearbeitet wird in der Bauherrenberatung
@@ -881,6 +882,12 @@ class MainWindow(QMainWindow):
         self._status_bar.set_status(
             f"Adressen neu geordnet: {len(plan.changes)} verschoben/umbenannt"
             + (f", {remapped} Verweis(e) nachgeführt." if remapped else "."))
+
+    def _on_functions_edited(self):
+        """Funktionen (FA-530) geändert: ihre GAs sind neu gesetzt."""
+        self._set_dirty(True)
+        self._bus.emit_addresses_changed()
+        self._mark_stale("co_linking", "linking_matrix", "topology")
 
     def _on_addresses_changed(self):
         """Reagiert auf GA-Änderungen (Umbenennen, DPT, etc.) aus beiden Address-Views.

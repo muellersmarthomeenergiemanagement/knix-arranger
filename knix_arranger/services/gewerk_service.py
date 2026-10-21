@@ -365,10 +365,13 @@ class GewerkService:
         if not room_by_number and not room_by_floor_room:
             return 0
         relinked = 0
+        from .ets_function_plan import is_function_designation
         for ga in ga_structure.all_addresses():
-            if ga.assignment_id:
+            if ga.assignment_id or ga.function_id:
                 continue
             designation = ga.designation or ""
+            if is_function_designation(designation):
+                continue   # GA einer Funktion (FA-530), kein Element
             if not designation or ga.main_group == 0:
                 continue
             resolved = self._resolve_room_for_designation(

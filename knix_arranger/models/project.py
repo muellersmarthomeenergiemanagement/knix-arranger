@@ -26,6 +26,7 @@ from .documentation import (
 from .company_profile import CompanyProfile, ProjectInfo
 from .client_profile import ClientProfile
 from .ets_corrections import EtsCorrections
+from .ets_function import KnixFunction
 from .material_list import MaterialList
 from .dali_config import DaliGateway
 from .knx_secure import KnxSecureConfig
@@ -60,10 +61,6 @@ class ProjectConfig:
     # Szenennummern je Ebene (FA-1814): "room"/"apartment"/"central" ->
     # [erste, letzte]; leer = Vorgabe aus services.scene_numbering
     scene_number_ranges: dict[str, list[int]] = field(default_factory=dict)
-    # ETS-Funktionen planen (FA-530): fehlende oder unvollständige Funktionen
-    # kommen in die Validierung und die ETS-Arbeitsliste
-    plan_ets_functions: bool = False
-
     def gateway_shared(self, gewerk_code: str) -> bool:
         scope = self.gateway_scope.get(gewerk_code)
         if scope:
@@ -79,7 +76,6 @@ class ProjectConfig:
             "gateway_scope": dict(self.gateway_scope),
             "gateway_line": dict(self.gateway_line),
             "scene_number_ranges": {k: list(v) for k, v in self.scene_number_ranges.items()},
-            "plan_ets_functions": self.plan_ets_functions,
         }
 
     @classmethod
@@ -95,7 +91,6 @@ class ProjectConfig:
             gateway_line=dict(data.get("gateway_line", {})),
             scene_number_ranges={k: list(v) for k, v in
                                  data.get("scene_number_ranges", {}).items()},
-            plan_ets_functions=bool(data.get("plan_ets_functions", False)),
         )
 
 
@@ -143,6 +138,9 @@ class KnxProject:
     # Stand der ETS-Arbeitsliste (services/ets_worklist): Runde, letzter Import,
     # Aufgaben mit erstem Auftreten und Erledigt-Datum
     ets_worklist: dict = field(default_factory=dict)
+    # In KNiX geplante Funktionen (FA-530): Gruppenbedienung mehrerer
+    # Elemente eines Raums oder einer Zone mit eigenen GAs
+    functions: list[KnixFunction] = field(default_factory=list)
     # Projektstatus: Datum (ISO), an dem die Gruppenadressen eines geplanten
     # Projekts in die ETS übertragen wurden; leer = in Planung. Ab dann
     # verschiebt KNiX keine Adressen mehr (kein "Adressen neu ordnen").
@@ -276,6 +274,7 @@ class KnxProject:
             "client_profile": self.client_profile.to_dict(),
             "ets_corrections": self.ets_corrections.to_dict(),
             "ets_worklist": copy.deepcopy(self.ets_worklist),
+            "functions": [f.to_dict() for f in self.functions],
             "ets_transferred": self.ets_transferred,
             "areal": self.areal.to_dict(),
             "topology": self.topology.to_dict(),
@@ -334,6 +333,7 @@ class KnxProject:
         project.client_profile = ClientProfile.from_dict(data.get("client_profile", {}))
         project.ets_corrections = EtsCorrections.from_dict(data.get("ets_corrections"))
         project.ets_worklist = copy.deepcopy(data.get("ets_worklist") or {})
+        project.functions = [KnixFunction.from_dict(f) for f in data.get("functions", [])]
         project.ets_transferred = data.get("ets_transferred", "")
         project.revisions = [RevisionRecord.from_dict(r) for r in data.get("revisions", [])]
         project.manual_settings = UserManualSettings.from_dict(data.get("manual_settings"))

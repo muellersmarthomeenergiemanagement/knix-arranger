@@ -811,10 +811,12 @@ def build_document() -> Document:
             ("ETS-Funktionen",
              "Die in der ETS je Raum angelegten Funktionen (Reiter «In der ETS», "
              "beim .knxproj-Import eingelesen) mit Hinweisen, z. B. von der ETS in "
-             "HG 12 angelegte GAs. Mit «Funktionen planen» sieht KNiX je Licht, "
-             "Steckdose, Jalousie und Heizung eine Funktion mit den KNiX-GAs vor "
-             "(Reiter «Geplant»); was in der ETS fehlt, steht in der ETS-Arbeitsliste. "
-             "HG 12 bleibt frei, weil die ETS dort die GAs neuer Funktionen anlegt."),
+             "HG 12 angelegte GAs. Im Reiter «Geplant» legen Sie Funktionen an, die "
+             "mehrere Elemente gemeinsam bedienen (z. B. «Fensterfront» für drei "
+             "Jalousien): eigene GAs ab UG 200 in der HG des Stockwerks, verknüpft auf "
+             "die Aktorkanäle der Elemente; die Rückmeldung sendet nur der Leitkanal. "
+             "Was in der ETS fehlt, steht in der ETS-Arbeitsliste. HG 12 bleibt frei, "
+             "weil die ETS dort die GAs neuer Funktionen anlegt."),
             ("DALI-Konfiguration",
              "DALI-Gruppen und EVGs. Geplante Projekte: je LDA-Element eine Gruppe "
              "mit allen ihren GAs, Name aus der Bezeichnung (z. B. «Wohnen Decke»); "

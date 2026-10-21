@@ -269,10 +269,12 @@ class AddressGenerator:
                 for mg in hg.middle_groups:
                     max_sub = -1
                     for ga in mg.group_addresses:
+                        if ga.function_id:
+                            continue   # Funktions-GAs ab UG 200, sync_function_gas
                         max_sub = max(max_sub, ga.sub_group)
                         if ga.assignment_id:
                             by_assignment.setdefault(ga.assignment_id, []).append(ga)
-                    if mg.group_addresses:
+                    if max_sub >= 0:
                         next_free[mg.number] = max_sub + 1
         for gas in by_assignment.values():
             gas.sort(key=lambda g: (g.middle_group, g.sub_group))
@@ -309,7 +311,7 @@ class AddressGenerator:
         hg = next((h for h in existing.main_groups if h.number == hg_number), None)
         for mg in (hg.middle_groups if hg else []):
             subs = [ga.sub_group for ga in mg.group_addresses
-                    if ga.assignment_id not in exclude]
+                    if ga.assignment_id not in exclude and not ga.function_id]
             if subs:
                 next_free[mg.number] = max(subs) + 1
         return next_free
@@ -1199,6 +1201,8 @@ def regenerate_addresses(project, variant: str | None = None) -> RegenerationRes
     release_generated_bindings(project)
     old = project.group_addresses
     manual_gas = [ga for ga in old.all_addresses() if ga.is_manual]
+    from .ets_function_plan import function_gas, sync_function_gas
+    old_function_gas = function_gas(old)
     old_keys = _ga_keys(old)
 
     gen = AddressGenerator(project.gewerk_catalog, variant=variant)
@@ -1207,6 +1211,8 @@ def regenerate_addresses(project, variant: str | None = None) -> RegenerationRes
     )
     for ga in manual_gas:
         insert_ga(structure, ga)
+    # Funktionen (FA-530): eigene GAs ab UG 200, bestehende bleiben
+    structure.warnings.extend(sync_function_gas(project, structure, old_function_gas))
     project.group_addresses = structure
     _sync_scene_labels(project.scenes, structure)
 

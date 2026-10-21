@@ -241,6 +241,9 @@ class ImportPipeline:
         project = self.project
         # GAs mit ihrer Gewerk-Zuweisung verknüpfen (FA-521e) -- braucht die
         # endgültigen Raum-Daten nach dem Abgleich
+        # Funktions-GAs (FA-530) vor der Gewerk-Verknüpfung erkennen
+        from .ets_function_plan import restore_function_ids
+        self.step("Funktions-GAs", restore_function_ids, project, default=0)
         self.step("Gewerk-Verknüpfung der GAs",
                   GewerkService(project.gewerk_catalog).relink_assignment_ids,
                   project.group_addresses, project.areal)

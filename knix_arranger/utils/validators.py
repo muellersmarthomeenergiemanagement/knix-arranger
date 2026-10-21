@@ -10,7 +10,7 @@ import re
 ROOM_NUMBER_PATTERN = r"[A-Z0-9](?:[A-Z0-9.\-]*[A-Z0-9])?"
 
 _DESIGNATION_RE = re.compile(
-    r"^[A-Z]{1,3}_(" + ROOM_NUMBER_PATTERN + r")_\d{2}\s+\S+"
+    r"^[A-Z]{1,3}_(" + ROOM_NUMBER_PATTERN + r")_(?:\d{2}|F\d{1,2})\s+\S+"
 )
 
 

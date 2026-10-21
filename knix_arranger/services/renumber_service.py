@@ -81,6 +81,8 @@ def _match_key(ga: GroupAddress) -> tuple:
     GAs noch nicht. HG 0 wird nicht umgeordnet: dort gilt die Adresse."""
     if ga.main_group == 0:
         return ("central", ga.address)
+    if ga.function_id:
+        return ("function", ga.function_id, ga.function_name)
     if ga.gewerk_code and ga.room_number and ga.function_name:
         return ("fn", ga.main_group, ga.gewerk_code, ga.room_number,
                 ga.element_number, ga.function_name)
@@ -116,6 +118,9 @@ def plan_renumbering(project) -> RenumberPlan:
     structure = gen.generate(
         project.areal, scenes=project.scenes, project=project, existing=central_only,
     )
+    # Funktions-GAs (ab UG 200) frisch in die neu geordneten Stockwerke
+    from .ets_function_plan import sync_function_gas
+    sync_function_gas(project, structure, previous=[])
 
     old_real = [ga for ga in old.all_addresses() if not ga.is_placeholder]
     manual = [ga for ga in old_real if ga.is_manual]

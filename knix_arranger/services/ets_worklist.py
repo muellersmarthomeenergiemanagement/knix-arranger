@@ -147,11 +147,13 @@ def _items_from_issue(issue, project) -> list[WorkItem]:
             sort=(PRIO_CHECK, 1 if rule == "FA-604" else 0, _addr_sort(addr)))]
 
     if rule == "FA-637":
-        # Schlüssel über Zuteilung + Element: bleibt beim Umbenennen gleich
+        # Schlüssel über die Funktion (id): bleibt beim Umbenennen gleich.
+        # Fehlende Verknüpfung / mehrere Sender wirken auf den Bus.
+        prio = PRIO_MUST if details.get("kind") in ("verknüpfen", "sender") else PRIO_FUNC
         return [WorkItem(
-            f"FA-637|{details.get('key', '')}|{details.get('kind', '')}", PRIO_FUNC, rule,
-            details.get("where", ""), details.get("task", issue.message), "",
-            sort=(PRIO_FUNC, details.get("where", ""), _addr_sort(addr or "")))]
+            f"FA-637|{details.get('key', '')}|{details.get('kind', '')}", prio, rule,
+            details.get("where", "") or "Projekt", details.get("task", issue.message),
+            designation, sort=(prio, 3, details.get("where", ""), _addr_sort(addr or "")))]
 
     # Übrige Regeln: Meldung der Validierung
     prio = PRIO_MUST if issue.level == "error" else PRIO_CHECK
