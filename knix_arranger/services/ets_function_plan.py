@@ -42,8 +42,10 @@ class PlanPoint:
 _E_A = PlanPoint("E/A", "SwitchOnOff", "DPST-1-1", 0)
 
 #: Funktionstyp -> Funktionspunkte (nur Befehle). Positionen beim Sonnen-
-#: schutz z.B. für "Raum beschatten" von einem Sensor aus; die ETS-Funktion
-#: kennt sie nicht (ihre Position/Lamellenstellung sind Rückmeldungen).
+#: schutz z.B. für "Raum beschatten" von einem Sensor aus, Sperren z.B. für
+#: Fensterputzen einer Fassade; die ETS-Funktion kennt beide nicht (ihre
+#: Position/Lamellenstellung sind Rückmeldungen). Heizung: nur die
+#: Betriebsart (Komfort/Standby/Nacht/Frost für eine Zone).
 PLAN_POINTS: dict[str, tuple[PlanPoint, ...]] = {
     "FT-1": (_E_A,),
     "FT-10": (_E_A,),
@@ -53,8 +55,12 @@ PLAN_POINTS: dict[str, tuple[PlanPoint, ...]] = {
     "FT-7": (PlanPoint("AUF/AB", "MoveUpDown", "DPST-1-8", 0),
              PlanPoint("STOPP", "StopStepUpDown", "DPST-1-7", 1),
              PlanPoint("POSITION HOEHE", "", "DPST-5-1", 2, "Position Höhe"),
-             PlanPoint("POSITION LAMELLEN", "", "DPST-5-1", 3, "Position Lamellen")),
+             PlanPoint("POSITION LAMELLEN", "", "DPST-5-1", 3, "Position Lamellen"),
+             PlanPoint("SPERREN", "", "DPST-1-1", 4, "Sperren")),
+    "FT-9": (PlanPoint("UMSCHALTEN BETRIEBSART", "HVACMode", "DPST-20-102", 0),),
 }
+#: Bezeichnung im Dialog, wo sie von der ETS abweicht
+PLAN_TYPE_LABELS = {"FT-9": "Heizung (Betriebsart)"}
 
 
 def in_ets_function(function_type: str, function_name: str) -> bool:
@@ -62,16 +68,21 @@ def in_ets_function(function_type: str, function_name: str) -> bool:
     return any(p.function == function_name and p.role
                for p in PLAN_POINTS.get(function_type, ()))
 #: Planbare Typen in der Reihenfolge der Auswahl
-PLAN_TYPES = ("FT-7", "FT-1", "FT-6", "FT-10")
-TYPE_MIDDLE_GROUP = {"FT-1": 0, "FT-6": 0, "FT-10": 0, "FT-7": 1}
+PLAN_TYPES = ("FT-7", "FT-1", "FT-6", "FT-10", "FT-9")
+TYPE_MIDDLE_GROUP = {"FT-1": 0, "FT-6": 0, "FT-10": 0, "FT-7": 1, "FT-9": 2}
 #: Gewerke, deren Elemente Mitglied sein können
 TYPE_GEWERKE = {
     "FT-1": ("L", "LD", "LDA", "S", "SD"),
     "FT-6": ("LD", "LDA", "SD"),
     "FT-10": ("S", "SD"),
     "FT-7": ("J", "R", "M"),
+    "FT-9": ("H",),
 }
-_DEFAULT_CODE = {"FT-1": "L", "FT-6": "LD", "FT-10": "S", "FT-7": "J"}
+_DEFAULT_CODE = {"FT-1": "L", "FT-6": "LD", "FT-10": "S", "FT-7": "J", "FT-9": "H"}
+
+
+def plan_type_label(function_type: str) -> str:
+    return PLAN_TYPE_LABELS.get(function_type) or type_label(function_type)
 FIRST_SUB = 200
 BLOCK = 5
 

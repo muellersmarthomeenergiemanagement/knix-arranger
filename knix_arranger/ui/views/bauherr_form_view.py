@@ -553,8 +553,7 @@ class _SlotWidget(QWidget):
         # Funktionen (FA-530): mehrere Elemente gemeinsam, eigene zuerst
         functions = list(getattr(project, "functions", []))
         if functions:
-            from ...services.ets_function_plan import locate
-            from ...services.ets_function_service import type_label
+            from ...services.ets_function_plan import locate, plan_type_label
             located = [(f, locate(project, f)) for f in functions]
             located.sort(key=lambda fl: (
                 not (fl[1] is not None and any(r.id == self._room.id for r in fl[1].rooms)),
@@ -563,7 +562,7 @@ class _SlotWidget(QWidget):
             for function, location in located:
                 where = location.label if location is not None else ""
                 self._combo.addItem(
-                    f"Funktion: {function.name} – {type_label(function.function_type)}"
+                    f"Funktion: {function.name} – {plan_type_label(function.function_type)}"
                     f"   ·   {where}",
                     ("function", function.id, function.name))
 

@@ -12,9 +12,8 @@ from PySide6.QtWidgets import (
 
 from ...models.ets_function import KnixFunction, FunctionMember
 from ...services.ets_function_plan import (
-    PLAN_TYPES, Location, member_candidates,
+    PLAN_TYPES, Location, member_candidates, plan_type_label,
 )
-from ...services.ets_function_service import type_label
 
 
 class FunctionEditDialog(QDialog):
@@ -46,7 +45,7 @@ class FunctionEditDialog(QDialog):
 
         self._type = QComboBox()
         for ftype in PLAN_TYPES:
-            self._type.addItem(type_label(ftype), ftype)
+            self._type.addItem(plan_type_label(ftype), ftype)
         self._type.setCurrentIndex(max(0, self._type.findData(self._function.function_type)))
         form.addRow("Typ:", self._type)
 

@@ -165,7 +165,7 @@ class EtsFunctionsView(QWidget):
                 state += f" («{status.ets.name}»)"
             if status.other_room:
                 state += ", anderer Raum"
-            fn_item = QTreeWidgetItem([f"{function.name} ({type_label(function.function_type)})",
+            fn_item = QTreeWidgetItem([f"{function.name} ({plan.plan_type_label(function.function_type)})",
                                        "", "", "", state])
             fn_item.setData(0, Qt.UserRole, function.id)
             if ets_read and (status.state != "ok" or status.other_room):

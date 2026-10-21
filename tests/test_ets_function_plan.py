@@ -32,9 +32,10 @@ def _build(variant="A"):
     blinds = GewerkAssignment(gewerk_code="J", count=3,
                               element_labels=["Links", "Mitte", "Rechts"])
     lights = GewerkAssignment(gewerk_code="LD", count=2)
-    wohnen = Room(number="01", name="Wohnen", gewerk_assignments=[blinds, lights])
-    kueche = Room(number="02", name="Küche",
-                  gewerk_assignments=[GewerkAssignment(gewerk_code="LD", count=1)])
+    wohnen = Room(number="01", name="Wohnen", gewerk_assignments=[
+        blinds, lights, GewerkAssignment(gewerk_code="H", count=1)])
+    kueche = Room(number="02", name="Küche", gewerk_assignments=[
+        GewerkAssignment(gewerk_code="LD", count=1), GewerkAssignment(gewerk_code="H", count=1)])
     zone = Apartment(name="Wohnzone", rooms=[wohnen, kueche])
     floor = Floor(name="EG", short_code="EG", main_group_number=2, apartments=[zone])
     project.areal = Areal(buildings=[Building(name="H", wings=[Wing(floors=[floor])])])
@@ -90,7 +91,8 @@ def test_command_addresses_from_ug_200(project):
     gas = _gas(project)
     assert {f: (ga.address, ga.datapoint_type) for f, ga in gas.items()} == {
         "AUF/AB": ("2/1/200", "DPST-1-8"), "STOPP": ("2/1/201", "DPST-1-7"),
-        "POSITION HOEHE": ("2/1/202", "DPST-5-1"), "POSITION LAMELLEN": ("2/1/203", "DPST-5-1")}
+        "POSITION HOEHE": ("2/1/202", "DPST-5-1"), "POSITION LAMELLEN": ("2/1/203", "DPST-5-1"),
+        "SPERREN": ("2/1/204", "DPST-1-1")}
     assert gas["AUF/AB"].designation == "J_01_F1 AUF/AB (Fensterfront)"
     element = [ga for ga in project.group_addresses.all_addresses()
                if ga.gewerk_code == "J" and not ga.function_id and not ga.is_placeholder]
@@ -101,7 +103,7 @@ def test_variant_b_same_addresses_without_findings():
     project = _build("B")
     gas = _gas(project)
     assert sorted(ga.address for ga in gas.values()) == [
-        "2/1/200", "2/1/201", "2/1/202", "2/1/203"]
+        "2/1/200", "2/1/201", "2/1/202", "2/1/203", "2/1/204"]
     issues = ValidationEngine(project.gewerk_catalog).validate(
         project.group_addresses, project=project)
     addresses = {ga.address for ga in gas.values()}
@@ -139,7 +141,8 @@ def test_rows_on_all_member_channels(project):
     by_ga = {}
     for row in rows:
         by_ga.setdefault(row.ga_address, set()).add((row.physical_address, row.channel_number))
-    assert all(len(by_ga[a]) == 3 for a in ("2/1/200", "2/1/201", "2/1/202", "2/1/203"))
+    assert all(len(by_ga[a]) == 3
+               for a in ("2/1/200", "2/1/201", "2/1/202", "2/1/203", "2/1/204"))
 
 
 def test_co_linking_proposals(project):
@@ -191,7 +194,8 @@ def test_button_on_function(project):
     assert [(e.ga_designation, e.role) for e in sf.extra_gas] == [
         ("2/1/201  J_01_F1 STOPP (Fensterfront)", "befehl"),
         ("2/1/202  J_01_F1 POSITION HOEHE (Fensterfront)", "befehl"),
-        ("2/1/203  J_01_F1 POSITION LAMELLEN (Fensterfront)", "befehl")]
+        ("2/1/203  J_01_F1 POSITION LAMELLEN (Fensterfront)", "befehl"),
+        ("2/1/204  J_01_F1 SPERREN (Fensterfront)", "befehl")]
     # Umbenennen wird nachgeführt
     project.functions[0].name = "Front Süd"
     sync_function_gas(project)
@@ -214,22 +218,23 @@ def test_button_on_function(project):
 def test_restore_after_reimport(project):
     for ga in function_gas(project.group_addresses):
         ga.function_id = ""
-    assert restore_function_ids(project) == 4
-    assert len(_gas(project)) == 4
+    assert restore_function_ids(project) == 5
+    assert len(_gas(project)) == 5
 
 
 def test_renumbering_keeps_function_gas(project):
     from knix_arranger.services.renumber_service import plan_renumbering
     plan = plan_renumbering(project)
     gas = [ga for ga in plan.structure.all_addresses() if ga.function_id]
-    assert sorted(ga.address for ga in gas) == ["2/1/200", "2/1/201", "2/1/202", "2/1/203"]
+    assert sorted(ga.address for ga in gas) == [
+        "2/1/200", "2/1/201", "2/1/202", "2/1/203", "2/1/204"]
     assert not [c for c in plan.changes if "_F1" in c.new_designation]
 
 
 def test_roundtrip(project):
     again = KnxProject.from_dict(project.to_dict())
     assert again.functions == project.functions
-    assert len([ga for ga in again.group_addresses.all_addresses() if ga.function_id]) == 4
+    assert len([ga for ga in again.group_addresses.all_addresses() if ga.function_id]) == 5
 
 
 def test_removed_member_reported(project):
@@ -249,7 +254,7 @@ def test_view_dialog_and_button_choice(project):
     view.set_project(project)
     function_item = view._plan_tree.topLevelItem(0).child(0)
     assert function_item.text(0) == "Fensterfront (Sonnenschutz)"
-    assert function_item.childCount() == 4 + 3
+    assert function_item.childCount() == 5 + 3
 
     dialog = FunctionEditDialog(project, project.functions[0])
     assert dialog._members.count() == 3
@@ -304,3 +309,24 @@ def test_bauherr_form_offers_and_reads_functions(project, tmp_path):
     # Liste bleibt unter der Excel-Grenze, "Sonstiges" bleibt
     long = dropdown_formula([f"Funktion {n}" for n in range(30)])
     assert len(long) - 2 <= 255 and long.rstrip('"').endswith("Sonstiges")
+
+
+def test_heating_operating_mode_for_zone(project):
+    zone = project.areal.all_floors[0].apartments[0]
+    heating = [a for r in project.all_rooms for a in r.gewerk_assignments if a.gewerk_code == "H"]
+    project.functions.append(KnixFunction(
+        name="Wohnzone Abwesend", function_type="FT-9", zone_id=zone.id,
+        members=[FunctionMember(a.id, 1) for a in heating]))
+    sync_function_gas(project)
+    gas = _gas(project, project.functions[-1])
+    assert list(gas) == ["UMSCHALTEN BETRIEBSART"]
+    ga = gas["UMSCHALTEN BETRIEBSART"]
+    assert (ga.address, ga.datapoint_type) == ("2/2/200", "DPST-20-102")
+    assert ga.designation == "H_EG_F1 UMSCHALTEN BETRIEBSART (Wohnzone Abwesend)"
+    rows = BelegungsplanService().generate(project).actor_rows
+    assert len({(r.physical_address, r.channel_number) for r in rows
+                if r.ga_address == "2/2/200"}) == 2
+    _room(project, "Wohnen").ets_functions.append(EtsFunction("x", "FT-1", []))
+    task = next(i for i in check_plan(project)
+                if "Wohnzone Abwesend" in i.message).details["task"]
+    assert task.endswith("anlegen und zuordnen: Betriebsart 2/2/200.")
