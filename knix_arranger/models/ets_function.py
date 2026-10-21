@@ -82,9 +82,9 @@ class KnixFunction:
     eines Raums oder einer Zone, z.B. "Fensterfront" für drei Jalousien.
 
     Die Funktion hat eigene GAs (GroupAddress.function_id) in der HG des
-    Stockwerks, MG des Gewerks ab UG 200. Sie werden zusätzlich zu den GAs
-    der Elemente auf deren Aktorkanäle verknüpft. Rückmeldungen sendet nur
-    der Leitkanal (eine sendende GA, FA-614), ohne Status keiner.
+    Stockwerks, MG des Gewerks ab UG 200 -- reine Befehls-GAs, keine
+    Rückmeldung. Sie werden zusätzlich zu den GAs der Elemente auf deren
+    Aktorkanäle verknüpft und lassen sich auf Tasten legen.
     """
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     name: str = ""
@@ -93,15 +93,12 @@ class KnixFunction:
     zone_id: str = ""         # Apartment.id bei einer Funktion der Zone
     number: int = 1           # "F1" in der Bezeichnung, je Ort fortlaufend
     members: list[FunctionMember] = field(default_factory=list)
-    with_status: bool = True
-    lead: int = 0             # Index des Mitglieds, das die Rückmeldung sendet
 
     def to_dict(self) -> dict:
         return {
             "id": self.id, "name": self.name, "function_type": self.function_type,
             "room_id": self.room_id, "zone_id": self.zone_id, "number": self.number,
             "members": [m.to_dict() for m in self.members],
-            "with_status": self.with_status, "lead": self.lead,
         }
 
     @classmethod
@@ -114,6 +111,4 @@ class KnixFunction:
             zone_id=data.get("zone_id", ""),
             number=data.get("number", 1),
             members=[FunctionMember.from_dict(m) for m in data.get("members", [])],
-            with_status=data.get("with_status", True),
-            lead=data.get("lead", 0),
         )

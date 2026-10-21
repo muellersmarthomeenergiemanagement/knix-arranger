@@ -1159,6 +1159,9 @@ def refresh_bedienelemente(project) -> None:
         apply_listen_roles(project)
     except Exception:
         logger.exception("Mehrfach verknüpfte Tasten-KOs nicht prüfbar")
+    # Tasten auf Funktionen (FA-530): GAs aus der Funktion nachführen
+    from .ets_function_plan import apply_function_buttons
+    apply_function_buttons(project)
     SensorService().auto_assign_functions(project.all_rooms, project.group_addresses,
                                           topology=project.topology)
 

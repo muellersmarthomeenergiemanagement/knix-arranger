@@ -748,6 +748,10 @@ class SensorFunktion:
     # heisst "<Taste> (langer Tastendruck)" wie in der ETS. Aus der ETS
     # importierte lange Tastendrücke tragen stattdessen diesen Namen als label.
     press_of: str = ""
+    # Taste bedient eine Funktion (FA-530): KnixFunction.id. ga_designation
+    # und extra_gas werden daraus abgeleitet (ets_function_plan.
+    # apply_function_buttons), damit Umbenennen/Verschieben nachgeführt wird.
+    function_id: str = ""
 
     LONG_PRESS_SUFFIX = " (langer Tastendruck)"
 
@@ -767,6 +771,8 @@ class SensorFunktion:
         }
         if self.press_of:
             d["press_of"] = self.press_of
+        if self.function_id:
+            d["function_id"] = self.function_id
         return d
 
     @classmethod
@@ -784,6 +790,7 @@ class SensorFunktion:
             bedienart=data.get("bedienart", ""),
             scene_id=data.get("scene_id", ""),
             press_of=data.get("press_of", ""),
+            function_id=data.get("function_id", ""),
         )
 
 

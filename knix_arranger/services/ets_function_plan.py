@@ -6,16 +6,16 @@ drei Jalousien eines Raums: Sie hat eigene GAs, die zusätzlich zu den GAs
 der Elemente auf deren Aktorkanäle verknüpft werden. Ein Taster auf der
 Funktions-GA bedient den ganzen Bezirk, die Einzelbedienung bleibt.
 
+Funktionen sind reine Befehlsadressen, ohne Rückmeldung (User
+2026-10-21) -- welcher Zustand sollte bei drei Kanälen auch gelten. Ihre
+Elemente werden zuerst bestimmt (Gewerke); erst daraus ergibt sich, auf
+welchem Aktorkanal die Funktions-GAs verknüpft werden.
+
 Adressen: HG des Stockwerks, MG des Gewerks, ab UG 200 je Funktion ein
 5er-Block (etwas abgesetzt von den Blöcken der Elemente), Bezeichnung
-"J_01_F1 AUF/AB (Fensterfront)". Bei Variante B liegen die Rückmeldungen
-in MG 6/7 unter ihrem Befehl. Die ETS legt die GAs einer neuen Funktion in
-HG 12 an; der Integrator ordnet dort die KNiX-GAs zu (ETS-Arbeitsliste).
-
-Rückmeldung: Senden mehrere Kanäle auf dieselbe Status-GA, ist der Status
-zufällig und Leseanfragen beantworten mehrere Geräte (FA-614). Deshalb
-sendet nur der Leitkanal (ein Mitglied), oder die Funktion hat keinen
-Status.
+"J_01_F1 AUF/AB (Fensterfront)". Die ETS legt die GAs einer neuen Funktion
+in HG 12 an; der Integrator ordnet dort die KNiX-GAs zu (ETS-Arbeitsliste).
+Tasten bedienen eine Funktion über SensorFunktion.function_id.
 
 Funktions-GAs tragen GroupAddress.function_id. Nach einem .knxproj-
 Re-Import (frisch eingelesene GAs) stellt restore_function_ids sie über die
@@ -36,33 +36,23 @@ class PlanPoint:
     role: str          # Rolle in der ETS
     dpt: str
     offset: int        # Platz im 5er-Block
-    status: bool = False
-    offset_b: int = -1  # Variante B: Platz im Rückmeldeblock (MG 6/7)
 
 
 _E_A = PlanPoint("E/A", "SwitchOnOff", "DPST-1-1", 0)
-_RM = PlanPoint("RM", "InfoOnOff", "DPST-1-1", 3, True, 0)
 
-#: Funktionstyp -> Funktionspunkte
+#: Funktionstyp -> Funktionspunkte (nur Befehle)
 PLAN_POINTS: dict[str, tuple[PlanPoint, ...]] = {
-    "FT-1": (_E_A, _RM),
-    "FT-10": (_E_A, _RM),
+    "FT-1": (_E_A,),
+    "FT-10": (_E_A,),
     "FT-6": (_E_A,
              PlanPoint("DIM", "DimmingControl", "DPST-3-7", 1),
-             PlanPoint("WERT", "DimmingValue", "DPST-5-1", 2),
-             _RM,
-             PlanPoint("RM WERT", "InfoDimmingValue", "DPST-5-1", 4, True, 2)),
+             PlanPoint("WERT", "DimmingValue", "DPST-5-1", 2)),
     "FT-7": (PlanPoint("AUF/AB", "MoveUpDown", "DPST-1-8", 0),
-             PlanPoint("STOPP", "StopStepUpDown", "DPST-1-7", 1),
-             PlanPoint("STATUS POSITION HOEHE",
-                       "CurrentAbsolutePositionBlindsPercentage", "DPST-5-1", 2, True, 2),
-             PlanPoint("STATUS POSITION LAMELLEN",
-                       "CurrentAbsolutePositionSlatPercentage", "DPST-5-1", 3, True, 3)),
+             PlanPoint("STOPP", "StopStepUpDown", "DPST-1-7", 1)),
 }
 #: Planbare Typen in der Reihenfolge der Auswahl
 PLAN_TYPES = ("FT-7", "FT-1", "FT-6", "FT-10")
 TYPE_MIDDLE_GROUP = {"FT-1": 0, "FT-6": 0, "FT-10": 0, "FT-7": 1}
-FEEDBACK_MIDDLE_GROUP = {0: 6, 1: 7}
 #: Gewerke, deren Elemente Mitglied sein können
 TYPE_GEWERKE = {
     "FT-1": ("L", "LD", "LDA", "S", "SD"),
@@ -169,8 +159,7 @@ def next_number(project, function: KnixFunction) -> int:
 
 
 def function_points(function: KnixFunction) -> tuple[PlanPoint, ...]:
-    points = PLAN_POINTS.get(function.function_type, ())
-    return tuple(p for p in points if function.with_status or not p.status)
+    return PLAN_POINTS.get(function.function_type, ())
 
 
 def gewerk_code(project, function: KnixFunction) -> str:
@@ -192,13 +181,6 @@ def function_gas(structure) -> list[GroupAddress]:
     return [ga for ga in structure.all_addresses() if ga.function_id]
 
 
-def _target(point: PlanPoint, middle_group: int, variant: str) -> tuple[int, int]:
-    """(MG, Platz im Block) eines Funktionspunkts."""
-    if variant == "B" and point.status and middle_group in FEEDBACK_MIDDLE_GROUP:
-        return FEEDBACK_MIDDLE_GROUP[middle_group], point.offset_b
-    return middle_group, point.offset
-
-
 def sync_function_gas(project, structure=None, previous: list | None = None) -> list[str]:
     """GAs aller Funktionen in die Struktur setzen. Bestehende behalten
     Adresse und id, solange ihr Platz frei ist; neue kommen in den ersten
@@ -215,7 +197,6 @@ def sync_function_gas(project, structure=None, previous: list | None = None) -> 
     used: dict[tuple[int, int], set[int]] = {}
     for ga in structure.all_addresses():
         used.setdefault((ga.main_group, ga.middle_group), set()).add(ga.sub_group)
-    variant = structure.variant or project.config.mg_variant
     warnings = []
     for function in functions:
         location = locate(project, function)
@@ -224,7 +205,7 @@ def sync_function_gas(project, structure=None, previous: list | None = None) -> 
             continue
         hg = location.floor.main_group_number
         mg = TYPE_MIDDLE_GROUP[function.function_type]
-        targets = [(p, *_target(p, mg, variant)) for p in points]
+        targets = [(p, mg, p.offset) for p in points]
 
         def fits(start: int) -> bool:
             return start + BLOCK - 1 <= 255 and all(
@@ -307,9 +288,8 @@ def is_function_designation(text: str) -> bool:
 # ── Verknüpfung mit den Aktorkanälen der Mitglieder ───────────────────────
 
 def member_links(project, function: KnixFunction):
-    """(Mitglied, Funktions-GA, GA des Mitglieds mit derselben Funktion,
-    soll verknüpft sein) je Mitglied und Funktionspunkt. Rückmeldungen nur
-    beim Leitkanal."""
+    """(Mitglied, Funktions-GA, GA des Mitglieds mit derselben Funktion) je
+    Mitglied und Funktionspunkt."""
     gas = {ga.function_name: ga for ga in project.group_addresses.all_addresses()
            if ga.function_id == function.id}
     element_gas: dict[tuple[str, int], dict[str, GroupAddress]] = {}
@@ -317,16 +297,14 @@ def member_links(project, function: KnixFunction):
         if ga.assignment_id and not ga.is_placeholder and not ga.function_id:
             key = (ga.assignment_id.removesuffix(":fb"), ga.element_number)
             element_gas.setdefault(key, {})[ga.planned_function] = ga
-    for index, member in enumerate(resolve_members(project, function)):
+    for member in resolve_members(project, function):
         if member is None:
             continue
         own = element_gas.get((member.assignment.id, member.element_number), {})
         for point in function_points(function):
             fga = gas.get(point.function)
-            if fga is None:
-                continue
-            wanted = not point.status or index == function.lead
-            yield member, fga, own.get(point.function), wanted
+            if fga is not None:
+                yield member, fga, own.get(point.function)
 
 
 # ── Abgleich mit der ETS ──────────────────────────────────────────────────
@@ -484,14 +462,11 @@ def _link_issues(project, function, where, linked) -> list:
     """Funktions-GA am KO des Mitglieds, das dessen eigene GA trägt."""
     from .validation_engine import ValidationIssue
     issues = []
-    senders: dict[str, list[str]] = {}
-    for member, fga, own, wanted in member_links(project, function):
+    for member, fga, own in member_links(project, function):
         if own is None:
             continue
-        cos = linked.get(own.address, [])
-        for device, co in cos:
-            has = fga.address in co.connected_gas
-            if wanted and not has:
+        for device, co in linked.get(own.address, []):
+            if fga.address not in co.connected_gas:
                 issues.append(ValidationIssue(
                     "warning", "FA-637",
                     f"{_co_text(device, co)}: Funktions-GA {fga.address} fehlt "
@@ -503,25 +478,43 @@ def _link_issues(project, function, where, linked) -> list:
                              "kind": "verknüpfen", "where": _co_text(device, co),
                              "task": f"{fga.address} verknüpfen "
                                      f"(Funktion «{function.name}»)."}))
-            if has and _point_is_status(function, fga.function_name):
-                senders.setdefault(fga.address, []).append(_co_text(device, co))
-    for address, cos in senders.items():
-        if len(cos) > 1:
-            issues.append(ValidationIssue(
-                "warning", "FA-637",
-                f"Funktion «{function.name}»: Rückmeldung {address} wird von "
-                f"{len(cos)} Kanälen gesendet ({', '.join(cos)})",
-                address, "Nur beim Leitkanal verknüpfen, bei den übrigen trennen",
-                details={"key": f"{function.id}|{address}|sender", "kind": "sender",
-                         "where": f"GA {address}",
-                         "task": f"Nur beim Leitkanal lassen, bei {', '.join(cos[1:])} "
-                                 "trennen."}))
     return issues
 
 
-def _point_is_status(function, function_name: str) -> bool:
-    return any(p.status and p.function == function_name
-               for p in PLAN_POINTS.get(function.function_type, ()))
+# ── Tasten (FA-530) ───────────────────────────────────────────────────────
+
+def apply_function_buttons(project) -> int:
+    """Tasten mit einer Funktion (SensorFunktion.function_id): primäre GA und
+    weitere Befehls-GAs aus den aktuellen Funktions-GAs ableiten. Fehlt die
+    Funktion, bleibt die Taste mit ihrem Namen offen."""
+    from ..models.building import SensorFunktionGa
+    gas_by_function: dict[str, list[GroupAddress]] = {}
+    for ga in function_gas(project.group_addresses):
+        gas_by_function.setdefault(ga.function_id, []).append(ga)
+    functions = {f.id: f for f in getattr(project, "functions", [])}
+    changed = 0
+    for room in project.all_rooms:
+        for be in room.bedienelemente:
+            for sf in be.funktionen:
+                if not sf.function_id:
+                    continue
+                function = functions.get(sf.function_id)
+                order = {p.function: i for i, p in enumerate(function_points(function))} \
+                    if function else {}
+                gas = sorted(gas_by_function.get(sf.function_id, []),
+                             key=lambda g: order.get(g.function_name, 99))
+                texts = [f"{ga.address}  {ga.designation}" for ga in gas]
+                primary = texts[0] if texts else ""
+                extra = [SensorFunktionGa(t, "befehl", f"{function.name} {ga.function_name}")
+                         for t, ga in zip(texts[1:], gas[1:])]
+                before = (sf.ga_designation, [e.to_dict() for e in sf.extra_gas], sf.label)
+                sf.ga_designation, sf.extra_gas = primary, extra
+                sf.gewerk_code, sf.scene_id, sf.primary_role = "", "", "befehl"
+                if function is not None:
+                    sf.label = function.name
+                if before != (sf.ga_designation, [e.to_dict() for e in sf.extra_gas], sf.label):
+                    changed += 1
+    return changed
 
 
 def unlink_removed_gas(project) -> int:

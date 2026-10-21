@@ -550,6 +550,23 @@ class _SlotWidget(QWidget):
                 display = _gewerk_display(code, elem_nr, count, room)
                 self._combo.addItem(display, ("gewerk", code, elem_nr, room.id))
 
+        # Funktionen (FA-530): mehrere Elemente gemeinsam, eigene zuerst
+        functions = list(getattr(project, "functions", []))
+        if functions:
+            from ...services.ets_function_plan import locate
+            from ...services.ets_function_service import type_label
+            located = [(f, locate(project, f)) for f in functions]
+            located.sort(key=lambda fl: (
+                not (fl[1] is not None and any(r.id == self._room.id for r in fl[1].rooms)),
+                fl[0].name.lower()))
+            self._add_header("── Funktionen ──")
+            for function, location in located:
+                where = location.label if location is not None else ""
+                self._combo.addItem(
+                    f"Funktion: {function.name} – {type_label(function.function_type)}"
+                    f"   ·   {where}",
+                    ("function", function.id, function.name))
+
         label_lookup = build_scope_label_lookup(project.areal)
         scene_items = [scene for scene in project.scenes if is_callable_scene(scene)]
         if scene_items:
@@ -589,7 +606,9 @@ class _SlotWidget(QWidget):
             return False
 
         target = None
-        if sf.scene_id:
+        if sf.function_id:
+            target = ("function", sf.function_id)
+        elif sf.scene_id:
             target = ("scene", sf.scene_id)
         elif sf.gewerk_code:
             target = ("gewerk", sf.gewerk_code, sf.element_number,
@@ -620,7 +639,7 @@ class _SlotWidget(QWidget):
             label=sf.label, gewerk_code=sf.gewerk_code,
             element_number=sf.element_number, source_room_id=sf.source_room_id,
             ga_designation=sf.ga_designation, action_type=sf.action_type,
-            bedienart=sf.bedienart, scene_id=sf.scene_id,
+            bedienart=sf.bedienart, scene_id=sf.scene_id, function_id=sf.function_id,
         )
         self._combo.insertItem(1, current_label, ("current", current_fields))
         self._combo.setCurrentIndex(1)
@@ -650,6 +669,9 @@ class _SlotWidget(QWidget):
         if kind == "gewerk":
             _, code, elem_nr, room_id = data
             return dict(gewerk_code=code, element_number=elem_nr, source_room_id=room_id)
+        if kind == "function":
+            _, function_id, name = data
+            return dict(label=name, function_id=function_id)
         if kind == "scene":
             _, scene_id, designation, scene_name = data
             return dict(
@@ -689,6 +711,7 @@ class _SlotWidget(QWidget):
         sf.action_type     = fields.get("action_type", "")
         sf.bedienart       = fields.get("bedienart", "")
         sf.scene_id        = fields.get("scene_id", "")
+        sf.function_id     = fields.get("function_id", "")
         # Eine echte Neuauswahl (nicht das unveraenderte "current") ersetzt das
         # Ziel dieser Taste komplett -- zusaetzliche GAs (FA-1410d) bezogen
         # sich auf das ALTE Ziel und muessen mit verworfen werden, sonst
@@ -725,6 +748,10 @@ class _SlotWidget(QWidget):
 
         self._begin("Bauherrenberatung: Taste geändert")
         self._apply_fields(fields, keep_extra_gas=bool(data and data[0] == "current"))
+        if self._sf is not None and self._sf.function_id:
+            # GAs der Funktion sofort eintragen (sonst erst beim nächsten Refresh)
+            from ...services.ets_function_plan import apply_function_buttons
+            apply_function_buttons(self._service.project)
         if self._long_of is not None:
             self._sf.press_of = self._long_of.id
             self._sf.action_type = "lang"

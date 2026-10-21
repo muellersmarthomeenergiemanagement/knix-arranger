@@ -183,11 +183,9 @@ class EtsFunctionsView(QWidget):
                 if ga_state == "fehlt":
                     item.setForeground(4, warn)
                 fn_item.addChild(item)
-            for index, member in enumerate(plan.resolve_members(project, function)):
-                lead = function.with_status and index == function.lead
+            for member in plan.resolve_members(project, function):
                 text = member.label if member else "Element entfernt"
-                item = QTreeWidgetItem(["", "Element", "", text,
-                                        "Leitkanal (Rückmeldung)" if lead else ""])
+                item = QTreeWidgetItem(["", "Element", "", text, ""])
                 item.setData(0, Qt.UserRole, function.id)
                 if member is None:
                     item.setForeground(3, warn)

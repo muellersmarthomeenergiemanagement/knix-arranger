@@ -814,7 +814,8 @@ def build_document() -> Document:
              "HG 12 angelegte GAs. Im Reiter «Geplant» legen Sie Funktionen an, die "
              "mehrere Elemente gemeinsam bedienen (z. B. «Fensterfront» für drei "
              "Jalousien): eigene GAs ab UG 200 in der HG des Stockwerks, verknüpft auf "
-             "die Aktorkanäle der Elemente; die Rückmeldung sendet nur der Leitkanal. "
+             "die Aktorkanäle der Elemente (reine Befehle, keine Rückmeldung). In der "
+             "Bauherrenberatung lässt sich eine Funktion auf eine Taste legen. "
              "Was in der ETS fehlt, steht in der ETS-Arbeitsliste. HG 12 bleibt frei, "
              "weil die ETS dort die GAs neuer Funktionen anlegt."),
             ("DALI-Konfiguration",

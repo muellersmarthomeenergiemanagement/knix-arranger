@@ -1016,8 +1016,7 @@ class BelegungsplanService:
     @staticmethod
     def _function_rows(project, rows: list[ActorRow]) -> list[ActorRow]:
         """Funktions-GAs (FA-530) auf den Kanälen ihrer Mitglieder: dieselbe
-        Zeile wie die GA des Elements mit gleicher Funktion, Rückmeldungen
-        nur beim Leitkanal."""
+        Zeile wie die GA des Elements mit gleicher Funktion."""
         if not getattr(project, "functions", None):
             return []
         from dataclasses import replace
@@ -1027,8 +1026,8 @@ class BelegungsplanService:
             by_address.setdefault(row.ga_address, []).append(row)
         result = []
         for function in project.functions:
-            for _member, fga, own, wanted in member_links(project, function):
-                if own is None or not wanted:
+            for _member, fga, own in member_links(project, function):
+                if own is None:
                     continue
                 for row in by_address.get(own.address, []):
                     result.append(replace(
