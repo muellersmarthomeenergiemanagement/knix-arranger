@@ -19,7 +19,7 @@ from ..styles import COLOR_WARNING
 
 _COLUMNS = ["Raum / Funktion", "Rolle", "Adresse", "Name in der ETS", "DPT", "Hinweis"]
 _PLAN_COLUMNS = ["Ort / Funktion", "Funktionspunkt", "Adresse", "Bezeichnung",
-                 "Stand in der ETS / Aktorkanal"]
+                 "Stand in der ETS"]
 _STATE_TEXT = {"anlegen": "in der ETS anlegen", "ergänzen": "GAs zuordnen", "ok": "vorhanden"}
 
 
@@ -149,7 +149,6 @@ class EtsFunctionsView(QWidget):
         if project:
             for ga in plan.function_gas(project.group_addresses):
                 gas_by_function.setdefault(ga.function_id, []).append(ga)
-        channels = self._actor_channels(project) if statuses else {}
         for status in statuses:
             function = status.function
             location = status.location
@@ -190,51 +189,19 @@ class EtsFunctionsView(QWidget):
                 if ga_state == "fehlt":
                     item.setForeground(4, warn)
                 gas_node.addChild(item)
-            own_gas = {}
-            for member, _fga, own in plan.member_links(project, function):
-                if own is not None:
-                    own_gas.setdefault(
-                        (member.assignment.id, member.element_number), own)
             members = plan.resolve_members(project, function)
             members_node = QTreeWidgetItem([f"Bediente Elemente ({len(members)})"])
             members_node.setToolTip(0, "Elemente der Gewerke, die die Funktion gemeinsam "
-                                       "bedient; angegeben ist ihre eigene GA")
+                                       "bedient")
             members_node.setData(0, Qt.UserRole, function.id)
             fn_item.addChild(members_node)
             for member in members:
+                item = QTreeWidgetItem(["", member.label if member else "Element entfernt"])
                 if member is None:
-                    item = QTreeWidgetItem(["", "", "", "Element entfernt", ""])
-                    item.setForeground(3, warn)
-                else:
-                    own = own_gas.get((member.assignment.id, member.element_number))
-                    channel = channels.get(own.address, "") if own else ""
-                    item = QTreeWidgetItem([
-                        "", plan._point_label(function.function_type, own.function_name)
-                        if own else "", own.address if own else "", member.label,
-                        channel or "noch kein Aktorkanal"])
+                    item.setForeground(1, warn)
                 item.setData(0, Qt.UserRole, function.id)
                 members_node.addChild(item)
         self._finish(self._plan_tree, len(_PLAN_COLUMNS))
-
-    @staticmethod
-    def _actor_channels(project) -> dict[str, str]:
-        """GA des Elements -> "Aktor 1.1.3, Kanal A" aus dem Belegungsplan."""
-        if project is None or not project.topology.areas:
-            return {}
-        try:
-            from ...services.belegungsplan_service import BelegungsplanService
-            rows = BelegungsplanService().generate(project).actor_rows
-        except Exception:
-            return {}
-        result = {}
-        for row in rows:
-            if row.ga_address and row.physical_address:
-                text = f"Aktor {row.physical_address}"
-                if row.channel_label:
-                    text += f", Kanal {row.channel_label}" if row.channel_label.isdigit() \
-                        else f", {row.channel_label}"
-                result.setdefault(row.ga_address, text)
-        return result
 
     def _selected_function(self):
         item = self._plan_tree.currentItem()

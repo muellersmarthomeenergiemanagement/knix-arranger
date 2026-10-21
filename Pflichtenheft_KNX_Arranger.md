@@ -75,7 +75,7 @@
 | 3.58 | 21.10.2026 | M. Mueller / Claude AI | Funktionen ohne Rueckmeldung (reine Befehls-GAs, kein Leitkanal); Tasten koennen eine Funktion bedienen, GAs werden nachgefuehrt (FA-530); Pruefung mehrfacher Sender entfaellt (FA-637) |
 | 3.59 | 21.10.2026 | M. Mueller / Claude AI | Sonnenschutz-Funktionen mit Position Hoehe und Lamellen als Befehl; Funktionen im Bauherr-Formular waehlbar und eingelesen (FA-530) |
 | 3.60 | 21.10.2026 | M. Mueller / Claude AI | Sonnenschutz-Funktionen mit Sperren; neue Funktion Heizung mit Betriebsart (FA-530) |
-| 3.61 | 21.10.2026 | M. Mueller / Claude AI | Bauherr-Formular: Auswahllisten auf eigenem Blatt "Auswahlliste" (keine 255-Zeichen-Grenze mehr); Ansicht ETS-Funktionen gliedert geplante Funktionen in Funktions-GAs und bediente Elemente mit eigener GA und Aktorkanal (FA-530) |
+| 3.61 | 21.10.2026 | M. Mueller / Claude AI | Bauherr-Formular: Auswahllisten auf eigenem Blatt "Auswahlliste" (keine 255-Zeichen-Grenze mehr); Ansicht ETS-Funktionen gliedert geplante Funktionen in Funktions-GAs und bediente Elemente (FA-530) |
 
 ---
 
