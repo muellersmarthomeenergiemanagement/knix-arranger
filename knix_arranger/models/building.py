@@ -1148,9 +1148,11 @@ STANDARD_FLOOR_NAMES = {
 
 # Auffang-HG für die GAs, die die ETS beim Anlegen einer Funktion erzeugt
 # (FA-411b): die ETS legt sie in die erste freie MG der HÖCHSTEN Hauptgruppe
-# (Test ETS 6.4.1, 2026-10-22). Geplante Projekte führen deshalb HG 31 als
+# (Test ETS 6.4.1, 2026-10-22). Geplante Projekte führen deshalb HG 13 als
 # leere höchste HG, sonst landeten sie in den Lücken des obersten Stockwerks.
-ETS_FUNCTION_MAIN_GROUP = 31
+# HG 13, nicht 31: HG 14/15 leiten Koppler ungefiltert weiter, HG 16–31
+# filtern ältere Koppler nicht sauber -- sicher planbar sind HG 0–13.
+ETS_FUNCTION_MAIN_GROUP = 13
 ETS_FUNCTION_MAIN_GROUP_NAME = "ETS-Funktionen"
 
 # Standard-Hauptgruppen-Zuordnung (FA-411)

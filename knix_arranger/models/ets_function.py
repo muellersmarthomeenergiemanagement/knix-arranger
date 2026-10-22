@@ -93,12 +93,17 @@ class KnixFunction:
     zone_id: str = ""         # Apartment.id bei einer Funktion der Zone
     number: int = 1           # "F1" in der Bezeichnung, je Ort fortlaufend
     members: list[FunctionMember] = field(default_factory=list)
+    # Aus einer Gruppenbedienung der ETS übernommen (FA-531): Funktionspunkt
+    # -> "Adresse  Bezeichnung" der bestehenden GA. Dann plant KNiX keine
+    # eigenen GAs; nach einem Re-Import findet es die GAs darüber wieder.
+    ets_gas: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
             "id": self.id, "name": self.name, "function_type": self.function_type,
             "room_id": self.room_id, "zone_id": self.zone_id, "number": self.number,
             "members": [m.to_dict() for m in self.members],
+            **({"ets_gas": dict(self.ets_gas)} if self.ets_gas else {}),
         }
 
     @classmethod
@@ -111,4 +116,5 @@ class KnixFunction:
             zone_id=data.get("zone_id", ""),
             number=data.get("number", 1),
             members=[FunctionMember.from_dict(m) for m in data.get("members", [])],
+            ets_gas=dict(data.get("ets_gas") or {}),
         )

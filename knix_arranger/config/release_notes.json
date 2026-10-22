@@ -2,6 +2,16 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.16",
+      "date": "2026-10-22",
+      "neu": [
+        "Gruppen erkennen: In importierten Projekten findet KNiX GAs, die mehrere Aktorkanäle desselben Gewerks belegen – z.B. «Licht Zentral» eines Raums – und schlägt sie als Funktion vor. Unter ETS-Funktionen → Reiter «Geplant» → «Gruppen erkennen…» wählen und benennen Sie die Gruppen. Die GAs bleiben, wie sie in der ETS stehen; KNiX legt keine neuen an. Die Validierung weist auf noch nicht übernommene Gruppen hin."
+      ],
+      "verbessert": [
+        "Auffang-Hauptgruppe für die GAs der ETS-Funktionen ist neu HG 13 statt HG 31: Hauptgruppen 14/15 leiten Koppler ungefiltert weiter, 16–31 filtern ältere Koppler nicht sauber. Geplante Projekte erhalten HG 13 «ETS-Funktionen» beim nächsten Neu-Erzeugen der Adressen."
+      ]
+    },
+    {
       "version": "1.4.15",
       "date": "2026-10-22",
       "neu": [

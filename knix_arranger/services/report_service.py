@@ -94,8 +94,8 @@ VALIDATION_RULES = {
         "In Schritt 1 jedem Stockwerk eine eigene Hauptgruppe geben.",
     ),
     "FA-411b": (
-        "Hauptgruppe 31 belegt",
-        "HG 31 «ETS-Funktionen» ist die höchste Hauptgruppe: dort legt die ETS die "
+        "Hauptgruppe 13 belegt",
+        "HG 13 «ETS-Funktionen» ist die höchste Hauptgruppe: dort legt die ETS die "
         "GAs neuer Funktionen an (erste freie Mittelgruppe der höchsten HG).",
         "In Schritt 1 dem Stockwerk eine andere Hauptgruppe geben.",
     ),
@@ -105,6 +105,12 @@ VALIDATION_RULES = {
         "GAs, GAs ohne KO, abweichender DPT; eigene GAs in der höchsten "
         "Hauptgruppe, wo die ETS neue Funktionen ablegt.",
         "In der ETS die GAs löschen bzw. verschieben, benennen und verknüpfen.",
+    ),
+    "FA-531": (
+        "Gruppenbedienung erkannt",
+        "Eine GA belegt mehrere Aktorkanäle desselben Gewerks und bedient damit eine "
+        "Gruppe gemeinsam (z.B. «Licht Zentral» eines Raums), ist aber noch keine Funktion.",
+        "Unter ETS-Funktionen › «Gruppen erkennen…» als Funktion übernehmen.",
     ),
     "FA-637": (
         "Geplante ETS-Funktion",

@@ -13,7 +13,7 @@ Die MG eines Raums ist die erste freie der HÖCHSTEN Hauptgruppe, ist sie
 voll, eine neue HG dahinter (Tests ETS 6.4.1, 2026-10-22: 12/4…12/7, 13/0;
 ohne HG 12/13 landete eine EG-Funktion in 4/3, der Lücke des DG). Sie benennt
 die GAs nur mit dem Text des Funktionspunkts ("Schalten", "Status") und
-vergibt den DPT richtig. Geplante Projekte führen deshalb HG 31 «ETS-
+vergibt den DPT richtig. Geplante Projekte führen deshalb HG 13 «ETS-
 Funktionen» als leere höchste HG (FA-411b).
 """
 from __future__ import annotations
@@ -304,7 +304,7 @@ def check_functions(project) -> list:
 
 def _check_catch_main_group(project, function_addresses: set[str], generated: int) -> list:
     """Die ETS legt die GAs neuer Funktionen in die erste freie MG der
-    höchsten HG. Geplant: das soll die leere HG 31 sein; importiert: Hinweis,
+    höchsten HG. Geplant: das soll die leere HG 13 sein; importiert: Hinweis,
     wenn dort eigene GAs liegen."""
     from .validation_engine import ValidationIssue
     structure = project.group_addresses
@@ -338,7 +338,7 @@ def _check_catch_main_group(project, function_addresses: set[str], generated: in
 
 
 def ensure_ets_function_main_group(project, structure) -> None:
-    """Geplante Projekte: leere HG 31 «ETS-Funktionen» als höchste HG, damit
+    """Geplante Projekte: leere HG 13 «ETS-Funktionen» als höchste HG, damit
     die ETS die GAs neuer Funktionen dort ablegt statt in den Lücken des
     obersten Stockwerks (FA-411b). Der CSV-Export schreibt auch leere HGs."""
     topology = getattr(project, "topology", None)

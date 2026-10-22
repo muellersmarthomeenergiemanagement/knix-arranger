@@ -106,6 +106,8 @@ class ValidationEngine:
             issues.extend(check_functions(project))
             from .ets_function_plan import check_plan
             issues.extend(check_plan(project))
+            from .group_function_detection import check_groups
+            issues.extend(check_groups(project))
             issues.extend(self._check_astro_gas(structure, project))
             issues.extend(self._check_multi_ga_keys(project))
             issues.extend(self._check_ets_deviations(project))
@@ -179,7 +181,7 @@ class ValidationEngine:
 
     @staticmethod
     def _check_ets_function_main_group(project) -> list[ValidationIssue]:
-        """FA-411b: HG 31 ist die Auffang-HG für die GAs der ETS-Funktionen --
+        """FA-411b: HG 13 ist die Auffang-HG für die GAs der ETS-Funktionen --
         ein geplantes Stockwerk soll sie nicht belegen."""
         if project.topology.is_imported:
             return []

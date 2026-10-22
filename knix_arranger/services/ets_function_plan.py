@@ -14,7 +14,7 @@ welchem Aktorkanal die Funktions-GAs verknüpft werden.
 Adressen: HG des Stockwerks, MG des Gewerks, ab UG 200 je Funktion ein
 5er-Block (etwas abgesetzt von den Blöcken der Elemente), Bezeichnung
 "J_DG_04_F1 AUF/AB (Fensterfront)". Die ETS legt die GAs einer neuen
-Funktion in die höchste HG (geplant: HG 31 «ETS-Funktionen»); der Integrator
+Funktion in die höchste HG (geplant: HG 13 «ETS-Funktionen»); der Integrator
 löscht sie und ordnet die KNiX-GAs zu (ETS-Arbeitsliste).
 Tasten bedienen eine Funktion über SensorFunktion.function_id.
 
@@ -354,18 +354,26 @@ def sync_function_gas(project, structure=None, previous: list | None = None) -> 
     for ga in structure.all_addresses():
         used.setdefault((ga.main_group, ga.middle_group), set()).add(ga.sub_group)
     # Aus der ETS eingelesene Funktions-GAs bleiben, wie sie dort stehen
-    known = [ga for ga in previous if ga.ets_known
-             and any(f.id == ga.function_id for f in functions)]
+    function_ids = {f.id for f in functions}
+    known = [ga for ga in previous if ga.ets_known and ga.function_id in function_ids]
     for ga in known:
         _insert(structure, ga)
         used.setdefault((ga.main_group, ga.middle_group), set()).add(ga.sub_group)
+    # Funktion gelöscht: ihre GAs aus der ETS bleiben als gewöhnliche GAs
+    for ga in previous:
+        if ga.ets_known and ga.function_id not in function_ids:
+            ga.function_id, ga.ets_known = "", False
+            _insert(structure, ga)
+            used.setdefault((ga.main_group, ga.middle_group), set()).add(ga.sub_group)
     known_points = {(ga.function_id, ga.function_name) for ga in known}
     main_groups = floor_main_groups(project)
     warnings = []
     for function in functions:
         location = locate(project, function)
-        points = [p for p in function_points(function)
-                  if (function.id, p.function) not in known_points]
+        # Übernommene Gruppenbedienung (FA-531): nur die GAs aus der ETS
+        points = [] if function.ets_gas else [
+            p for p in function_points(function)
+            if (function.id, p.function) not in known_points]
         hg = main_groups.get(location.floor.id, 0) if location is not None else 0
         if location is None or not points or hg <= 0:
             continue
@@ -431,7 +439,7 @@ def restore_function_ids(project) -> int:
             by_key[(location.code, function.number)] = function
             if location.room is not None:   # Bezeichnung vor 1.4.15
                 by_key.setdefault((location.room.number or "00", function.number), function)
-    restored = 0
+    restored = _restore_adopted(project)
     for ga in project.group_addresses.all_addresses():
         if ga.function_id:
             continue
@@ -446,6 +454,30 @@ def restore_function_ids(project) -> int:
         ga.gewerk_code = m.group(1)
         ga.ets_known = True
         restored += 1
+    return restored
+
+
+def _restore_adopted(project) -> int:
+    """Übernommene Gruppenbedienungen (FA-531) nach einem Re-Import: GA mit
+    derselben Adresse und Bezeichnung, sonst die einzige mit der Bezeichnung
+    (in der ETS verschoben). Bezeichnungen wie "Raum5_Licht Zentral" gibt es
+    in mehreren Stockwerken -- dann zählt nur die Adresse."""
+    by_name: dict[str, list[GroupAddress]] = {}
+    for ga in project.group_addresses.all_addresses():
+        if not ga.function_id:
+            by_name.setdefault(" ".join((ga.designation or "").split()), []).append(ga)
+    restored = 0
+    for function in project.functions:
+        for point, text in function.ets_gas.items():
+            address, _sep, name = text.partition("  ")
+            candidates = by_name.get(" ".join(name.split()), [])
+            ga = next((g for g in candidates if g.address == address), None)
+            if ga is None and len(candidates) == 1:
+                ga = candidates[0]
+            if ga is None or ga.function_id:
+                continue
+            ga.function_id, ga.function_name, ga.ets_known = function.id, point, True
+            restored += 1
     return restored
 
 
@@ -574,7 +606,9 @@ def check_plan(project) -> list:
             issues.append(ValidationIssue(
                 "warning", "FA-637", f"{where}: Funktion «{function.name}» ohne Elemente",
                 gas[0].address, "Elemente der Funktion wählen", designation=function.name))
-        if ets_read:
+        # Übernommene Gruppenbedienung (FA-531) ohne ETS-Funktion: die GAs
+        # stehen schon in der ETS, eine ETS-Funktion dazu ist freiwillig
+        if ets_read and not (function.ets_gas and status.ets is None):
             point_text = ", ".join(
                 f"{_point_label(function.function_type, ga.function_name)} {ga.address}"
                 for ga in (status.missing if status.ets else gas)

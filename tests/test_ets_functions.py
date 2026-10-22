@@ -1,4 +1,4 @@
-"""ETS-Funktionen (FA-529, FA-636) und Auffang-HG 31 (FA-411b).
+"""ETS-Funktionen (FA-529, FA-636) und Auffang-HG 13 (FA-411b).
 
 Auszug aus dem XML-Export von "Chalet Franziska 2005" (ETS 6.4, 2026-10-21):
 Raum "04 Schlafen" mit sieben Funktionen; die ETS hat die GAs in HG 12
@@ -199,9 +199,9 @@ def test_reimport_from_excel_keeps_functions():
     assert len(new.areal.all_rooms[0].ets_functions) == 6
 
 
-# ── FA-411b: HG 31 «ETS-Funktionen» ────────────────────────────────────
+# ── FA-411b: HG 13 «ETS-Funktionen» ────────────────────────────────────
 
-def test_hg31_skipped_automatically():
+def test_hg13_skipped_automatically():
     project = KnxProject()
     areal = project.areal
     from knix_arranger.models.building import Building, Wing
@@ -217,13 +217,13 @@ def test_hg31_skipped_automatically():
     assert wing.floors[-1].main_group_number == 12
 
 
-def test_hg31_manual_warning():
+def test_hg13_manual_warning():
     project = KnxProject()
     from knix_arranger.models.building import Building, Wing
     building, wing = Building(name="G"), Wing(name="")
     project.areal.buildings.append(building)
     building.wings.append(wing)
-    wing.floors.append(Floor(name="Annex", short_code="AN", main_group_number=31))
+    wing.floors.append(Floor(name="Annex", short_code="AN", main_group_number=13))
     issues = ValidationEngine()._check_ets_function_main_group(project)
     assert len(issues) == 1 and issues[0].rule_id == "FA-411b"
     project.topology.is_imported = True
@@ -232,7 +232,7 @@ def test_hg31_manual_warning():
 
 def test_planned_structure_gets_empty_catch_main_group(eg_room_with_gewerke):
     """Die ETS legt neue Funktionen in die erste freie MG der höchsten HG:
-    geplante Projekte enden mit der leeren HG 31, auch im CSV-Export."""
+    geplante Projekte enden mit der leeren HG 13, auch im CSV-Export."""
     from knix_arranger.services.address_generator import regenerate_addresses
     from knix_arranger.services.csv_export_service import CsvExportService
     from knix_arranger.services.ets_function_service import check_functions
@@ -242,7 +242,7 @@ def test_planned_structure_gets_empty_catch_main_group(eg_room_with_gewerke):
                for i in check_functions(project)) is False   # noch keine GAs
     regenerate_addresses(project)
     top = project.group_addresses.main_groups[-1]
-    assert (top.number, top.name, top.middle_groups) == (31, "ETS-Funktionen", [])
+    assert (top.number, top.name, top.middle_groups) == (13, "ETS-Funktionen", [])
     assert not [i for i in check_functions(project) if i.address.startswith("HG")]
     project.group_addresses.main_groups.pop()
     assert any("Neue ETS-Funktionen landen in HG 2" in i.message

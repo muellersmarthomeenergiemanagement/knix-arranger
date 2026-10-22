@@ -62,7 +62,12 @@ class EtsFunctionsView(QWidget):
         self._btn_edit.clicked.connect(self._edit_function)
         self._btn_delete = QPushButton("Löschen")
         self._btn_delete.clicked.connect(self._delete_function)
-        for btn in (self._btn_new, self._btn_edit, self._btn_delete):
+        self._btn_groups = QPushButton("Gruppen erkennen…")
+        self._btn_groups.setToolTip(
+            "Importierte Projekte: GAs, die mehrere Aktorkanäle desselben Gewerks "
+            "belegen, als Funktion übernehmen (z.B. «Licht Zentral» eines Raums)")
+        self._btn_groups.clicked.connect(self._detect_groups)
+        for btn in (self._btn_new, self._btn_edit, self._btn_delete, self._btn_groups):
             buttons.addWidget(btn)
         buttons.addStretch()
         plan_layout.addLayout(buttons)
@@ -162,6 +167,8 @@ class EtsFunctionsView(QWidget):
                 self._plan_tree.addTopLevelItem(place)
                 places[key] = place
             state = _STATE_TEXT[status.state] if ets_read else ""
+            if function.ets_gas and status.ets is None:
+                state = "aus der ETS übernommen"
             if status.ets is not None and status.ets.name != function.name:
                 state += f" («{status.ets.name}»)"
             if status.other_room:
@@ -250,6 +257,8 @@ class EtsFunctionsView(QWidget):
         self._btn_new.setEnabled(self._project is not None)
         self._btn_edit.setEnabled(has)
         self._btn_delete.setEnabled(has)
+        self._btn_groups.setVisible(
+            self._project is not None and self._project.topology.is_imported)
 
     def _new_function(self) -> None:
         from ..dialogs.function_edit_dialog import FunctionEditDialog
@@ -273,6 +282,31 @@ class EtsFunctionsView(QWidget):
             index = self._project.functions.index(function)
             self._project.functions[index] = dialog.result_function()
             self._apply()
+
+    def _detect_groups(self) -> None:
+        """FA-531: Gruppenbedienungen des Imports als Funktionen übernehmen."""
+        from ...services.group_function_detection import adopt, suggest_group_functions
+        from ..dialogs.group_suggestion_dialog import GroupSuggestionDialog
+        if self._project is None:
+            return
+        suggestions = suggest_group_functions(self._project)
+        if not suggestions:
+            QMessageBox.information(
+                self, "Gruppen erkennen",
+                "Keine weiteren Gruppenbedienungen gefunden: keine Befehls-GA belegt "
+                "mehrere Aktorkanäle desselben Gewerks, die nicht schon zu einer "
+                "Funktion gehört.")
+            return
+        dialog = GroupSuggestionDialog(suggestions, self)
+        if not dialog.exec():
+            return
+        chosen = dialog.selected()
+        if not chosen:
+            return
+        self._begin(f"{len(chosen)} Gruppe(n) als Funktion übernehmen")
+        for suggestion, name in chosen:
+            adopt(self._project, suggestion, name)
+        self._apply()
 
     def _delete_function(self) -> None:
         function = self._selected_function()
