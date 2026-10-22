@@ -179,7 +179,7 @@ class ValidationEngine:
 
     @staticmethod
     def _check_ets_function_main_group(project) -> list[ValidationIssue]:
-        """FA-411b: HG 12 legt die ETS mit den GAs ihrer Funktionen an --
+        """FA-411b: HG 31 ist die Auffang-HG für die GAs der ETS-Funktionen --
         ein geplantes Stockwerk soll sie nicht belegen."""
         if project.topology.is_imported:
             return []
@@ -966,7 +966,7 @@ class ValidationEngine:
                         f"Bezeichnung nicht konform mit KNX Swiss Standard: "
                         f"'{ga.designation}'",
                         ga.address,
-                        "Erwartetes Format: GEWERK_RAUM_NR FUNKTION (Klartext)",
+                        "Erwartetes Format: GEWERK_[STOCKWERK_]RAUM_NR FUNKTION (Klartext)",
                         designation=ga.designation,
                     ))
                 elif room_numbers is not None and not ga.function_id:

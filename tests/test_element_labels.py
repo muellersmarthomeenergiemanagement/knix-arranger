@@ -260,3 +260,12 @@ class TestGeraeteproduktInSchritt5:
         assert captured["items"][0].startswith(
             "Element 2 Wassermelder: Produkt von Gerät 1.2.113 übernehmen (Elsner 70316")
         assert take.call_args[0][1][0].element_nr == 2
+
+
+def test_label_hint_example_with_floor():
+    """Tooltip-Beispiel im Format der Bezeichnung: Stockwerk bei reinen Nummern."""
+    from knix_arranger.models.building import GewerkAssignment
+    from knix_arranger.ui.wizard.step05_gewerke import label_hint
+    ga = GewerkAssignment(gewerk_code="J", count=2, element_labels=["", "Süd"])
+    assert "J_DG_04_02 … (Schlafen Süd)" in label_hint(ga, "04", "Schlafen", "DG")[0]
+    assert "J_E01_02 … (Schlafen Süd)" in label_hint(ga, "E01", "Schlafen", "EG")[0]

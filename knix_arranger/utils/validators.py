@@ -9,8 +9,9 @@ import re
 # Trennzeichen der GA-Bezeichnung GEWERK_RAUM_NR und darf nicht vorkommen.
 ROOM_NUMBER_PATTERN = r"[A-Z0-9](?:[A-Z0-9.\-]*[A-Z0-9])?"
 
+# Stockwerk vor reinen Raumnummern: "J_DG_04_02 AUF/AB" (naming_engine)
 _DESIGNATION_RE = re.compile(
-    r"^[A-Z]{1,3}_(" + ROOM_NUMBER_PATTERN + r")_(?:\d{2}|F\d{1,2})\s+\S+"
+    r"^[A-Z]{1,3}_(?:[A-Z0-9]+_)?(" + ROOM_NUMBER_PATTERN + r")_(?:\d{2}|F\d{1,2})\s+\S+"
 )
 
 

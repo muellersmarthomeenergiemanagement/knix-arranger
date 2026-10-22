@@ -5,6 +5,7 @@ Liest ETS6-Gruppenadress-Exporte im CSV-Format.
 from __future__ import annotations
 import csv
 import os
+import re
 import logging
 from ..models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
@@ -168,6 +169,10 @@ class CsvImportService:
         parts = desc.split("_", 2)
         if len(parts) >= 3:
             ga.gewerk_code = parts[0]
+            # Mit Stockwerk: "J_DG_04_02 AUF/AB" -> Raum 04
+            floor_room = re.match(r"([^_\s]+)_(\d+ .*|\d+$)", parts[2])
+            if floor_room:
+                parts[1], parts[2] = floor_room.group(1), floor_room.group(2)
             ga.room_number = parts[1]
             # Nummer und Funktion aus Rest extrahieren
             rest = parts[2]

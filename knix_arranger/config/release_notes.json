@@ -2,6 +2,24 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.15",
+      "date": "2026-10-22",
+      "neu": [
+        "Bezeichnungen mit Stockwerk: Wo die Raumnummern je Stockwerk neu beginnen («04»), steht das Stockwerk in der Bezeichnung, z.B. «J_DG_04_02 AUF/AB (Schlafen)» bzw. «J_DG_04_F1 …» für Funktionen. Raumnummern wie «E05» oder «SEG02» bleiben unverändert. Bestehende Projekte erhalten die neue Bezeichnung beim nächsten Neu-Erzeugen der Adressen.",
+        "Topologie: Am Aktorkanal steht das bediente Element, z.B. «Kanal 6 – J_DG_04_01 (Schlafen)», sonst die ETS-Funktion. Die GA-Bezeichnung steht in der Spalte «Adresse» direkt nach der GA.",
+        "HG 31 «ETS-Funktionen»: Die ETS legt die GAs einer neuen Funktion in die erste freie Mittelgruppe der höchsten Hauptgruppe. Geplante Projekte enden deshalb mit einer leeren HG 31, damit diese GAs nicht in die Lücken des obersten Stockwerks fallen. Die Validierung warnt, solange HG 31 fehlt."
+      ],
+      "verbessert": [
+        "Funktionen in importierten Projekten: Die Funktions-GAs kommen in die Hauptgruppe, in der die ETS das Geschoss führt, und KNiX findet die Aktorkanäle der bedienten Elemente auch bei ETS-Bezeichnungen wie «J.DG.04.02_move». In der Topologie stehen sie als «geplant – in der ETS verknüpfen», bis sie in der ETS verknüpft sind.",
+        "Aus der ETS eingelesene Funktions-GAs behalten beim Re-Import Adresse und Bezeichnung; nur in KNiX geplante werden nachgeführt.",
+        "Von der ETS angelegte Funktions-GAs werden in jeder Hauptgruppe erkannt. Bei in KNiX geplanten Funktionen lautet die Massnahme: löschen samt Mittelgruppe und die KNiX-GAs zuordnen.",
+        "HG 12 ist nicht mehr reserviert und steht Stockwerken wieder zur Verfügung."
+      ],
+      "behoben": [
+        "Topologie: Kanäle importierter Aktoren zeigten den Raum des Geräts (z.B. «Halle») statt des bedienten Elements."
+      ]
+    },
+    {
       "version": "1.4.14",
       "date": "2026-10-21",
       "neu": [

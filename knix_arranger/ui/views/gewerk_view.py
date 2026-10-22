@@ -38,6 +38,8 @@ _COL_ACTION  = 8
 _NUM_COLS    = 9
 
 _LABEL_SEP = ";"
+# Stockwerk-Kürzel an der Bezeichnungszelle (Tooltip-Beispiel)
+_FLOOR_ROLE = Qt.UserRole + 1
 _MAX_NAME_WIDTH = 200   # Gewerk-Name, längere stehen im Tooltip
 _MIN_NAME_WIDTH = 120
 _MIN_LABEL_WIDTH = 220  # Bezeichnung
@@ -275,6 +277,7 @@ class GewerkView(QWidget):
                 # Bezeichnung – editierbar: Klartext je Element, getrennt mit ";"
                 label_item = QTableWidgetItem(f"{_LABEL_SEP} ".join(ga.element_labels))
                 label_item.setData(Qt.UserRole, (room, ga))
+                label_item.setData(_FLOOR_ROLE, floor.short_code)
                 self._style_label_item(label_item)
                 self._table.setItem(i, _COL_LABEL, label_item)
 
@@ -412,7 +415,8 @@ class GewerkView(QWidget):
         """Tooltip mit der Zuordnung Text → Element; orange, wenn mehr Texte
         als Elemente erfasst sind (wie im Wizard Schritt 5)."""
         room, ga = item.data(Qt.UserRole)
-        tooltip, warning = label_hint(ga, room.number, room.name)
+        tooltip, warning = label_hint(ga, room.number, room.name,
+                                      item.data(_FLOOR_ROLE) or "")
         item.setToolTip(tooltip)
         item.setForeground(QBrush(QColor(COLOR_WARNING)) if warning else QBrush())
 

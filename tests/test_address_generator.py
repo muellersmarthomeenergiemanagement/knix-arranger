@@ -324,6 +324,18 @@ class TestAddressGeneratorDesignation:
         assert "LD_E01_01" in ga.designation
         assert "E/A" in ga.designation
 
+    def test_designation_with_floor_for_plain_room_number(
+            self, eg_room_with_gewerke, gewerk_catalog):
+        """Raumnummer je Stockwerk ("04"): Stockwerk in der Bezeichnung."""
+        eg_room_with_gewerke.all_rooms[0].number = "04"
+        structure = AddressGenerator(gewerk_catalog, variant="A").generate(
+            eg_room_with_gewerke)
+        designations = [ga.designation for ga in structure.all_addresses()
+                        if ga.gewerk_code == "J"]
+        assert "J_EG_04_02 AUF/AB (Schlafzimmer)" in designations
+        assert all(ga.room_number == "04" for ga in structure.all_addresses()
+                   if ga.gewerk_code == "J" and ga.main_group == 2)
+
     def test_placeholder_designation(self, eg_room_with_gewerke, gewerk_catalog):
         """Reserve-Plaetze haben '--' als Bezeichnung (FA-434)."""
         gen = AddressGenerator(gewerk_catalog, variant="A")

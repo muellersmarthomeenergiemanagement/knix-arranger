@@ -7,14 +7,19 @@ Funktionstypen und Funktionspunkte stammen aus knx_master.xml der ETS 6.4
 die Rollen mit Namen ("SwitchOnOff"), in knx_master mit Nummer ("DR-1") --
 die Zuordnung ist aus Probeprojekten der ETS 6.4 ermittelt (2026-10-21).
 
-Die ETS legt die GAs einer neuen Funktion immer in HG 12 an, benennt sie
-nur mit dem Text des Funktionspunkts ("Schalten", "Status") und vergibt den
-DPT richtig. Geplante Projekte halten HG 12 deshalb frei (FA-411b).
+Die ETS legt die GAs einer neuen Funktion in die Mittelgruppe ihres Raums
+(je Raum eine MG, Untergruppen fortlaufend über alle Funktionen des Raums).
+Die MG eines Raums ist die erste freie der HÖCHSTEN Hauptgruppe, ist sie
+voll, eine neue HG dahinter (Tests ETS 6.4.1, 2026-10-22: 12/4…12/7, 13/0;
+ohne HG 12/13 landete eine EG-Funktion in 4/3, der Lücke des DG). Sie benennt
+die GAs nur mit dem Text des Funktionspunkts ("Schalten", "Status") und
+vergibt den DPT richtig. Geplante Projekte führen deshalb HG 31 «ETS-
+Funktionen» als leere höchste HG (FA-411b).
 """
 from __future__ import annotations
 from dataclasses import dataclass
 
-from ..models.building import ETS_FUNCTION_MAIN_GROUP
+from ..models.building import ETS_FUNCTION_MAIN_GROUP, ETS_FUNCTION_MAIN_GROUP_NAME
 
 
 @dataclass(frozen=True)
@@ -115,10 +120,10 @@ def role_label(function_type: str, ref) -> str:
 
 
 def is_ets_generated(ref) -> bool:
-    """GA, die die ETS beim Anlegen der Funktion erzeugt hat: in HG 12 und
-    nur mit dem Text des Funktionspunkts benannt."""
-    return (ref.address.split("/")[0] == str(ETS_FUNCTION_MAIN_GROUP)
-            and ref.ga_name.strip() in ETS_STANDARD_NAMES)
+    """GA, die die ETS beim Anlegen der Funktion erzeugt hat: nur mit dem
+    Text des Funktionspunkts benannt -- in welcher HG, hängt von der Struktur
+    ab (erste freie MG der höchsten HG)."""
+    return bool(ref.address) and ref.ga_name.strip() in ETS_STANDARD_NAMES
 
 
 def _main_group(address: str) -> int:
@@ -163,6 +168,18 @@ def iter_functions(project):
             for room in apartment.rooms:
                 for function in room.ets_functions:
                     yield floor, room, function
+
+
+def functions_by_address(project) -> dict[str, list[str]]:
+    """GA -> ETS-Funktionen, zu denen sie gehört, als "Name (Funktionstyp)"
+    (Topologie: Funktion statt Raum am Aktorkanal)."""
+    result: dict[str, list[str]] = {}
+    for _floor, _room, function in iter_functions(project):
+        label = f"{function.name} ({type_label(function.function_type)})"
+        for ref in function.refs:
+            if ref.address and label not in result.setdefault(ref.address, []):
+                result[ref.address].append(label)
+    return result
 
 
 def ref_hints(function_type: str, ref, linked: set[str]) -> list[str]:
@@ -227,12 +244,13 @@ def _dpt_text(dpt: str) -> str:
 
 
 def check_functions(project) -> list:
-    """FA-636: Prüfung der ETS-Funktionen und von HG 12."""
+    """FA-636: Prüfung der ETS-Funktionen und der höchsten HG."""
     from .validation_engine import ValidationIssue
     issues = []
     linked = _linked_addresses(project)
     function_addresses: set[str] = set()
     generated = 0
+    planned_names = {f.name.strip().lower() for f in getattr(project, "functions", [])}
     for floor, room, function in iter_functions(project):
         where = f"{_room_label(floor, room)}, Funktion «{function.name}»"
         if not function.refs and function.function_type != "FT-0":
@@ -250,13 +268,18 @@ def check_functions(project) -> list:
             function_addresses.add(ref.address)
             if is_ets_generated(ref):
                 generated += 1
+                # In KNiX geplant: die Funktions-GAs gibt es schon, die der ETS
+                # sind überflüssig (verschieben brächte zwei GAs je Punkt)
+                measure = ("In der ETS löschen und der Funktion die KNiX-GA zuordnen "
+                           "(ETS-Arbeitsliste)"
+                           if function.name.strip().lower() in planned_names else
+                           "In der ETS in die Hauptgruppe des Stockwerks verschieben und "
+                           "nach den Richtlinien benennen")
                 issues.append(ValidationIssue(
                     "info", "FA-636",
-                    f"{prefix}: GA von der ETS angelegt (HG {ETS_FUNCTION_MAIN_GROUP}, "
+                    f"{prefix}: GA von der ETS angelegt (HG {_main_group(ref.address)}, "
                     f"Name «{ref.ga_name}»)",
-                    ref.address,
-                    "In der ETS in die Hauptgruppe des Stockwerks verschieben und "
-                    "nach den Richtlinien benennen",
+                    ref.address, measure,
                     designation=ref.ga_name))
             elif function.function_type != "FT-0":
                 point = function_point(function.function_type, ref)
@@ -275,18 +298,55 @@ def check_functions(project) -> list:
                     ref.address,
                     "In der ETS mit den KOs von Aktor und Taster verknüpfen",
                     designation=ref.ga_name))
-    # Eigene GAs in HG 12: dort legt die ETS die GAs neuer Funktionen an
-    # und füllt Lücken zwischen bestehenden Adressen
-    own = [ga for ga in project.group_addresses.all_addresses()
-           if ga.main_group == ETS_FUNCTION_MAIN_GROUP
-           and ga.address not in function_addresses]
-    if own:
-        level = "info" if project.topology.is_imported else "warning"
-        issues.append(ValidationIssue(
-            level, "FA-636",
-            f"HG {ETS_FUNCTION_MAIN_GROUP} enthält {len(own)} eigene GA(s): dort legt "
-            f"die ETS die GAs neuer Funktionen an und füllt Lücken dazwischen",
-            f"HG {ETS_FUNCTION_MAIN_GROUP}",
-            "Eigene GAs in eine andere Hauptgruppe verschieben",
-            details={"count": len(own), "generated": generated}))
+    issues.extend(_check_catch_main_group(project, function_addresses, generated))
     return issues
+
+
+def _check_catch_main_group(project, function_addresses: set[str], generated: int) -> list:
+    """Die ETS legt die GAs neuer Funktionen in die erste freie MG der
+    höchsten HG. Geplant: das soll die leere HG 31 sein; importiert: Hinweis,
+    wenn dort eigene GAs liegen."""
+    from .validation_engine import ValidationIssue
+    structure = project.group_addresses
+    if not structure.main_groups:
+        return []
+    top = max(hg.number for hg in structure.main_groups)
+    own = [ga for ga in structure.all_addresses()
+           if ga.main_group == top and ga.address not in function_addresses
+           and not ga.function_id]
+    details = {"hg": top, "count": len(own), "generated": generated}
+    if not project.topology.is_imported and top != ETS_FUNCTION_MAIN_GROUP:
+        return [ValidationIssue(
+            "warning", "FA-636",
+            f"Neue ETS-Funktionen landen in HG {top}: die ETS legt ihre GAs in die "
+            f"erste freie Mittelgruppe der höchsten Hauptgruppe",
+            f"HG {top}",
+            f"Adressen neu erzeugen – KNiX legt HG {ETS_FUNCTION_MAIN_GROUP} "
+            f"«{ETS_FUNCTION_MAIN_GROUP_NAME}» als höchste Hauptgruppe an",
+            details=details)]
+    if not own:
+        return []
+    level = "info" if project.topology.is_imported else "warning"
+    return [ValidationIssue(
+        level, "FA-636",
+        f"HG {top} enthält {len(own)} eigene GA(s): die ETS legt die GAs neuer "
+        f"Funktionen in die erste freie Mittelgruppe der höchsten Hauptgruppe",
+        f"HG {top}",
+        f"Eigene GAs in eine andere Hauptgruppe verschieben bzw. eine leere HG "
+        f"{ETS_FUNCTION_MAIN_GROUP} «{ETS_FUNCTION_MAIN_GROUP_NAME}» anlegen",
+        details=details)]
+
+
+def ensure_ets_function_main_group(project, structure) -> None:
+    """Geplante Projekte: leere HG 31 «ETS-Funktionen» als höchste HG, damit
+    die ETS die GAs neuer Funktionen dort ablegt statt in den Lücken des
+    obersten Stockwerks (FA-411b). Der CSV-Export schreibt auch leere HGs."""
+    topology = getattr(project, "topology", None)
+    if topology is not None and topology.is_imported:
+        return
+    from ..models.group_address import MainGroup
+    if any(hg.number == ETS_FUNCTION_MAIN_GROUP for hg in structure.main_groups):
+        return
+    structure.main_groups.append(
+        MainGroup(number=ETS_FUNCTION_MAIN_GROUP, name=ETS_FUNCTION_MAIN_GROUP_NAME))
+    structure.main_groups.sort(key=lambda hg: hg.number)

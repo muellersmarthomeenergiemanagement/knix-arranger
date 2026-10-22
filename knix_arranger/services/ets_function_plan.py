@@ -13,8 +13,9 @@ welchem Aktorkanal die Funktions-GAs verknüpft werden.
 
 Adressen: HG des Stockwerks, MG des Gewerks, ab UG 200 je Funktion ein
 5er-Block (etwas abgesetzt von den Blöcken der Elemente), Bezeichnung
-"J_01_F1 AUF/AB (Fensterfront)". Die ETS legt die GAs einer neuen Funktion
-in HG 12 an; der Integrator ordnet dort die KNiX-GAs zu (ETS-Arbeitsliste).
+"J_DG_04_F1 AUF/AB (Fensterfront)". Die ETS legt die GAs einer neuen
+Funktion in die höchste HG (geplant: HG 31 «ETS-Funktionen»); der Integrator
+löscht sie und ordnet die KNiX-GAs zu (ETS-Arbeitsliste).
 Tasten bedienen eine Funktion über SensorFunktion.function_id.
 
 Funktions-GAs tragen GroupAddress.function_id. Nach einem .knxproj-
@@ -28,6 +29,7 @@ from dataclasses import dataclass, field
 from ..models.ets_function import KnixFunction
 from ..models.group_address import GroupAddress
 from .ets_function_service import FUNCTION_TYPES, type_label
+from .naming_engine import element_code, label_floor_code
 
 
 @dataclass(frozen=True)
@@ -86,9 +88,11 @@ def plan_type_label(function_type: str) -> str:
 FIRST_SUB = 200
 BLOCK = 5
 
-# "J_01_F1 AUF/AB (Fensterfront)" -> Gewerk, Ort, Nummer, Funktion
+# "J_DG_04_F1 AUF/AB (Fensterfront)" -> Gewerk, Ort (mit Stockwerk), Nummer,
+# Funktion; vor Version 1.4.15 ohne Stockwerk ("J_04_F1")
 _FUNCTION_DESIGNATION_RE = re.compile(
-    r"^([A-Z]{1,3})_([A-Z0-9][A-Z0-9.\-]*)_F(\d{1,2})\s+(.+?)(?:\s+\(.*\))?$")
+    r"^([A-Z]{1,3})_([A-Z0-9][A-Z0-9.\-]*(?:_[A-Z0-9][A-Z0-9.\-]*)?)_F(\d{1,2})"
+    r"\s+(.+?)(?:\s+\(.*\))?$")
 
 
 # ── Ort und Mitglieder ────────────────────────────────────────────────────
@@ -105,9 +109,12 @@ class Location:
 
     @property
     def code(self) -> str:
-        """Ortsteil der Bezeichnung: Raumnummer, bei einer Zone das Stockwerk."""
+        """Ortsteil der Bezeichnung: Stockwerk und Raumnummer ("DG_04", "EG01"
+        enthält es schon), bei einer Zone das Stockwerk."""
         if self.room is not None:
-            return self.room.number or "00"
+            number = self.room.number or "00"
+            floor = label_floor_code(self.floor.short_code, number)
+            return f"{floor}_{number}" if floor else number
         return self.floor.short_code or "Z"
 
     @property
@@ -133,12 +140,16 @@ class MemberElement:
     room: object
     assignment: object
     element_number: int
+    floor_code: str = ""      # Stockwerk-Kürzel; Raumnummern beginnen je Stockwerk neu
 
     @property
     def label(self) -> str:
+        """"J_DG_04_02 (Schlafen)": Gewerk, Stockwerk, Raum, Element."""
         label = self.assignment.element_label(self.element_number)
-        text = f"{self.assignment.gewerk_code}_{self.room.number}_{self.element_number:02d}"
-        return f"{text} ({label or self.room.name})"
+        code = element_code(self.assignment.gewerk_code,
+                            label_floor_code(self.floor_code, self.room.number),
+                            self.room.number, self.element_number)
+        return f"{code} ({label or self.room.name})"
 
 
 def member_candidates(location: Location, function_type: str) -> list[MemberElement]:
@@ -150,23 +161,146 @@ def member_candidates(location: Location, function_type: str) -> list[MemberElem
             if assignment.gewerk_code not in codes:
                 continue
             for nr in range(1, assignment.count + 1):
-                result.append(MemberElement(room, assignment, nr))
+                result.append(MemberElement(room, assignment, nr,
+                                            location.floor.short_code))
+    return result
+
+
+def _assignments_by_id(project) -> dict[str, tuple]:
+    """GewerkAssignment.id -> (Raum, Zuweisung, Stockwerk-Kürzel)."""
+    by_id = {}
+    for floor in project.areal.all_floors:
+        for apartment in floor.apartments:
+            for room in apartment.rooms:
+                for assignment in room.gewerk_assignments:
+                    by_id[assignment.id] = (room, assignment, floor.short_code)
+    return by_id
+
+
+def _element_number(ga) -> int:
+    """Elementnummer einer GA. Importierte GAs tragen nur die Zuweisung, die
+    Nummer steht in ihrer Bezeichnung ("J.DG.04.01_move"); GAs mehrerer
+    Elemente ("J.OG.00.01+J.DG.00.02_move") gehören keinem einzelnen (0)."""
+    if ga.element_number:
+        return ga.element_number
+    from .gewerk_service import GewerkService
+    from .naming_engine import NamingEngine
+    matched = GewerkService._match_ga_designation(ga.designation or "")
+    if matched is not None:
+        if matched[4]:
+            return 0
+        return int(matched[3]) if matched[3].isdigit() else 0
+    return NamingEngine.parse_designation(ga.designation)["element_number"]
+
+
+#: Endung importierter Bezeichnungen ("J.DG.04.01_move") -> Funktion der
+#: Planung, nur Befehle wie in PLAN_POINTS
+_IMPORTED_SUFFIXES = {
+    "AUF/AB": ("move", "aufab", "auf_ab", "fahren", "endlage", "updown"),
+    "STOPP": ("step", "stop", "stopp", "schritt"),
+    "POSITION HOEHE": ("hoehe", "höhe", "position", "pos"),
+    "POSITION LAMELLEN": ("winkel", "lamellen", "lamelle", "slat"),
+    "SPERREN": ("sperren", "sperre", "lock"),
+    "E/A": ("ea", "schalten", "switch"),
+    "DIM": ("dim", "dimmen"),
+    "WERT": ("wert", "value"),
+    "UMSCHALTEN BETRIEBSART": ("betriebsart", "hvac", "modus"),
+}
+_SUFFIX_FUNCTION = {s: f for f, suffixes in _IMPORTED_SUFFIXES.items() for s in suffixes}
+
+
+def _element_function(ga) -> str:
+    """Funktion einer Element-GA: geplant aus dem Feld, importiert aus der
+    Endung der Bezeichnung."""
+    if ga.planned_function:
+        return ga.planned_function
+    label = (ga.designation or "").split("(", 1)[0].strip()
+    return _SUFFIX_FUNCTION.get(label.rsplit("_", 1)[-1].lower(), "") if "_" in label else ""
+
+
+def _element_gas(project) -> dict[tuple[str, int], dict[str, GroupAddress]]:
+    """(Zuweisung, Element) -> Funktion -> Befehls-GA des Elements.
+    Rückmeldungen (Variante B: MG 6/7) zählen nicht, sie tragen in
+    importierten Projekten dieselbe Bezeichnung wie der Befehl."""
+    imported = project.topology.is_imported
+    result: dict[tuple[str, int], dict[str, GroupAddress]] = {}
+    for ga in project.group_addresses.all_addresses():
+        if not ga.assignment_id or ga.is_placeholder or ga.function_id:
+            continue
+        if imported and ga.middle_group in (6, 7):
+            continue
+        number = _element_number(ga)
+        function = _element_function(ga)
+        if number and function:
+            key = (ga.assignment_id.removesuffix(":fb"), number)
+            result.setdefault(key, {}).setdefault(function, ga)
+    return result
+
+
+def element_labels_by_address(project) -> dict[str, str]:
+    """GA -> bedientes Element ("J_DG_04_01 (Schlafen)"), für die Kanäle der
+    Topologie (Nummer siehe _element_number)."""
+    by_id = _assignments_by_id(project)
+    result = {}
+    for ga in project.group_addresses.all_addresses():
+        found = by_id.get(ga.assignment_id.removesuffix(":fb"))
+        if found is None or ga.is_placeholder or ga.function_id:
+            continue
+        number = _element_number(ga)
+        if number:
+            room, assignment, floor_code = found
+            result[ga.address] = MemberElement(room, assignment, number, floor_code).label
+    return result
+
+
+def floor_main_groups(project) -> dict[str, int]:
+    """Stockwerk-id -> HG, in der seine GAs liegen. Importierte Projekte:
+    die HG mit dem Namen des Stockwerks ("DG"), sonst die, die die meisten
+    GAs seiner Räume trägt -- ohne HG 0 und 12 (zentral, ETS-Funktionen;
+    im Chalet liegen dort Revox-GAs der UG-Räume). Chalet: DG in HG 4,
+    nicht in der Standard-HG 7. Geplante: Floor.main_group_number."""
+    from ..models.building import ETS_FUNCTION_MAIN_GROUP
+    result = {f.id: f.main_group_number for f in project.areal.all_floors}
+    if not project.topology.is_imported:
+        return result
+    from collections import Counter
+    by_name = {hg.name.strip().lower(): hg.number
+               for hg in project.group_addresses.main_groups if hg.name}
+    named = {}
+    for floor in project.areal.all_floors:
+        for name in (floor.short_code, floor.name):
+            if name and name.strip().lower() in by_name:
+                named[floor.id] = by_name[name.strip().lower()]
+                break
+    floor_of = {}
+    for floor in project.areal.all_floors:
+        for apartment in floor.apartments:
+            for room in apartment.rooms:
+                for assignment in room.gewerk_assignments:
+                    floor_of[assignment.id] = floor.id
+    counts: dict[str, Counter] = {}
+    for ga in project.group_addresses.all_addresses():
+        floor_id = floor_of.get(ga.assignment_id.removesuffix(":fb"))
+        if (floor_id and ga.main_group not in (0, ETS_FUNCTION_MAIN_GROUP)
+                and not ga.function_id):
+            counts.setdefault(floor_id, Counter())[ga.main_group] += 1
+    for floor_id, counter in counts.items():
+        result[floor_id] = counter.most_common(1)[0][0]
+    result.update(named)
     return result
 
 
 def resolve_members(project, function: KnixFunction) -> list[MemberElement | None]:
     """Mitglieder in der Reihenfolge der Funktion (None = Element entfernt)."""
-    by_id = {}
-    for room in project.all_rooms:
-        for assignment in room.gewerk_assignments:
-            by_id[assignment.id] = (room, assignment)
+    by_id = _assignments_by_id(project)
     result = []
     for member in function.members:
         found = by_id.get(member.assignment_id)
         if found is None or member.element_number > found[1].count:
             result.append(None)
         else:
-            result.append(MemberElement(found[0], found[1], member.element_number))
+            room, assignment, floor_code = found
+            result.append(MemberElement(room, assignment, member.element_number, floor_code))
     return result
 
 
@@ -219,13 +353,22 @@ def sync_function_gas(project, structure=None, previous: list | None = None) -> 
     used: dict[tuple[int, int], set[int]] = {}
     for ga in structure.all_addresses():
         used.setdefault((ga.main_group, ga.middle_group), set()).add(ga.sub_group)
+    # Aus der ETS eingelesene Funktions-GAs bleiben, wie sie dort stehen
+    known = [ga for ga in previous if ga.ets_known
+             and any(f.id == ga.function_id for f in functions)]
+    for ga in known:
+        _insert(structure, ga)
+        used.setdefault((ga.main_group, ga.middle_group), set()).add(ga.sub_group)
+    known_points = {(ga.function_id, ga.function_name) for ga in known}
+    main_groups = floor_main_groups(project)
     warnings = []
     for function in functions:
         location = locate(project, function)
-        points = function_points(function)
-        if location is None or not points or location.floor.main_group_number <= 0:
+        points = [p for p in function_points(function)
+                  if (function.id, p.function) not in known_points]
+        hg = main_groups.get(location.floor.id, 0) if location is not None else 0
+        if location is None or not points or hg <= 0:
             continue
-        hg = location.floor.main_group_number
         mg = TYPE_MIDDLE_GROUP[function.function_type]
         targets = [(p, mg, p.offset) for p in points]
 
@@ -286,6 +429,8 @@ def restore_function_ids(project) -> int:
         location = locate(project, function)
         if location is not None:
             by_key[(location.code, function.number)] = function
+            if location.room is not None:   # Bezeichnung vor 1.4.15
+                by_key.setdefault((location.room.number or "00", function.number), function)
     restored = 0
     for ga in project.group_addresses.all_addresses():
         if ga.function_id:
@@ -299,6 +444,7 @@ def restore_function_ids(project) -> int:
         ga.function_id = function.id
         ga.function_name = m.group(4).strip()
         ga.gewerk_code = m.group(1)
+        ga.ets_known = True
         restored += 1
     return restored
 
@@ -314,11 +460,7 @@ def member_links(project, function: KnixFunction):
     Mitglied und Funktionspunkt."""
     gas = {ga.function_name: ga for ga in project.group_addresses.all_addresses()
            if ga.function_id == function.id}
-    element_gas: dict[tuple[str, int], dict[str, GroupAddress]] = {}
-    for ga in project.group_addresses.all_addresses():
-        if ga.assignment_id and not ga.is_placeholder and not ga.function_id:
-            key = (ga.assignment_id.removesuffix(":fb"), ga.element_number)
-            element_gas.setdefault(key, {})[ga.planned_function] = ga
+    element_gas = _element_gas(project)
     for member in resolve_members(project, function):
         if member is None:
             continue

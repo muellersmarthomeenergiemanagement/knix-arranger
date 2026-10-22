@@ -39,6 +39,9 @@ class GroupAddress:
     plan_function: str = ""
     # Funktions-GA (FA-530): KnixFunction.id der Funktion, deren GA das ist
     function_id: str = ""
+    # Funktions-GA, die aus der ETS eingelesen wurde: Adresse und Bezeichnung
+    # stehen dort fest, KNiX verschiebt und benennt sie nicht mehr
+    ets_known: bool = False
 
     @property
     def address(self) -> str:
@@ -73,6 +76,7 @@ class GroupAddress:
             "assignment_id": self.assignment_id,
             "plan_function": self.plan_function,
             **({"function_id": self.function_id} if self.function_id else {}),
+            **({"ets_known": True} if self.ets_known else {}),
         }
 
     @classmethod
@@ -99,6 +103,7 @@ class GroupAddress:
             assignment_id=data.get("assignment_id", ""),
             plan_function=data.get("plan_function", ""),
             function_id=data.get("function_id", ""),
+            ets_known=data.get("ets_known", False),
         )
 
 

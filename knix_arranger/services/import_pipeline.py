@@ -247,6 +247,10 @@ class ImportPipeline:
         self.step("Gewerk-Verknüpfung der GAs",
                   GewerkService(project.gewerk_catalog).relink_assignment_ids,
                   project.group_addresses, project.areal)
+        # In KNiX geplante Funktions-GAs, die noch nicht in der ETS stehen,
+        # wieder einsetzen (braucht die Gewerk-Verknüpfung: HG des Geschosses)
+        from .ets_function_plan import sync_function_gas
+        self.step("Geplante Funktions-GAs", sync_function_gas, project, default=[])
         self.step("Szenen-Erkennung", self._detect_scenes)
         self.step("DALI-Konfiguration", auto_configure_dali, project)
         # In KNiX getrennte Verknüpfungen, die die ETS noch hat (vor dem

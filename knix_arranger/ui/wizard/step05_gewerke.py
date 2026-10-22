@@ -16,6 +16,7 @@ from ...models.project import KnxProject
 from ...models.building import GewerkAssignment
 from ...models.device import GEWERK_TO_ACTOR_TYPE, GEWERK_TO_SENSOR_TYPE
 from ...services.gewerk_service import GewerkService
+from ...services.naming_engine import element_code, label_floor_code
 from ...services.address_generator import regenerate_addresses
 from ...services.product_sync import (
     ProductMismatch, apply_product_to, device_zone_products, product_mismatches,
@@ -57,7 +58,8 @@ _ROOM_ROLE = Qt.UserRole + 1
 _LABEL_MIN_WIDTH = 220
 
 
-def label_hint(ga: GewerkAssignment, room_number: str, room_name: str) -> tuple[str, bool]:
+def label_hint(ga: GewerkAssignment, room_number: str, room_name: str,
+               floor_code: str = "") -> tuple[str, bool]:
     """Tooltip der Spalte "Bezeichnung": welcher Text zu welchem Element
     gehört, und ob mehr Texte als Elemente erfasst sind (FA-403).
     Gibt (Tooltip, Warnung) zurück."""
@@ -65,7 +67,9 @@ def label_hint(ga: GewerkAssignment, room_number: str, room_name: str) -> tuple[
     # Beispiel mit dem ersten erfassten Text, sonst ein frei gewähltes Wort
     nr, text = next(((n, ga.element_label(n)) for n in range(1, ga.count + 1)
                      if ga.element_label(n)), (1, "Decke"))
-    example = (f"{ga.gewerk_code}_{room_number}_{nr:02d} … "
+    code = element_code(ga.gewerk_code, label_floor_code(floor_code, room_number),
+                        room_number, nr)
+    example = (f"{code} … "
                f"({' '.join(p for p in (room_name, text) if p)})")
     lines = [
         "Bezeichnung je Element, getrennt mit «;» – erster Text = Element 01,",
@@ -560,7 +564,7 @@ class Step05Gewerke(QWidget):
                 label_item = QTableWidgetItem(
                     f"{_LABEL_SEP} ".join(ga.element_labels))
                 label_item.setData(Qt.UserRole, ga)
-                label_item.setData(_ROOM_ROLE, (room.number, room.name))
+                label_item.setData(_ROOM_ROLE, (room.number, room.name, floor.short_code))
                 self._style_label_item(label_item)
                 self._table.setItem(i, _COL_LABEL, label_item)
 
@@ -697,8 +701,8 @@ class Step05Gewerke(QWidget):
         """Tooltip mit der Zuordnung Text → Element; orange, wenn mehr Texte
         als Elemente erfasst sind."""
         ga = item.data(Qt.UserRole)
-        number, name = item.data(_ROOM_ROLE) or ("", "")
-        tooltip, warning = label_hint(ga, number, name)
+        number, name, floor_code = item.data(_ROOM_ROLE) or ("", "", "")
+        tooltip, warning = label_hint(ga, number, name, floor_code)
         item.setToolTip(tooltip)
         item.setForeground(QBrush(QColor(COLOR_WARNING)) if warning else QBrush())
 

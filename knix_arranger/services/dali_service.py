@@ -31,7 +31,9 @@ _GA_RE = re.compile(r"^\d+/\d+/\d+$")
 # vergeben von der App selbst beim Neu-Generieren von Adressen (Schritt 7).
 # Raumteil ohne "_" und Leerzeichen, damit auch Raumnummern mit "-" oder "."
 # (z.B. "S-EG02", siehe utils/validators.ROOM_NUMBER_PATTERN) erkannt werden.
-_LDA_PREFIX_RE = re.compile(r"^LDA_([^_\s]+)_(\d{2})\s+(.+)$", re.IGNORECASE)
+# Mit Stockwerk, wenn die Raumnummer es nicht enthält: "LDA_DG_04_01 E/A"
+# (Gruppen: Stockwerk oder None, Raum, Element, Funktion).
+_LDA_PREFIX_RE = re.compile(r"^LDA_(?:([^_\s]+)_)?([^_\s]+)_(\d{2})\s+(.+)$", re.IGNORECASE)
 
 # LDA-GA-Bezeichnung nach ETS6-XLSX-Importkonvention (siehe
 # xlsx_import_service._GA_FLOOR_ROOM_RE): "LDA.OG.00.02_ea" bzw. mehrere per
@@ -129,8 +131,9 @@ def _parse_lda_designation_for_grouping(desig: str) -> tuple[str, str] | None:
     if m:
         # Klartext-Kommentar abtrennen: "E/A (Musikzimmer)" -> "E/A" --
         # sonst wurde die Schalt-GA nicht als Schalten erkannt.
-        func = m.group(3).split("(", 1)[0].strip().upper()
-        return f"{m.group(1)}_{m.group(2)}", func
+        func = m.group(4).split("(", 1)[0].strip().upper()
+        room = f"{m.group(1)}_{m.group(2)}" if m.group(1) else m.group(2)
+        return f"{room}_{m.group(3)}", func
 
     key = _lda_dot_key(desig)
     if not key:
@@ -289,7 +292,7 @@ def _lda_primary_room_and_elem(desig: str) -> tuple[str, str]:
     """
     m = _LDA_PREFIX_RE.match(desig)
     if m:
-        return m.group(1), m.group(2)
+        return m.group(2), m.group(3)
     if _LDA_DOT_RE.match(desig):
         room_nrs = _lda_dot_room_numbers_ordered(desig)
         if room_nrs:
@@ -517,9 +520,9 @@ class DaliService:
                     if len(parts) < 2:
                         continue
                     func_lc = parts[1].lower()
-                    room_nr = desig.split("_")[1] if "_" in desig else ""
-                    if room_nr:
-                        room_nrs = {room_nr}
+                    m = _LDA_PREFIX_RE.match(desig)
+                    if m:
+                        room_nrs = {m.group(2)}
                 else:
                     func_lc = _lda_dot_convention_func(desig)
                     if not func_lc:

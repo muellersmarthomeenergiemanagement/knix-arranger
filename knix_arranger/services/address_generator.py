@@ -33,7 +33,7 @@ from ..models.address_block import (
     create_generic_5_block_schema, create_generic_10_block_schema,
 )
 from .building_service import BuildingService
-from .naming_engine import NamingEngine
+from .naming_engine import NamingEngine, label_floor_code
 from .scene_addressing import (
     group_named_scenes, normalize_scene_scopes, scene_value_mapping_text,
 )
@@ -142,6 +142,8 @@ class AddressGenerator:
         self._overrides: dict[int, dict[str, dict]] = {}
         # Zuweisungen zentraler Gewerke, die beim Stockwerk bleiben (generate)
         self._kept_on_floor: set[str] = set()
+        # Raum-ID -> Stockwerk-Kürzel in der Bezeichnung (label_floor_code)
+        self._label_floor: dict[str, str] = {}
 
     def generate(self, areal: Areal, scenes: list | None = None,
                  project=None,
@@ -350,7 +352,7 @@ class AddressGenerator:
             desc = " ".join(p for p in (room_name, element_label) if p)
             ga.designation = NamingEngine.create_designation(
                 gewerk_code, room_number, element_number,
-                function, desc,
+                function, desc, self._label_floor.get(room_id, ""),
             )
             ga.datapoint_type = override.get("dpt") or entry.dpt
             ga.gewerk_code = gewerk_code
@@ -421,6 +423,10 @@ class AddressGenerator:
                         room_number_ga = f"{apt.name}-{room.number}"
                     else:
                         room_number_ga = room.number
+                    # Stockwerk in der Bezeichnung, wenn die Raumnummer es
+                    # nicht enthält ("J_DG_04_02")
+                    self._label_floor[room.id] = label_floor_code(
+                        floor.short_code, room.number)
                     # Beschreibung: bei mehreren Zonen im Projekt immer Zonenname voranstellen
                     room_desc = (
                         f"{apt.name} / {room.name}"
@@ -1213,6 +1219,8 @@ def regenerate_addresses(project, variant: str | None = None) -> RegenerationRes
         insert_ga(structure, ga)
     # Funktionen (FA-530): eigene GAs ab UG 200, bestehende bleiben
     structure.warnings.extend(sync_function_gas(project, structure, old_function_gas))
+    from .ets_function_service import ensure_ets_function_main_group
+    ensure_ets_function_main_group(project, structure)
     project.group_addresses = structure
     _sync_scene_labels(project.scenes, structure)
 

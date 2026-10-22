@@ -154,11 +154,45 @@ def test_topology_shows_flags():
     texts = {}
     it = QTreeWidgetItemIterator(view._tree)
     while it.value():
-        texts[it.value().text(1)] = (it.value().text(4), it.value().toolTip(4))
+        texts[it.value().text(1).split()[0] if it.value().text(1) else ""] = (it.value().text(4), it.value().toolTip(4))
         it += 1
     assert "Flags K S" in texts["1/0/0"][0]
     assert "Flags K L Ü" in texts["1/6/0"][0]
     assert "L Lesen" in texts["1/6/0"][1]
+
+
+def test_topology_channel_shows_ets_function():
+    """Kanal mit ETS-Funktion statt Raum; die GA-Bezeichnung steht in der
+    Spalte "Adresse" nach der GA, nicht mehr im Kanaltext."""
+    from knix_arranger.models.building import Apartment, Building, Floor, Room, Wing
+    from knix_arranger.models.ets_function import EtsFunction, EtsFunctionRef
+    from knix_arranger.ui.views.topology_view import TopologyView
+    actor = _device("1.1.4", (0, "Kanal A", "K-S---", ["1/0/0"]),
+                    (1, "Kanal A Status", "KL-Ü--", ["1/6/0"]))
+    project = _project([actor], [_ga("1/0/0", "E/A"), _ga("1/6/0", "RM")])
+    room = Room(number="01", name="Halle")
+    room.ets_functions = [EtsFunction("Licht Eingang", "FT-1", [
+        EtsFunctionRef("SwitchOnOff", "1/0/0"), EtsFunctionRef("InfoOnOff", "1/6/0")])]
+    building, wing, floor, apt = Building(name="G"), Wing(name=""), Floor(name="EG"), Apartment()
+    project.areal.buildings.append(building)
+    building.wings.append(wing)
+    wing.floors.append(floor)
+    floor.apartments.append(apt)
+    apt.rooms.append(room)
+    view = TopologyView()
+    view.set_project(project)
+    view._tree.expandAll()
+    items = []
+    it = QTreeWidgetItemIterator(view._tree)
+    while it.value():
+        items.append(it.value())
+        it += 1
+    channel = next(i for i in items if i.childCount() and i.text(0).startswith("Kanal"))
+    assert channel.text(0) == "Kanal 1 – Licht Eingang (Licht schalten)"
+    rows = {channel.child(n).text(1): channel.child(n).text(0)
+            for n in range(channel.childCount())}
+    assert "1/0/0  GA 1/0/0 E/A" in rows
+    assert ":" not in rows["1/0/0  GA 1/0/0 E/A"]
 
 
 def test_proposals_only_for_display(gewerk_catalog):

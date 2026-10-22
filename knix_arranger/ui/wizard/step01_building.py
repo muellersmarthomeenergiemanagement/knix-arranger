@@ -17,6 +17,7 @@ from PySide6.QtGui import QBrush, QColor
 from ...models.project import KnxProject
 from ...models.building import (
     Floor, Wing, STANDARD_FLOOR_NAMES, FLOOR_TO_MAIN_GROUP, ETS_FUNCTION_MAIN_GROUP,
+    ETS_FUNCTION_MAIN_GROUP_NAME,
 )
 from ...services.building_service import BuildingService
 from ..styles import COLOR_WARNING
@@ -167,8 +168,8 @@ class Step01Building(QWidget):
                 # FA-411b
                 item.setForeground(QBrush(QColor(COLOR_WARNING)))
                 item.setToolTip(
-                    f"In HG {ETS_FUNCTION_MAIN_GROUP} legt die ETS die GAs "
-                    "neuer Funktionen an."
+                    f"HG {ETS_FUNCTION_MAIN_GROUP} «{ETS_FUNCTION_MAIN_GROUP_NAME}» "
+                    "ist reserviert: dort legt die ETS die GAs neuer Funktionen an."
                 )
             self._floor_list.addItem(item)
 
@@ -337,9 +338,9 @@ class Step01Building(QWidget):
         if item and item.toolTip() and floor.main_group_number == ETS_FUNCTION_MAIN_GROUP                 and not BuildingService.shared_main_groups(self._project.areal).get(
                     floor.main_group_number):
             QMessageBox.warning(
-                self, "Hauptgruppe 12",
-                item.toolTip() + " Sie füllt dabei auch Lücken zwischen eigenen "
-                "Adressen. Nächste freie HG: "
+                self, f"Hauptgruppe {ETS_FUNCTION_MAIN_GROUP}",
+                item.toolTip() + " Sie nimmt die erste freie Mittelgruppe der "
+                "höchsten Hauptgruppe. Nächste freie HG: "
                 f"{self._next_hg(ignore=floor)}.",
             )
         elif item and item.toolTip():

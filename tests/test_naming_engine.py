@@ -118,3 +118,33 @@ class TestParseDesignation:
         result = NamingEngine.parse_designation("LD_E01_01 RM WERT")
         assert result["gewerk_code"] == "LD"
         assert result["function_name"] == "RM WERT"
+
+
+class TestFloorCode:
+    """Stockwerk in der Bezeichnung bei Raumnummern je Stockwerk."""
+
+    def test_floor_only_for_plain_numbers(self):
+        from knix_arranger.services.naming_engine import label_floor_code
+        assert label_floor_code("DG", "04") == "DG"
+        assert label_floor_code("DG", "1.04") == "DG"
+        assert label_floor_code("EG", "E01") == ""
+        assert label_floor_code("EG", "SEG02") == ""
+        assert label_floor_code("", "04") == ""
+
+    def test_create_and_parse_with_floor(self):
+        designation = NamingEngine.create_designation(
+            "J", "04", 2, "AUF/AB", "Schlafen", floor_code="DG")
+        assert designation == "J_DG_04_02 AUF/AB (Schlafen)"
+        parsed = NamingEngine.parse_designation(designation)
+        assert (parsed["gewerk_code"], parsed["floor_code"], parsed["room_number"],
+                parsed["element_number"], parsed["function_name"]) == (
+            "J", "DG", "04", 2, "AUF/AB")
+
+    def test_valid_designation_with_floor(self):
+        from knix_arranger.utils.validators import (
+            designation_room_number, is_valid_designation,
+        )
+        assert is_valid_designation("J_DG_04_02 AUF/AB (Schlafen)")
+        assert designation_room_number("J_DG_04_02 AUF/AB") == "04"
+        assert designation_room_number("J_DG_04_F1 AUF/AB (Front)") == "04"
+        assert designation_room_number("LD_E01_01 E/A") == "E01"

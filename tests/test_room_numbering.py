@@ -205,7 +205,8 @@ class TestDaliErkennung:
         ("LDA_SEG02_01 E/A", "SEG02"),
         ("LDA_S-EG02_01 E/A", "S-EG02"),
         ("LDA_S.EG.02_01 DIM", "S.EG.02"),
+        ("LDA_DG_04_01 E/A", "04"),
     ])
     def test_raumteil(self, designation, room):
         m = _LDA_PREFIX_RE.match(designation)
-        assert m and m.group(1) == room
+        assert m and m.group(2) == room

@@ -93,7 +93,7 @@ def test_command_addresses_from_ug_200(project):
         "AUF/AB": ("2/1/200", "DPST-1-8"), "STOPP": ("2/1/201", "DPST-1-7"),
         "POSITION HOEHE": ("2/1/202", "DPST-5-1"), "POSITION LAMELLEN": ("2/1/203", "DPST-5-1"),
         "SPERREN": ("2/1/204", "DPST-1-1")}
-    assert gas["AUF/AB"].designation == "J_01_F1 AUF/AB (Fensterfront)"
+    assert gas["AUF/AB"].designation == "J_EG_01_F1 AUF/AB (Fensterfront)"
     element = [ga for ga in project.group_addresses.all_addresses()
                if ga.gewerk_code == "J" and not ga.function_id and not ga.is_placeholder]
     assert max(ga.sub_group for ga in element) < 200
@@ -190,17 +190,17 @@ def test_button_on_function(project):
         element_type="Tastereinheit", channels=4, funktionen=[sf], is_auto=False))
     apply_function_buttons(project)
     assert sf.label == "Fensterfront"
-    assert sf.ga_designation == "2/1/200  J_01_F1 AUF/AB (Fensterfront)"
+    assert sf.ga_designation == "2/1/200  J_EG_01_F1 AUF/AB (Fensterfront)"
     assert [(e.ga_designation, e.role) for e in sf.extra_gas] == [
-        ("2/1/201  J_01_F1 STOPP (Fensterfront)", "befehl"),
-        ("2/1/202  J_01_F1 POSITION HOEHE (Fensterfront)", "befehl"),
-        ("2/1/203  J_01_F1 POSITION LAMELLEN (Fensterfront)", "befehl"),
-        ("2/1/204  J_01_F1 SPERREN (Fensterfront)", "befehl")]
+        ("2/1/201  J_EG_01_F1 STOPP (Fensterfront)", "befehl"),
+        ("2/1/202  J_EG_01_F1 POSITION HOEHE (Fensterfront)", "befehl"),
+        ("2/1/203  J_EG_01_F1 POSITION LAMELLEN (Fensterfront)", "befehl"),
+        ("2/1/204  J_EG_01_F1 SPERREN (Fensterfront)", "befehl")]
     # Umbenennen wird nachgeführt
     project.functions[0].name = "Front Süd"
     sync_function_gas(project)
     apply_function_buttons(project)
-    assert sf.ga_designation == "2/1/200  J_01_F1 AUF/AB (Front Süd)"
+    assert sf.ga_designation == "2/1/200  J_EG_01_F1 AUF/AB (Front Süd)"
     from knix_arranger.services.sensor_service import refresh_bedienelemente
     refresh_bedienelemente(project)
     be = next(b for b in wohnen.bedienelemente if b.funktionen and b.funktionen[0] is sf)
@@ -259,7 +259,7 @@ def test_view_dialog_and_button_choice(project):
     assert gas_node.text(0) == "Funktions-GAs (5)" and gas_node.childCount() == 5
     assert members_node.text(0) == "Bediente Elemente (3)"
     first = members_node.child(0)
-    assert [first.text(c) for c in range(4)] == ["", "J_01_01 (Links)", "", ""]
+    assert [first.text(c) for c in range(4)] == ["", "J_EG_01_01 (Links)", "", ""]
     assert first.text(4).startswith("Aktor ") and ", Kanal " in first.text(4)
 
     dialog = FunctionEditDialog(project, project.functions[0])
@@ -337,3 +337,104 @@ def test_heating_operating_mode_for_zone(project):
     task = next(i for i in check_plan(project)
                 if "Wohnzone Abwesend" in i.message).details["task"]
     assert task.endswith("anlegen und zuordnen: Betriebsart 2/2/200.")
+
+
+def test_element_labels_for_topology_channels():
+    """Kanal der Topologie: bedientes Element mit Stockwerk; importierte GA
+    mit Elementnummer nur in der Bezeichnung, Sammel-GA ohne Element."""
+    from knix_arranger.models.building import (
+        Apartment, Building, Floor, GewerkAssignment, Room, Wing,
+    )
+    from knix_arranger.models.group_address import (
+        GroupAddress, GroupAddressStructure, MainGroup, MiddleGroup,
+    )
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.services.ets_function_plan import element_labels_by_address
+    project = KnxProject(name="Kanal")
+    assignment = GewerkAssignment(gewerk_code="J", count=4)
+    room = Room(number="04", name="Schlafen", gewerk_assignments=[assignment])
+    floor = Floor(name="Dachgeschoss", short_code="DG",
+                  apartments=[Apartment(rooms=[room])])
+    project.areal.buildings.append(Building(wings=[Wing(floors=[floor])]))
+    gas = [GroupAddress(main_group=4, middle_group=1, sub_group=n, designation=d,
+                        assignment_id=assignment.id)
+           for n, d in ((40, "J.DG.04.01_move  ( Berg )"),
+                        (45, "J.DG.04.02+J.DG.04.03_move"))]
+    gas.append(GroupAddress(main_group=4, middle_group=1, sub_group=60,
+                            designation="J_DG_04_03 AUF/AB (Schlafen)",
+                            assignment_id=assignment.id, element_number=3))
+    project.group_addresses = GroupAddressStructure(main_groups=[MainGroup(
+        number=4, middle_groups=[MiddleGroup(number=1, group_addresses=gas)])])
+    assert element_labels_by_address(project) == {
+        "4/1/40": "J_DG_04_01 (Schlafen)", "4/1/60": "J_DG_04_03 (Schlafen)"}
+
+
+def _imported_dg():
+    """Importiertes Projekt wie das Chalet: DG in HG 4 «DG» (nicht HG 7),
+    Element-GAs nur mit Zuweisung, Nummer und Funktion in der Bezeichnung."""
+    from knix_arranger.models.building import Apartment, Building, Floor, Room, Wing
+    from knix_arranger.models.ets_function import FunctionMember, KnixFunction
+    from knix_arranger.models.group_address import (
+        GroupAddress, GroupAddressStructure, MainGroup, MiddleGroup,
+    )
+    from knix_arranger.models.topology import Topology
+    project = KnxProject(name="Import")
+    project.topology = Topology(is_imported=True)
+    assignment = GewerkAssignment(gewerk_code="J", count=2)
+    room = Room(number="04", name="Schlafen", gewerk_assignments=[assignment])
+    floor = Floor(name="Dachgeschoss", short_code="DG", main_group_number=7,
+                  apartments=[Apartment(rooms=[room])])
+    project.areal.buildings.append(Building(wings=[Wing(floors=[floor])]))
+
+    def ga(mg, sub, designation):
+        return GroupAddress(main_group=4, middle_group=mg, sub_group=sub,
+                            designation=designation, assignment_id=assignment.id)
+    commands = [ga(1, 40 + i, f"J.DG.04.0{n}_{s}")
+                for n in (1, 2) for i, s in enumerate(
+                    ("move", "step", "hoehe", "winkel"), start=(n - 1) * 5)]
+    feedback = [ga(6, 42, "J.DG.04.01_hoehe")]
+    project.group_addresses = GroupAddressStructure(main_groups=[MainGroup(
+        number=4, name="DG", middle_groups=[
+            MiddleGroup(number=6, group_addresses=feedback),
+            MiddleGroup(number=1, group_addresses=commands)])])
+    project.functions.append(KnixFunction(
+        name="Front", function_type="FT-7", room_id=room.id, number=1,
+        members=[FunctionMember(assignment.id, 1), FunctionMember(assignment.id, 2)]))
+    return project
+
+
+def test_imported_function_gas_in_floor_main_group():
+    from knix_arranger.services.ets_function_plan import (
+        floor_main_groups, function_gas, member_links, sync_function_gas,
+    )
+    project = _imported_dg()
+    assert list(floor_main_groups(project).values()) == [4]
+    sync_function_gas(project)
+    gas = {g.function_name: g for g in function_gas(project.group_addresses)}
+    assert gas["AUF/AB"].address == "4/1/200"
+    assert gas["AUF/AB"].designation == "J_DG_04_F1 AUF/AB (Front)"
+    links = {(m.element_number, f.function_name): own.address if own else None
+             for m, f, own in member_links(project, project.functions[0])}
+    assert links[(1, "AUF/AB")] == "4/1/40"
+    assert links[(1, "POSITION HOEHE")] == "4/1/42"   # Befehl, nicht Rückmeldung 4/6/42
+    assert links[(2, "POSITION LAMELLEN")] == "4/1/48"
+    assert links[(1, "SPERREN")] is None
+
+
+def test_function_ga_from_ets_keeps_address_and_name():
+    from knix_arranger.models.group_address import GroupAddress
+    from knix_arranger.services.ets_function_plan import (
+        function_gas, restore_function_ids, sync_function_gas,
+    )
+    project = _imported_dg()
+    mg = project.group_addresses.main_groups[0].middle_groups[1]
+    mg.group_addresses.append(GroupAddress(
+        main_group=4, middle_group=1, sub_group=120, designation="J_04_F1 AUF/AB (Front)"))
+    assert restore_function_ids(project) == 1
+    sync_function_gas(project)
+    gas = {g.function_name: g for g in function_gas(project.group_addresses)}
+    assert (gas["AUF/AB"].address, gas["AUF/AB"].designation) == (
+        "4/1/120", "J_04_F1 AUF/AB (Front)")
+    assert gas["AUF/AB"].ets_known and not gas["STOPP"].ets_known
+    assert gas["STOPP"].address == "4/1/201"
+    assert GroupAddress.from_dict(gas["AUF/AB"].to_dict()).ets_known

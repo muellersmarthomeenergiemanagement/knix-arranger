@@ -88,6 +88,12 @@ _ROLE_LABELS = {
 _ROLE_DATA = Qt.UserRole
 
 
+def _full_ga(address: str, designation: str) -> str:
+    """Spalte "Adresse": GA mit Bezeichnung, wie bei den Sensoren."""
+    designation = " ".join((designation or "").split())
+    return f"{address}  {designation}" if designation else address
+
+
 class TopologyView(QWidget):
     """Topologie-Prinzipschema als Baumansicht – editierbar."""
 
@@ -106,6 +112,9 @@ class TopologyView(QWidget):
         self._expected: dict = {}   # (Gerät, GA) -> flag_rules.Expected (Soll-Flags)
         self._areal = None  # Areal, siehe set_project() -- Funktionsanzeige Sensoren/Taster
         self._project = None  # KnxProject, siehe set_project() -- GA von KO trennen
+        self._ets_functions: dict[str, list[str]] = {}  # GA -> ETS-Funktionen (Kanaltext)
+        self._element_labels: dict[str, str] = {}  # GA -> bedientes Element (Kanaltext)
+        self._planned_function_gas: set[str] = set()  # nur in KNiX, nicht aus der ETS
 
         layout = QVBoxLayout(self)
 
@@ -241,6 +250,12 @@ class TopologyView(QWidget):
             self._ko_links.setdefault(
                 (link.device.physical_address, link.ga_address), []).append(link)
         self._areal = project.areal
+        from ...services.ets_function_service import functions_by_address
+        self._ets_functions = functions_by_address(project)
+        from ...services.ets_function_plan import element_labels_by_address, function_gas
+        self._element_labels = element_labels_by_address(project)
+        self._planned_function_gas = {ga.address for ga in function_gas(project.group_addresses)
+                                      if not ga.ets_known}
         self._update_legend()
         self._refresh()
 
@@ -561,6 +576,18 @@ class TopologyView(QWidget):
                 return
         self._add_channel_items_from_cos(dev_item, device, ga_by_address)
 
+    def _channel_functions(self, addresses: list[str]) -> str:
+        """Was am Kanal hängt: das bediente Gewerk-Element ("J_DG_04_01
+        (Schlafen)"), ohne Element die ETS-Funktionen ("Licht Halle (Licht
+        schalten)") -- der Raum aus dem Belegungsplan stimmt bei importierten
+        Projekten oft nicht."""
+        labels = dict.fromkeys(
+            self._element_labels[a] for a in addresses if a in self._element_labels)
+        if not labels:
+            labels = dict.fromkeys(
+                label for a in addresses for label in self._ets_functions.get(a, []))
+        return ", ".join(labels)
+
     def _add_channel_items_from_rows(self, dev_item: QTreeWidgetItem, rows: list) -> None:
         """Kanalknoten aus BelegungsplanService.actor_rows -- inkl. Gewerk-Kontext,
         damit auch bei mehreren Gewerken auf demselben Kanal klar ist, welche
@@ -568,7 +595,11 @@ class TopologyView(QWidget):
         Gewerks am selben Ausgang)."""
         for ch_num, ch_rows in group_actor_rows_by_channel(rows):
             first = ch_rows[0]
-            context = " / ".join(p for p in [first.gewerk_code, first.room_name] if p)
+            # Ohne Gewerk (ETS-Import) ist room_name der Raum des Geräts,
+            # nicht der des Kanals -- dann lieber nichts
+            context = (self._channel_functions([r.ga_address for r in ch_rows])
+                       or (f"{first.gewerk_code} / {first.room_name}".rstrip(" /")
+                           if first.gewerk_code else ""))
             # DALI-Gruppe bzw. Kanalname des Herstellers (Kanal C, Motor 3)
             channel = (first.channel_label
                        if first.dali_group is not None or first.channel_name
@@ -592,15 +623,22 @@ class TopologyView(QWidget):
                     else ""
                 )
                 row_item = QTreeWidgetItem(ch_item, [
-                    f"{gewerk_prefix}{r.function_name}{role_suffix}: {r.ga_designation}",
-                    r.ga_address,
+                    f"{gewerk_prefix}{r.function_name}{role_suffix}",
+                    _full_ga(r.ga_address, r.ga_designation),
                     "",
                     "",
                     r.dpt,
                 ])
-                self._flags(row_item, 4, r.dpt, self._ko_links.get(
-                    (r.physical_address, r.ga_address), []),
-                    (r.physical_address, r.ga_address))
+                links = self._ko_links.get((r.physical_address, r.ga_address), [])
+                if (r.ga_address in self._planned_function_gas and not links
+                        and self._topology.is_imported):
+                    # In KNiX geplante Funktions-GA, in der ETS noch nicht da
+                    row_item.setText(4, "geplant – in der ETS verknüpfen")
+                    row_item.setForeground(4, QColor(COLOR_WARNING))
+                    row_item.setToolTip(4, "Funktions-GA aus KNiX: in der ETS anlegen und "
+                                           "mit diesem KO verknüpfen (ETS-Arbeitsliste)")
+                    continue
+                self._flags(row_item, 4, r.dpt, links, (r.physical_address, r.ga_address))
 
     def _add_channel_items_from_cos(self, dev_item: QTreeWidgetItem, device: Device,
                                      ga_by_address: dict) -> None:
@@ -617,6 +655,10 @@ class TopologyView(QWidget):
 
         for label, cos in group_cos_for_display(cos_with_ga):
             if label:
+                functions = self._channel_functions(
+                    [a for co in cos for a in co.connected_gas])
+                if functions:
+                    label += f" – {functions}"
                 ga_count = sum(len(co.connected_gas) for co in cos)
                 ch_item = QTreeWidgetItem(dev_item, [
                     label, "", "", "", f"{ga_count} GA(s)",
@@ -638,10 +680,9 @@ class TopologyView(QWidget):
                 )
                 for ga_addr in co.connected_gas:
                     ga_obj = ga_by_address.get(ga_addr)
-                    label_text = ga_obj.designation if ga_obj else ga_addr
                     ko_item = QTreeWidgetItem(ch_item, [
-                        f"{co_label}{role_suffix}: {label_text}",
-                        ga_addr,
+                        f"{co_label}{role_suffix}",
+                        _full_ga(ga_addr, ga_obj.designation if ga_obj else ""),
                         "",
                         "",
                         ga_obj.datapoint_type if ga_obj else "",
@@ -667,7 +708,8 @@ class TopologyView(QWidget):
         for ga, co in found:
             ko = f" (KO {co.object_number} «{ko_label(co, number=False, details=False)}»)" if co else ""
             item = QTreeWidgetItem(ch_item, [
-                f"Messwert{ko}: {ga.designation}", ga.address, "", "", ga.datapoint_type])
+                f"Messwert{ko}", _full_ga(ga.address, ga.designation), "", "",
+                ga.datapoint_type])
             item.setToolTip(0, "Der Taster sendet die Raumtemperatur auf die Ist-Temperatur "
                                "der Heizung (statt eines Raumthermostats).")
             self._flags(item, 4, ga.datapoint_type,

@@ -1146,9 +1146,12 @@ STANDARD_FLOOR_NAMES = {
     "DG": "Dachgeschoss",
 }
 
-# Hauptgruppe, in der die ETS die GAs neuer Funktionen anlegt (FA-411b):
-# bleibt bei der automatischen Vergabe frei
-ETS_FUNCTION_MAIN_GROUP = 12
+# Auffang-HG für die GAs, die die ETS beim Anlegen einer Funktion erzeugt
+# (FA-411b): die ETS legt sie in die erste freie MG der HÖCHSTEN Hauptgruppe
+# (Test ETS 6.4.1, 2026-10-22). Geplante Projekte führen deshalb HG 31 als
+# leere höchste HG, sonst landeten sie in den Lücken des obersten Stockwerks.
+ETS_FUNCTION_MAIN_GROUP = 31
+ETS_FUNCTION_MAIN_GROUP_NAME = "ETS-Funktionen"
 
 # Standard-Hauptgruppen-Zuordnung (FA-411)
 # Jeder Kurzcode bekommt eine eindeutige Nummer.

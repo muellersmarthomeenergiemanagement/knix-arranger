@@ -329,7 +329,12 @@ class GewerkService:
         parsed = NamingEngine.parse_designation(designation)
         code = parsed["gewerk_code"]
         room_nr = parsed["room_number"]
-        if code and room_nr and room_nr in room_by_number:
+        if code and room_nr and parsed["floor_code"]:
+            # "J_DG_04_02": Raumnummer je Stockwerk
+            room = room_by_floor_room.get((parsed["floor_code"], room_nr))
+            if room is not None:
+                return room, code
+        elif code and room_nr and room_nr in room_by_number:
             return room_by_number[room_nr], code
 
         matched = self._match_ga_designation(designation)

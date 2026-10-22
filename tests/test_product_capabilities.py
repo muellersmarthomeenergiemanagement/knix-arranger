@@ -312,7 +312,8 @@ def test_topology_shows_temperature_channel(gewerk_catalog):
         it += 1
     ist = next(g for g in project.group_addresses.all_addresses()
                if g.gewerk_code == "H" and g.function_name == "IST")
-    assert found and found[0].text(1) == ist.address and "KO 70" in found[0].text(0)
+    assert found and found[0].text(1) == f"{ist.address}  {ist.designation}"
+    assert "KO 70" in found[0].text(0)
 
 
 def test_switched_heating_on_a_key(gewerk_catalog):

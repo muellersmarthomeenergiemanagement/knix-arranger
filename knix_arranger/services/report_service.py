@@ -94,16 +94,17 @@ VALIDATION_RULES = {
         "In Schritt 1 jedem Stockwerk eine eigene Hauptgruppe geben.",
     ),
     "FA-411b": (
-        "Hauptgruppe 12 belegt",
-        "In HG 12 legt die ETS die GAs neuer Funktionen an und füllt Lücken "
-        "zwischen bestehenden Adressen.",
+        "Hauptgruppe 31 belegt",
+        "HG 31 «ETS-Funktionen» ist die höchste Hauptgruppe: dort legt die ETS die "
+        "GAs neuer Funktionen an (erste freie Mittelgruppe der höchsten HG).",
         "In Schritt 1 dem Stockwerk eine andere Hauptgruppe geben.",
     ),
     "FA-636": (
         "ETS-Funktion",
-        "Hinweise zu den in der ETS angelegten Funktionen: von der ETS in HG 12 "
-        "angelegte GAs, GAs ohne KO, abweichender DPT, eigene GAs in HG 12.",
-        "In der ETS die GAs verschieben, benennen und verknüpfen.",
+        "Hinweise zu den in der ETS angelegten Funktionen: von der ETS angelegte "
+        "GAs, GAs ohne KO, abweichender DPT; eigene GAs in der höchsten "
+        "Hauptgruppe, wo die ETS neue Funktionen ablegt.",
+        "In der ETS die GAs löschen bzw. verschieben, benennen und verknüpfen.",
     ),
     "FA-637": (
         "Geplante ETS-Funktion",

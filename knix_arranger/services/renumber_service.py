@@ -121,6 +121,8 @@ def plan_renumbering(project) -> RenumberPlan:
     # Funktions-GAs (ab UG 200) frisch in die neu geordneten Stockwerke
     from .ets_function_plan import sync_function_gas
     sync_function_gas(project, structure, previous=[])
+    from .ets_function_service import ensure_ets_function_main_group
+    ensure_ets_function_main_group(project, structure)
 
     old_real = [ga for ga in old.all_addresses() if not ga.is_placeholder]
     manual = [ga for ga in old_real if ga.is_manual]

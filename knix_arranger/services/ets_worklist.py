@@ -32,8 +32,10 @@ PRIORITIES = {
     PRIO_CHECK: ("Prüfen", "Verdächtig, aber nicht eindeutig falsch."),
     PRIO_DOCS: ("Unterlagen nachführen", "Nur Dokumentation – kein Programmieren nötig."),
     PRIO_FUNC: ("ETS-Funktionen anlegen",
-                "Geplante Funktionen mit den KNiX-GAs – die von der ETS in HG 12 "
-                "angelegten GAs löschen; kein Programmieren nötig."),
+                "Geplante Funktionen mit den KNiX-GAs – die von der ETS angelegten "
+                "GAs samt ihrer Mittelgruppe löschen (nicht in eine Stockwerk-HG "
+                "verschieben, sonst folgen weitere Funktionen des Raums dorthin); "
+                "kein Programmieren nötig."),
 }
 
 STATUS_NEW, STATUS_OPEN, STATUS_DONE = "neu", "offen", "erledigt"
