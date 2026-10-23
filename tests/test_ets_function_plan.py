@@ -592,3 +592,40 @@ def test_dialog_edits_gas(project):
     edited = dialog.result_function()
     assert edited.omitted == ["POSITION LAMELLEN"]
     assert [c.function for c in edited.custom_points] == ["SZENE"]
+
+
+def test_dialog_offers_element_functions_and_links_them(project):
+    """Eigener Punkt mit dem Namen einer Element-Funktion (BESCHATTUNG) liegt
+    automatisch auf den Aktorkanälen; die Prüfung verlangt kein Verknüpfen
+    von Hand."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from knix_arranger.models.ets_function import CustomPoint
+    from knix_arranger.services.ets_function_plan import check_plan
+    from knix_arranger.ui.dialogs.function_edit_dialog import FunctionEditDialog
+    _app = QApplication.instance() or QApplication([])
+    dialog = FunctionEditDialog(project, project.functions[0])
+    offered = dialog.element_functions()
+    assert "BESCHATTUNG" in offered and not any(f.startswith("STATUS") for f in offered)
+    assert "AUF/AB" not in offered                       # schon ein Punkt
+    project.functions[0].custom_points = [CustomPoint("BESCHATTUNG", offered["BESCHATTUNG"])]
+    sync_function_gas(project)
+    links = [own for _m, fga, own in member_links(project, project.functions[0])
+             if fga.function_name == "BESCHATTUNG"]
+    assert len(links) == 3 and all(own is not None for own in links)
+    assert not [i for i in check_plan(project) if "von Hand" in i.message]
+
+
+def test_checklist_has_one_item_per_function_button(project):
+    from knix_arranger.services.documentation_service import DocumentationService
+    from knix_arranger.services.sensor_service import refresh_bedienelemente
+    wohnen = _room(project, "Wohnen")
+    wohnen.bedienelemente.append(Bedienelement(
+        element_type="Tastereinheit", channels=4, is_auto=False, participant_number="1.1.101",
+        funktionen=[SensorFunktion(function_id=project.functions[0].id)]))
+    apply_function_buttons(project)
+    refresh_bedienelemente(project)
+    checklist = DocumentationService(project)._create_room_checklist(wohnen)
+    items = [i for i in checklist.items if i.be_number == "1.1.101" and i.item_kind == "function"]
+    assert [i.description for i in items] == ["Funktion Fensterfront (J 01, 02, 03)"]

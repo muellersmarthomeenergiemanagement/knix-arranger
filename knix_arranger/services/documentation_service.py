@@ -191,12 +191,20 @@ class DocumentationService:
                     be_type=be.element_type,
                     be_number=be_num,
                 ))
-            # GA-Funktionsprüfungen
+            # GA-Funktionsprüfungen; eine Taste mit Funktion (FA-530) ist ein
+            # Prüfpunkt "Funktion Balkon (J 02, 03, 04)" statt einer je GA
+            function_texts = self._function_check_texts(be)
+            seen_functions: set[str] = set()
             for fa in be.function_assignments:
+                text = function_texts.get(fa.sf_id)
+                if text is not None:
+                    if fa.sf_id in seen_functions:
+                        continue
+                    seen_functions.add(fa.sf_id)
                 checklist.items.append(ChecklistItem(
                     item_kind=ITEM_KIND_FUNCTION,
                     check_type=fa.button_channel,
-                    description=fa.description,
+                    description=text or fa.description,
                     function_ga=fa.function_ga,
                     room_id=room.id,
                     be_id=be.id,
@@ -204,6 +212,22 @@ class DocumentationService:
                     be_number=be_num,
                 ))
         return checklist
+
+    def _function_check_texts(self, be) -> dict[str, str]:
+        """SensorFunktion.id -> "Funktion Balkon (J 02, 03, 04)" für Tasten,
+        die eine Funktion bedienen."""
+        functions = {f.id: f for f in getattr(self.project, "functions", [])}
+        wanted = {sf.id: functions[sf.function_id] for sf in be.funktionen
+                  if sf.function_id in functions}
+        if not wanted:
+            return {}
+        from .ets_function_plan import function_elements, members_text
+        elements = function_elements(self.project)
+        result = {}
+        for sf_id, function in wanted.items():
+            numbers = members_text(elements.get(function.id, ("", []))[1])
+            result[sf_id] = f"Funktion {function.name}" + (f" ({numbers})" if numbers else "")
+        return result
 
     def init_project_checklists(self) -> int:
         """Initialisiert project.checklists einmalig aus aktuellem Projektstand.

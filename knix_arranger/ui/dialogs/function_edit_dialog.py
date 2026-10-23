@@ -210,20 +210,41 @@ class FunctionEditDialog(QDialog):
             self._omit.discard(point)
         self._fill_gas()
 
+    def element_functions(self) -> dict[str, str]:
+        """Befehls-Funktionen der gewählten Elemente -> DPT (z.B. BESCHATTUNG):
+        heisst ein eigener Punkt gleich, legt KNiX ihn auf deren Aktorkanäle."""
+        from ...services.ets_function_plan import _element_gas
+        element_gas = _element_gas(self._project)
+        result: dict[str, str] = {}
+        for key in self._checked():
+            for function, ga in element_gas.get(tuple(key), {}).items():
+                result.setdefault(function, ga.datapoint_type)
+        existing = {n for n, _c in self._points()}
+        # Rückmeldungen sendet der Aktor -- eine Funktion hat nur Befehle
+        return {f: d for f, d in sorted(result.items())
+                if f not in existing and not f.startswith(("RM", "STATUS"))}
+
     def _add_point(self) -> None:
-        name, ok = QInputDialog.getText(self, "GA hinzufügen",
-                                        "Name des Funktionspunkts, z.B. SZENE:")
+        offered = self.element_functions()
+        name, ok = QInputDialog.getItem(
+            self, "GA hinzufügen",
+            "Funktion der Elemente wählen (dann verknüpft KNiX sie auf deren "
+            "Aktorkanäle)\noder eigenen Namen eingeben, z.B. SZENE:",
+            list(offered), 0, True)
         name = " ".join(name.split()).upper()
         if not ok or not name:
             return
         if name in {n for n, _c in self._points()}:
             QMessageBox.information(self, "GA hinzufügen", f"«{name}» gibt es schon.")
             return
-        labels = [label for _dpt, label in CUSTOM_DPTS]
-        label, ok = QInputDialog.getItem(self, "GA hinzufügen", "Datenpunkttyp:", labels, 0, False)
-        if not ok:
-            return
-        dpt = next(d for d, text in CUSTOM_DPTS if text == label)
+        dpt = offered.get(name, "")
+        if not dpt:
+            labels = [label for _dpt, label in CUSTOM_DPTS]
+            label, ok = QInputDialog.getItem(self, "GA hinzufügen", "Datenpunkttyp:",
+                                             labels, 0, False)
+            if not ok:
+                return
+            dpt = next(d for d, text in CUSTOM_DPTS if text == label)
         self._custom.append(CustomPoint(name, dpt))
         self._fill_gas()
 

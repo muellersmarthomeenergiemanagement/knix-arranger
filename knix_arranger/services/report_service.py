@@ -1237,10 +1237,39 @@ class ReportService:
         pdf.add_heading("Gruppenadressen", level=2)
         ga_count = len(p.group_addresses.all_addresses())
         pdf.add_paragraph(f"Gesamt: {ga_count}")
+        from ..models.building import ETS_FUNCTION_MAIN_GROUP
         for hg in p.group_addresses.main_groups:
             hg_count = sum(len(mg.group_addresses) for mg in hg.middle_groups)
-            pdf.add_paragraph(f"  HG {hg.number} ({hg.name}): {hg_count} GAs")
+            note = (" – frei für die GAs, die die ETS beim Anlegen einer Funktion erzeugt"
+                    if hg.number == ETS_FUNCTION_MAIN_GROUP and not p.topology.is_imported
+                    else "")
+            pdf.add_paragraph(f"  HG {hg.number} ({hg.name}): {hg_count} GAs{note}")
         pdf.add_separator()
+
+        # Funktionen (FA-530): Gruppenbedienungen mehrerer Elemente
+        functions = list(getattr(p, "functions", []))
+        if functions:
+            from .ets_function_plan import (
+                function_elements, function_ga_map, locate, members_text, plan_type_label,
+            )
+            pdf.add_heading("Funktionen", level=2)
+            pdf.add_paragraph(f"Funktionen: {len(functions)}")
+            elements = function_elements(p)
+            rows = []
+            for function in sorted(functions, key=lambda f: f.name.lower()):
+                location = locate(p, function)
+                gas = list(function_ga_map(p, function).values())
+                rows.append([
+                    function.name,
+                    plan_type_label(function.function_type),
+                    location.label if location is not None else "–",
+                    members_text(elements.get(function.id, ("", []))[1]) or "–",
+                    str(len(gas)),
+                ])
+            pdf.add_table(["Funktion", "Typ", "Ort", "Elemente", "GAs"], rows,
+                          col_widths=[0.24, 0.22, 0.24, 0.20, 0.10],
+                          align=["left", "left", "left", "left", "right"])
+            pdf.add_separator()
 
         # Gewerke
         pdf.add_heading("Gewerke-Übersicht", level=2)
