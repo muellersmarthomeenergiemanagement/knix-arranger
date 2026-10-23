@@ -11,8 +11,10 @@ Funktionen sind reine Befehlsadressen, ohne Rückmeldung (User
 Elemente werden zuerst bestimmt (Gewerke); erst daraus ergibt sich, auf
 welchem Aktorkanal die Funktions-GAs verknüpft werden.
 
-Adressen: HG des Stockwerks, MG des Gewerks, ab UG 200 je Funktion ein
-5er-Block (etwas abgesetzt von den Blöcken der Elemente), Bezeichnung
+Adressen: HG des Stockwerks, MG des Gewerks, je Funktion ein 5er-Block von
+oben: F1 250–254, F2 245–249 … (Elemente wachsen von 0 nach oben, Funktionen
+von oben nach unten -- eng wird es erst, wenn die MG voll ist; User
+2026-10-23, vorher ab UG 200). Bezeichnung
 "J_DG_04_F1 AUF/AB (Fensterfront)". Die ETS legt die GAs einer neuen
 Funktion in die höchste HG (geplant: HG 13 «ETS-Funktionen»); der Integrator
 löscht sie und ordnet die KNiX-GAs zu (ETS-Arbeitsliste).
@@ -85,8 +87,12 @@ _DEFAULT_CODE = {"FT-1": "L", "FT-6": "LD", "FT-10": "S", "FT-7": "J", "FT-9": "
 
 def plan_type_label(function_type: str) -> str:
     return PLAN_TYPE_LABELS.get(function_type) or type_label(function_type)
-FIRST_SUB = 200
+#: Oberster 5er-Block der Funktionen (255 bleibt frei); darunter rückwärts
+TOP_BLOCK = 250
 BLOCK = 5
+#: Funktions-GAs vor 1.4.18 lagen ab UG 200 -- Untergrenze für das Trennen
+#: verwaister Verknüpfungen (_looks_like_function_slot)
+FIRST_SUB = 200
 
 # "J_DG_04_F1 AUF/AB (Fensterfront)" -> Gewerk, Ort (mit Stockwerk), Nummer,
 # Funktion; vor Version 1.4.15 ohne Stockwerk ("J_04_F1")
@@ -365,7 +371,7 @@ def function_gas(structure) -> list[GroupAddress]:
 def sync_function_gas(project, structure=None, previous: list | None = None) -> list[str]:
     """GAs aller Funktionen in die Struktur setzen. Bestehende behalten
     Adresse und id, solange ihr Platz frei ist; neue kommen in den ersten
-    freien 5er-Block ab UG 200. GAs entfernter Funktionen fallen weg.
+    freien 5er-Block von oben (250, 245 …). GAs entfernter Funktionen fallen weg.
     Gibt Warnungen zurück (z.B. kein freier Block)."""
     structure = structure if structure is not None else project.group_addresses
     functions = getattr(project, "functions", [])
@@ -418,10 +424,10 @@ def sync_function_gas(project, structure=None, previous: list | None = None) -> 
                     start = candidate
                 break
         if start is None:
-            start = next((s for s in range(FIRST_SUB, 256, BLOCK) if fits(s)), None)
+            start = next((s for s in range(TOP_BLOCK, -1, -BLOCK) if fits(s)), None)
         if start is None:
-            warnings.append(f"Funktion «{function.name}»: kein freier Block ab "
-                            f"UG {FIRST_SUB} in {hg}/{mg}")
+            warnings.append(f"Funktion «{function.name}»: kein freier 5er-Block "
+                            f"in {hg}/{mg}")
             continue
         for p, m, off in targets:
             prev = old.get((function.id, p.function))

@@ -32,7 +32,8 @@ class FunctionEditDialog(QDialog):
         layout = QVBoxLayout(self)
         hint = QLabel("Die Funktion bedient die gewählten Elemente gemeinsam, z.B. von "
                       "einer Taste aus. Ihre Befehls-GAs liegen in der HG des Stockwerks "
-                      "ab UG 200 und werden zusätzlich auf die Aktorkanäle der Elemente "
+                      "am Ende der Mittelgruppe (ab UG 250 rückwärts) und werden "
+                      "zusätzlich auf die Aktorkanäle der Elemente "
                       "verknüpft. Eine Rückmeldung hat die Funktion nicht.")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #666;")

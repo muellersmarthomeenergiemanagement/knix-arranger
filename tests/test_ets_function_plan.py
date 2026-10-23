@@ -87,12 +87,13 @@ def _cos_with(project, address):
             for co in d.communication_objects if address in co.connected_gas]
 
 
-def test_command_addresses_from_ug_200(project):
+def test_command_addresses_from_top_block(project):
+    """F1 im obersten 5er-Block 250–254, Elemente darunter."""
     gas = _gas(project)
     assert {f: (ga.address, ga.datapoint_type) for f, ga in gas.items()} == {
-        "AUF/AB": ("2/1/200", "DPST-1-8"), "STOPP": ("2/1/201", "DPST-1-7"),
-        "POSITION HOEHE": ("2/1/202", "DPST-5-1"), "POSITION LAMELLEN": ("2/1/203", "DPST-5-1"),
-        "SPERREN": ("2/1/204", "DPST-1-1")}
+        "AUF/AB": ("2/1/250", "DPST-1-8"), "STOPP": ("2/1/251", "DPST-1-7"),
+        "POSITION HOEHE": ("2/1/252", "DPST-5-1"), "POSITION LAMELLEN": ("2/1/253", "DPST-5-1"),
+        "SPERREN": ("2/1/254", "DPST-1-1")}
     assert gas["AUF/AB"].designation == "J_EG_01_F1 AUF/AB (Fensterfront)"
     element = [ga for ga in project.group_addresses.all_addresses()
                if ga.gewerk_code == "J" and not ga.function_id and not ga.is_placeholder]
@@ -103,7 +104,7 @@ def test_variant_b_same_addresses_without_findings():
     project = _build("B")
     gas = _gas(project)
     assert sorted(ga.address for ga in gas.values()) == [
-        "2/1/200", "2/1/201", "2/1/202", "2/1/203", "2/1/204"]
+        "2/1/250", "2/1/251", "2/1/252", "2/1/253", "2/1/254"]
     issues = ValidationEngine(project.gewerk_catalog).validate(
         project.group_addresses, project=project)
     addresses = {ga.address for ga in gas.values()}
@@ -123,10 +124,10 @@ def test_stable_and_next_block(project):
     regenerate_addresses(project)
     after = {ga.id: ga.address for ga in function_gas(project.group_addresses)}
     assert all(after[i] == a for i, a in before.items())
-    assert _gas(project, project.functions[2])["AUF/AB"].address == "2/1/205"
+    assert _gas(project, project.functions[2])["AUF/AB"].address == "2/1/245"
     zone_gas = _gas(project, project.functions[1])
     assert sorted(zone_gas) == ["DIM", "E/A", "WERT"]
-    assert zone_gas["E/A"].address == "2/0/200"
+    assert zone_gas["E/A"].address == "2/0/250"
     assert zone_gas["E/A"].designation == "LD_EG_F1 E/A (Licht Wohnzone)"
 
 
@@ -142,25 +143,25 @@ def test_rows_on_all_member_channels(project):
     for row in rows:
         by_ga.setdefault(row.ga_address, set()).add((row.physical_address, row.channel_number))
     assert all(len(by_ga[a]) == 3
-               for a in ("2/1/200", "2/1/201", "2/1/202", "2/1/203", "2/1/204"))
+               for a in ("2/1/250", "2/1/251", "2/1/252", "2/1/253", "2/1/254"))
 
 
 def test_co_linking_proposals(project):
     proposals = CoLinkingService().generate_proposals(project)
-    assert {p.ga_address for p in proposals} >= {"2/1/200", "2/1/201"}
+    assert {p.ga_address for p in proposals} >= {"2/1/250", "2/1/251"}
 
 
 def test_link_checks(project):
     _channel_kos(project)
-    assert len(_cos_with(project, "2/1/200")) == 3
+    assert len(_cos_with(project, "2/1/250")) == 3
     assert not [i for i in check_plan(project) if i.rule_id == "FA-637"]
-    _cos_with(project, "2/1/200")[1].connected_gas.remove("2/1/200")
+    _cos_with(project, "2/1/250")[1].connected_gas.remove("2/1/250")
     messages = [i.message for i in check_plan(project)]
-    assert any("Funktions-GA 2/1/200 fehlt" in m for m in messages)
+    assert any("Funktions-GA 2/1/250 fehlt" in m for m in messages)
     project.topology.is_imported = True
     must = [i for i in ets_worklist.current_items(project) if i.rule_id == "FA-637"]
     assert len(must) == 1 and must[0].priority == ets_worklist.PRIO_MUST
-    assert must[0].task == "2/1/200 verknüpfen (Funktion «Fensterfront»)."
+    assert must[0].task == "2/1/250 verknüpfen (Funktion «Fensterfront»)."
 
 
 def test_compare_with_ets(project):
@@ -171,16 +172,16 @@ def test_compare_with_ets(project):
     assert [i.details["kind"] for i in issues] == ["anlegen"]
     assert issues[0].details["task"] == (
         "Funktion «Fensterfront» (Sonnenschutz) anlegen und zuordnen: "
-        "Bewegen 2/1/200, Schritt/Stop 2/1/201.")
+        "Bewegen 2/1/250, Schritt/Stop 2/1/251.")
     wohnen.ets_functions.append(EtsFunction("Front", "FT-7", [
-        EtsFunctionRef("MoveUpDown", "2/1/200"), EtsFunctionRef("StopStepUpDown", "12/1/3")]))
+        EtsFunctionRef("MoveUpDown", "2/1/250"), EtsFunctionRef("StopStepUpDown", "12/1/3")]))
     status = compare_plan(project)[0]
     assert status.state == "ergänzen" and status.ets.name == "Front"
-    assert [ga.address for ga in status.missing] == ["2/1/201"]
+    assert [ga.address for ga in status.missing] == ["2/1/251"]
     project.topology.is_imported = True
     items = [i for i in ets_worklist.current_items(project) if i.rule_id == "FA-637"]
     assert [i.priority for i in items] == [ets_worklist.PRIO_FUNC]
-    assert items[0].task == "Funktion «Front»: Schritt/Stop 2/1/201 zuordnen."
+    assert items[0].task == "Funktion «Front»: Schritt/Stop 2/1/251 zuordnen."
 
 
 def test_button_on_function(project):
@@ -190,22 +191,22 @@ def test_button_on_function(project):
         element_type="Tastereinheit", channels=4, funktionen=[sf], is_auto=False))
     apply_function_buttons(project)
     assert sf.label == "Fensterfront"
-    assert sf.ga_designation == "2/1/200  J_EG_01_F1 AUF/AB (Fensterfront)"
+    assert sf.ga_designation == "2/1/250  J_EG_01_F1 AUF/AB (Fensterfront)"
     assert [(e.ga_designation, e.role) for e in sf.extra_gas] == [
-        ("2/1/201  J_EG_01_F1 STOPP (Fensterfront)", "befehl"),
-        ("2/1/202  J_EG_01_F1 POSITION HOEHE (Fensterfront)", "befehl"),
-        ("2/1/203  J_EG_01_F1 POSITION LAMELLEN (Fensterfront)", "befehl"),
-        ("2/1/204  J_EG_01_F1 SPERREN (Fensterfront)", "befehl")]
+        ("2/1/251  J_EG_01_F1 STOPP (Fensterfront)", "befehl"),
+        ("2/1/252  J_EG_01_F1 POSITION HOEHE (Fensterfront)", "befehl"),
+        ("2/1/253  J_EG_01_F1 POSITION LAMELLEN (Fensterfront)", "befehl"),
+        ("2/1/254  J_EG_01_F1 SPERREN (Fensterfront)", "befehl")]
     # Umbenennen wird nachgeführt
     project.functions[0].name = "Front Süd"
     sync_function_gas(project)
     apply_function_buttons(project)
-    assert sf.ga_designation == "2/1/200  J_EG_01_F1 AUF/AB (Front Süd)"
+    assert sf.ga_designation == "2/1/250  J_EG_01_F1 AUF/AB (Front Süd)"
     from knix_arranger.services.sensor_service import refresh_bedienelemente
     refresh_bedienelemente(project)
     be = next(b for b in wohnen.bedienelemente if b.funktionen and b.funktionen[0] is sf)
     gas = {fa.function_ga.split()[0] for fa in be.function_assignments}
-    assert gas >= {"2/1/200", "2/1/201"}
+    assert gas >= {"2/1/250", "2/1/251"}
     # Funktion gelöscht: Taste bleibt mit Namen, ohne GA
     project.functions.clear()
     sync_function_gas(project)
@@ -227,7 +228,7 @@ def test_renumbering_keeps_function_gas(project):
     plan = plan_renumbering(project)
     gas = [ga for ga in plan.structure.all_addresses() if ga.function_id]
     assert sorted(ga.address for ga in gas) == [
-        "2/1/200", "2/1/201", "2/1/202", "2/1/203", "2/1/204"]
+        "2/1/250", "2/1/251", "2/1/252", "2/1/253", "2/1/254"]
     assert not [c for c in plan.changes if "_F1" in c.new_designation]
 
 
@@ -281,7 +282,7 @@ def test_view_dialog_and_button_choice(project):
     slot._combo.setCurrentIndex(index)
     sf = be.funktionen[0]
     assert sf.function_id == project.functions[0].id
-    assert sf.ga_designation.startswith("2/1/200")
+    assert sf.ga_designation.startswith("2/1/250")
     assert slot._select_current(sf)
     assert slot._combo.currentIndex() == index
 
@@ -315,7 +316,7 @@ def test_bauherr_form_offers_and_reads_functions(project, tmp_path):
     assert service.import_form(str(path)) >= 1
     sf = next(f for f in be.funktionen if f.function_id)
     assert sf.function_id == project.functions[0].id
-    assert sf.ga_designation.startswith("2/1/200")
+    assert sf.ga_designation.startswith("2/1/250")
 
 
 def test_heating_operating_mode_for_zone(project):
@@ -328,15 +329,15 @@ def test_heating_operating_mode_for_zone(project):
     gas = _gas(project, project.functions[-1])
     assert list(gas) == ["UMSCHALTEN BETRIEBSART"]
     ga = gas["UMSCHALTEN BETRIEBSART"]
-    assert (ga.address, ga.datapoint_type) == ("2/2/200", "DPST-20-102")
+    assert (ga.address, ga.datapoint_type) == ("2/2/250", "DPST-20-102")
     assert ga.designation == "H_EG_F1 UMSCHALTEN BETRIEBSART (Wohnzone Abwesend)"
     rows = BelegungsplanService().generate(project).actor_rows
     assert len({(r.physical_address, r.channel_number) for r in rows
-                if r.ga_address == "2/2/200"}) == 2
+                if r.ga_address == "2/2/250"}) == 2
     _room(project, "Wohnen").ets_functions.append(EtsFunction("x", "FT-1", []))
     task = next(i for i in check_plan(project)
                 if "Wohnzone Abwesend" in i.message).details["task"]
-    assert task.endswith("anlegen und zuordnen: Betriebsart 2/2/200.")
+    assert task.endswith("anlegen und zuordnen: Betriebsart 2/2/250.")
 
 
 def test_element_labels_for_topology_channels():
@@ -411,7 +412,7 @@ def test_imported_function_gas_in_floor_main_group():
     assert list(floor_main_groups(project).values()) == [4]
     sync_function_gas(project)
     gas = {g.function_name: g for g in function_gas(project.group_addresses)}
-    assert gas["AUF/AB"].address == "4/1/200"
+    assert gas["AUF/AB"].address == "4/1/250"
     assert gas["AUF/AB"].designation == "J_DG_04_F1 AUF/AB (Front)"
     links = {(m.element_number, f.function_name): own.address if own else None
              for m, f, own in member_links(project, project.functions[0])}
@@ -436,7 +437,7 @@ def test_function_ga_from_ets_keeps_address_and_name():
     assert (gas["AUF/AB"].address, gas["AUF/AB"].designation) == (
         "4/1/120", "J_04_F1 AUF/AB (Front)")
     assert gas["AUF/AB"].ets_known and not gas["STOPP"].ets_known
-    assert gas["STOPP"].address == "4/1/201"
+    assert gas["STOPP"].address == "4/1/251"
     assert GroupAddress.from_dict(gas["AUF/AB"].to_dict()).ets_known
 
 
@@ -469,8 +470,24 @@ def test_function_on_button_operates_members_and_shows_in_room_book(project):
     function_row = next(e for e in sheet.elements if e.category == "funktion")
     assert function_row.label == "Fensterfront (J 01, 02, 03)"
     assert function_row.operated_by == ["1.1.101 Taste 2"]
-    assert function_row.ga_ranges == "2/1/200–204"
+    assert function_row.ga_ranges == "2/1/250–254"
     blind_rows = [e for e in sheet.elements if e.gewerk_code == "J"]
     assert [e.operated_by for e in blind_rows] == [["1.1.101 Taste 2 · Funktion Fensterfront"]] * 3
-    assert all("2/1/200" not in e.ga_ranges for e in blind_rows)
+    assert all("2/1/250" not in e.ga_ranges for e in blind_rows)
     assert blinds.count == 3
+
+
+def test_existing_function_at_200_keeps_its_address(project):
+    """Vor 1.4.18 lagen Funktionen ab UG 200: sie behalten ihre Adresse (sonst
+    stimmte die ETS nicht mehr), nur neue kommen von oben."""
+    for ga in function_gas(project.group_addresses):
+        ga.sub_group -= 50                      # wie früher: 2/1/200–204
+    project.group_addresses.main_groups.sort(key=lambda h: h.number)
+    regenerate_addresses(project)
+    assert sorted(ga.address for ga in _gas(project).values()) == [
+        "2/1/200", "2/1/201", "2/1/202", "2/1/203", "2/1/204"]
+    project.functions.append(KnixFunction(
+        name="Zweite", function_type="FT-7", room_id=_room(project, "Wohnen").id, number=2,
+        members=[FunctionMember(project.functions[0].members[0].assignment_id, 1)]))
+    regenerate_addresses(project)
+    assert _gas(project, project.functions[1])["AUF/AB"].address == "2/1/250"

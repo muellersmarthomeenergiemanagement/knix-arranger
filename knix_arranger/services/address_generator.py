@@ -272,7 +272,7 @@ class AddressGenerator:
                     max_sub = -1
                     for ga in mg.group_addresses:
                         if ga.function_id:
-                            continue   # Funktions-GAs ab UG 200, sync_function_gas
+                            continue   # Funktions-GAs (5er-Blöcke von oben), sync_function_gas
                         max_sub = max(max_sub, ga.sub_group)
                         if ga.assignment_id:
                             by_assignment.setdefault(ga.assignment_id, []).append(ga)
@@ -1217,7 +1217,7 @@ def regenerate_addresses(project, variant: str | None = None) -> RegenerationRes
     )
     for ga in manual_gas:
         insert_ga(structure, ga)
-    # Funktionen (FA-530): eigene GAs ab UG 200, bestehende bleiben
+    # Funktionen (FA-530): eigene GAs von oben (UG 250 …), bestehende bleiben
     structure.warnings.extend(sync_function_gas(project, structure, old_function_gas))
     from .ets_function_service import ensure_ets_function_main_group
     ensure_ets_function_main_group(project, structure)

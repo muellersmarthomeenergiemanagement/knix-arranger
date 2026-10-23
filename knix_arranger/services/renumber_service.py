@@ -118,7 +118,7 @@ def plan_renumbering(project) -> RenumberPlan:
     structure = gen.generate(
         project.areal, scenes=project.scenes, project=project, existing=central_only,
     )
-    # Funktions-GAs (ab UG 200) frisch in die neu geordneten Stockwerke
+    # Funktions-GAs (von UG 250 rückwärts) frisch in die neu geordneten Stockwerke
     from .ets_function_plan import sync_function_gas
     sync_function_gas(project, structure, previous=[])
     from .ets_function_service import ensure_ets_function_main_group

@@ -82,7 +82,7 @@ class KnixFunction:
     eines Raums oder einer Zone, z.B. "Fensterfront" für drei Jalousien.
 
     Die Funktion hat eigene GAs (GroupAddress.function_id) in der HG des
-    Stockwerks, MG des Gewerks ab UG 200 -- reine Befehls-GAs, keine
+    Stockwerks, MG des Gewerks ab UG 250 rückwärts -- reine Befehls-GAs, keine
     Rückmeldung. Sie werden zusätzlich zu den GAs der Elemente auf deren
     Aktorkanäle verknüpft und lassen sich auf Tasten legen.
     """
