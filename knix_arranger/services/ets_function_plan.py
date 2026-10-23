@@ -333,6 +333,22 @@ def designation(project, function: KnixFunction, point: PlanPoint,
 
 # ── GAs der Funktionen ────────────────────────────────────────────────────
 
+def function_elements(project) -> dict[str, tuple[str, list[tuple[str, str, int]]]]:
+    """Funktion.id -> (Raum, in dem sie im Raumbuch steht, [(Raum, Gewerk,
+    Element) ihrer Mitglieder]). Raum: der der Funktion, bei einer Zone der
+    des ersten Mitglieds."""
+    result = {}
+    for function in getattr(project, "functions", []):
+        members = [(m.room.id, m.assignment.gewerk_code, m.element_number)
+                   for m in resolve_members(project, function) if m is not None]
+        home = function.room_id or (members[0][0] if members else "")
+        if not home:
+            location = locate(project, function)
+            home = location.rooms[0].id if location and location.rooms else ""
+        result[function.id] = (home, members)
+    return result
+
+
 def function_gas(structure) -> list[GroupAddress]:
     return [ga for ga in structure.all_addresses() if ga.function_id]
 

@@ -703,7 +703,9 @@ class SensorService:
                 # ist das Label der Szenenname ("Komponieren"), keine Taste --
                 # als Tastenname ergab das keinen Kanal im Topologiereport.
                 # Der Name bleibt als Beschreibung (description) erhalten.
-                if sf.bedienart == "Szene abrufen":
+                # Funktion (FA-530): Label ist der Funktionsname, ebenfalls
+                # keine Taste ("6 Tasten belegt, Balkon" statt "7 Tasten")
+                if sf.bedienart == "Szene abrufen" or sf.function_id:
                     button_ch = f"Taste {global_channel}" if use_numbers else "Taste"
                 else:
                     # Label gleich GA-Bezeichnung = keine echte Tasten-

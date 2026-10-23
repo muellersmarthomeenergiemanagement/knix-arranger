@@ -928,6 +928,9 @@ class ReportService:
         for ga in structure.all_addresses():
             if ga.is_placeholder:
                 continue
+            if ga.function_id:
+                placed.add(ga.address)   # eigene Zeile "Funktion" (room_sheet)
+                continue
             if ga.room_id in rooms:
                 groups[ga.room_id][key_for(ga, ga.gewerk_code, ga.element_number)].append(ga)
                 placed.add(ga.address)

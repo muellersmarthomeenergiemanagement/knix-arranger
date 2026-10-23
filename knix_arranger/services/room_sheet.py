@@ -244,11 +244,40 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
     unoperated = {(u.room_id, u.gewerk_code, u.element_number)
                   for u in unoperated_elements(project)}
 
+    # Funktionen (FA-530): eigene Zeile im Raum der Funktion; ihre Bedienung
+    # steht auch bei den Elementen ("1.1.101 Taste 7 · Funktion Balkon")
+    from .ets_function_plan import function_elements, function_gas
+    function_addresses: dict[str, list[str]] = {}
+    for ga in function_gas(project.group_addresses):
+        function_addresses.setdefault(ga.function_id, []).append(ga.address)
+    functions_by_room: dict[str, list] = {}
+    member_functions: dict[tuple[str, str, int], list] = {}
+    elements_of = function_elements(project)
+    for function in getattr(project, "functions", []):
+        home, members = elements_of.get(function.id, ("", []))
+        functions_by_room.setdefault(home, []).append((function, members))
+        for member in members:
+            member_functions.setdefault(member, []).append(function)
+
+    def operators(room, addresses: list[str], room_pas=None, suffix: str = "") -> list[str]:
+        result: list[str] = []
+        for address in addresses:
+            for pa, text in operators_by_ga.get(address, []):
+                if room_pas is not None and pa not in room_pas:
+                    continue
+                other = rooms_by_id.get(room_of_pa.get(pa, ""))
+                if other is not None and other.id != room.id:
+                    text = f"{text} · {_room_text(other)}"
+                text += suffix
+                if text not in result:
+                    result.append(text)
+        return result
+
     sheets: list[RoomSheet] = []
     for room in project.all_rooms:
         items = groups.get(room.id, {})
         devices = devices_by_room.get(room.id, [])
-        if not items and not devices:
+        if not items and not devices and room.id not in functions_by_room:
             continue
         elements: list[ElementRow] = []
         distributions: list[str] = []
@@ -279,14 +308,15 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
                                else row.channel_name or row.channel_number)
                     if channel and channel not in channels:
                         channels.append(channel)
-                for pa, text in operators_by_ga.get(address, []):
-                    if central and pa not in room_pas:
-                        continue
-                    other = rooms_by_id.get(room_of_pa.get(pa, ""))
-                    if other is not None and other.id != room.id:
-                        text = f"{text} · {_room_text(other)}"
+                for text in operators(room, [address], room_pas if central else None):
                     if text not in operated:
                         operated.append(text)
+            if gewerk and element:
+                for function in member_functions.get((room.id, short, element), []):
+                    for text in operators(room, function_addresses.get(function.id, []),
+                                          suffix=f" · Funktion {function.name}"):
+                        if text not in operated:
+                            operated.append(text)
             text = ""
             if gewerk and element:
                 text = room.gewerk_element_label(short, element)
@@ -304,6 +334,35 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
                 ga_count=len(gas),
                 unoperated=(room.id, short, element) in unoperated,
                 central=central,
+            ))
+        for function, members in functions_by_room.get(room.id, []):
+            addresses = function_addresses.get(function.id, [])
+            found = {}
+            for address in addresses:
+                for row in outputs_by_ga.get(address, []):
+                    uv_short = ", ".join(dict.fromkeys(
+                        short_location(loc, designations) for loc in
+                        (_clean_location(p) for p in (row.uv_location or "").split(",")) if loc))
+                    channels = found.setdefault(
+                        (row.actor_type, row.physical_address, row.dali_group is not None,
+                         uv_short), [])
+                    channel = (str(row.dali_group) if row.dali_group is not None
+                               else row.channel_name or row.channel_number)
+                    if channel and channel not in channels:
+                        channels.append(channel)
+            # "J 02, 03, 04" -- Elemente je Gewerk, in Reihenfolge der Funktion
+            by_gewerk: dict[str, list[str]] = {}
+            for _r, gewerk, nr in members:
+                by_gewerk.setdefault(gewerk, []).append(f"{nr:02d}")
+            numbers = "; ".join(f"{g} {', '.join(nrs)}" for g, nrs in by_gewerk.items())
+            elements.append(ElementRow(
+                gewerk_code="", gewerk_name="Funktion", category="funktion",
+                number=function.number,
+                label=f"{function.name} ({numbers})" if numbers else function.name,
+                operated_by=operators(room, addresses),
+                outputs=_outputs_text(found),
+                ga_ranges=ga_ranges(addresses),
+                ga_count=len(addresses),
             ))
         elements.sort(key=lambda e: (e.central, _gewerk_category_sort_key(e.category),
                                      e.gewerk_name, e.number))

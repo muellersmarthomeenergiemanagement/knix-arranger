@@ -56,7 +56,7 @@ def unoperated_elements(project) -> list[UnoperatedElement]:
     switched = switched_elements(project)
     elements: dict[tuple, list] = {}
     for ga in all_gas:
-        if ga.room_id and not ga.is_placeholder and (
+        if ga.room_id and not ga.is_placeholder and not ga.function_id and (
                 ga.gewerk_code in OPERABLE_GEWERKE or _element(ga) in switched):
             elements.setdefault(_element(ga), []).append(ga)
     if not elements:
@@ -66,6 +66,15 @@ def unoperated_elements(project) -> list[UnoperatedElement]:
     by_address = {ga.address: ga for ga in all_gas}
     by_id = {ga.id: ga for ga in all_gas}
     operated: set[tuple] = set()
+    # Funktionen (FA-530): wer die Funktion bedient, bedient ihre Elemente
+    from .ets_function_plan import function_elements
+    members_of = {fid: members for fid, (_home, members) in function_elements(project).items()}
+
+    def mark(ga) -> None:
+        if ga.function_id:
+            operated.update(members_of.get(ga.function_id, ()))
+        else:
+            operated.add(_element(ga))
 
     # Taster und Präsenzmelder, auch mit Funktionen aus anderen Räumen
     for room in project.all_rooms:
@@ -73,18 +82,21 @@ def unoperated_elements(project) -> list[UnoperatedElement]:
             if be.suppressed:
                 continue
             for sf in be.funktionen:
+                if sf.function_id:
+                    operated.update(members_of.get(sf.function_id, ()))
+                    continue
                 operated.add((sf.source_room_id or room.id, sf.gewerk_code, sf.element_number))
             for fa in be.function_assignments:
                 ga = by_designation.get(fa.function_ga)
                 if ga is not None:
-                    operated.add(_element(ga))
+                    mark(ga)
 
     # Szenen: Aktionen auf die GA eines Elements
     for scene in project.scenes:
         for action in scene.actions:
             ga = by_address.get(action.ga_address) or by_designation.get(action.group_address)
             if ga is not None:
-                operated.add(_element(ga))
+                mark(ga)
 
     # Aktive Zeitprogramme
     for program in project.time_programs:
@@ -93,7 +105,7 @@ def unoperated_elements(project) -> list[UnoperatedElement]:
         for _dp, sp in program.all_switch_points:
             ga = by_id.get(sp.target_ga_id)
             if ga is not None:
-                operated.add(_element(ga))
+                mark(ga)
 
     result = []
     for key, gas in elements.items():

@@ -438,3 +438,39 @@ def test_function_ga_from_ets_keeps_address_and_name():
     assert gas["AUF/AB"].ets_known and not gas["STOPP"].ets_known
     assert gas["STOPP"].address == "4/1/201"
     assert GroupAddress.from_dict(gas["AUF/AB"].to_dict()).ets_known
+
+
+def test_function_on_button_operates_members_and_shows_in_room_book(project):
+    """Projekt_23: Jalousien nur über die Funktion bedient galten als «ohne
+    Bedienung», die Taste hiess nach der Funktion statt «Taste n», und die
+    Funktion fehlte im Raumbuch."""
+    from knix_arranger.services.operation_check import unoperated_elements
+    from knix_arranger.services.report_service import ReportService
+    from knix_arranger.services.room_sheet import build_room_sheets
+    from knix_arranger.services.sensor_service import refresh_bedienelemente
+    wohnen = _room(project, "Wohnen")
+    blinds = next(a for a in wohnen.gewerk_assignments if a.gewerk_code == "J")
+    open_blinds = {(u.room_id, u.element_number) for u in unoperated_elements(project)
+                   if u.gewerk_code == "J"}
+    assert open_blinds == {(wohnen.id, n) for n in (1, 2, 3)}
+
+    wohnen.bedienelemente.append(Bedienelement(
+        element_type="Tastereinheit", channels=4, is_auto=False, participant_number="1.1.101",
+        funktionen=[SensorFunktion(gewerk_code="LD", element_number=1),
+                    SensorFunktion(function_id=project.functions[0].id)]))
+    apply_function_buttons(project)
+    refresh_bedienelemente(project)
+    assert not [u for u in unoperated_elements(project) if u.gewerk_code == "J"]
+
+    groups, _missing = ReportService(project)._room_gewerk_groups()
+    sheet = next(s for s in build_room_sheets(
+        project, groups, project.gewerk_catalog, BelegungsplanService().generate(project))
+        if s.room is wohnen)
+    function_row = next(e for e in sheet.elements if e.category == "funktion")
+    assert function_row.label == "Fensterfront (J 01, 02, 03)"
+    assert function_row.operated_by == ["1.1.101 Taste 2"]
+    assert function_row.ga_ranges == "2/1/200–204"
+    blind_rows = [e for e in sheet.elements if e.gewerk_code == "J"]
+    assert [e.operated_by for e in blind_rows] == [["1.1.101 Taste 2 · Funktion Fensterfront"]] * 3
+    assert all("2/1/200" not in e.ga_ranges for e in blind_rows)
+    assert blinds.count == 3
