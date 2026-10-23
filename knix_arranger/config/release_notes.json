@@ -2,6 +2,20 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.18",
+      "date": "2026-10-23",
+      "neu": [
+        "Funktionen: Die GAs jeder Funktion lassen sich anpassen. Je Funktionspunkt legt KNiX die GA an, eine bestehende GA wird mitbenutzt (z.B. eine Wind-Sperre) oder der Punkt fällt weg. Mit «+ GA hinzufügen…» kommen eigene Punkte dazu – angeboten werden die Funktionen der gewählten Elemente, z.B. BESCHATTUNG; diese verknüpft KNiX automatisch auf deren Aktorkanäle.",
+        "Neuer Funktionstyp «Benutzerdefiniert»: ohne vorgegebene Punkte, Sie stellen die GAs selbst zusammen; Elemente beliebiger Gewerke und freiwillig.",
+        "Punkte, die KNiX keinem Aktorkanal zuordnen kann, stehen in der ETS-Arbeitsliste unter «Muss behoben werden» als «von Hand verknüpfen».",
+        "Projektzusammenfassung mit Abschnitt «Funktionen»."
+      ],
+      "verbessert": [
+        "Funktions-GAs liegen neu am Ende der Mittelgruppe: F1 auf 250–254, F2 auf 245–249 usw. Die Elemente wachsen von unten, die Funktionen von oben – eng wird es erst, wenn die Mittelgruppe voll ist. Bestehende Funktionen ab 200 behalten ihre Adresse.",
+        "Inbetriebnahme-Checkliste: eine Taste mit Funktion ist ein Prüfpunkt, z.B. «Funktion Balkon (J 02, 03, 04)»."
+      ]
+    },
+    {
       "version": "1.4.17",
       "date": "2026-10-23",
       "verbessert": [
