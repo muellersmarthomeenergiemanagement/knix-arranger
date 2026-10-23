@@ -2,6 +2,14 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.19",
+      "date": "2026-10-23",
+      "verbessert": [
+        "Importierte Projekte: Sind die Elemente je Raum über alle Gewerke durchnummeriert (Projektrichtlinien 2024, Kap. 10.3 – z.B. DALI-Leuchten 01–02, Leuchten 03–04), ordnet KNiX sie jetzt richtig zu. Topologie, Funktionen und «Gruppen erkennen» finden dadurch die richtigen Elemente.",
+        "Validierung und Schritt 1 warnen, wenn ein geplantes Stockwerk auf Hauptgruppe 14 oder höher liegt: HG 14/15 leiten Koppler ungefiltert weiter, HG 16–31 filtern ältere Koppler nicht sauber."
+      ]
+    },
+    {
       "version": "1.4.18",
       "date": "2026-10-23",
       "neu": [

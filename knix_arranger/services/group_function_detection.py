@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from ..models.ets_function import FunctionMember, KnixFunction
 from .ets_function_plan import (
     PLAN_POINTS, TYPE_GEWERKE, _assignments_by_id, _element_function, _element_number,
-    next_number,
+    next_number, room_wide_renumbering,
 )
 
 _PIR_RE = re.compile(r"\b(pir|bwm|präsenz|praesenz|bewegung)", re.IGNORECASE)
@@ -121,12 +121,13 @@ def suggest_group_functions(project) -> list[GroupSuggestion]:
             if r.ga_address and r.channel_number]
 
     # Kanal -> Element, das ihn belegt (häufigstes über seine Element-GAs)
+    renumber = room_wide_renumbering(project)
     votes: dict[tuple[str, str], dict[tuple[str, int], int]] = {}
     for r in rows:
         ga = gas.get(r.ga_address)
         if ga is None or not ga.assignment_id or ga.function_id:
             continue
-        number = _element_number(ga)
+        number = _element_number(ga, renumber)
         if number:
             key = (ga.assignment_id.removesuffix(":fb"), number)
             channel = (r.physical_address, r.channel_number)

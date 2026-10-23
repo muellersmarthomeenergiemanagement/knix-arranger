@@ -106,3 +106,24 @@ def test_deleting_adopted_function_keeps_its_ga():
     sync_function_gas(project)
     ga = next(g for g in project.group_addresses.all_addresses() if g.address == "3/4/89")
     assert (ga.function_id, ga.ets_known) == ("", False)
+
+
+def test_room_wide_numbering_is_mapped_to_elements():
+    """Richtlinie 10.3: Nummer je Raum über alle Gewerke fortgeführt (Chalet:
+    Küche LD 01, L 02–03). KNiX zählt je Gewerk -- 02/03 werden L 1/2."""
+    from knix_arranger.services.ets_function_plan import (
+        element_labels_by_address, room_wide_renumbering,
+    )
+    extra = [GroupAddress(main_group=3, middle_group=0, sub_group=60,
+                          designation="LD.OG.05.01_ea  ( Spots )")]
+    project, room, lights = _project(extra_gas=extra)
+    for ga in project.group_addresses.all_addresses():
+        ga.designation = ga.designation.replace("L.OG.05.01", "L.OG.05.02").replace(
+            "L.OG.05.02_ea  ( Insel )", "L.OG.05.03_ea  ( Insel )") \
+            if ga.designation.startswith("L.") else ga.designation
+    assert room_wide_renumbering(project) == {lights.id: {2: 1, 3: 2}}
+    labels = element_labels_by_address(project)
+    assert labels["3/0/70"].startswith("L_OG_05_01") and labels["3/0/75"].startswith("L_OG_05_02")
+    [suggestion] = suggest_group_functions(project)
+    assert suggestion.missing_channels == 0
+    assert [n for _r, _a, n in suggestion.members] == [1, 2]

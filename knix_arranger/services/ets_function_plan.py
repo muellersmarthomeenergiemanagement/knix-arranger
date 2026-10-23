@@ -205,12 +205,46 @@ def _assignments_by_id(project) -> dict[str, tuple]:
     return by_id
 
 
-def _element_number(ga) -> int:
+def _element_number(ga, renumber: dict | None = None) -> int:
     """Elementnummer einer GA. Importierte GAs tragen nur die Zuweisung, die
     Nummer steht in ihrer Bezeichnung ("J.DG.04.01_move"); GAs mehrerer
-    Elemente ("J.OG.00.01+J.DG.00.02_move") gehören keinem einzelnen (0)."""
+    Elemente ("J.OG.00.01+J.DG.00.02_move") gehören keinem einzelnen (0).
+    renumber: room_wide_renumbering -- Nummern je Raum über alle Gewerke."""
     if ga.element_number:
         return ga.element_number
+    number = _designation_element_number(ga)
+    if renumber and number:
+        return renumber.get(ga.assignment_id.removesuffix(":fb"), {}).get(number, number)
+    return number
+
+
+def room_wide_renumbering(project) -> dict[str, dict[int, int]]:
+    """Zuweisung -> {Nummer in der ETS-Bezeichnung: Element}. Die Richtlinie
+    erlaubt, die Nummer je Raum über alle Gewerke fortzuführen (Kap. 10.3):
+    im Chalet Schlafen LDA 01–02, L 03–04. KNiX zählt je Gewerk ab 01 -- liegen
+    die Nummern eines Gewerks über seiner Anzahl, werden sie der Reihe nach
+    auf 1…n umgerechnet (03 -> L 1, 04 -> L 2). Mehr Nummern als Elemente:
+    unverändert (dann fehlen in KNiX Elemente)."""
+    by_id = _assignments_by_id(project)
+    seen: dict[str, set[int]] = {}
+    for ga in project.group_addresses.all_addresses():
+        if ga.element_number or not ga.assignment_id or ga.function_id or ga.is_placeholder:
+            continue
+        number = _designation_element_number(ga)
+        if number:
+            seen.setdefault(ga.assignment_id.removesuffix(":fb"), set()).add(number)
+    result = {}
+    for assignment_id, numbers in seen.items():
+        found = by_id.get(assignment_id)
+        count = found[1].count if found else 0
+        if numbers and max(numbers) > count and len(numbers) <= count:
+            result[assignment_id] = {n: i for i, n in enumerate(sorted(numbers), start=1)}
+    return result
+
+
+def _designation_element_number(ga) -> int:
+    """Nummer aus der Bezeichnung ("J.DG.04.01_move" -> 1), 0 bei GAs
+    mehrerer Elemente."""
     from .gewerk_service import GewerkService
     from .naming_engine import NamingEngine
     matched = GewerkService._match_ga_designation(ga.designation or "")
@@ -251,13 +285,14 @@ def _element_gas(project) -> dict[tuple[str, int], dict[str, GroupAddress]]:
     Rückmeldungen (Variante B: MG 6/7) zählen nicht, sie tragen in
     importierten Projekten dieselbe Bezeichnung wie der Befehl."""
     imported = project.topology.is_imported
+    renumber = room_wide_renumbering(project) if imported else None
     result: dict[tuple[str, int], dict[str, GroupAddress]] = {}
     for ga in project.group_addresses.all_addresses():
         if not ga.assignment_id or ga.is_placeholder or ga.function_id:
             continue
         if imported and ga.middle_group in (6, 7):
             continue
-        number = _element_number(ga)
+        number = _element_number(ga, renumber)
         function = _element_function(ga)
         if number and function:
             key = (ga.assignment_id.removesuffix(":fb"), number)
@@ -269,12 +304,13 @@ def element_labels_by_address(project) -> dict[str, str]:
     """GA -> bedientes Element ("J_DG_04_01 (Schlafen)"), für die Kanäle der
     Topologie (Nummer siehe _element_number)."""
     by_id = _assignments_by_id(project)
+    renumber = room_wide_renumbering(project)
     result = {}
     for ga in project.group_addresses.all_addresses():
         found = by_id.get(ga.assignment_id.removesuffix(":fb"))
         if found is None or ga.is_placeholder or ga.function_id:
             continue
-        number = _element_number(ga)
+        number = _element_number(ga, renumber)
         if number:
             room, assignment, floor_code = found
             result[ga.address] = MemberElement(room, assignment, number, floor_code).label
