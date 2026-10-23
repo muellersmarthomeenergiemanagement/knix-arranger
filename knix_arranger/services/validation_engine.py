@@ -102,6 +102,7 @@ class ValidationEngine:
         if project is not None:
             issues.extend(self._check_shared_main_groups(project))
             issues.extend(self._check_ets_function_main_group(project))
+            issues.extend(self._check_main_group_range(project))
             from .ets_function_service import check_functions
             issues.extend(check_functions(project))
             from .ets_function_plan import check_plan
@@ -199,6 +200,27 @@ class ValidationEngine:
             "In Schritt 1 eine andere Hauptgruppe wählen",
             details={"hg": ETS_FUNCTION_MAIN_GROUP, "floors": names},
         )]
+
+    @staticmethod
+    def _check_main_group_range(project) -> list[ValidationIssue]:
+        """FA-411c: Geplante Stockwerke auf HG 14 und höher -- 14/15 leiten
+        Koppler ungefiltert weiter, 16–31 filtern ältere Koppler nicht sauber.
+        Sicher planbar sind HG 0–13."""
+        if project.topology.is_imported:
+            return []
+        from ..models.building import SAFE_MAX_MAIN_GROUP, main_group_risk
+        by_hg: dict[int, list[str]] = {}
+        for floor in project.areal.all_floors:
+            if floor.main_group_number > SAFE_MAX_MAIN_GROUP:
+                by_hg.setdefault(floor.main_group_number, []).append(
+                    floor.short_code or floor.name)
+        return [ValidationIssue(
+            "warning", "FA-411c",
+            f"Stockwerk {', '.join(names)} auf HG {hg}: {main_group_risk(hg)}",
+            f"HG {hg}",
+            f"In Schritt 1 eine Hauptgruppe bis {SAFE_MAX_MAIN_GROUP} wählen",
+            details={"hg": hg, "floors": ", ".join(names)},
+        ) for hg, names in sorted(by_hg.items())]
 
     #: Massnahme je Art eines gebrochenen Verweises (FA-623)
     _REFERENCE_HINTS = {

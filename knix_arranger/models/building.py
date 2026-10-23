@@ -1154,6 +1154,19 @@ STANDARD_FLOOR_NAMES = {
 # filtern ältere Koppler nicht sauber -- sicher planbar sind HG 0–13.
 ETS_FUNCTION_MAIN_GROUP = 13
 ETS_FUNCTION_MAIN_GROUP_NAME = "ETS-Funktionen"
+#: Höchste sicher planbare Hauptgruppe (FA-411c)
+SAFE_MAX_MAIN_GROUP = 13
+
+
+def main_group_risk(number: int) -> str:
+    """Warum eine Hauptgruppe über 13 heikel ist, sonst "" (FA-411c)."""
+    if number in (14, 15):
+        return (f"HG {number} leiten Linien- und Bereichskoppler ungefiltert weiter – "
+                "die Telegramme belasten die ganze Anlage")
+    if number > 15:
+        return (f"HG {number} filtern ältere Koppler nicht sauber (ältere ETS-Versionen "
+                "kannten nur HG 0–15)")
+    return ""
 
 # Standard-Hauptgruppen-Zuordnung (FA-411)
 # Jeder Kurzcode bekommt eine eindeutige Nummer.

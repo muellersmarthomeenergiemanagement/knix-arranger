@@ -99,6 +99,13 @@ VALIDATION_RULES = {
         "GAs neuer Funktionen an (erste freie Mittelgruppe der höchsten HG).",
         "In Schritt 1 dem Stockwerk eine andere Hauptgruppe geben.",
     ),
+    "FA-411c": (
+        "Hauptgruppe über 13",
+        "Ein Stockwerk liegt auf HG 14 oder höher. HG 14/15 leiten Linien- und "
+        "Bereichskoppler ungefiltert weiter, HG 16–31 filtern ältere Koppler nicht "
+        "sauber. Sicher planbar sind HG 0–13.",
+        "In Schritt 1 dem Stockwerk eine Hauptgruppe bis 13 geben.",
+    ),
     "FA-636": (
         "ETS-Funktion",
         "Hinweise zu den in der ETS angelegten Funktionen: von der ETS angelegte "

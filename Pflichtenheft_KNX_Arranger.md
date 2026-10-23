@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.68
+**Version:** 3.69
 **Datum:** 23.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -75,6 +75,7 @@
 | 3.58 | 21.10.2026 | M. Mueller / Claude AI | Funktionen ohne Rueckmeldung (reine Befehls-GAs, kein Leitkanal); Tasten koennen eine Funktion bedienen, GAs werden nachgefuehrt (FA-530); Pruefung mehrfacher Sender entfaellt (FA-637) |
 | 3.59 | 21.10.2026 | M. Mueller / Claude AI | Sonnenschutz-Funktionen mit Position Hoehe und Lamellen als Befehl; Funktionen im Bauherr-Formular waehlbar und eingelesen (FA-530) |
 | 3.60 | 21.10.2026 | M. Mueller / Claude AI | Sonnenschutz-Funktionen mit Sperren; neue Funktion Heizung mit Betriebsart (FA-530) |
+| 3.69 | 23.10.2026 | M. Mueller / Claude AI | Warnung fuer geplante Stockwerke auf HG 14 und hoeher (FA-411c) |
 | 3.68 | 23.10.2026 | M. Mueller / Claude AI | "+ GA hinzufuegen" bietet die Funktionen der gewaehlten Elemente an (gleicher Name = automatisch auf deren Aktorkanaele, DPT vom Element); Checkliste: ein Pruefpunkt je Taste mit Funktion; Projektzusammenfassung mit Abschnitt Funktionen und Zweck der HG 13 (FA-530b) |
 | 3.67 | 23.10.2026 | M. Mueller / Claude AI | GAs je Funktion anpassen: Punkte weglassen, bestehende GA mitbenutzen, eigene Punkte mit Name und DPT; neuer Typ Benutzerdefiniert (FT-0) ohne Standardpunkte, Elemente freiwillig; Punkte ohne Element-GA in der ETS-Arbeitsliste "von Hand verknuepfen" (FA-530b) |
 | 3.66 | 23.10.2026 | M. Mueller / Claude AI | Funktions-GAs von oben: je Funktion ein 5er-Block ab UG 250 rueckwaerts (F1 250-254, F2 245-249 ...) statt ab UG 200; bestehende behalten ihre Adresse (FA-530) |
@@ -474,6 +475,7 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 |----|-------------|
 | FA-411a | Hauptgruppen sind im ganzen Areal eindeutig: Ein neues Stockwerk (Schritt 1, Schnelleingabe, Vorlage, Gebaeude-Ansicht) erhaelt die HG gemaess Tabelle, wenn sie frei ist, sonst die kleinste freie. Eine von Hand mehrfach vergebene HG wird in Schritt 1 orange markiert und gemeldet; die Validierung warnt bei geplanten Projekten (Regel FA-411). |
 | FA-411b | Die HG 13 "ETS-Funktionen" ist die Auffang-HG fuer die GAs, die die ETS beim Anlegen einer Funktion erzeugt: die ETS legt sie je Raum in die erste freie Mittelgruppe der hoechsten Hauptgruppe, ist diese voll in eine neue HG dahinter (Tests ETS 6.4.1, 22.10.2026; die fruehere Annahme "immer HG 12" galt nur, weil HG 12 dort die hoechste HG war). Geplante Projekte erhalten beim Erzeugen und Neu-Ordnen der Adressen eine leere HG 13 als hoechste HG (13 statt 31: HG 14/15 leiten Linien- und Bereichskoppler ungefiltert weiter, HG 16-31 filtern aeltere Koppler nicht sauber - sicher planbar sind HG 0-13) (auch im CSV-Export), damit ETS-GAs nicht in die Luecken des obersten Stockwerks fallen. Die automatische HG-Vergabe ueberspringt HG 13; ein Stockwerk mit HG 13 wird in Schritt 1 markiert, die Validierung warnt bei geplanten Projekten (Regel FA-411b). |
+| FA-411c | Geplante Stockwerke sollen auf HG 0-13 liegen: HG 14/15 leiten Linien- und Bereichskoppler ungefiltert weiter (belasten die ganze Anlage), HG 16-31 filtern aeltere Koppler nicht sauber (aeltere ETS kannten nur 0-15). Die Validierung warnt bei geplanten Projekten je betroffener HG (Regel FA-411c), Schritt 1 markiert das Stockwerk und nennt beim Aendern die naechste freie HG. Importierte Projekte werden nicht bewertet. |
 
 | ID | Anforderung |
 |----|-------------|

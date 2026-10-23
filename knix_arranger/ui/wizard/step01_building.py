@@ -17,7 +17,7 @@ from PySide6.QtGui import QBrush, QColor
 from ...models.project import KnxProject
 from ...models.building import (
     Floor, Wing, STANDARD_FLOOR_NAMES, FLOOR_TO_MAIN_GROUP, ETS_FUNCTION_MAIN_GROUP,
-    ETS_FUNCTION_MAIN_GROUP_NAME,
+    ETS_FUNCTION_MAIN_GROUP_NAME, main_group_risk,
 )
 from ...services.building_service import BuildingService
 from ..styles import COLOR_WARNING
@@ -171,6 +171,11 @@ class Step01Building(QWidget):
                     f"HG {ETS_FUNCTION_MAIN_GROUP} «{ETS_FUNCTION_MAIN_GROUP_NAME}» "
                     "ist reserviert: dort legt die ETS die GAs neuer Funktionen an."
                 )
+            elif main_group_risk(floor.main_group_number):
+                # FA-411c
+                item.setForeground(QBrush(QColor(COLOR_WARNING)))
+                item.setToolTip(main_group_risk(floor.main_group_number)
+                                + ". Sicher planbar sind HG 0–13.")
             self._floor_list.addItem(item)
 
     def _add_floor(self):
@@ -342,6 +347,13 @@ class Step01Building(QWidget):
                 item.toolTip() + " Sie nimmt die erste freie Mittelgruppe der "
                 "höchsten Hauptgruppe. Nächste freie HG: "
                 f"{self._next_hg(ignore=floor)}.",
+            )
+        elif (item and item.toolTip() and main_group_risk(floor.main_group_number)
+              and not BuildingService.shared_main_groups(self._project.areal).get(
+                  floor.main_group_number)):
+            QMessageBox.warning(
+                self, f"Hauptgruppe {floor.main_group_number}",
+                item.toolTip() + f" Nächste freie HG: {self._next_hg(ignore=floor)}.",
             )
         elif item and item.toolTip():
             QMessageBox.warning(

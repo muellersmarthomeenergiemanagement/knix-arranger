@@ -283,3 +283,20 @@ def test_ets_generated_in_any_main_group():
     assert is_ets_generated(EtsFunctionRef("MoveUpDown", "13/0/0", "Bewegen"))
     assert is_ets_generated(EtsFunctionRef("SwitchOnOff", "4/3/0", "Schalten"))
     assert not is_ets_generated(EtsFunctionRef("MoveUpDown", "13/0/0", "J_DG_04_F1 AUF/AB"))
+
+
+def test_floor_on_main_group_14_or_higher_warns():
+    """FA-411c: HG 14/15 ungefiltert, 16–31 bei älteren Kopplern unsicher."""
+    from knix_arranger.models.building import Building, Wing, main_group_risk
+    project = KnxProject()
+    building, wing = Building(name="G"), Wing(name="")
+    project.areal.buildings.append(building)
+    building.wings.append(wing)
+    for n, code in ((12, "A"), (14, "B"), (20, "C")):
+        wing.floors.append(Floor(name=code, short_code=code, main_group_number=n))
+    issues = ValidationEngine()._check_main_group_range(project)
+    assert [(i.rule_id, i.address) for i in issues] == [("FA-411c", "HG 14"), ("FA-411c", "HG 20")]
+    assert "ungefiltert" in issues[0].message and "ältere Koppler" in issues[1].message
+    assert main_group_risk(13) == ""
+    project.topology.is_imported = True
+    assert ValidationEngine()._check_main_group_range(project) == []
