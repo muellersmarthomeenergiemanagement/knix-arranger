@@ -151,7 +151,7 @@ def _items_from_issue(issue, project) -> list[WorkItem]:
     if rule == "FA-637":
         # Schlüssel über die Funktion (id): bleibt beim Umbenennen gleich.
         # Eine fehlende Verknüpfung wirkt auf den Bus.
-        prio = PRIO_MUST if details.get("kind") == "verknüpfen" else PRIO_FUNC
+        prio = PRIO_MUST if details.get("kind", "").startswith("verknüpfen") else PRIO_FUNC
         return [WorkItem(
             f"FA-637|{details.get('key', '')}|{details.get('kind', '')}", prio, rule,
             details.get("where", "") or "Projekt", details.get("task", issue.message),

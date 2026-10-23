@@ -1,19 +1,28 @@
 """
-Dialog "Funktion" (FA-530): Name, Typ, Raum oder Zone und Elemente einer
+Dialog "Funktion" (FA-530): Name, Typ, Raum oder Zone, Elemente und GAs einer
 geplanten Funktion (reine Befehls-GAs, keine Rückmeldung).
+
+GAs je Funktionspunkt: KNiX legt sie an (Standard), eine bestehende GA wird
+mitbenutzt, oder der Punkt fällt weg; eigene Punkte mit Name und DPT kommen
+dazu. "Benutzerdefiniert" (FT-0) startet ohne Punkte.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QComboBox, QListWidget,
-    QListWidgetItem, QVBoxLayout, QLabel, QMessageBox,
+    QListWidgetItem, QVBoxLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QTableWidget, QTableWidgetItem, QAbstractItemView, QInputDialog,
 )
 
-from ...models.ets_function import KnixFunction, FunctionMember
+from ...models.ets_function import CustomPoint, KnixFunction, FunctionMember
 from ...services.ets_function_plan import (
-    PLAN_TYPES, Location, member_candidates, plan_type_label,
+    CUSTOM_DPTS, PLAN_POINTS, PLAN_TYPES, Location, _omitted, _point_label,
+    function_ga_map, member_candidates, plan_type_label,
 )
+
+# Art je Funktionspunkt
+_AUTO, _LINKED, _OMIT = "auto", "linked", "omit"
 
 
 class FunctionEditDialog(QDialog):
@@ -28,6 +37,12 @@ class FunctionEditDialog(QDialog):
         self._function = KnixFunction.from_dict(function.to_dict()) if function else KnixFunction()
         if function is None:
             self._function.room_id, self._function.zone_id = preset_location
+        # Arbeitsstand der GAs (Übernahme vor 1.4.18: omitted None -> Liste)
+        self._omit = set(_omitted(self._function))
+        self._custom = [CustomPoint(c.function, c.dpt) for c in self._function.custom_points]
+        self._linked = dict(self._function.linked_gas)
+        self._current_gas = (function_ga_map(project, function)
+                             if function is not None else {})
 
         layout = QVBoxLayout(self)
         hint = QLabel("Die Funktion bedient die gewählten Elemente gemeinsam, z.B. von "
@@ -73,14 +88,31 @@ class FunctionEditDialog(QDialog):
         self._members = QListWidget()
         layout.addWidget(self._members, 1)
 
+        layout.addWidget(QLabel("GAs der Funktion:"))
+        self._gas = QTableWidget(0, 3)
+        self._gas.setHorizontalHeaderLabels(["Funktionspunkt", "GA", "Art"])
+        self._gas.verticalHeader().setVisible(False)
+        self._gas.setSelectionMode(QAbstractItemView.NoSelection)
+        self._gas.horizontalHeader().setStretchLastSection(False)
+        layout.addWidget(self._gas, 1)
+        add_row = QHBoxLayout()
+        self._btn_add_point = QPushButton("+ GA hinzufügen…")
+        self._btn_add_point.setToolTip("Eigener Funktionspunkt mit Name und DPT, z.B. «SZENE»")
+        self._btn_add_point.clicked.connect(self._add_point)
+        add_row.addWidget(self._btn_add_point)
+        add_row.addStretch()
+        layout.addLayout(add_row)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
         self._type.currentIndexChanged.connect(self._fill_members)
+        self._type.currentIndexChanged.connect(self._on_type_changed)
         self._location.currentIndexChanged.connect(self._fill_members)
         self._fill_members()
+        self._fill_gas()
 
     def _current_location(self) -> Location | None:
         index = self._location.currentIndex()
@@ -103,6 +135,98 @@ class FunctionEditDialog(QDialog):
             self._members.addItem("Keine passenden Elemente an diesem Ort.")
         self._members.blockSignals(False)
 
+    # ── GAs ──────────────────────────────────────────────────────────────
+
+    def _points(self) -> list[tuple[str, bool]]:
+        """(Funktionspunkt, eigener Punkt?) in der Reihenfolge der Funktion."""
+        standard = [(p.function, False)
+                    for p in PLAN_POINTS.get(self._type.currentData(), ())]
+        names = {n for n, _c in standard}
+        return standard + [(c.function, True) for c in self._custom if c.function not in names]
+
+    def _on_type_changed(self) -> None:
+        # Standardpunkte des alten Typs gelten nicht mehr
+        names = {p.function for p in PLAN_POINTS.get(self._type.currentData(), ())}
+        custom = {c.function for c in self._custom}
+        self._omit &= names
+        self._linked = {k: v for k, v in self._linked.items() if k in names | custom}
+        self._fill_gas()
+
+    def _fill_gas(self) -> None:
+        function_type = self._type.currentData()
+        points = self._points()
+        self._gas.setRowCount(len(points))
+        for row, (point, custom) in enumerate(points):
+            label = point if custom else _point_label(function_type, point)
+            item = QTableWidgetItem(label + ("  (eigener)" if custom else ""))
+            item.setFlags(Qt.ItemIsEnabled)
+            item.setData(Qt.UserRole, point)
+            self._gas.setItem(row, 0, item)
+            if point in self._linked:
+                kind = _LINKED
+                ga_text = f"{self._linked[point]}  (bestehend)"
+            elif point in self._omit:
+                kind = _OMIT
+                ga_text = "– weggelassen"
+            else:
+                kind = _AUTO
+                current = self._current_gas.get(point)
+                ga_text = (f"{current.address}  {current.designation}"
+                           if current is not None and current.function_id == self._function.id
+                           else "wird von KNiX angelegt")
+            ga_item = QTableWidgetItem(ga_text)
+            ga_item.setFlags(Qt.ItemIsEnabled)
+            self._gas.setItem(row, 1, ga_item)
+            combo = QComboBox()
+            combo.addItem("KNiX legt an", _AUTO)
+            combo.addItem("Bestehende GA…", _LINKED)
+            combo.addItem("Entfernen" if custom else "Weglassen", _OMIT)
+            combo.setCurrentIndex(combo.findData(kind))
+            combo.currentIndexChanged.connect(
+                lambda _i, c=combo, pt=point, cu=custom: self._on_kind(pt, cu, c.currentData()))
+            self._gas.setCellWidget(row, 2, combo)
+        self._gas.resizeColumnsToContents()
+
+    def _on_kind(self, point: str, custom: bool, kind: str) -> None:
+        if kind == _LINKED:
+            from .ga_picker_dialog import GaPickerDialog
+            location = self._current_location()
+            room = location.rooms[0] if location and location.rooms else None
+            current = self._linked.get(point, "")
+            dialog = GaPickerDialog(self._project, room, current_ga_designation=current,
+                                    parent=self) if room is not None else None
+            if dialog is not None and dialog.exec() and dialog.selected_ga is not None:
+                ga = dialog.selected_ga
+                self._linked[point] = f"{ga.address}  {ga.designation}"
+                self._omit.discard(point)
+        elif kind == _OMIT:
+            self._linked.pop(point, None)
+            if custom:
+                self._custom = [c for c in self._custom if c.function != point]
+            else:
+                self._omit.add(point)
+        else:
+            self._linked.pop(point, None)
+            self._omit.discard(point)
+        self._fill_gas()
+
+    def _add_point(self) -> None:
+        name, ok = QInputDialog.getText(self, "GA hinzufügen",
+                                        "Name des Funktionspunkts, z.B. SZENE:")
+        name = " ".join(name.split()).upper()
+        if not ok or not name:
+            return
+        if name in {n for n, _c in self._points()}:
+            QMessageBox.information(self, "GA hinzufügen", f"«{name}» gibt es schon.")
+            return
+        labels = [label for _dpt, label in CUSTOM_DPTS]
+        label, ok = QInputDialog.getItem(self, "GA hinzufügen", "Datenpunkttyp:", labels, 0, False)
+        if not ok:
+            return
+        dpt = next(d for d, text in CUSTOM_DPTS if text == label)
+        self._custom.append(CustomPoint(name, dpt))
+        self._fill_gas()
+
     def _checked(self) -> list[tuple[str, int]]:
         result = []
         for i in range(self._members.count()):
@@ -122,8 +246,14 @@ class FunctionEditDialog(QDialog):
             QMessageBox.warning(self, "Funktion", "Bitte einen Raum oder eine Zone wählen.")
             return
         members = self._checked()
-        if not members:
+        function_type = self._type.currentData()
+        # Benutzerdefiniert: Elemente freiwillig (z.B. nur bestehende GAs)
+        if not members and function_type != "FT-0":
             QMessageBox.warning(self, "Funktion", "Bitte mindestens ein Element wählen.")
+            return
+        if not [p for p, _c in self._points() if p not in self._omit]:
+            QMessageBox.warning(self, "Funktion", "Die Funktion braucht mindestens eine GA – "
+                                "mit «+ GA hinzufügen…» oder «Bestehende GA…».")
             return
         rid, zid, _loc = self._locations[self._location.currentIndex()]
         fn = self._function
@@ -132,6 +262,9 @@ class FunctionEditDialog(QDialog):
         fn.function_type = self._type.currentData()
         fn.room_id, fn.zone_id = rid, zid
         fn.members = [FunctionMember(a, n) for a, n in members]
+        fn.omitted = sorted(self._omit)
+        fn.custom_points = list(self._custom)
+        fn.linked_gas = dict(self._linked)
         if moved or not any(f.id == fn.id for f in self._project.functions):
             from ...services.ets_function_plan import next_number
             fn.number = next_number(self._project, fn)

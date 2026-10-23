@@ -77,6 +77,21 @@ class FunctionMember:
 
 
 @dataclass
+class CustomPoint:
+    """Eigener Funktionspunkt einer Funktion (z.B. "SZENE"), von KNiX
+    angelegt wie die Standardpunkte des Typs."""
+    function: str = ""        # Name in der Bezeichnung, z.B. "SZENE"
+    dpt: str = "DPST-1-1"
+
+    def to_dict(self) -> dict:
+        return {"function": self.function, "dpt": self.dpt}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> CustomPoint:
+        return cls(data.get("function", ""), data.get("dpt", "DPST-1-1"))
+
+
+@dataclass
 class KnixFunction:
     """In KNiX geplante Funktion (FA-530): Gruppenbedienung mehrerer Elemente
     eines Raums oder einer Zone, z.B. "Fensterfront" für drei Jalousien.
@@ -97,6 +112,14 @@ class KnixFunction:
     # -> "Adresse  Bezeichnung" der bestehenden GA. Dann plant KNiX keine
     # eigenen GAs; nach einem Re-Import findet es die GAs darüber wieder.
     ets_gas: dict[str, str] = field(default_factory=dict)
+    # GAs je Funktion anpassen: Standardpunkte des Typs, die wegfallen
+    # (None = alte Übernahme mit ets_gas: alle Standardpunkte ausser diesen),
+    # eigene Punkte, die KNiX zusätzlich anlegt, und bestehende GAs, die die
+    # Funktion mitbenutzt (Funktionspunkt -> "Adresse  Bezeichnung"; die GA
+    # bleibt, was sie ist, z.B. eine Element- oder Zentral-GA)
+    omitted: list[str] | None = field(default_factory=list)
+    custom_points: list[CustomPoint] = field(default_factory=list)
+    linked_gas: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -104,6 +127,10 @@ class KnixFunction:
             "room_id": self.room_id, "zone_id": self.zone_id, "number": self.number,
             "members": [m.to_dict() for m in self.members],
             **({"ets_gas": dict(self.ets_gas)} if self.ets_gas else {}),
+            **({"omitted": list(self.omitted)} if self.omitted else {}),
+            **({"custom_points": [p.to_dict() for p in self.custom_points]}
+               if self.custom_points else {}),
+            **({"linked_gas": dict(self.linked_gas)} if self.linked_gas else {}),
         }
 
     @classmethod
@@ -117,4 +144,9 @@ class KnixFunction:
             number=data.get("number", 1),
             members=[FunctionMember.from_dict(m) for m in data.get("members", [])],
             ets_gas=dict(data.get("ets_gas") or {}),
+            # Übernahme vor 1.4.18: nur die GAs aus der ETS
+            omitted=(list(data["omitted"]) if "omitted" in data
+                     else None if data.get("ets_gas") else []),
+            custom_points=[CustomPoint.from_dict(p) for p in data.get("custom_points", [])],
+            linked_gas=dict(data.get("linked_gas") or {}),
         )

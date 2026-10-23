@@ -68,21 +68,43 @@ PLAN_TYPE_LABELS = {"FT-9": "Heizung (Betriebsart)"}
 
 
 def in_ets_function(function_type: str, function_name: str) -> bool:
-    """Funktionspunkt, den die ETS-Funktion kennt (dort zuzuordnen)."""
+    """Funktionspunkt, den die ETS-Funktion kennt (dort zuzuordnen).
+    Benutzerdefiniert (FT-0): jede GA, die ETS verlangt keine Rollen."""
+    if function_type == "FT-0":
+        return True
     return any(p.function == function_name and p.role
                for p in PLAN_POINTS.get(function_type, ()))
 #: Planbare Typen in der Reihenfolge der Auswahl
-PLAN_TYPES = ("FT-7", "FT-1", "FT-6", "FT-10", "FT-9")
+PLAN_TYPES = ("FT-7", "FT-1", "FT-6", "FT-10", "FT-9", "FT-0")
+#: MG der Funktions-GAs; Benutzerdefiniert: MG des ersten Mitglieds, sonst
+#: 4 "Allgemein" (siehe function_middle_group)
 TYPE_MIDDLE_GROUP = {"FT-1": 0, "FT-6": 0, "FT-10": 0, "FT-7": 1, "FT-9": 2}
-#: Gewerke, deren Elemente Mitglied sein können
+GENERAL_MIDDLE_GROUP = 4
+#: Gewerke, deren Elemente Mitglied sein können (None = alle)
 TYPE_GEWERKE = {
     "FT-1": ("L", "LD", "LDA", "S", "SD"),
     "FT-6": ("LD", "LDA", "SD"),
     "FT-10": ("S", "SD"),
     "FT-7": ("J", "R", "M"),
     "FT-9": ("H",),
+    "FT-0": None,
 }
-_DEFAULT_CODE = {"FT-1": "L", "FT-6": "LD", "FT-10": "S", "FT-7": "J", "FT-9": "H"}
+_DEFAULT_CODE = {"FT-1": "L", "FT-6": "LD", "FT-10": "S", "FT-7": "J", "FT-9": "H",
+                 "FT-0": "SF"}
+#: DPT-Auswahl für eigene Funktionspunkte (Dialog)
+CUSTOM_DPTS = (
+    ("DPST-1-1", "1.001 Schalten"),
+    ("DPST-1-3", "1.003 Freigabe"),
+    ("DPST-1-8", "1.008 Auf/Ab"),
+    ("DPST-1-7", "1.007 Schritt"),
+    ("DPST-1-10", "1.010 Start/Stopp"),
+    ("DPST-3-7", "3.007 Dimmen"),
+    ("DPST-5-1", "5.001 Prozent"),
+    ("DPST-17-1", "17.001 Szene"),
+    ("DPST-18-1", "18.001 Szene steuern"),
+    ("DPST-20-102", "20.102 Betriebsart"),
+    ("DPST-9-1", "9.001 Temperatur"),
+)
 
 
 def plan_type_label(function_type: str) -> str:
@@ -164,7 +186,7 @@ def member_candidates(location: Location, function_type: str) -> list[MemberElem
     result = []
     for room in location.rooms:
         for assignment in room.gewerk_assignments:
-            if assignment.gewerk_code not in codes:
+            if codes is not None and assignment.gewerk_code not in codes:
                 continue
             for nr in range(1, assignment.count + 1):
                 result.append(MemberElement(room, assignment, nr,
@@ -320,8 +342,76 @@ def next_number(project, function: KnixFunction) -> int:
     return n
 
 
+def _omitted(function: KnixFunction) -> set[str]:
+    """Weggelassene Standardpunkte; Übernahme vor 1.4.18 (omitted None):
+    alle ausser den GAs aus der ETS."""
+    if function.omitted is None:
+        return {p.function for p in PLAN_POINTS.get(function.function_type, ())
+                if p.function not in function.ets_gas}
+    return set(function.omitted)
+
+
 def function_points(function: KnixFunction) -> tuple[PlanPoint, ...]:
-    return PLAN_POINTS.get(function.function_type, ())
+    """Alle Funktionspunkte der Funktion in ihrer Reihenfolge: Standardpunkte
+    des Typs ohne die weggelassenen, dann die eigenen. Offset = Platz im
+    Block der angelegten Punkte (siehe planned_points)."""
+    omitted = _omitted(function)
+    points = [p for p in PLAN_POINTS.get(function.function_type, ())
+              if p.function not in omitted]
+    known = {p.function for p in points}
+    points += [PlanPoint(c.function, "", c.dpt, 0, c.function)
+               for c in function.custom_points if c.function and c.function not in known]
+    return tuple(points)
+
+
+def planned_points(function: KnixFunction) -> list[PlanPoint]:
+    """Punkte, deren GA KNiX anlegt: ohne bestehende GAs (linked_gas,
+    ets_gas). Standardpunkte behalten ihren Platz im 5er-Block, eigene
+    füllen die freien Plätze, danach einen zweiten Block (User 2026-10-23)."""
+    existing = set(function.linked_gas) | set(function.ets_gas)
+    points = [p for p in function_points(function) if p.function not in existing]
+    standard = {p.function for p in PLAN_POINTS.get(function.function_type, ())}
+    taken = {p.offset for p in points if p.function in standard}
+    free = (n for n in range(0, 256) if n not in taken)
+    return [p if p.function in standard
+            else PlanPoint(p.function, p.role, p.dpt, next(free), p.label)
+            for p in points]
+
+
+def function_middle_group(project, function: KnixFunction) -> int:
+    if function.function_type in TYPE_MIDDLE_GROUP:
+        return TYPE_MIDDLE_GROUP[function.function_type]
+    catalog = getattr(project, "gewerk_catalog", None)
+    for member in resolve_members(project, function):
+        if member is not None and catalog is not None:
+            gewerk = catalog.get(member.assignment.gewerk_code)
+            if gewerk is not None and 0 <= gewerk.middle_group <= 7:
+                return gewerk.middle_group
+    return GENERAL_MIDDLE_GROUP
+
+
+def function_ga_map(project, function: KnixFunction,
+                    structure=None) -> dict[str, GroupAddress]:
+    """Funktionspunkt -> GA der Funktion: eigene (function_id) und
+    mitbenutzte bestehende (linked_gas, über die Adresse, sonst die einzige
+    mit der Bezeichnung), in der Reihenfolge der Funktionspunkte."""
+    structure = structure if structure is not None else project.group_addresses
+    all_gas = structure.all_addresses()
+    found = {ga.function_name: ga for ga in all_gas if ga.function_id == function.id}
+    if function.linked_gas:
+        by_address = {ga.address: ga for ga in all_gas}
+        for point, text in function.linked_gas.items():
+            address, _sep, name = text.partition("  ")
+            wanted = " ".join(name.split())
+            ga = by_address.get(address)
+            if ga is None or " ".join((ga.designation or "").split()) != wanted:
+                same = [g for g in all_gas if " ".join((g.designation or "").split()) == wanted]
+                if len(same) == 1:
+                    ga = same[0]
+            if ga is not None:
+                found.setdefault(point, ga)
+    order = {p.function: i for i, p in enumerate(function_points(function))}
+    return dict(sorted(found.items(), key=lambda item: order.get(item[0], 99)))
 
 
 def gewerk_code(project, function: KnixFunction) -> str:
@@ -402,17 +492,18 @@ def sync_function_gas(project, structure=None, previous: list | None = None) -> 
     for function in functions:
         location = locate(project, function)
         # Übernommene Gruppenbedienung (FA-531): nur die GAs aus der ETS
-        points = [] if function.ets_gas else [
-            p for p in function_points(function)
-            if (function.id, p.function) not in known_points]
+        points = [p for p in planned_points(function)
+                  if (function.id, p.function) not in known_points]
         hg = main_groups.get(location.floor.id, 0) if location is not None else 0
         if location is None or not points or hg <= 0:
             continue
-        mg = TYPE_MIDDLE_GROUP[function.function_type]
+        mg = function_middle_group(project, function)
         targets = [(p, mg, p.offset) for p in points]
+        # Blöcke, die die Punkte brauchen (eigene Punkte ggf. ein zweiter)
+        span = (max(off for _p, _m, off in targets) // BLOCK + 1) * BLOCK
 
         def fits(start: int) -> bool:
-            return start + BLOCK - 1 <= 255 and all(
+            return start >= 0 and start + span - 1 <= 255 and all(
                 start + off not in used.get((hg, m), set()) for _p, m, off in targets)
 
         start = None
@@ -424,7 +515,8 @@ def sync_function_gas(project, structure=None, previous: list | None = None) -> 
                     start = candidate
                 break
         if start is None:
-            start = next((s for s in range(TOP_BLOCK, -1, -BLOCK) if fits(s)), None)
+            start = next((s for s in range(TOP_BLOCK + BLOCK - span, -1, -BLOCK)
+                          if fits(s)), None)
         if start is None:
             warnings.append(f"Funktion «{function.name}»: kein freier 5er-Block "
                             f"in {hg}/{mg}")
@@ -521,8 +613,7 @@ def is_function_designation(text: str) -> bool:
 def member_links(project, function: KnixFunction):
     """(Mitglied, Funktions-GA, GA des Mitglieds mit derselben Funktion) je
     Mitglied und Funktionspunkt."""
-    gas = {ga.function_name: ga for ga in project.group_addresses.all_addresses()
-           if ga.function_id == function.id}
+    gas = function_ga_map(project, function)
     element_gas = _element_gas(project)
     for member in resolve_members(project, function):
         if member is None:
@@ -562,14 +653,15 @@ def compare_plan(project) -> list[PlanStatus]:
     """Geplante Funktionen mit den aus der ETS eingelesenen abgleichen: eine
     ETS-Funktion gehört zur geplanten, mit der sie die meisten GAs teilt."""
     ets_list = [(room, f) for room in project.all_rooms for f in room.ets_functions]
-    gas_by_function: dict[str, list[GroupAddress]] = {}
-    for ga in function_gas(project.group_addresses):
-        gas_by_function.setdefault(ga.function_id, []).append(ga)
+    # Funktionspunkt -> GA (bei mitbenutzten GAs ist ga.function_name die
+    # Funktion des Elements, nicht der Punkt)
+    gas_by_function = {f.id: list(function_ga_map(project, f).items())
+                       for f in project.functions}
     statuses = []
     candidates = []
     for pi, function in enumerate(project.functions):
         statuses.append(PlanStatus(function, locate(project, function)))
-        addresses = {ga.address for ga in gas_by_function.get(function.id, [])}
+        addresses = {ga.address for _p, ga in gas_by_function.get(function.id, [])}
         for ei, (_room, ets) in enumerate(ets_list):
             shared = len(addresses & {r.address for r in ets.refs})
             if shared:
@@ -583,11 +675,10 @@ def compare_plan(project) -> list[PlanStatus]:
         status = statuses[pi]
         status.ets_room, status.ets = ets_list[ei]
         ets_addresses = {r.address for r in status.ets.refs}
-        status.missing = sorted(
-            (ga for ga in gas_by_function.get(status.function.id, [])
-             if ga.address not in ets_addresses
-             and in_ets_function(status.function.function_type, ga.function_name)),
-            key=lambda g: (g.middle_group, g.sub_group))
+        status.missing = [
+            ga for point, ga in gas_by_function.get(status.function.id, [])
+            if ga.address not in ets_addresses
+            and in_ets_function(status.function.function_type, point)]
     return statuses
 
 
@@ -622,9 +713,8 @@ def check_plan(project) -> list:
             continue
         where = location.label
         kind = type_label(function.function_type)
-        gas = sorted((ga for ga in function_gas(project.group_addresses)
-                      if ga.function_id == function.id),
-                     key=lambda g: (g.middle_group, g.sub_group))
+        ga_map = function_ga_map(project, function)
+        gas = list(ga_map.values())
         if not gas:
             continue
         removed = sum(1 for m in resolve_members(project, function) if m is None)
@@ -633,17 +723,19 @@ def check_plan(project) -> list:
                 "warning", "FA-637",
                 f"{where}: Funktion «{function.name}» hat {removed} entfernte(s) Element(e)",
                 gas[0].address, "Mitglieder der Funktion prüfen", designation=function.name))
-        if not function.members:
+        if not function.members and function.function_type != "FT-0":   # FT-0: freiwillig
             issues.append(ValidationIssue(
                 "warning", "FA-637", f"{where}: Funktion «{function.name}» ohne Elemente",
                 gas[0].address, "Elemente der Funktion wählen", designation=function.name))
         # Übernommene Gruppenbedienung (FA-531) ohne ETS-Funktion: die GAs
         # stehen schon in der ETS, eine ETS-Funktion dazu ist freiwillig
         if ets_read and not (function.ets_gas and status.ets is None):
+            missing = {id(ga) for ga in status.missing}
             point_text = ", ".join(
-                f"{_point_label(function.function_type, ga.function_name)} {ga.address}"
-                for ga in (status.missing if status.ets else gas)
-                if in_ets_function(function.function_type, ga.function_name))
+                f"{_point_label(function.function_type, point)} {ga.address}"
+                for point, ga in ga_map.items()
+                if (status.ets is None or id(ga) in missing)
+                and in_ets_function(function.function_type, point))
             if status.ets is None:
                 issues.append(_task_issue(
                     function, where, gas[0].address, "anlegen",
@@ -662,6 +754,32 @@ def check_plan(project) -> list:
                     f"Funktion «{status.ets.name}» nach {where} verschieben."))
         if linked is not None:
             issues.extend(_link_issues(project, function, where, linked))
+        issues.extend(_manual_link_issues(project, function, where, ga_map))
+    return issues
+
+
+def _manual_link_issues(project, function, where, ga_map) -> list:
+    """Eigene und mitbenutzte Funktionspunkte, für die kein Element eine GA
+    derselben Funktion hat: KNiX weiss nicht, auf welches KO sie gehören --
+    in der ETS von Hand mit den Aktorkanälen verknüpfen."""
+    if not function.members:
+        return []
+    from .validation_engine import ValidationIssue
+    auto = {fga.address for _m, fga, own in member_links(project, function) if own is not None}
+    issues = []
+    for point, ga in ga_map.items():
+        if ga.address in auto:
+            continue
+        issues.append(ValidationIssue(
+            "warning", "FA-637",
+            f"{where}: Funktion «{function.name}», {point} {ga.address} – Aktorkanäle "
+            f"von Hand verknüpfen",
+            ga.address, "In der ETS mit den KOs der bedienten Elemente verknüpfen",
+            designation=ga.designation,
+            details={"key": f"{function.id}|{point}", "kind": "verknüpfen-hand",
+                     "where": where,
+                     "task": f"{ga.address} ({point}) mit den Aktorkanälen der Funktion "
+                             f"«{function.name}» verknüpfen."}))
     return issues
 
 
@@ -721,10 +839,8 @@ def apply_function_buttons(project) -> int:
     weitere Befehls-GAs aus den aktuellen Funktions-GAs ableiten. Fehlt die
     Funktion, bleibt die Taste mit ihrem Namen offen."""
     from ..models.building import SensorFunktionGa
-    gas_by_function: dict[str, list[GroupAddress]] = {}
-    for ga in function_gas(project.group_addresses):
-        gas_by_function.setdefault(ga.function_id, []).append(ga)
     functions = {f.id: f for f in getattr(project, "functions", [])}
+    gas_by_function = {fid: function_ga_map(project, f) for fid, f in functions.items()}
     changed = 0
     for room in project.all_rooms:
         for be in room.bedienelemente:
@@ -732,14 +848,11 @@ def apply_function_buttons(project) -> int:
                 if not sf.function_id:
                     continue
                 function = functions.get(sf.function_id)
-                order = {p.function: i for i, p in enumerate(function_points(function))} \
-                    if function else {}
-                gas = sorted(gas_by_function.get(sf.function_id, []),
-                             key=lambda g: order.get(g.function_name, 99))
-                texts = [f"{ga.address}  {ga.designation}" for ga in gas]
+                points = list(gas_by_function.get(sf.function_id, {}).items())
+                texts = [f"{ga.address}  {ga.designation}" for _p, ga in points]
                 primary = texts[0] if texts else ""
-                extra = [SensorFunktionGa(t, "befehl", f"{function.name} {ga.function_name}")
-                         for t, ga in zip(texts[1:], gas[1:])]
+                extra = [SensorFunktionGa(t, "befehl", f"{function.name} {point}")
+                         for t, (point, _ga) in zip(texts[1:], points[1:])]
                 before = (sf.ga_designation, [e.to_dict() for e in sf.extra_gas], sf.label)
                 sf.ga_designation, sf.extra_gas = primary, extra
                 sf.gewerk_code, sf.scene_id, sf.primary_role = "", "", "befehl"

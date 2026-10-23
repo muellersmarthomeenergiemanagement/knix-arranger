@@ -246,10 +246,10 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
 
     # Funktionen (FA-530): eigene Zeile im Raum der Funktion; ihre Bedienung
     # steht auch bei den Elementen ("1.1.101 Taste 7 · Funktion Balkon")
-    from .ets_function_plan import function_elements, function_gas, members_text
-    function_addresses: dict[str, list[str]] = {}
-    for ga in function_gas(project.group_addresses):
-        function_addresses.setdefault(ga.function_id, []).append(ga.address)
+    from .ets_function_plan import function_elements, function_ga_map, members_text
+    function_addresses: dict[str, list[str]] = {
+        f.id: [ga.address for ga in function_ga_map(project, f).values()]
+        for f in getattr(project, "functions", [])}
     functions_by_room: dict[str, list] = {}
     member_functions: dict[tuple[str, str, int], list] = {}
     elements_of = function_elements(project)

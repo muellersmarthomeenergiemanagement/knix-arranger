@@ -491,3 +491,104 @@ def test_existing_function_at_200_keeps_its_address(project):
         members=[FunctionMember(project.functions[0].members[0].assignment_id, 1)]))
     regenerate_addresses(project)
     assert _gas(project, project.functions[1])["AUF/AB"].address == "2/1/250"
+
+
+# ── GAs je Funktion anpassen (User 2026-10-23) ────────────────────────────
+
+def test_omit_and_custom_points_share_the_block(project):
+    from knix_arranger.models.ets_function import CustomPoint
+    front = project.functions[0]
+    front.omitted = ["POSITION LAMELLEN"]
+    front.custom_points = [CustomPoint("SZENE", "DPST-17-1")]
+    sync_function_gas(project)
+    gas = {f: ga.address for f, ga in _gas(project).items()}
+    # SZENE nimmt den Platz der weggelassenen Lamellen
+    assert gas == {"AUF/AB": "2/1/250", "STOPP": "2/1/251", "POSITION HOEHE": "2/1/252",
+                   "SZENE": "2/1/253", "SPERREN": "2/1/254"}
+    assert _gas(project)["SZENE"].datapoint_type == "DPST-17-1"
+    # mehr eigene Punkte: zweiter Block, beide Blöcke zusammen von oben
+    front.custom_points += [CustomPoint("BESCHATTUNG", "DPST-1-1"),
+                            CustomPoint("WIND", "DPST-1-5")]
+    sync_function_gas(project)
+    gas = {f: ga.address for f, ga in _gas(project).items()}
+    assert gas["BESCHATTUNG"] == "2/1/250" and gas["WIND"] == "2/1/251"
+    assert gas["AUF/AB"] == "2/1/245"
+    again = KnixFunction.from_dict(front.to_dict())
+    assert (again.omitted, [c.function for c in again.custom_points]) == (
+        ["POSITION LAMELLEN"], ["SZENE", "BESCHATTUNG", "WIND"])
+
+
+def test_linked_existing_ga_is_used_not_created(project):
+    from knix_arranger.services.ets_function_plan import function_ga_map
+    front = project.functions[0]
+    lock = next(ga for ga in project.group_addresses.all_addresses()
+                if ga.function_name == "SPERREN" and not ga.function_id)
+    front.linked_gas = {"SPERREN": f"{lock.address}  {lock.designation}"}
+    sync_function_gas(project)
+    assert "SPERREN" not in _gas(project)                     # nicht angelegt
+    mapping = function_ga_map(project, front)
+    assert mapping["SPERREN"] is lock and lock.function_id == ""   # bleibt Element-GA
+    wohnen = _room(project, "Wohnen")
+    sf = SensorFunktion(function_id=front.id)
+    wohnen.bedienelemente.append(Bedienelement(
+        element_type="Tastereinheit", channels=4, funktionen=[sf], is_auto=False))
+    apply_function_buttons(project)
+    assert any(e.ga_designation.startswith(lock.address) for e in sf.extra_gas)
+
+
+def test_user_defined_function_without_members(project):
+    from knix_arranger.models.ets_function import CustomPoint
+    from knix_arranger.services.ets_function_plan import (
+        GENERAL_MIDDLE_GROUP, check_plan, function_ga_map,
+    )
+    party = KnixFunction(name="Party", function_type="FT-0",
+                         room_id=_room(project, "Wohnen").id, number=2,
+                         custom_points=[CustomPoint("SZENE", "DPST-17-1")])
+    project.functions.append(party)
+    sync_function_gas(project)
+    [(point, ga)] = function_ga_map(project, party).items()
+    assert (point, ga.address, ga.middle_group) == ("SZENE", "2/4/250", GENERAL_MIDDLE_GROUP)
+    assert ga.designation == "SF_EG_01_F2 SZENE (Party)"
+    assert not [i for i in check_plan(project) if "Party" in i.message]
+
+
+def test_custom_point_without_element_ga_needs_manual_link(project):
+    from knix_arranger.models.ets_function import CustomPoint
+    from knix_arranger.services.ets_function_plan import check_plan
+    project.functions[0].custom_points = [CustomPoint("SZENE", "DPST-17-1")]
+    sync_function_gas(project)
+    issues = [i for i in check_plan(project) if "von Hand" in i.message]
+    assert len(issues) == 1 and "SZENE" in issues[0].message
+    assert issues[0].details["kind"] == "verknüpfen-hand"
+
+
+def test_adoption_before_1_4_18_plans_no_points():
+    data = KnixFunction(name="Licht Zentral", function_type="FT-1",
+                        ets_gas={"E/A": "3/4/89  Raum5_Licht Zentral"}).to_dict()
+    data.pop("omitted", None)
+    old = KnixFunction.from_dict(data)
+    from knix_arranger.services.ets_function_plan import function_points, planned_points
+    assert old.omitted is None
+    assert [p.function for p in function_points(old)] == ["E/A"]
+    assert planned_points(old) == []
+
+
+def test_dialog_edits_gas(project):
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from knix_arranger.models.ets_function import CustomPoint
+    from knix_arranger.ui.dialogs.function_edit_dialog import FunctionEditDialog
+    _app = QApplication.instance() or QApplication([])
+    dialog = FunctionEditDialog(project, project.functions[0])
+    assert dialog._gas.rowCount() == 5
+    assert dialog._gas.item(0, 1).text().startswith("2/1/250")
+    dialog._on_kind("POSITION LAMELLEN", False, "omit")
+    dialog._custom.append(CustomPoint("SZENE", "DPST-17-1"))
+    dialog._fill_gas()
+    assert dialog._gas.rowCount() == 6
+    assert dialog._gas.item(3, 1).text() == "– weggelassen"
+    dialog._accept()
+    edited = dialog.result_function()
+    assert edited.omitted == ["POSITION LAMELLEN"]
+    assert [c.function for c in edited.custom_points] == ["SZENE"]

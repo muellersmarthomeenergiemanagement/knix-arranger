@@ -150,10 +150,6 @@ class EtsFunctionsView(QWidget):
         places: dict[str, QTreeWidgetItem] = {}
         warn = QBrush(QColor(COLOR_WARNING))
         ets_read = bool(project) and any(r.ets_functions for r in project.all_rooms)
-        gas_by_function: dict[str, list] = {}
-        if project:
-            for ga in plan.function_gas(project.group_addresses):
-                gas_by_function.setdefault(ga.function_id, []).append(ga)
         channels = self._actor_channels(project) if statuses else {}
         for status in statuses:
             function = status.function
@@ -180,18 +176,18 @@ class EtsFunctionsView(QWidget):
                 fn_item.setForeground(4, warn)
             place.addChild(fn_item)
             missing = {ga.address for ga in status.missing}
-            gas = sorted(gas_by_function.get(function.id, []),
-                         key=lambda g: (g.middle_group, g.sub_group))
+            gas = list(plan.function_ga_map(project, function).items())
             gas_node = QTreeWidgetItem([f"Funktions-GAs ({len(gas)})"])
             gas_node.setToolTip(0, "Eigene Befehls-GAs der Funktion; sie kommen zusätzlich "
                                    "auf die Aktorkanäle der bedienten Elemente")
             gas_node.setData(0, Qt.UserRole, function.id)
             fn_item.addChild(gas_node)
-            for ga in gas:
+            for point, ga in gas:
                 ga_state = "" if not ets_read or status.ets is None else (
                     "fehlt" if ga.address in missing else "zugeordnet")
-                item = QTreeWidgetItem(["", plan._point_label(function.function_type,
-                                                              ga.function_name),
+                if ga.function_id != function.id:
+                    ga_state = ", ".join(p for p in ("bestehende GA", ga_state) if p)
+                item = QTreeWidgetItem(["", plan._point_label(function.function_type, point),
                                         ga.address, ga.designation, ga_state])
                 item.setData(0, Qt.UserRole, function.id)
                 if ga_state == "fehlt":
