@@ -518,17 +518,29 @@ class TestAllSlotsEditable:
         taster = _find_taster(view)
         grid = taster.findChild(QGridLayout)
         slot0 = grid.itemAt(0).widget()
-        for i in range(slot0._combo.count()):
-            data = slot0._combo.itemData(i)
-            if data and data[0] == "gewerk" and data[3] == room2.id:
-                slot0._combo.setCurrentIndex(i)
-                break
-        else:
-            raise AssertionError("Fremdraum-Gewerk nicht in der Combo gefunden.")
+        # Andere Räume stehen nicht mehr in der Liste, sondern im Dialog
+        # «Andere Räume…» (Projekt_23: 109 Einträge vor den Funktionen)
+        assert not any((slot0._combo.itemData(i) or ("",))[0] == "gewerk"
+                       for i in range(slot0._combo.count()))
+        from knix_arranger.ui.views.bauherr_form_view import OtherTargetDialog
+        dialog = OtherTargetDialog(project, room1)
+        dialog._search.setText("küche")
+        floor_item = dialog._tree.topLevelItem(0)
+        option = floor_item.child(0).child(0)
+        assert not option.isHidden() and option.text(0).startswith("L – ")
+        from PySide6.QtCore import Qt
+        chosen = option.data(0, Qt.UserRole)
+        slot0._choose_other = lambda: chosen
+        other = next(i for i in range(slot0._combo.count())
+                     if slot0._combo.itemData(i) == ("other",))
+        slot0._combo.setCurrentIndex(other)
 
         sf = be.funktionen[0]
         assert sf.gewerk_code == "L"
         assert sf.source_room_id == room2.id
+        # Die Wahl steht danach in der Liste, unter «Andere Räume»
+        assert slot0._combo.itemData(slot0._combo.currentIndex()) == ("gewerk", "L", 1, room2.id)
+        assert slot0._combo.currentText().endswith("E02 Küche")
 
 
 # ---------------------------------------------------------------------------
@@ -674,7 +686,7 @@ class TestComboSectionHeaders:
             combo.itemText(i) for i in range(combo.count())
             if combo.itemData(i) == ("header",)
         ]
-        assert any("Gewerke in" in t for t in header_texts)
+        assert any("Dieser Raum" in t for t in header_texts)
         assert any("Szenen" in t for t in header_texts)
         assert any("Freitext" in t for t in header_texts)
         for i in range(combo.count()):

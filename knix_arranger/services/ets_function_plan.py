@@ -349,6 +349,15 @@ def function_elements(project) -> dict[str, tuple[str, list[tuple[str, str, int]
     return result
 
 
+def members_text(members: list[tuple[str, str, int]]) -> str:
+    """"J 02, 03, 04" -- Elemente je Gewerk in der Reihenfolge der Funktion
+    (members wie function_elements: (Raum, Gewerk, Element))."""
+    by_gewerk: dict[str, list[str]] = {}
+    for _room, gewerk, nr in members:
+        by_gewerk.setdefault(gewerk, []).append(f"{nr:02d}")
+    return "; ".join(f"{g} {', '.join(nrs)}" for g, nrs in by_gewerk.items())
+
+
 def function_gas(structure) -> list[GroupAddress]:
     return [ga for ga in structure.all_addresses() if ga.function_id]
 

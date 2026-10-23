@@ -19,9 +19,9 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QFrame, QComboBox, QLineEdit,
     QSplitter, QSizePolicy, QGridLayout, QTextEdit, QSpinBox,
     QPushButton, QDialog, QMessageBox, QApplication, QMenu, QTreeWidget,
-    QTreeWidgetItem,
+    QTreeWidgetItem, QCompleter,
 )
-from PySide6.QtCore import Qt, Signal, QTimer, QMimeData
+from PySide6.QtCore import Qt, Signal, QTimer, QMimeData, QEvent
 from PySide6.QtGui import QBrush, QColor, QDrag
 import json
 
@@ -87,6 +87,145 @@ def _view_elements(room: Room, imported: bool) -> list[Bedienelement]:
     return [be for be in room.bedienelemente if be.is_shown(imported)
             and (be.is_operable or be.element_type in PRESENCE_SENSOR_TYPES
                  or (be.element_type in OTHER_SENSOR_TYPES and not be.is_auto))]
+
+
+# ── Optionen der Tastenliste ─────────────────────────────────────────────────
+
+_OTHER_ROOMS_TEXT = "Andere Räume…   (Gewerke und Funktionen suchen)"
+
+
+def _room_text(room: Room) -> str:
+    return " ".join(p for p in (room.number, room.name) if p)
+
+
+def _room_elements(room: Room) -> list[tuple[str, int]]:
+    """(Gewerk, Element) des Raums, die eine Taste bedienen kann."""
+    return [(a.gewerk_code, nr) for a in room.gewerk_assignments
+            if a.gewerk_code in GEWERK_PRIMARY_FUNCTIONS
+            for nr in range(1, a.count + 1)]
+
+
+def _room_functions(project, room: Room) -> list[tuple[object, list]]:
+    """Funktionen (FA-530) dieses Raums bzw. seiner Zone, mit Mitgliedern."""
+    from ...services.ets_function_plan import function_elements, locate
+    elements = function_elements(project)
+    result = []
+    for function in getattr(project, "functions", []):
+        location = locate(project, function)
+        if location is not None and any(r.id == room.id for r in location.rooms):
+            result.append((function, elements.get(function.id, ("", []))[1]))
+    result.sort(key=lambda fm: fm[0].name.lower())
+    return result
+
+
+def gewerk_display(code: str, elem_nr: int, room: Room) -> str:
+    """"LD – Licht schalten + Licht dimmen (Decke)   ·   E01 Wohnen": alle
+    Funktionen der Gewerk-Instanz -- eine Gewerk-Auswahl deckt sie ab."""
+    fn_names = " + ".join(fn[2] for fn in GEWERK_PRIMARY_FUNCTIONS[code])
+    assignment = next((a for a in room.gewerk_assignments if a.gewerk_code == code), None)
+    if assignment is not None and assignment.actor_code(elem_nr) != code:
+        fn_names = "Ein/Aus schalten"    # Funktionsumfang Schalten (FA-1003d)
+    count = assignment.count if assignment is not None else 1
+    return (f"{code} – {fn_names}{room.gewerk_element_suffix(code, elem_nr, count > 1)}"
+            f"   ·   {_room_text(room)}")
+
+
+def function_display(function, members: list) -> str:
+    """"Funktion: Balkon – Sonnenschutz (J 02, 03, 04)"."""
+    from ...services.ets_function_plan import members_text, plan_type_label
+    text = f"Funktion: {function.name} – {plan_type_label(function.function_type)}"
+    numbers = members_text(members)
+    return f"{text} ({numbers})" if numbers else text
+
+
+class OtherTargetDialog(QDialog):
+    """Gewerk oder Funktion eines anderen Raums für eine Taste, nach Stockwerk
+    und Raum gegliedert, mit Suchfeld. chosen = (Daten, Anzeigetext)."""
+
+    def __init__(self, project, own_room: Room, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Andere Räume")
+        self.setMinimumSize(560, 520)
+        self.chosen: tuple | None = None
+        layout = QVBoxLayout(self)
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Suchen, z.B. «Küche», «Balkon» oder «LD»")
+        self._search.setClearButtonEnabled(True)
+        self._search.textChanged.connect(self._filter)
+        layout.addWidget(self._search)
+        self._tree = QTreeWidget()
+        self._tree.setHeaderHidden(True)
+        self._tree.itemDoubleClicked.connect(lambda item, _c: self._accept(item))
+        layout.addWidget(self._tree, 1)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        ok = QPushButton("Übernehmen")
+        ok.setDefault(True)
+        ok.clicked.connect(lambda: self._accept(self._tree.currentItem()))
+        cancel = QPushButton("Abbrechen")
+        cancel.clicked.connect(self.reject)
+        buttons.addWidget(ok)
+        buttons.addWidget(cancel)
+        layout.addLayout(buttons)
+        self._fill(project, own_room)
+        self._search.setFocus()
+
+    def _fill(self, project, own_room: Room) -> None:
+        from ...services.ets_function_plan import function_elements
+        elements = function_elements(project)
+        home: dict[str, list] = {}
+        for function in getattr(project, "functions", []):
+            room_id, members = elements.get(function.id, ("", []))
+            home.setdefault(room_id, []).append((function, members))
+        for floor in project.areal.all_floors:
+            floor_item = None
+            for apartment in floor.apartments:
+                for room in apartment.rooms:
+                    if room.id == own_room.id:
+                        continue
+                    options = [(gewerk_display(code, nr, room), ("gewerk", code, nr, room.id))
+                               for code, nr in _room_elements(room)]
+                    options += [(function_display(f, m), ("function", f.id, f.name))
+                                for f, m in sorted(home.get(room.id, []),
+                                                   key=lambda fm: fm[0].name.lower())]
+                    if not options:
+                        continue
+                    if floor_item is None:
+                        floor_item = QTreeWidgetItem([floor.name or floor.short_code])
+                        self._tree.addTopLevelItem(floor_item)
+                    room_item = QTreeWidgetItem(floor_item, [_room_text(room)])
+                    for text, data in options:
+                        item = QTreeWidgetItem(room_item, [text.split("   ·   ")[0]])
+                        item.setData(0, Qt.UserRole, (data, text))
+        self._tree.expandAll()
+
+    def _filter(self, text: str) -> None:
+        """Räume und Optionen, deren Text die Eingabe enthält (Raumtreffer
+        zeigt alle Optionen des Raums)."""
+        needle = text.strip().lower()
+        for i in range(self._tree.topLevelItemCount()):
+            floor = self._tree.topLevelItem(i)
+            floor_hit = needle in floor.text(0).lower()
+            any_room = False
+            for j in range(floor.childCount()):
+                room = floor.child(j)
+                room_hit = floor_hit or needle in room.text(0).lower()
+                any_option = False
+                for k in range(room.childCount()):
+                    option = room.child(k)
+                    hit = room_hit or needle in option.text(0).lower()
+                    option.setHidden(not hit)
+                    any_option |= hit
+                room.setHidden(not any_option)
+                any_room |= any_option
+            floor.setHidden(not any_room)
+
+    def _accept(self, item) -> None:
+        data = item.data(0, Qt.UserRole) if item is not None else None
+        if not data:
+            return
+        self.chosen = data
+        self.accept()
 
 
 # Gezogene Taste der Bauherrenberatung (verschieben/tauschen, FA-1015 e)
@@ -272,6 +411,7 @@ class _SlotWidget(QWidget):
         self._apply_style(has_value)
         self._last_index = self._combo.currentIndex()
         self._combo.currentIndexChanged.connect(self._on_changed)
+        self._enable_search()
         combo_row.addWidget(self._combo, 1)
         layout.addLayout(combo_row)
 
@@ -471,100 +611,51 @@ class _SlotWidget(QWidget):
 
     def apply_dropped_function(self, data: dict) -> bool:
         """Übernimmt eine gezogene Funktion wie eine Auswahl in der Liste der
-        Taste -- mit Rückgängig-Punkt und Neuberechnung (_on_changed)."""
-        target = ("gewerk", data.get("code"), data.get("element"), data.get("room_id"))
-        for i in range(self._combo.count()):
-            if self._combo.itemData(i) == target:
-                if i != self._combo.currentIndex():
-                    self._combo.setCurrentIndex(i)
-                return True
-        return False
+        Taste -- mit Rückgängig-Punkt und Neuberechnung (_on_changed).
+        Gewerk-Element {"code", "element", "room_id"} oder Funktion (FA-530)
+        {"function_id"}; aus einem anderen Raum wird die Option ergänzt."""
+        project = self._service.project
+        if data.get("function_id"):
+            function = next((f for f in getattr(project, "functions", [])
+                             if f.id == data["function_id"]), None)
+            if function is None:
+                return False
+            from ...services.ets_function_plan import function_elements
+            members = function_elements(project).get(function.id, ("", []))[1]
+            index = self._ensure_item(("function", function.id, function.name),
+                                      function_display(function, members))
+        else:
+            room = next((r for r in project.all_rooms if r.id == data.get("room_id")), None)
+            if room is None or (data.get("code"), data.get("element")) not in _room_elements(room):
+                return False
+            target = ("gewerk", data.get("code"), data.get("element"), room.id)
+            index = self._ensure_item(target, gewerk_display(target[1], target[2], room))
+        if index != self._combo.currentIndex():
+            self._combo.setCurrentIndex(index)
+        return True
 
     def _populate_combo(self):
-        """Befuellt den Combo mit den tatsaechlich geplanten Gewerken aller
-        Raeume (eigener Raum zuerst, jeweils mit Raumnamen beschriftet -- vorher
-        war nicht ersichtlich, welches Gewerk aus welchem Raum ausgewaehlt
-        wird) und den benannten Szenen des Projekts -- direkt auswaehlbar,
-        inklusive GA-Verknuepfung, ohne Umweg ueber die Verknuepfungsmatrix.
-        Generische Freitext-Wuensche bleiben als Fallback fuer alles, was
-        (noch) keinem Gewerk entspricht.
+        """Befuellt den Combo: zuerst alles fuer diesen Raum (Gewerke, die
+        Funktionen des Raums bzw. seiner Zone), dann Szenen und Freitext-
+        Wuensche, zuletzt "Andere Raeume…" -- Gewerke und Funktionen der
+        uebrigen Raeume waehlt man dort in einem Dialog mit Suchfeld (vorher
+        standen sie alle in dieser Liste, im Projekt_23 109 Eintraege vor den
+        Funktionen). Eine Auswahl aus einem anderen Raum erscheint danach im
+        Abschnitt "Andere Raeume" (_ensure_item).
 
-        Abschnitte sind durch nicht auswaehlbare Kopfzeilen getrennt (vorher
-        eine einzige unuebersichtliche flache Liste aus Gewerken, Szenen und
-        Freitext-Wuenschen)."""
+        Abschnitte sind durch nicht auswaehlbare Kopfzeilen getrennt."""
         project = self._service.project
-
-        own_items = []
-        for assignment in self._room.gewerk_assignments:
-            code = assignment.gewerk_code
-            if code not in GEWERK_PRIMARY_FUNCTIONS:
-                continue
-            for elem_nr in range(1, assignment.count + 1):
-                own_items.append((code, elem_nr, self._room))
-
-        other_items = []
-        seen: set[tuple[str, str, int]] = set(
-            (self._room.id, code, elem_nr) for code, elem_nr, _ in own_items
-        )
-        for room in project.all_rooms:
-            if room.id == self._room.id:
-                continue
-            for assignment in room.gewerk_assignments:
-                code = assignment.gewerk_code
-                if code not in GEWERK_PRIMARY_FUNCTIONS:
-                    continue
-                for elem_nr in range(1, assignment.count + 1):
-                    key = (room.id, code, elem_nr)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    other_items.append((code, elem_nr, room))
-
-        def _gewerk_display(code: str, elem_nr: int, count: int, room: Room) -> str:
-            # Alle Funktionen dieser Gewerk-Instanz nennen (z.B. "Schalten +
-            # Dimmen"), nicht nur die erste -- eine Gewerk-Auswahl deckt sie
-            # automatisch alle ab (siehe Klassen-Docstring).
-            fn_names = " + ".join(fn[2] for fn in GEWERK_PRIMARY_FUNCTIONS[code])
-            assignment = next((a for a in room.gewerk_assignments if a.gewerk_code == code), None)
-            if assignment is not None and assignment.actor_code(elem_nr) != code:
-                fn_names = "Ein/Aus schalten"    # Funktionsumfang Schalten (FA-1003d)
-            display = f"{code} – {fn_names}"
-            display += room.gewerk_element_suffix(code, elem_nr, count > 1)
-            display += f"   ·   {room.number} {room.name}"
-            return display
-
-        if own_items:
-            self._add_header(f"── Gewerke in {self._room.name} ──")
-            counts = {a.gewerk_code: a.count for a in self._room.gewerk_assignments}
-            for code, elem_nr, room in own_items:
-                display = _gewerk_display(code, elem_nr, counts.get(code, 1), room)
-                self._combo.addItem(display, ("gewerk", code, elem_nr, room.id))
-
-        if other_items:
-            self._add_header("── Gewerke in anderen Räumen ──")
-            room_counts: dict[str, dict[str, int]] = {}
-            for room in project.all_rooms:
-                room_counts[room.id] = {a.gewerk_code: a.count for a in room.gewerk_assignments}
-            for code, elem_nr, room in other_items:
-                count = room_counts.get(room.id, {}).get(code, 1)
-                display = _gewerk_display(code, elem_nr, count, room)
-                self._combo.addItem(display, ("gewerk", code, elem_nr, room.id))
-
-        # Funktionen (FA-530): mehrere Elemente gemeinsam, eigene zuerst
-        functions = list(getattr(project, "functions", []))
-        if functions:
-            from ...services.ets_function_plan import locate, plan_type_label
-            located = [(f, locate(project, f)) for f in functions]
-            located.sort(key=lambda fl: (
-                not (fl[1] is not None and any(r.id == self._room.id for r in fl[1].rooms)),
-                fl[0].name.lower()))
-            self._add_header("── Funktionen ──")
-            for function, location in located:
-                where = location.label if location is not None else ""
-                self._combo.addItem(
-                    f"Funktion: {function.name} – {plan_type_label(function.function_type)}"
-                    f"   ·   {where}",
-                    ("function", function.id, function.name))
+        room = self._room
+        own = [(code, nr) for code, nr in _room_elements(room)]
+        functions = [(f, members) for f, members in _room_functions(project, room)]
+        if own or functions:
+            self._add_header(f"── Dieser Raum: {_room_text(room)} ──")
+            for code, nr in own:
+                self._combo.addItem(gewerk_display(code, nr, room),
+                                    ("gewerk", code, nr, room.id))
+            for function, members in functions:
+                self._combo.addItem(function_display(function, members),
+                                    ("function", function.id, function.name))
 
         label_lookup = build_scope_label_lookup(project.areal)
         scene_items = [scene for scene in project.scenes if is_callable_scene(scene)]
@@ -582,6 +673,71 @@ class _SlotWidget(QWidget):
         self._add_header("── Freitext-Wünsche ──")
         for opt in _DROPDOWN_OPTIONS:
             self._combo.addItem(opt, ("wish", opt))
+
+        if len(project.all_rooms) > 1 or getattr(project, "functions", None):
+            self._add_header("── Andere Räume ──")
+            self._combo.addItem(_OTHER_ROOMS_TEXT, ("other",))
+
+    def _ensure_item(self, data: tuple, text: str) -> int:
+        """Index der Option mit diesen Daten; fehlt sie (Gewerk oder Funktion
+        eines anderen Raums), wird sie im Abschnitt "Andere Raeume" vor
+        "Andere Raeume…" eingefuegt."""
+        for i in range(self._combo.count()):
+            if self._combo.itemData(i) == data:
+                return i
+        other = next((i for i in range(self._combo.count())
+                      if self._combo.itemData(i) == ("other",)), self._combo.count())
+        self._combo.insertItem(other, text, data)
+        return other
+
+    def _enable_search(self) -> None:
+        """Tippen filtert die Liste: ein Teil des Namens genügt («bal» findet
+        «Funktion: Balkon»). Ein Klick öffnet die Liste wie bisher; Text ohne
+        Auswahl springt beim Verlassen auf die gewählte Option zurück."""
+        combo = self._combo
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
+        completer = combo.completer()
+        completer.setFilterMode(Qt.MatchContains)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        line = combo.lineEdit()
+        line.setPlaceholderText("Tippen zum Suchen")
+        line.installEventFilter(self)
+        line.editingFinished.connect(
+            lambda: line.setText(combo.itemText(combo.currentIndex())))
+
+    def eventFilter(self, obj, event):
+        # Klick ins Textfeld öffnet die Liste (wie ohne Suchfeld)
+        if (obj is self._combo.lineEdit() and event.type() == QEvent.MouseButtonPress
+                and not self._combo.view().isVisible()):
+            self._combo.showPopup()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _other_option(self, target: tuple) -> tuple | None:
+        """(Daten, Text) für ein Gewerk bzw. eine Funktion ausserhalb der Liste."""
+        project = self._service.project
+        if target[0] == "gewerk":
+            room = next((r for r in project.all_rooms if r.id == target[3]), None)
+            if room is not None and (target[1], target[2]) in _room_elements(room):
+                return target, gewerk_display(target[1], target[2], room)
+        elif target[0] == "function":
+            function = next((f for f in getattr(project, "functions", [])
+                             if f.id == target[1]), None)
+            if function is not None:
+                from ...services.ets_function_plan import function_elements
+                members = function_elements(project).get(function.id, ("", []))[1]
+                return (("function", function.id, function.name),
+                        function_display(function, members))
+        return None
+
+    def _choose_other(self) -> tuple | None:
+        """Dialog "Andere Raeume": Gewerk oder Funktion eines anderen Raums."""
+        dialog = OtherTargetDialog(self._service.project, self._room, self)
+        if not dialog.exec() or dialog.chosen is None:
+            return None
+        return dialog.chosen
 
     def _add_header(self, text: str):
         """Fuegt eine nicht auswaehlbare, fett dargestellte Abschnitts-
@@ -628,6 +784,11 @@ class _SlotWidget(QWidget):
                 if data[0] == target[0] and data[1:len(target)] == target[1:]:
                     self._combo.setCurrentIndex(i)
                     return True
+            # Gewerk oder Funktion eines anderen Raums: Option ergänzen
+            option = self._other_option(target)
+            if option is not None:
+                self._combo.setCurrentIndex(self._ensure_item(*option))
+                return True
 
         current_label = self._service._button_label(sf)
         if not current_label:
@@ -723,6 +884,16 @@ class _SlotWidget(QWidget):
         data = self._combo.itemData(index)
         if data and data[0] == "header":
             return  # Kopfzeilen sind deaktiviert, sollte nie ausgewaehlt werden
+        if data == ("other",):
+            # Erst zurück auf die bisherige Wahl, dann ggf. die gewählte
+            # Option aus dem Dialog setzen (löst _on_changed erneut aus)
+            self._combo.blockSignals(True)
+            self._combo.setCurrentIndex(self._last_index)
+            self._combo.blockSignals(False)
+            chosen = self._choose_other()
+            if chosen is not None:
+                self._combo.setCurrentIndex(self._ensure_item(*chosen))
+            return
 
         # Ein langer Tastendruck braucht immer eine konkrete GA -- ein Gewerk
         # würde kurz UND lang ableiten (siehe _expand_funktionen)

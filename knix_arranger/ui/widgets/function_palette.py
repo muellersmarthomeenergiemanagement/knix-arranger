@@ -4,8 +4,9 @@ Räume zum Ziehen auf eine Taste.
 
 Elemente ohne Bedienung (FA-619) sind orange markiert; "Nur ohne Bedienung"
 blendet die übrigen aus. Gezogen wird ein JSON-Paket im eigenen MIME-Typ
-FUNCTION_MIME mit {"code", "element", "room_id"}; die Taste übernimmt es wie
-eine Auswahl in ihrer Liste (_SlotWidget.apply_dropped_function).
+FUNCTION_MIME mit {"code", "element", "room_id"} bzw. für eine Funktion
+(FA-530, im Raum der Funktion gelistet) {"function_id"}; die Taste übernimmt
+es wie eine Auswahl in ihrer Liste (_SlotWidget.apply_dropped_function).
 """
 from __future__ import annotations
 
@@ -24,14 +25,15 @@ FUNCTION_MIME = "application/x-knix-function"
 
 
 def function_from_mime(mime: QMimeData) -> dict | None:
-    """{"code", "element", "room_id"} aus einem Drag, sonst None."""
+    """{"code", "element", "room_id"} bzw. {"function_id"} aus einem Drag,
+    sonst None."""
     if not mime.hasFormat(FUNCTION_MIME):
         return None
     try:
         data = json.loads(bytes(mime.data(FUNCTION_MIME)).decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
         return None
-    if not isinstance(data, dict) or not data.get("code"):
+    if not isinstance(data, dict) or not (data.get("code") or data.get("function_id")):
         return None
     return data
 
@@ -95,6 +97,13 @@ class FunctionPalette(QWidget):
         catalog = project.gewerk_catalog
         warn = QBrush(QColor(COLOR_WARNING))
         only_open = self._only_open.isChecked()
+        # Funktionen im Raum der Funktion (Zone: Raum des ersten Mitglieds)
+        from ...services.ets_function_plan import function_elements, members_text
+        functions_by_room: dict[str, list] = {}
+        elements = function_elements(project)
+        for function in getattr(project, "functions", []):
+            home, members = elements.get(function.id, ("", []))
+            functions_by_room.setdefault(home, []).append((function, members))
         for room in project.all_rooms:
             children = []
             for assignment in room.gewerk_assignments:
@@ -114,6 +123,15 @@ class FunctionPalette(QWidget):
                                   {"code": code, "element": nr, "room_id": room.id})
                     if is_open:
                         child.setForeground(0, warn)
+                    children.append(child)
+            if not only_open:
+                for function, members in sorted(functions_by_room.get(room.id, []),
+                                                key=lambda fm: fm[0].name.lower()):
+                    numbers = members_text(members)
+                    child = QTreeWidgetItem([f"Funktion: {function.name}"
+                                             + (f" ({numbers})" if numbers else "")])
+                    child.setData(0, Qt.UserRole, {"function_id": function.id})
+                    child.setToolTip(0, "Bedient die Elemente gemeinsam – auf eine Taste ziehen")
                     children.append(child)
             if not children:
                 continue

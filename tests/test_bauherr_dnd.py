@@ -283,3 +283,24 @@ def test_abgeleitete_kontakte_nicht_in_der_beratung():
     assert not any(s._be.element_type == "Fensterkontakt"
                    for s in view.findChildren(_SlotWidget))
     assert not view._empty_hint.isHidden()
+
+
+def test_palette_lists_function_and_drop_assigns_it():
+    """Funktionen stehen in der Liste links unter ihrem Raum und lassen sich
+    auf eine Taste ziehen, auch in einem anderen Raum."""
+    from knix_arranger.models.ets_function import FunctionMember, KnixFunction
+    project, wasch, technik = _project()
+    light = next(a for a in technik.gewerk_assignments if a.gewerk_code == "L")
+    light.count = 2
+    function = KnixFunction(name="Licht alle", function_type="FT-1", room_id=technik.id,
+                            members=[FunctionMember(light.id, 1), FunctionMember(light.id, 2)])
+    project.functions.append(function)
+    view = _view(project, wasch)
+    tree = view._palette._tree
+    texts = [tree.topLevelItem(i).child(j).text(0) for i in range(tree.topLevelItemCount())
+             for j in range(tree.topLevelItem(i).childCount())]
+    assert "Funktion: Licht alle (L 01, 02)" in texts
+    slot = _empty_slot(view)
+    assert slot.apply_dropped_function({"function_id": function.id})
+    assert slot._sf.function_id == function.id
+    assert slot._combo.currentText().startswith("Funktion: Licht alle")

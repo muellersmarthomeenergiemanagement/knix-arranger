@@ -246,7 +246,7 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
 
     # Funktionen (FA-530): eigene Zeile im Raum der Funktion; ihre Bedienung
     # steht auch bei den Elementen ("1.1.101 Taste 7 · Funktion Balkon")
-    from .ets_function_plan import function_elements, function_gas
+    from .ets_function_plan import function_elements, function_gas, members_text
     function_addresses: dict[str, list[str]] = {}
     for ga in function_gas(project.group_addresses):
         function_addresses.setdefault(ga.function_id, []).append(ga.address)
@@ -350,11 +350,7 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
                                else row.channel_name or row.channel_number)
                     if channel and channel not in channels:
                         channels.append(channel)
-            # "J 02, 03, 04" -- Elemente je Gewerk, in Reihenfolge der Funktion
-            by_gewerk: dict[str, list[str]] = {}
-            for _r, gewerk, nr in members:
-                by_gewerk.setdefault(gewerk, []).append(f"{nr:02d}")
-            numbers = "; ".join(f"{g} {', '.join(nrs)}" for g, nrs in by_gewerk.items())
+            numbers = members_text(members)
             elements.append(ElementRow(
                 gewerk_code="", gewerk_name="Funktion", category="funktion",
                 number=function.number,

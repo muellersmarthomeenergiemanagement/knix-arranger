@@ -2,6 +2,20 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.17",
+      "date": "2026-10-23",
+      "verbessert": [
+        "Bauherrenberatung: Die Tastenliste zeigt zuerst alles für diesen Raum – Gewerke und die Funktionen des Raums, z.B. «Funktion: Balkon – Sonnenschutz (J 02, 03, 04)». Gewerke und Funktionen anderer Räume wählen Sie über «Andere Räume…» mit Suchfeld. Die Liste ist dadurch viel kürzer.",
+        "Bauherrenberatung: In der Tastenliste genügt es, einen Teil des Namens zu tippen, z.B. «bal».",
+        "Bauherrenberatung: Funktionen stehen auch in der Liste links und lassen sich auf eine Taste ziehen.",
+        "Raumbuch: Funktionen erscheinen als eigene Zeile mit Taste, Ausgängen und GAs; bei den bedienten Elementen steht «Taste 7 · Funktion Balkon»."
+      ],
+      "behoben": [
+        "Elemente, die nur über eine Funktion bedient werden, galten als «ohne Bedienung» (Validierung, Bauherrenberatung, Raumbuch).",
+        "Eine Taste mit einer Funktion hiess nach der Funktion («Balkon») statt «Taste 7»; die Tastereinheit zeigte «6 Tasten belegt, Balkon»."
+      ]
+    },
+    {
       "version": "1.4.16",
       "date": "2026-10-22",
       "neu": [
