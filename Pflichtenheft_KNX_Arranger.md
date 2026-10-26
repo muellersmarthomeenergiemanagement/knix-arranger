@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.74
+**Version:** 3.75
 **Datum:** 26.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -75,6 +75,7 @@
 | 3.58 | 21.10.2026 | M. Mueller / Claude AI | Funktionen ohne Rueckmeldung (reine Befehls-GAs, kein Leitkanal); Tasten koennen eine Funktion bedienen, GAs werden nachgefuehrt (FA-530); Pruefung mehrfacher Sender entfaellt (FA-637) |
 | 3.59 | 21.10.2026 | M. Mueller / Claude AI | Sonnenschutz-Funktionen mit Position Hoehe und Lamellen als Befehl; Funktionen im Bauherr-Formular waehlbar und eingelesen (FA-530) |
 | 3.60 | 21.10.2026 | M. Mueller / Claude AI | Sonnenschutz-Funktionen mit Sperren; neue Funktion Heizung mit Betriebsart (FA-530) |
+| 3.75 | 26.10.2026 | M. Mueller / Claude AI | Schritt 3: eingefuegte Raeume (Zone/Stockwerk kopieren) erhalten Raumnummern nach dem Schema von Ziel-Zone und -Stockwerk wie bei "+ Raum"; neuer Zonen-Praefix uebernimmt das Trennzeichen ("Z-EG01") (BZ-03) |
 | 3.74 | 26.10.2026 | M. Mueller / Claude AI | .knxproj-Import: Applikation als deutscher Name mit Version statt ETS-Kennung, Zuordnung auch bei Geraeten mit zwei Applikationen (FA-904b) |
 | 3.73 | 26.10.2026 | M. Mueller / Claude AI | Busstrom je Linie gegen die Spannungsversorgung: Werte aus den Herstellerdaten (BusCurrent), Richtwert 10 mA, Pruefung 80 %/100 %, Anzeige in Topologie-Ansicht und Topologie-Bericht (FA-613b) |
 | 3.72 | 26.10.2026 | M. Mueller / Claude AI | Topologie-Bericht: Kapitel "Geraete nach Typ" mit Anzahl, Einbauort, Raum, Applikation und Seriennummer je Geraetetyp (FA-904b) |

@@ -549,6 +549,20 @@ class Step03Rooms(QWidget):
             f"Zone: {n_floors} Stockwerk(e), {total} Räume kopiert"
         )
 
+    def _append_pasted_room(self, apt: Apartment, floor: Floor, room_dict: dict) -> None:
+        """Kopierten Raum mit neuen Ids anhängen. Die Raumnummer folgt dem
+        Schema von Ziel-Zone und -Stockwerk wie bei «+ Raum» -- die kopierte
+        Nummer (EG01) wäre doppelt bzw. auf einem anderen Stockwerk falsch."""
+        new_dict = copy.deepcopy(room_dict)
+        new_dict["id"] = str(uuid.uuid4())
+        new_dict["floor_id"] = floor.id
+        new_dict["number"] = self._suggest_room_number(apt, floor)
+        for g in new_dict.get("gewerk_assignments", []):
+            g["id"] = str(uuid.uuid4())
+        for b in new_dict.get("bedienelemente", []):
+            b["id"] = str(uuid.uuid4())
+        apt.rooms.append(Room.from_dict(new_dict))
+
     def _paste(self):
         if not self._room_clipboard:
             return
@@ -568,14 +582,7 @@ class Step03Rooms(QWidget):
         apt, floor = ctx
         apt.rooms = []
         for room_dict in self._room_clipboard["rooms"]:
-            new_dict = copy.deepcopy(room_dict)
-            new_dict["id"] = str(uuid.uuid4())
-            new_dict["floor_id"] = floor.id
-            for g in new_dict.get("gewerk_assignments", []):
-                g["id"] = str(uuid.uuid4())
-            for b in new_dict.get("bedienelemente", []):
-                b["id"] = str(uuid.uuid4())
-            apt.rooms.append(Room.from_dict(new_dict))
+            self._append_pasted_room(apt, floor, room_dict)
         self._refresh()
         self._select_by_data(_KIND_ZONE_FLOOR, apt)
         self._warn_room_numbers(apt.rooms)
@@ -619,14 +626,7 @@ class Step03Rooms(QWidget):
             apt, floor = zone_floor_pairs[i]
             apt.rooms = []
             for room_dict in src_floors[i]["rooms"]:
-                new_dict = copy.deepcopy(room_dict)
-                new_dict["id"] = str(uuid.uuid4())
-                new_dict["floor_id"] = floor.id
-                for g in new_dict.get("gewerk_assignments", []):
-                    g["id"] = str(uuid.uuid4())
-                for b in new_dict.get("bedienelemente", []):
-                    b["id"] = str(uuid.uuid4())
-                apt.rooms.append(Room.from_dict(new_dict))
+                self._append_pasted_room(apt, floor, room_dict)
             if first_apt is None:
                 first_apt = apt
 

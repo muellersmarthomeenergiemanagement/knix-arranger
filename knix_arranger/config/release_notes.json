@@ -2,6 +2,14 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.21",
+      "date": "2026-10-26",
+      "behoben": [
+        "Räume (Schritt 3): Beim Einfügen einer kopierten Zone oder eines Stockwerks erhalten die Räume jetzt Raumnummern nach dem Schema der Ziel-Zone und des Ziel-Stockwerks, z.B. EG07–EG12 in der zweiten Zone oder 1.OG01–1.OG06 im Obergeschoss. Bisher wurden die Nummern unverändert übernommen und waren doppelt.",
+        "Neue Zone in einem Projekt mit Zonen-Buchstaben samt Bindestrich (z.B. «S-EG01»): die Raumnummern erhalten jetzt ebenfalls den Bindestrich («Z-EG01» statt «ZEG01»)."
+      ]
+    },
+    {
       "version": "1.4.20",
       "date": "2026-10-26",
       "neu": [

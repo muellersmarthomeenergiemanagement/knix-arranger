@@ -77,12 +77,14 @@ def suggest_room_number(areal: Areal, wing: Wing, apt: Apartment, floor: Floor) 
                     continue
                 zone_schemes = _zone_schemes(other_wing, zone)
                 others.update(zone_schemes)
-                used_prefixes.update(s.prefix for s in zone_schemes)
+                used_prefixes.update(s.prefix.rstrip("-.") for s in zone_schemes)
         prefixed = [s for s in others.elements() if s.prefix]
         if prefixed:
             template = Counter(prefixed).most_common(1)[0][0]
             free = [c for c in _initial_letters(apt.name) if c not in used_prefixes]
-            prefix = free[0] if free else ""
+            # Trennzeichen nach dem Präfix übernehmen: "S-EG01" -> "Z-EG01"
+            joiner = template.prefix[-1] if template.prefix[-1] in "-." else ""
+            prefix = free[0] + joiner if free else ""
             scheme = _Scheme(prefix, template.sep, template.width)
         else:
             scheme = _Scheme("", "", 2)
