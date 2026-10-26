@@ -430,6 +430,18 @@ def _device_cell(device) -> tuple[str, str]:
     return (device.product or "–", " · ".join(details))
 
 
+def _type_name(device) -> str:
+    return device.product_name or device.product or "–"
+
+
+def device_type_key(device) -> tuple[str, str, str]:
+    """(Hersteller, Bestellnummer, Produktname) für «Geräte nach Typ»; der
+    Produktname zählt nur ohne Bestellnummer, damit geplante Geräte ohne
+    Produkt nicht alle zusammenfallen."""
+    order = device.order_number or ""
+    return (device.manufacturer or "", order, "" if order else _type_name(device))
+
+
 def _clean_location(text: str) -> str:
     """'UV2   ( Steigzone )' -> 'UV2 (Steigzone)'."""
     text = " ".join((text or "").split())
@@ -1324,7 +1336,7 @@ class ReportService:
 
         Aufbau: Prinzipschema (Bereiche/Linien mit Auslastung), Kennzahlen je
         Linie, Geräteliste je Linie, Geräteliste je Einbauort (Verteiler
-        zuerst). Gerätezellen zeigen Hersteller, Bestell- und Seriennummer
+        zuerst), gleiche Geräte gebündelt nach Typ. Gerätezellen zeigen Hersteller, Bestell- und Seriennummer
         als zweite Zeile.
         """
         pdf = self._make_pdf("Topologie-Bericht")
@@ -1462,8 +1474,62 @@ class ReportService:
                 col_widths=[0.11, 0.69, 0.20],
             )
 
+        self._add_devices_by_type(pdf, [d for _a, lines in areas
+                                        for line in lines for d in line.devices])
+
         pdf.save(filepath)
         logger.info(f"Topologie-Bericht erstellt: {filepath}")
+
+    def _add_devices_by_type(self, pdf, devices: list) -> None:
+        """Kapitel «Geräte nach Typ»: gleiche Geräte gebündelt mit Anzahl und
+        Einbauort -- zeigt auf einen Blick, wie viele eines Typs mit Mängeln
+        verbaut sind und wo."""
+        room_labels: dict[str, str] = {}
+        for building in self.project.areal.buildings:
+            for wing in building.wings:
+                for floor in wing.floors:
+                    floor_label = BuildingService.floor_label(self.project.areal, floor)
+                    for apt in floor.apartments:
+                        for room in apt.rooms:
+                            room_labels[room.id] = " · ".join(p for p in (
+                                floor_label,
+                                _clean_location(f"{room.number} {room.name}")) if p)
+
+        groups: dict[tuple, list] = defaultdict(list)
+        for d in devices:
+            groups[device_type_key(d)].append(d)
+        keys = sorted(groups, key=lambda k: (k[0].lower(), _type_name(groups[k][0]).lower()))
+
+        pdf.add_page_break()
+        pdf.add_heading("Geräte nach Typ", level=2)
+        pdf.add_note(
+            "Zweck:",
+            "Gleiche Geräte (Hersteller und Bestellnummer) gebündelt – zeigt bei "
+            "einem Mangel eines Gerätetyps, wie viele verbaut sind und wo.")
+        pdf.add_table(
+            ["Gerät", "Hersteller", "Bestellnummer", "Anzahl"],
+            [[_type_name(groups[k][0]), k[0] or "–", k[1] or "–", str(len(groups[k]))]
+             for k in keys],
+            col_widths=[0.45, 0.20, 0.23, 0.12],
+            align=["left", "left", "left", "right"],
+        )
+        for key in keys:
+            members = sorted(groups[key], key=lambda d: physical_address_key(d.physical_address))
+            first = members[0]
+            pdf.add_heading(f"{_type_name(first)}  ({_n_devices(len(members))})", level=3)
+            details = " · ".join(p for p in (key[0], key[1]) if p)
+            if details:
+                pdf.add_paragraph(details)
+            pdf.add_table(
+                ["Adresse", "Einbauort", "Raum", "Applikation", "Seriennummer"],
+                [[d.physical_address or "–",
+                  _clean_location(d.installation_location) or "–",
+                  room_labels.get(d.room_id, "") or "–",
+                  d.application_program or "–",
+                  d.serial_number or "–"]
+                 for d in members],
+                col_widths=[0.10, 0.22, 0.24, 0.26, 0.18],
+            )
 
     def generate_bedienelemente_report(self, filepath: str):
         """Erzeugt den Bericht "Bedienelemente und Sensoren" als PDF.

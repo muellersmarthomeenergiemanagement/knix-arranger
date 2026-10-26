@@ -4,6 +4,9 @@
     {
       "version": "1.4.20",
       "date": "2026-10-26",
+      "neu": [
+        "Topologie-Bericht mit neuem Kapitel «Geräte nach Typ»: gleiche Geräte (Hersteller und Bestellnummer) gebündelt, z.B. alle JAX-9. Eine Übersicht zeigt die Anzahl je Typ, danach folgt je Typ eine Liste mit Adresse, Einbauort, Raum, Applikation und Seriennummer. Hat ein Gerätetyp einen Mangel, sehen Sie sofort, wie viele verbaut sind und wo."
+      ],
       "verbessert": [
         "KNX Secure in den Projekteigenschaften: aktivieren und Sicherheitsmodus wählen (Data Secure, IP Secure oder beide). Daneben steht der Stand des Archivs – Secure-fähige Geräte, erfasste FDSK, ETS6-Passwort erfasst oder fehlt –, nie die Werte selbst. «KNX-Secure-Archiv öffnen…» führt direkt zu Passwort, Zertifikaten und GA-Sicherheit. Die Projektübersicht zeigt denselben Stand."
       ]

@@ -90,6 +90,46 @@ def test_ohne_einbauort_zaehlt_der_raum():
     assert service._device_location(Device(physical_address="1.1.40")) == ""
 
 
+def test_typ_schluessel():
+    from knix_arranger.services.report_service import device_type_key
+    jax = Device(product="JAX-9", manufacturer="Griesser", order_number="JAX-9")
+    assert device_type_key(jax) == ("Griesser", "JAX-9", "")
+    assert device_type_key(Device(product="Schaltaktor")) == ("", "", "Schaltaktor")
+
+
+def test_geraete_nach_typ(tmp_path):
+    """Gleiche Geraete gebuendelt mit Anzahl, Einbauort und Raum."""
+    fitz = pytest.importorskip("fitz")
+    from knix_arranger.models.building import (
+        Areal, Building, Wing, Floor, Apartment, Room,
+    )
+    room = Room(number="04", name="Schlafen")
+    project = KnxProject(name="Topo")
+    project.areal = Areal(buildings=[Building(wings=[Wing(floors=[Floor(
+        apartments=[Apartment(rooms=[room])])])])])
+    jax = dict(device_type="actor", product="JAX-9", manufacturer="Griesser",
+               order_number="JAX-9")
+    project.topology.areas = [Area(area_number=1, lines=[Line(line_number=1, devices=[
+        Device(physical_address="1.1.3", installation_location="UV2", **jax),
+        Device(physical_address="1.1.1", room_id=room.id, serial_number="00EE:01", **jax),
+        Device(physical_address="1.1.2", device_type="sensor", product="Edizio Due",
+               manufacturer="Feller", order_number="3901-4.KNX"),
+    ])])]
+    path = str(tmp_path / "topo.pdf")
+    ReportService(project).generate_topology_report(path)
+
+    doc = fitz.open(path)
+    text = "\n".join(p.get_text() for p in doc)
+    doc.close()
+    chapter = text[text.index("Geräte nach Typ"):]
+    assert "JAX-9  (2 Geräte)" in chapter
+    assert "Edizio Due  (1 Gerät)" in chapter
+    assert chapter.index("Edizio Due  (1") < chapter.index("JAX-9  (2")  # Feller vor Griesser
+    assert "Griesser · JAX-9" in chapter
+    assert "UV2" in chapter and "04 Schlafen" in chapter and "00EE:01" in chapter
+    assert chapter.index("1.1.1") < chapter.index("1.1.3")
+
+
 def test_diagramm_mehrere_bereiche(tmp_path):
     fitz = pytest.importorskip("fitz")
     project = KnxProject(name="Topo")
