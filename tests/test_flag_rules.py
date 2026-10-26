@@ -65,6 +65,35 @@ def test_read_flag_on_receiver(project):  # noqa: F811
     assert all(co.object_number != 1 for _d, co, _g, _f in found)
 
 
+def _imported_gateway(name: str, function: str, flags: str):
+    """Chalet 1.1.22: Garagentor-Gateway aus der ETS, Status an 2/2/101."""
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.models.topology import Area, CommunicationObject, Device, Line
+    project = KnxProject(name="Chalet")
+    project.topology.is_imported = True
+    gateway = Device(physical_address="1.1.22", device_type="gateway", product="KNX-Gateway",
+                     communication_objects=[CommunicationObject(
+                         object_number=12, name=name, object_function=function,
+                         flags=flags, connected_gas=["2/2/101"])])
+    project.topology.areas = [Area(area_number=1, lines=[Line(line_number=1, devices=[gateway])])]
+    return project
+
+
+def test_status_ko_with_transmit_flag_is_a_source():
+    """KO mit K L Ü sendet selbst: das L-Flag gehört dazu, kein FA-635.
+    Die Rolle steht nur in der Objektfunktion, der KO-Name ist der Kanal."""
+    project = _imported_gateway("Antrieb (Garagentor Chalet) - Ausgang",
+                                "Status Tor geschlossen", "KL-Ü--")
+    assert receiver_read_flags(project) == []
+    expected = expected_by_link(project)[("1.1.22", "2/2/101")]
+    assert flags_label(expected.flags) == "K L Ü"
+
+
+def test_receiver_with_read_flag_still_reported():
+    project = _imported_gateway("Ausgang 3", "Schalten", "KLS---")
+    assert [co.object_number for _d, co, _g, _f in receiver_read_flags(project)] == [12]
+
+
 def test_devices_without_product_use_expected_flags(project):  # noqa: F811
     expected = expected_by_link(project)
     assert expected

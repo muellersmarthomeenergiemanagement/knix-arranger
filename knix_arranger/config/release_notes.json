@@ -2,6 +2,14 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.22",
+      "date": "2026-10-26",
+      "behoben": [
+        "Validierung «L-Flag an einem Empfänger» (FA-635): Kommunikationsobjekte, die selbst senden (Flags K L Ü, z.B. «Status Tor geschlossen» eines Garagentor-Gateways, Statusanzeigen, Fehlermeldungen), werden nicht mehr fälschlich gemeldet – dort gehört das L-Flag dazu. Gemeldet werden nur noch echte Empfänger mit L-Flag.",
+        "Topologie: Bei aus der ETS importierten Geräten berücksichtigen die Soll-Flags auch die Objektfunktion, z.B. Soll «K L Ü» für einen Status, auch wenn der Objektname nur den Kanal nennt."
+      ]
+    },
+    {
       "version": "1.4.21",
       "date": "2026-10-26",
       "behoben": [

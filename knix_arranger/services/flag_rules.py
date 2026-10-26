@@ -97,8 +97,15 @@ def expected_by_link(project, sensor_rows=None, actor_plan=None) -> dict[tuple[s
         device = devices.get(row.physical_address)
         if device is None or not row.ga_address:
             continue
+        flags = actor_flags(row.function_name)
+        # ETS-Import: function_name ist der KO-Name ("Antrieb (Garagentor) -
+        # Ausgang"), die Rolle steht oft nur in der Objektfunktion ("Status Tor
+        # geschlossen")
+        co_function = getattr(row, "co_function", "")
+        if flags == RECEIVE_COMMAND and co_function:
+            flags = actor_flags(co_function)
         result.setdefault((row.physical_address, row.ga_address), Expected(
-            device, row.ga_address, row.function_name, actor_flags(row.function_name)))
+            device, row.ga_address, row.function_name, flags))
     rows = sensor_rows if sensor_rows is not None else sensor_plan(project)
     for device in devices.values():
         if device.device_type != "sensor":
@@ -145,6 +152,8 @@ def receiver_read_flags(project, expected: dict | None = None) -> list[tuple]:
         first = links[0]
         if READ not in first.flags or flags_unparametrized(first, imported):
             continue
+        if U in first.flags:
+            continue                  # sendet selbst (Status, Meldung): L gehört dazu
         soll = [expected.get((first.device.physical_address, l.ga_address)) for l in links]
         if not soll or any(e is None for e in soll):
             continue                  # Rolle nicht für alle GAs bekannt
