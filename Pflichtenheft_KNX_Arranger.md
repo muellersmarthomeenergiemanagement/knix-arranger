@@ -1,7 +1,7 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.70
-**Datum:** 23.10.2026
+**Version:** 3.71
+**Datum:** 26.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
 **Status:** Entwurf
@@ -75,6 +75,7 @@
 | 3.58 | 21.10.2026 | M. Mueller / Claude AI | Funktionen ohne Rueckmeldung (reine Befehls-GAs, kein Leitkanal); Tasten koennen eine Funktion bedienen, GAs werden nachgefuehrt (FA-530); Pruefung mehrfacher Sender entfaellt (FA-637) |
 | 3.59 | 21.10.2026 | M. Mueller / Claude AI | Sonnenschutz-Funktionen mit Position Hoehe und Lamellen als Befehl; Funktionen im Bauherr-Formular waehlbar und eingelesen (FA-530) |
 | 3.60 | 21.10.2026 | M. Mueller / Claude AI | Sonnenschutz-Funktionen mit Sperren; neue Funktion Heizung mit Betriebsart (FA-530) |
+| 3.71 | 26.10.2026 | M. Mueller / Claude AI | KNX Secure in den Projekteigenschaften aktivieren, Sicherheitsmodus waehlen, Stand des Archivs ohne geheime Werte, Knopf zum KNX-Secure-Archiv; Zeile "KNX Secure" in der Projektuebersicht (FA-2701b) |
 | 3.70 | 23.10.2026 | M. Mueller / Claude AI | Importierte Projekte mit Elementnummern je Raum ueber alle Gewerke (Richtlinie 10.3, z.B. LDA 01-02, L 03-04): KNiX rechnet sie je Gewerk auf 1..n um (FA-531) |
 | 3.69 | 23.10.2026 | M. Mueller / Claude AI | Warnung fuer geplante Stockwerke auf HG 14 und hoeher (FA-411c) |
 | 3.68 | 23.10.2026 | M. Mueller / Claude AI | "+ GA hinzufuegen" bietet die Funktionen der gewaehlten Elemente an (gleicher Name = automatisch auf deren Aktorkanaele, DPT vom Element); Checkliste: ein Pruefpunkt je Taste mit Funktion; Projektzusammenfassung mit Abschnitt Funktionen und Zweck der HG 13 (FA-530b) |
@@ -1467,6 +1468,7 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 | ID | Anforderung |
 |----|-------------|
 | FA-2701 | Das System muss KNX Secure-Projekte unterstuetzen (TP Secure und IP Secure gemaess KNX-Standard ISO 22510). Die Secure-Konfiguration wird pro Projekt aktivierbar sein und betrifft Gruppenadress-Sicherheit und physikalische Adressvergabe. **(C)** |
+| FA-2701b | Projekteigenschaften: Gruppe "KNX Secure" mit Schalter "KNX Secure in diesem Projekt verwenden" und Sicherheitsmodus (Data Secure, IP Secure, beide; nur bei aktiviertem Secure waehlbar). Daneben steht der Stand des Archivs: Anzahl Secure-faehiger Geraete, erfasste FDSK, ETS6-Passwort erfasst/fehlt, bzw. "Archiv gesperrt" -- nie die Werte selbst, kein Master-Passwort noetig. Der Knopf "KNX-Secure-Archiv oeffnen..." uebernimmt die Eigenschaften und oeffnet die KNX-Secure-Ansicht. Dieselbe Zusammenfassung zeigt die Projektuebersicht in der Zeile "KNX Secure". **(S)** |
 | FA-2702 | Das System muss pro Projekt folgende KNX Secure-Schluessel verwalten koennen: |
 
 **KNX Secure -- Schluesseltypen:**

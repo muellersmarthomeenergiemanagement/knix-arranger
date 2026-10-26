@@ -189,6 +189,40 @@ class ProjectPropertiesDialog(QDialog):
         scene_group.setLayout(scene_form)
         layout.addWidget(scene_group)
 
+        # ── KNX Secure (FA-2701): Aktivieren hier, Archiv in eigener Ansicht ──
+        from ...models.knx_secure import SECURE_MODES, SECURE_MODE_LABELS
+        secure_cfg = project.knx_secure
+        secure_group = QGroupBox("KNX Secure")
+        secure_form = QFormLayout()
+        secure_form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        secure_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        self._secure_check = QCheckBox("KNX Secure in diesem Projekt verwenden")
+        self._secure_check.setChecked(secure_cfg.enabled)
+        secure_form.addRow("Aktiviert:", self._secure_check)
+        self._secure_mode_combo = QComboBox()
+        for mode in SECURE_MODES:
+            self._secure_mode_combo.addItem(SECURE_MODE_LABELS[mode], userData=mode)
+        midx = self._secure_mode_combo.findData(secure_cfg.secure_mode)
+        self._secure_mode_combo.setCurrentIndex(midx if midx >= 0 else 0)
+        self._secure_mode_combo.setEnabled(secure_cfg.enabled)
+        self._secure_check.toggled.connect(self._secure_mode_combo.setEnabled)
+        secure_form.addRow("Sicherheitsmodus:", self._secure_mode_combo)
+        secure_row = QHBoxLayout()
+        secure_status = QLabel(knx_secure_summary(secure_cfg))
+        secure_status.setWordWrap(True)
+        secure_status.setObjectName("hint")
+        secure_row.addWidget(secure_status, 1)
+        btn_secure = QPushButton("KNX-Secure-Archiv öffnen…")
+        btn_secure.setToolTip("Übernimmt die Eigenschaften und öffnet das Archiv: "
+                              "ETS6-Projektpasswort, FDSK je Gerät, GA-Sicherheit.")
+        btn_secure.clicked.connect(self._open_secure_archive)
+        secure_row.addWidget(btn_secure)
+        secure_form.addRow("Archiv:", secure_row)
+        secure_group.setLayout(secure_form)
+        layout.addWidget(secure_group)
+        # Nach «Übernehmen» die KNX-Secure-Ansicht öffnen (Aufrufer navigiert)
+        self.open_secure_archive = False
+
         layout.addStretch()
 
         # ── Buttons ──
@@ -234,6 +268,8 @@ class ProjectPropertiesDialog(QDialog):
         # Nur Abweichungen von der Vorgabe speichern
         self._project.config.scene_number_ranges = {
             level: list(r) for level, r in ranges.items() if r != DEFAULT_RANGES[level]}
+        self._project.knx_secure.enabled = self._secure_check.isChecked()
+        self._project.knx_secure.secure_mode = self._secure_mode_combo.currentData()
         if self._ets_check is not None:
             from ...services.renumber_service import mark_ets_transferred
             if (not self._ets_check.isChecked() and self._project.ets_transferred
@@ -246,6 +282,12 @@ class ProjectPropertiesDialog(QDialog):
                 return
             mark_ets_transferred(self._project, self._ets_check.isChecked())
         self.accept()
+
+    def _open_secure_archive(self) -> None:
+        self.open_secure_archive = True
+        self._apply()
+        if self.result() != QDialog.Accepted:
+            self.open_secure_archive = False
 
     def _update_client_summary(self) -> None:
         cp = self._project.client_profile
@@ -262,6 +304,21 @@ class ProjectPropertiesDialog(QDialog):
         from .client_profile_dialog import edit_client_profile
         if edit_client_profile(self._project, self, self._bus):
             self._update_client_summary()
+
+
+def knx_secure_summary(cfg) -> str:
+    """Kurzstand des KNX-Secure-Archivs, ohne geheime Werte."""
+    if not cfg.enabled:
+        return "Nicht aktiviert"
+    infos = cfg.device_infos.values()
+    parts = [f"{sum(1 for i in infos if i.secure_supported)} Gerät(e) secure-fähig"]
+    if cfg.is_locked:
+        parts.append("Archiv gesperrt")
+    else:
+        parts.append(f"{sum(1 for i in infos if i.fdsk)} FDSK erfasst")
+        parts.append("ETS6-Passwort erfasst" if cfg.ets_project_password
+                     else "ETS6-Passwort fehlt")
+    return "Aktiviert · " + " · ".join(parts)
 
 
 def offer_ets_transferred(parent, project) -> bool:

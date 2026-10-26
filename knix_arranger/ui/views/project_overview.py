@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, Signal
 from ..styles import (
     COLOR_OK, COLOR_WARNING, KNX_GREEN, KNX_BLUE, KNX_DARK_GREEN, TEXT_MUTED,
 )
-from ..dialogs.project_properties_dialog import ProjectPropertiesDialog
+from ..dialogs.project_properties_dialog import ProjectPropertiesDialog, knx_secure_summary
 
 
 class StatCard(QFrame):
@@ -113,8 +113,9 @@ class ProjectOverview(QWidget):
             ("variant",  "MG-Variante:",    2),
             ("topo",     "Topologie-Modus:", 3),
             ("backbone", "Backbone-Typ:",   4),
-            ("created",  "Erstellt:",       5),
-            ("modified", "Geändert:",       6),
+            ("secure",   "KNX Secure:",     5),
+            ("created",  "Erstellt:",       6),
+            ("modified", "Geändert:",       7),
         ]:
             lbl = QLabel(label_text)
             lbl.setStyleSheet("font-weight: bold;")
@@ -158,6 +159,7 @@ class ProjectOverview(QWidget):
         self._info_labels["variant"].setText(project.config.mg_variant)
         self._info_labels["topo"].setText(project.config.topology_mode)
         self._info_labels["backbone"].setText(project.config.backbone_type)
+        self._info_labels["secure"].setText(knx_secure_summary(project.knx_secure))
         self._info_labels["created"].setText(project.created or "-")
         self._info_labels["modified"].setText(project.modified or "-")
         self._show_workflow()
@@ -226,5 +228,8 @@ class ProjectOverview(QWidget):
             self._info_labels["variant"].setText(self._project.config.mg_variant)
             self._info_labels["topo"].setText(self._project.config.topology_mode)
             self._info_labels["backbone"].setText(self._project.config.backbone_type)
+            self._info_labels["secure"].setText(knx_secure_summary(self._project.knx_secure))
             if self._project.name != old_name:
                 self.project_name_changed.emit(self._project.name)
+            if dialog.open_secure_archive:
+                self.navigate_requested.emit("knx_secure")

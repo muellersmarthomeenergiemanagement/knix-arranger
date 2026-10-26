@@ -2592,6 +2592,8 @@ class MainWindow(QMainWindow):
             if self._project.name != old_name:
                 self._update_window_title()
             self._status_bar.set_status("Projekteigenschaften gespeichert.")
+            if dialog.open_secure_archive:
+                self._navigate_from_overview("knx_secure")
 
     def _show_license(self):
         dialog = LicenseDialog(self)

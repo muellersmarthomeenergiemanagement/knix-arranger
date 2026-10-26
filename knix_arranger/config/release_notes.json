@@ -2,6 +2,13 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.20",
+      "date": "2026-10-26",
+      "verbessert": [
+        "KNX Secure in den Projekteigenschaften: aktivieren und Sicherheitsmodus wählen (Data Secure, IP Secure oder beide). Daneben steht der Stand des Archivs – Secure-fähige Geräte, erfasste FDSK, ETS6-Passwort erfasst oder fehlt –, nie die Werte selbst. «KNX-Secure-Archiv öffnen…» führt direkt zu Passwort, Zertifikaten und GA-Sicherheit. Die Projektübersicht zeigt denselben Stand."
+      ]
+    },
+    {
       "version": "1.4.19",
       "date": "2026-10-23",
       "verbessert": [
