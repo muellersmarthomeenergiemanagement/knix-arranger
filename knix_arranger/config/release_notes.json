@@ -5,9 +5,12 @@
       "version": "1.4.20",
       "date": "2026-10-26",
       "neu": [
+        "Busstrom je Linie: KNiX rechnet die Stromaufnahme aller Teilnehmer einer Linie zusammen und vergleicht sie mit der Spannungsversorgung, z.B. «310 / 640 mA (48 %)». Die Werte stammen aus den Herstellerdaten; fehlt eine Angabe, rechnet KNiX mit 10 mA je Gerät und weist den geschätzten Anteil aus. Die Validierung warnt ab 80 % und meldet einen Fehler über 100 %. Sie sehen den Busstrom in der Topologie-Ansicht und im Topologie-Bericht.",
+        "Für bestehende Projekte: Die Stromwerte kommen beim nächsten Import der ETS-Datei (.knxproj) dazu. Für den Produktkatalog die Herstellerdateien im Produktdialog neu einlesen lassen (Hinweis «verbesserte Auswertung»).",
         "Topologie-Bericht mit neuem Kapitel «Geräte nach Typ»: gleiche Geräte (Hersteller und Bestellnummer) gebündelt, z.B. alle JAX-9. Eine Übersicht zeigt die Anzahl je Typ, danach folgt je Typ eine Liste mit Adresse, Einbauort, Raum, Applikation und Seriennummer. Hat ein Gerätetyp einen Mangel, sehen Sie sofort, wie viele verbaut sind und wo."
       ],
       "verbessert": [
+        "ETS-Import (.knxproj): Die Applikation eines Geräts steht jetzt mit Namen und Version wie in der ETS, z.B. «Schalten Logik Status Zeit/5 (V1.1)», statt als interne ETS-Kennung. Geräte mit zwei Applikationen (z.B. ABB UD/S2.315.2) erhalten jetzt auch ihre Kommunikationsobjekte mit Objektfunktion. Bei bestehenden Projekten kommen die Namen beim nächsten Import der ETS-Datei dazu.",
         "KNX Secure in den Projekteigenschaften: aktivieren und Sicherheitsmodus wählen (Data Secure, IP Secure oder beide). Daneben steht der Stand des Archivs – Secure-fähige Geräte, erfasste FDSK, ETS6-Passwort erfasst oder fehlt –, nie die Werte selbst. «KNX-Secure-Archiv öffnen…» führt direkt zu Passwort, Zertifikaten und GA-Sicherheit. Die Projektübersicht zeigt denselben Stand."
       ]
     },

@@ -10,9 +10,13 @@ from datetime import datetime
 
 from .building_service import BuildingService
 from .riser_diagram import build_riser_diagram
+from .bus_current import (
+    DEFAULT_DEVICE_MA, DEFAULT_SUPPLY_MA, RESERVE_LIMIT, device_current, line_current,
+    shared_catalog_or_none,
+)
 from ..models.project import KnxProject
 from ..models.building import Bedienelement
-from ..models.topology import area_coupler, line_coupler, line_title
+from ..models.topology import area_coupler, is_power_supply, line_coupler, line_title
 from ..services.topology_diagram import (
     TOPOLOGY_TYPE_ORDER, TOPOLOGY_TYPE_PLURAL, device_type_label, area_title,
     build_topology_diagram,
@@ -202,6 +206,14 @@ VALIDATION_RULES = {
         "Bei importierten Projekten nur Hinweis: Spannungsversorgungen ohne "
         "Busanschluss fehlen in vielen ETS-Projekten.",
         "Spannungsversorgung mit Drossel vorsehen bzw. in der Topologie erfassen.",
+    ),
+    "FA-613b": (
+        "Busstrom je Linie",
+        "Summe der Stromaufnahme aller Busteilnehmer gegen die Spannungsversorgung "
+        "der Linie. Strom je Gerät aus den Herstellerdaten (Höchstwert), ohne "
+        "Angabe 10 mA. Warnung über 80 % (zu wenig Reserve), Fehler über 100 %.",
+        "Stärkere oder zweite Spannungsversorgung vorsehen, oder Geräte auf eine "
+        "andere Linie verschieben.",
     ),
     "FA-614": (
         "Verknüpfung: mehrere sendende GAs an einem Sensorkanal",
@@ -1380,6 +1392,8 @@ class ReportService:
         pdf.add_heading("Übersicht", level=2)
         schema = []
         kpi_rows = []
+        catalog = shared_catalog_or_none()
+        any_estimated = any_supply_assumed = False
         for area, lines in areas:
             info = " · ".join(p for p in (
                 f"Backbone {area.backbone_type}" if area.backbone_type else "",
@@ -1391,17 +1405,31 @@ class ReportService:
                 bus_devices = len(line.devices) - counts.get("Spannungsversorgung", 0)
                 stats = [(TOPOLOGY_TYPE_PLURAL[t], counts[t])
                          for t in TOPOLOGY_TYPE_ORDER if counts.get(t)]
+                lc = line_current(line, catalog)
+                any_estimated |= bool(lc.estimated_count)
+                any_supply_assumed |= lc.supply_assumed
                 schema_lines.append({
                     "title": line_title(area, line),
                     "coupler": _line_coupler(area, line),
                     "count": bus_devices,
                     "max": max_devices,
                     "stats": stats,
+                    "current": {
+                        "ratio": lc.load,
+                        "label": (f"{lc.total_ma:.0f} / {lc.supply_ma} mA" if lc.supply_ma
+                                  else f"{lc.total_ma:.0f} mA, keine SV"),
+                        "warn_from": RESERVE_LIMIT,
+                    },
                 })
+                current_note = "; ".join(p for p in (
+                    f"{lc.estimated_ma:.0f} mA geschätzt" if lc.estimated_count else "",
+                    "SV-Grösse angenommen" if lc.supply_assumed else "",
+                ) if p)
                 kpi_rows.append([
                     line_title(area, line),
                     _line_coupler(area, line) or "–",
                     f"{bus_devices} / {max_devices}",
+                    (lc.summary(), current_note),
                     str(counts.get("Aktor", 0)),
                     str(counts.get("Sensor", 0)),
                     str(counts.get("Gateway", 0)),
@@ -1417,16 +1445,26 @@ class ReportService:
             })
         pdf.add_topology_schema(schema)
         pdf.add_table(
-            ["Linie", "Koppler", "Geräte", "Aktoren", "Sensoren", "Gateways", "Weitere"],
+            ["Linie", "Koppler", "Geräte", "Busstrom", "Aktoren", "Sensoren",
+             "Gateways", "Weitere"],
             kpi_rows,
-            col_widths=[0.25, 0.13, 0.14, 0.12, 0.12, 0.12, 0.12],
-            align=["left", "left", "right", "right", "right", "right", "right"],
+            col_widths=[0.18, 0.09, 0.10, 0.23, 0.09, 0.10, 0.11, 0.10],
+            align=["left", "left", "right", "right", "right", "right", "right", "right"],
         )
         pdf.add_note(
             "Weitere:",
             "Koppler, Spannungsversorgungen und sonstige Geräte. Geräte und "
             f"Auslastung zählen Busteilnehmer (ohne Spannungsversorgungen), bezogen "
             f"auf {max_devices} je Linie ({topo.topology_mode}).")
+        pdf.add_note(
+            "Busstrom:",
+            "Prognose der Stromaufnahme gegen die Spannungsversorgung der Linie. "
+            "Strom je Gerät laut Herstellerdaten (Höchstwert, eher zu hoch als zu "
+            f"tief){f', ohne Angabe {DEFAULT_DEVICE_MA:.0f} mA geschätzt' if any_estimated else ''}. "
+            + (f"Spannungsversorgung ohne erkennbare Grösse: {DEFAULT_SUPPLY_MA} mA "
+               "angenommen. " if any_supply_assumed else "")
+            + f"Über {RESERVE_LIMIT * 100:.0f} % fehlt Reserve für Erweiterungen. "
+            "Spannungsabfall über die Leitungslänge ist nicht berücksichtigt.")
 
         # ── Geräte nach Linie ────────────────────────────────────────────────
         widths = [0.10, 0.47, 0.20, 0.23]
@@ -1506,13 +1544,24 @@ class ReportService:
             "Zweck:",
             "Gleiche Geräte (Hersteller und Bestellnummer) gebündelt – zeigt bei "
             "einem Mangel eines Gerätetyps, wie viele verbaut sind und wo.")
+        catalog = shared_catalog_or_none()
+
+        def current_cell(device) -> str:
+            # Nur Herstellerangaben; der Richtwert sagt über den Typ nichts aus
+            if is_power_supply(device):
+                return "–"
+            current, from_data = device_current(device, catalog)
+            return f"{current:g}" if from_data else "–"
+
         pdf.add_table(
-            ["Gerät", "Hersteller", "Bestellnummer", "Anzahl"],
-            [[_type_name(groups[k][0]), k[0] or "–", k[1] or "–", str(len(groups[k]))]
+            ["Gerät", "Hersteller", "Bestellnummer", "mA", "Anzahl"],
+            [[_type_name(groups[k][0]), k[0] or "–", k[1] or "–",
+              current_cell(groups[k][0]), str(len(groups[k]))]
              for k in keys],
-            col_widths=[0.45, 0.20, 0.23, 0.12],
-            align=["left", "left", "left", "right"],
+            col_widths=[0.40, 0.18, 0.22, 0.10, 0.10],
+            align=["left", "left", "left", "right", "right"],
         )
+        pdf.add_note("mA:", "Busstrom je Gerät laut Herstellerdaten; «–» ohne Angabe.")
         for key in keys:
             members = sorted(groups[key], key=lambda d: physical_address_key(d.physical_address))
             first = members[0]

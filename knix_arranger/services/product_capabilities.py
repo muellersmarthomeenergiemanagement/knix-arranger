@@ -276,7 +276,7 @@ def copy_device_product(source, target) -> None:
     dem Aufteilen); die KO-Zuordnung beginnt neu."""
     import copy
     for name in ("manufacturer", "manufacturer_id", "order_number", "product_name",
-                 "product_ref_id", "hw2prog_id", "secure_supported"):
+                 "product_ref_id", "hw2prog_id", "secure_supported", "bus_current"):
         setattr(target, name, getattr(source, name))
     target.communication_objects = [copy.deepcopy(co) for co in source.communication_objects]
     target.channel_map, target.co_map = {}, {}

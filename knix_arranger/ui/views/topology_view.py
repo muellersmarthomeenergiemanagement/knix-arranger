@@ -377,6 +377,9 @@ class TopologyView(QWidget):
             if self._ga_structure else {}
         )
 
+        from ...services.bus_current import line_current, shared_catalog_or_none
+        catalog = shared_catalog_or_none()
+
         # Speisegerät der Bereichslinie 0.0 (mehrere Bereiche, TP-Backbone)
         backbone_sv = self._topology.backbone_power_supply
         if backbone_sv is not None:
@@ -443,6 +446,13 @@ class TopologyView(QWidget):
                 elif line.device_count > 85:
                     status = " [Warnung]"
 
+                # Busstrom gegen die Spannungsversorgung (FA-613b)
+                lc = line_current(line, catalog)
+                current_text = ""
+                if lc.consumer_count:
+                    current_text = f"Busstrom {lc.summary()}"
+                    if lc.estimated_count:
+                        current_text += f", {lc.estimate_note()}"
                 line_item = QTreeWidgetItem(area_item, [
                     f"Linie {line.line_number} - {line.name}{status}",
                     # Linienadresse B.L – die Koppleradresse B.L.0 steht nur
@@ -450,8 +460,11 @@ class TopologyView(QWidget):
                     f"{area.area_number}.{line.line_number}",
                     str(line.device_count),
                     line.uv_location or "",
-                    "",
+                    current_text,
                 ])
+                if lc.overloaded or lc.low_reserve:
+                    line_item.setForeground(
+                        4, QColor("#C62828" if lc.overloaded else "#E65100"))
                 line_item.setData(0, _ROLE_DATA, ("line", area, line))
                 # Expand-Zustand wird in _restore_tree_state gesetzt
 

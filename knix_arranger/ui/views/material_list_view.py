@@ -64,7 +64,8 @@ def _copy_product(source: Device, target: Device) -> None:
     if not source.order_number:
         return
     for name in ("manufacturer", "manufacturer_id", "product_ref_id", "hw2prog_id",
-                 "secure_supported", "order_number", "product_name", "application_program"):
+                 "secure_supported", "bus_current", "order_number", "product_name",
+                 "application_program"):
         setattr(target, name, getattr(source, name))
     target.datasheets = list(source.datasheets)
     target.communication_objects = copy.deepcopy(source.communication_objects)

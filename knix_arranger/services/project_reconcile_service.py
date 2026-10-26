@@ -200,6 +200,10 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
                     new_dev.installation_location = old_dev.installation_location
                 if not new_dev.serial_number:
                     new_dev.serial_number = old_dev.serial_number
+                if not new_dev.bus_current:
+                    new_dev.bus_current = old_dev.bus_current
+                if not new_dev.application_program:
+                    new_dev.application_program = old_dev.application_program
                 if keep_report_params(old_dev, new_dev):
                     report_params_kept += 1
     devices_new = sorted(new_addrs - old_devices_by_addr.keys())

@@ -14,6 +14,7 @@ from typing import Optional
 
 from ..models.project import KnxProject
 from ..utils.rtf import rtf_to_text
+from .bus_current import parse_bus_current
 from ..models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
@@ -42,6 +43,34 @@ _GUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 
 def _tag(local: str) -> str:
     return f"{{{_NS}}}{local}"
+
+
+def _application_label(root: ET.Element, app: ET.Element) -> str:
+    """Name der Applikation wie in der ETS, deutsch wenn übersetzt, mit
+    Version: ApplicationVersion 17 = 0x11 -> "Schalten Logik Status Zeit/5
+    (V1.1)". Steht die Version schon im Namen ("Wetterstation V1.2"), nicht
+    doppelt."""
+    app_id = app.get("Id", "")
+    name = app.get("Name", "")
+    for lang in root.iter(_tag("Language")):
+        if not lang.get("Identifier", "").lower().startswith("de"):
+            continue
+        for element in lang.iter(_tag("TranslationElement")):
+            if element.get("RefId") != app_id:
+                continue
+            for translation in element:
+                if (translation.get("AttributeName") == "Name"
+                        and (translation.get("Text") or "").strip()):
+                    name = translation.get("Text")
+    name = " ".join(name.split())
+    try:
+        raw = int(app.get("ApplicationVersion", ""))
+    except ValueError:
+        return name
+    version = f"V{raw >> 4}.{raw & 0xF}"
+    if not name or version in name:
+        return name
+    return f"{name} ({version})"
 
 
 class KnxprojImportError(Exception):
@@ -95,6 +124,14 @@ class KnxprojImportService:
         # Archivs (gefuellt beim Lesen der Hersteller-XMLs)
         self._secure_app_ids: set[str] = set()
         self._secure_product_ids: set[str] = set()
+        # Busstrom in mA je ProductRefId (Hardware BusCurrent) und Produkte,
+        # die laut Hardware Spannungsversorgung sind
+        self._bus_current: dict[str, float] = {}
+        self._power_supply_product_ids: set[str] = set()
+        # Applikation je ApplicationProgram-Id: "Schalten Logik Status Zeit/5 (V1.1)"
+        self._app_names: dict[str, str] = {}
+        # Hardware2Program-Id -> ApplicationProgram-Id (aus Hardware.xml)
+        self._h2p_app: dict[str, str] = {}
         # KNX-Secure-Geraetezertifikate aus project.xml: Seriennummer
         # ("00C5:01088A39") -> FDSK (32 Hex-Zeichen). ETS legt den FDSK dort
         # im Klartext ab (mit dem Geraeteaufkleber verglichen, 2026-09).
@@ -575,7 +612,15 @@ class KnxprojImportService:
             except KnxprojImportError:
                 continue
             for hw in root.findall(".//k:Hardware", _NSM):
+                # Hardware2Program -> erste Applikation; die Id ist bei zwei
+                # Applikationen nicht ableitbar ("…_HP-4A22-11-F93B-O0007-4A22-21-3873-O0007")
+                for h2p in hw.findall("k:Hardware2Programs/k:Hardware2Program", _NSM):
+                    ref = h2p.find("k:ApplicationProgramRef", _NSM)
+                    if ref is not None and h2p.get("Id"):
+                        self._h2p_app[h2p.get("Id")] = ref.get("RefId", "")
                 hw_secure = _supports_secure(hw)
+                current = parse_bus_current(hw.get("BusCurrent"))
+                supply = hw.get("IsPowerSupply", "").lower() == "true"
                 for product in hw.findall("k:Products/k:Product", _NSM):
                     pid = product.get("Id", "")
                     name = product.get("Text", "") or hw.get("Name", "")
@@ -584,6 +629,10 @@ class KnxprojImportService:
                         lookup[pid] = (name, order, folder)
                         if hw_secure or _supports_secure(product):
                             self._secure_product_ids.add(pid)
+                        if current:
+                            self._bus_current[pid] = current
+                        if supply:
+                            self._power_supply_product_ids.add(pid)
         return lookup
 
     # ------------------------------------------------------------------
@@ -621,6 +670,9 @@ class KnxprojImportService:
             for app in root.iter(_tag("ApplicationProgram")):
                 if app.get("IsSecureEnabled", "").lower() == "true":
                     self._secure_app_ids.add(app.get("Id", ""))
+                label = _application_label(root, app)
+                if label:
+                    self._app_names[app.get("Id", "")] = label
         logger.debug(f"App-CO-Lookup: {len(lookup)} ComObjectRef-Einträge aus {sum(1 for n in zf.namelist() if pattern.match(n))} App-Programmen")
         return lookup
 
@@ -1360,13 +1412,15 @@ class KnxprojImportService:
 
             # App-Programm-ID für CO-Lookup ableiten
             hw2prog = di.get("Hardware2ProgramRefId", "")
-            ap_id = self._app_program_id(hw2prog)
+            ap_id = self._h2p_app.get(hw2prog) or self._app_program_id(hw2prog)
 
             # Geraetetyp: Koppler/Speisegerät zuerst prüfen (FA-516/FA-517),
             # Aktor/Sensor via Heuristik später (nach CO-Parsing).
             if addr is None:
+                # Hager «TXA111 Alimentation» trägt kein Schlüsselwort im Namen,
+                # die Hardware aber IsPowerSupply
                 dev_type = ("power_supply" if is_power_supply_product(product_name)
-                            else "other")
+                            or prod_ref in self._power_supply_product_ids else "other")
             elif addr == 0:
                 dev_type = "coupler"
             else:
@@ -1379,7 +1433,7 @@ class KnxprojImportService:
                 hw2prog_id=hw2prog,
                 order_number=order_num,
                 product=product_name,
-                application_program=hw2prog,
+                application_program=self._app_names.get(ap_id, ""),
                 installation_location=rtf_to_text(di.get("InstallationHints", "")),
                 serial_number=_knx_serial(di.get("SerialNumber", "")),
                 device_type=dev_type or "other",
@@ -1396,6 +1450,7 @@ class KnxprojImportService:
                     or ap_id in self._secure_app_ids
                     or prod_ref in self._secure_product_ids
                 ),
+                bus_current=self._bus_current.get(prod_ref, 0.0),
             )
 
             # Kommunikationsobjekte (ComObjectInstanceRefs)

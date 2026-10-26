@@ -9,6 +9,8 @@ Topologie-Prüfungen der Validierung (FA-609, FA-611 bis FA-613).
 - FA-612: Physikalische Adressen: gültiges Format, passend zu Bereich und
   Linie, nicht doppelt, Teilnehmer 0 nur für Koppler (FA-223).
 - FA-613: Jede Linie mit Busteilnehmern hat eine Spannungsversorgung.
+- FA-613b: Busstrom der Teilnehmer je Linie gegen die Spannungsversorgung
+  (Warnung über 80 %, Fehler über 100 %), siehe services.bus_current.
 """
 from __future__ import annotations
 import re
@@ -41,7 +43,45 @@ def check_topology(project) -> list[ValidationIssue]:
     issues += _check_line_load(topology)
     issues += _check_physical_addresses(topology)
     issues += _check_power_supplies(topology)
+    issues += _check_bus_current(topology)
     issues += _check_co_links(project)
+    return issues
+
+
+def _check_bus_current(topology) -> list[ValidationIssue]:
+    """FA-613b: Stromaufnahme der Teilnehmer gegen die Spannungsversorgung
+    (ohne SV meldet FA-613)."""
+    from .bus_current import line_current, shared_catalog_or_none, RESERVE_LIMIT
+    catalog = shared_catalog_or_none()
+    issues = []
+    for area in topology.areas:
+        for line in area.lines:
+            lc = line_current(line, catalog)
+            if not lc.consumer_count or lc.load is None:
+                continue
+            if not (lc.overloaded or lc.low_reserve):
+                continue
+            note = "; ".join(p for p in (
+                lc.estimate_note(),
+                "Grösse der Spannungsversorgung angenommen" if lc.supply_assumed else "",
+            ) if p)
+            text = f"{_line_label(area, line)}: Busstrom {lc.summary()}"
+            if note:
+                text += f" – {note}"
+            details = {"current_ma": round(lc.total_ma), "supply_ma": lc.supply_ma}
+            where = f"{area.area_number}.{line.line_number}"
+            if lc.overloaded:
+                issues.append(ValidationIssue(
+                    "error", "FA-613b", text, where,
+                    "Stärkere Spannungsversorgung oder zweite Spannungsversorgung "
+                    "vorsehen, oder Geräte auf eine andere Linie verschieben",
+                    details=details))
+            else:
+                issues.append(ValidationIssue(
+                    "warning", "FA-613b", text, where,
+                    f"Über {RESERVE_LIMIT * 100:.0f} % ausgelastet: Reserve für "
+                    "Erweiterungen fehlt",
+                    details=details))
     return issues
 
 

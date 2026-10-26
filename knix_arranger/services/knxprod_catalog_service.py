@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 
 from ..utils.manufacturers import canonical_manufacturer
 from .ko_size import dpt_from_size
+from .bus_current import parse_bus_current
 
 logger = logging.getLogger("knix_arranger.knxprod_catalog")
 
@@ -37,8 +38,9 @@ logger = logging.getLogger("knix_arranger.knxprod_catalog")
 # Übersetzung, Grösse (1.4.10); 3: Parameterbedingungen je KO-Variante
 # aus dem Dynamic-Abschnitt (ETS-Parametrier-Anleitung); 4: Module je Instanz
 # (MDT, Theben MIX), Bedingungen als Alternativen; 5: unsichtbare Parameter
-# (Access="None") mit ihrem festen Wert, nie aktive Zweige entfallen
-READER_VERSION = 5
+# (Access="None") mit ihrem festen Wert, nie aktive Zweige entfallen;
+# 6: Busstrom (Hardware BusCurrent)
+READER_VERSION = 6
 
 # Objektfunktion, die nur die Grösse nennt ("1 bit", "4 Byte")
 _SIZE_ONLY = re.compile(r"\s*\d+\s*(bit|bits|byte|bytes)\s*", re.IGNORECASE)
@@ -395,6 +397,7 @@ class KnxprodProduct:
     sensor_type: str = ""
     com_objects: list[ComObjectInfo] = field(default_factory=list)
     secure_supported: bool = False   # KNX Secure Unterstuetzung (FA-2705)
+    bus_current: float = 0.0         # Busstrom in mA (Hardware BusCurrent, 0 = unbekannt)
     # Parameter der Bedingungen: {ParameterRef-Id: [Block, Name, {Wert: Text},
     # sichtbar]} (aus dem Dynamic-Abschnitt der Applikation)
     parameters: dict = field(default_factory=dict)
@@ -431,6 +434,7 @@ class KnxprodProduct:
             "ga_min": self.ga_min,
             "ga_max": self.ga_max,
             "secure_supported": self.secure_supported,
+            **({"bus_current": self.bus_current} if self.bus_current else {}),
             "product_ref_id": self.product_ref_id,
             "hw2prog_id": self.hw2prog_id,
             "application_program_id": self.application_program_id,
@@ -563,6 +567,7 @@ class KnxprodCatalogService:
                     secure_supported=(
                         hw.get("secure_supported", False) or app_id in secure_app_ids
                     ),
+                    bus_current=hw.get("bus_current", 0.0),
                 )
                 products.append(prod)
 
@@ -651,7 +656,6 @@ class KnxprodCatalogService:
                     channels = int(
                         product.get("ChannelCount")
                         or product.get("NumberOfChannels")
-                        or hw.get("BusCurrentNeeded", 0)
                         or 0
                     )
 
@@ -681,6 +685,7 @@ class KnxprodCatalogService:
                         # nur eindeutig verwendbar: genau ein Programm für diese Hardware
                         "hw2prog_fallback": own_h2p[0] if len(own_h2p) == 1 else "",
                         "secure_supported": secure_supported,
+                        "bus_current": parse_bus_current(hw.get("BusCurrent")),
                     })
 
         return entries

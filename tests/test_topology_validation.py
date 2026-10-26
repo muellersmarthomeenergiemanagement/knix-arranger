@@ -20,7 +20,9 @@ def _project(*devices: Device, imported: bool = False) -> KnxProject:
     project.topology.is_imported = imported
     line = Line(line_number=1, name="EG", devices=[
         Device(physical_address="1.1.0", device_type="coupler"),
-        Device(physical_address="1.1.-", device_type="power_supply"),
+        # 1280 mA: auch 100 Aktoren à 10 mA bleiben unter 80 % (FA-613b)
+        Device(physical_address="1.1.-", device_type="power_supply",
+               product="Spannungsversorgung 1280mA"),
         *devices,
     ])
     project.topology.areas.append(Area(area_number=1, lines=[line]))

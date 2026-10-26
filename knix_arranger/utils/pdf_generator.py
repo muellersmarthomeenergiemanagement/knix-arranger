@@ -229,7 +229,9 @@ class PdfGenerator:
         Linien als Kästen mit Koppler, Auslastung und Gerätezahlen.
 
         areas: [{"title": str, "info": str, "lines": [{"title": str,
-        "coupler": str, "count": int, "max": int, "stats": [(Label, Anzahl)]}]}]
+        "coupler": str, "count": int, "max": int, "stats": [(Label, Anzahl)],
+        "current": {"ratio": float | None, "label": str, "warn_from": float}
+        (optional, zweiter Balken Busstrom)}]}]
         """
         self._blocks.append({"type": "topology_schema", "areas": areas})
 
@@ -318,8 +320,9 @@ class PdfGenerator:
                     lines.append(f"[{area['title']}]  {area['info']}")
                     for ln in area["lines"]:
                         stats = ", ".join(f"{k} {v}" for k, v in ln["stats"])
+                        current = f", {ln['current']['label']}" if ln.get("current") else ""
                         lines.append(f"  {ln['title']} ({ln['coupler']}): "
-                                     f"{ln['count']}/{ln['max']} Geräte – {stats}")
+                                     f"{ln['count']}/{ln['max']} Geräte{current} – {stats}")
                     lines.append("")
             elif btype == "topology_diagram":
                 if block["backbone"]:
@@ -597,7 +600,21 @@ class PdfGenerator:
             return self._wrap_cell(text, box_w - 2 * pad, fs)
 
         def box_height(ln):
-            return pad + 11 + 11 + 14 + len(stats_lines(ln)) * (fs + 3) + pad - 2
+            current_h = 13 if ln.get("current") else 0
+            return pad + 11 + 11 + current_h + 14 + len(stats_lines(ln)) * (fs + 3) + pad - 2
+
+        def draw_bar(bx, ty, ratio, label, warn_from):
+            bar_w = box_w - 2 * pad - 80
+            bar = fitz.Rect(bx + pad, ty, bx + pad + bar_w, ty + 7)
+            page.draw_rect(bar, color=None, fill=(0.90, 0.91, 0.93))
+            if ratio is not None:
+                color = (ACCENT_ERROR if ratio > 1 else
+                         ACCENT_WARNING if ratio >= warn_from else ACCENT_DEFAULT)
+                page.draw_rect(
+                    fitz.Rect(bar.x0, bar.y0, bar.x0 + bar_w * min(ratio, 1.0), bar.y1),
+                    color=None, fill=color)
+            tw = self._tw(label, fs)
+            self._txt(page, fitz.Point(bx + box_w - pad - tw, ty + 6.5), label, fs, color=grey)
 
         for area in areas:
             lines = area["lines"]
@@ -648,19 +665,13 @@ class PdfGenerator:
                     # Auslastung
                     ty += 11
                     count, maximum = ln["count"], max(ln["max"], 1)
-                    ratio = count / maximum
-                    bar_w = box_w - 2 * pad - 70
-                    bar = fitz.Rect(bx + pad, ty, bx + pad + bar_w, ty + 7)
-                    page.draw_rect(bar, color=None, fill=(0.90, 0.91, 0.93))
-                    color = (ACCENT_ERROR if ratio > 1 else
-                             ACCENT_WARNING if ratio >= 0.9 else ACCENT_DEFAULT)
-                    page.draw_rect(
-                        fitz.Rect(bar.x0, bar.y0, bar.x0 + bar_w * min(ratio, 1.0), bar.y1),
-                        color=None, fill=color)
-                    label = f"{count} / {ln['max']} Geräte"
-                    tw = self._tw(label, fs)
-                    self._txt(page, fitz.Point(bx + box_w - pad - tw, ty + 6.5),
-                              label, fs, color=grey)
+                    draw_bar(bx, ty, count / maximum, f"{count} / {ln['max']} Geräte", 0.9)
+                    # Busstrom gegen die Spannungsversorgung (FA-613b)
+                    current = ln.get("current")
+                    if current:
+                        ty += 13
+                        draw_bar(bx, ty, current["ratio"], current["label"],
+                                 current["warn_from"])
 
                     ty += 7 + 14
                     for text in stats_lines(ln):

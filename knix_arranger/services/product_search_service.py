@@ -66,6 +66,7 @@ class ProductSuggestion:
     hw2prog_id: str = ""
     application_program_id: str = ""
     secure_supported: bool = False   # KNX Secure-faehig (FA-2705)
+    bus_current: float = 0.0         # Busstrom in mA aus der KNXPROD (0 = unbekannt)
     order_number: str = ""
     product_name: str = ""
     channels: int = 0
@@ -362,6 +363,7 @@ class ProductSearchService:
                 hw2prog_id=prod.get("hw2prog_id", ""),
                 application_program_id=prod.get("application_program_id", ""),
                 secure_supported=prod.get("secure_supported", False),
+                bus_current=float(prod.get("bus_current", 0) or 0),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -413,6 +415,7 @@ class ProductSearchService:
                 hw2prog_id=prod.get("hw2prog_id", ""),
                 application_program_id=prod.get("application_program_id", ""),
                 secure_supported=prod.get("secure_supported", False),
+                bus_current=float(prod.get("bus_current", 0) or 0),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -463,6 +466,7 @@ class ProductSearchService:
                 hw2prog_id=prod.get("hw2prog_id", ""),
                 application_program_id=prod.get("application_program_id", ""),
                 secure_supported=prod.get("secure_supported", False),
+                bus_current=float(prod.get("bus_current", 0) or 0),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -541,6 +545,7 @@ class ProductSearchService:
                 hw2prog_id=prod.get("hw2prog_id", ""),
                 application_program_id=prod.get("application_program_id", ""),
                 secure_supported=prod.get("secure_supported", False),
+                bus_current=float(prod.get("bus_current", 0) or 0),
                 order_number=prod.get("order_number", ""),
                 product_name=prod.get("product_name", ""),
                 channels=prod.get("channels", 0),
@@ -839,6 +844,13 @@ class ProductSearchService:
             return None
         prod = self._catalog[i]
         return {**prod, "com_objects": self.com_objects_of(prod)}
+
+    def bus_current_of(self, manufacturer: str, order_number: str,
+                       product_name: str = "") -> float:
+        """Busstrom in mA eines Katalogprodukts (0 = unbekannt), ohne KOs zu laden."""
+        i = self._index_for(self._catalog).get(
+            product_key(manufacturer, order_number, product_name))
+        return float(self._catalog[i].get("bus_current", 0) or 0) if i is not None else 0.0
 
     def online_catalog_status(self):
         """Stand des zwischengespeicherten Online-Katalogs (OnlineCatalogResult)."""

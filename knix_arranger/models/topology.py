@@ -18,6 +18,9 @@ from ..utils.rtf import rtf_to_text
 # Projekt nur noch eine Form vorkommt (ko_links.parse_flags liest beide).
 _OLD_PRODUCT_FLAGS = re.compile(r"^([K-])([L-])([Ü-])([S-])([U-])$")
 
+# ETS-Kennung wie "M-0002_H-GH.20Q631…_HP-4701-11-5949"
+_ETS_ID_RE = re.compile(r"^M-[0-9A-Fa-f]{4}_[A-Z]+-")
+
 
 def normalize_flags(flags: str) -> str:
     m = _OLD_PRODUCT_FLAGS.match(flags or "")
@@ -125,6 +128,10 @@ class Device:
     hw2prog_id: str = ""
     # KNX Secure-faehig (aus ETS-Import, KNXPROD-Katalog oder Produktzuweisung)
     secure_supported: bool = False
+    # Busstrom in mA laut Herstellerdaten (Hardware BusCurrent; 0 = unbekannt,
+    # dann Richtwert, siehe services.bus_current). Bei Spannungsversorgungen
+    # der Ausgangsstrom.
+    bus_current: float = 0.0
     order_number: str = ""
     product: str = ""             # Gerätetyp-Bezeichnung, z.B. "Schaltaktor 8-fach"
     product_name: str = ""        # Hersteller-Produktbezeichnung (nach manueller Zuweisung)
@@ -190,6 +197,7 @@ class Device:
         self.product_ref_id = prod.product_ref_id if prod else ""
         self.hw2prog_id = prod.hw2prog_id if prod else ""
         self.secure_supported = bool(prod and prod.secure_supported)
+        self.bus_current = float(getattr(prod, "bus_current", 0) or 0) if prod else 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -200,6 +208,7 @@ class Device:
             "product_ref_id": self.product_ref_id,
             "hw2prog_id": self.hw2prog_id,
             "secure_supported": self.secure_supported,
+            "bus_current": self.bus_current,
             "order_number": self.order_number,
             "product": self.product,
             "product_name": self.product_name,
@@ -232,10 +241,14 @@ class Device:
             product_ref_id=data.get("product_ref_id", ""),
             hw2prog_id=data.get("hw2prog_id", ""),
             secure_supported=data.get("secure_supported", False),
+            bus_current=float(data.get("bus_current", 0) or 0),
             order_number=data.get("order_number", ""),
             product=data.get("product", ""),
             product_name=data.get("product_name", ""),
-            application_program=data.get("application_program", ""),
+            # knxproj-Importe bis 1.4.19 speicherten hier die ETS-Kennung
+            # (Hardware2ProgramRefId, bleibt in hw2prog_id) statt des Namens
+            application_program=("" if _ETS_ID_RE.match(data.get("application_program", ""))
+                                 else data.get("application_program", "")),
             # RTF aus aelteren ETS-Importen (InstallationHints) beim Laden bereinigen
             installation_location=rtf_to_text(data.get("installation_location", "")),
             button_configuration=data.get("button_configuration", ""),
