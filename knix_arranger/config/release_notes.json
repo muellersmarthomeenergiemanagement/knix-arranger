@@ -2,6 +2,19 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.23",
+      "date": "2026-10-28",
+      "verbessert": [
+        "ETS-Funktionen: Liegen die GAs einer Funktion schon in der Hauptgruppe des Stockwerks und in der Mittelgruppe des Gewerks, heisst der Hinweis nur noch «nach den Richtlinien benennen». Liegen sie anderswo, nennt der Hinweis das Ziel, z.B. «in MG 4/1 verschieben». Status-GAs dürfen auch in den Rückmelde-Mittelgruppen 6/7 liegen.",
+        "ETS-Funktionen: Die Status-GA einer Funktion wird geprüft. Hängt sie an mehreren Status-Objekten (z.B. drei DALI-Gruppen), warnt KNiX, denn der Wert springt je nach zuletzt sendendem Kanal. Sendet das Status-Objekt auf eine andere GA, zeigt KNiX diese GA an.",
+        "ETS-Funktionen: Eine GA, die Sie der Funktion selbst zugeordnet haben, steht als «zusätzliche GA» statt «unbekannt»."
+      ],
+      "behoben": [
+        "Validierung «Unerwarteter DPT» (FA-603): GAs aus dem ETS-Bericht Gruppenadressen.xlsx werden nicht mehr fälschlich gemeldet. Die ETS schreibt dort den Namen des Datenpunkts («Schalten», «Auf/Ab», «Prozent (0..100%)»), KNiX übersetzt ihn jetzt in den DPT (z.B. 1.001). Steht nur «1 bit», gilt DPT 1 ohne Untertyp.",
+        "Validierung «Fehlender Datenpunkttyp» (FA-604): Bei einer GA ohne Namen steht jetzt «GA ohne Namen» mit dem Vorschlag, sie in der ETS zu benennen oder zu löschen."
+      ]
+    },
+    {
       "version": "1.4.22",
       "date": "2026-10-26",
       "behoben": [
