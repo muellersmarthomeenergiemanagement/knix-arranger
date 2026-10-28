@@ -152,6 +152,32 @@ class TestValidationDPT:
         dpt_issues = [i for i in issues if i.rule_id in ("FA-603", "FA-604")]
         assert len(dpt_issues) == 0
 
+    def test_ets_report_dpt_names(self):
+        """Chalet 261021: GA-Report der ETS liefert "Schalten" statt DPST-1-1,
+        "1 bit" ohne Untertyp -- kein FA-603; falscher Name schon."""
+        structure = GroupAddressStructure()
+        hg = MainGroup(number=2, name="EG")
+        mg = MiddleGroup(number=4, name="Tasterfunktion")
+        for sub, (fn, dpt) in enumerate((("E/A", "Schalten"), ("E/A", "1 bit"),
+                                         ("AUF/AB", "Auf/Ab"), ("STOPP", "Schritt"),
+                                         ("E/A", "Prozent (0..100%)"))):
+            mg.group_addresses.append(GroupAddress(
+                main_group=2, middle_group=4, sub_group=sub,
+                designation=f"LD_E01_0{sub} {fn}", function_name=fn, datapoint_type=dpt))
+        hg.middle_groups.append(mg)
+        structure.main_groups.append(hg)
+        issues = [i for i in ValidationEngine().validate(structure) if i.rule_id == "FA-603"]
+        assert [i.address for i in issues] == ["2/4/4"]
+
+    def test_ets_dpt_id(self):
+        from knix_arranger.utils.ets_dpt_names import ets_dpt_id
+        assert ets_dpt_id("Schalten") == "DPST-1-1"
+        assert ets_dpt_id(" Temperatur (°C) ") == "DPST-9-1"
+        assert ets_dpt_id("1 bit") == "DPT-1"
+        assert ets_dpt_id("4 bytes") == ""
+        assert ets_dpt_id("DPST-18-1") == "DPST-18-1"
+        assert ets_dpt_id("Unbekannt") == "Unbekannt"
+
 
 class TestValidationNaming:
     """FA-610: Bezeichnungskonformitaet."""

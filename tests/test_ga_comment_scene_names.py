@@ -75,6 +75,19 @@ def test_reimport_behaelt_dpt_nummer_und_kommentar():
     assert other.datapoint_type == "Schalten"           # ohne bisherigen Stand unverändert
 
 
+def test_reimport_behaelt_untertyp_bei_1_bit():
+    """Report "1 bit" (DPT-1) verliert den bisherigen Untertyp nicht."""
+    old = _structure(GroupAddress(main_group=0, middle_group=4, sub_group=1,
+                                  datapoint_type="DPST-1-1"),
+                     GroupAddress(main_group=0, middle_group=4, sub_group=2,
+                                  datapoint_type="DPST-5-1"))
+    same = GroupAddress(main_group=0, middle_group=4, sub_group=1, datapoint_type="DPT-1")
+    other = GroupAddress(main_group=0, middle_group=4, sub_group=2, datapoint_type="DPT-1")
+    XlsxImportService.keep_known_ga_details(old, _structure(same, other))
+    assert same.datapoint_type == "DPST-1-1"
+    assert other.datapoint_type == "DPT-1"              # in der ETS geändert
+
+
 def test_ga_report_liest_kommentarzeile(tmp_path):
     openpyxl = pytest.importorskip("openpyxl")
     wb = openpyxl.Workbook()

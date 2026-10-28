@@ -7,6 +7,7 @@ import re
 import logging
 from ..models.group_address import GroupAddressStructure, GroupAddress
 from ..models.gewerk import GewerkCatalog
+from ..utils.ets_dpt_names import ets_dpt_id
 from ..utils.validators import (
     is_valid_ga, is_valid_designation, designation_room_number,
 )
@@ -931,22 +932,31 @@ class ValidationEngine:
                 continue
             if not ga.datapoint_type:
                 proposal = suggest_dpt(ga.designation, ga.function_name)
+                # Chalet 261021: leere GAs (Name " ", kein DPT) in der ETS
+                unnamed = not ga.designation.strip()
                 issues.append(ValidationIssue(
                     "warning", "FA-604",
+                    "Fehlender Datenpunkttyp für GA ohne Namen" if unnamed else
                     f"Fehlender Datenpunkttyp für: {ga.designation}",
                     ga.address,
-                    f"DPT-Vorschlag: {proposal}" if proposal else "",
+                    f"DPT-Vorschlag: {proposal}" if proposal else
+                    "In der ETS benennen und den DPT setzen oder die GA löschen"
+                    if unnamed else "",
                     designation=ga.designation,
                     details={"dpt": proposal},
                 ))
             else:
+                # Anzeigename aus dem ETS-Report ("Schalten") wie DPST-1-1;
+                # nur Haupttyp ("1 bit" = DPT-1): nur den Haupttyp vergleichen
+                actual = ets_dpt_id(ga.datapoint_type)
+                main_only = actual.upper().startswith("DPT-") and actual.count("-") == 1
                 expected = expected_dpts.get(ga.function_name)
-                if expected is not None:
-                    wrong = ga.datapoint_type != expected
+                if expected is not None and not main_only:
+                    wrong = actual != expected
                 else:
                     # übrige Funktionen der Liste (FA-1003c): nur der Haupttyp
-                    expected = ga_functions.suggested_dpt(ga.function_name)
-                    wrong = bool(expected) and _dpt_main(ga.datapoint_type) != _dpt_main(expected)
+                    expected = expected or ga_functions.suggested_dpt(ga.function_name)
+                    wrong = bool(expected) and _dpt_main(actual) != _dpt_main(expected)
                 if wrong:
                     issues.append(ValidationIssue(
                         "warning", "FA-603",

@@ -42,6 +42,7 @@ from ..models.building import (
 from ..models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
+from ..utils.ets_dpt_names import ets_dpt_id
 
 logger = logging.getLogger("knix_arranger.xlsx_import")
 
@@ -1502,7 +1503,8 @@ class XlsxImportService:
                 name_raw = row[col_name] if col_name < len(row) else None
                 designation = str(name_raw).strip() if name_raw else ""
                 dtype_raw = row[col_dtype] if col_dtype < len(row) else None
-                data_type = str(dtype_raw).strip() if dtype_raw else ""
+                # Report: Anzeigename ("Schalten") -> Kennung ("DPST-1-1")
+                data_type = ets_dpt_id(str(dtype_raw)) if dtype_raw else ""
 
                 # Mittelgruppe sicherstellen (defensiv)
                 mg_key = (hg_num, mg_num)
@@ -1560,8 +1562,12 @@ class XlsxImportService:
             if old is None:
                 continue
             touched = False
+            # auch "1 bit" (DPT-1) gegen den bisherigen Untertyp (DPST-1-1)
             if (old.datapoint_type.startswith(("DPST-", "DPT-"))
-                    and not ga.datapoint_type.startswith(("DPST-", "DPT-"))):
+                    and not ga.datapoint_type.startswith("DPST-")
+                    and (not ga.datapoint_type.startswith("DPT-")
+                         or old.datapoint_type.upper().replace("DPST-", "DPT-")
+                         .startswith(ga.datapoint_type.upper() + "-"))):
                 ga.datapoint_type = old.datapoint_type
                 touched = True
             if old.comment and not ga.comment:

@@ -465,7 +465,7 @@ class TestImportGaReportShiftedColumns:
         ga = structure.find_address(0, 0, 1)
         assert ga is not None
         assert ga.designation == "L.EG.01.01_ea (Test)"
-        assert ga.datapoint_type == "1 bit"
+        assert ga.datapoint_type == "DPT-1"     # "1 bit" aus dem Report
 
 
 # ---------------------------------------------------------------------------
