@@ -285,6 +285,46 @@ def test_ets_generated_in_any_main_group():
     assert not is_ets_generated(EtsFunctionRef("MoveUpDown", "13/0/0", "J_DG_04_F1 AUF/AB"))
 
 
+def test_ets_named_ga_in_home_group_only_renamed():
+    """Chalet 261021: Integrator hat die OG-Funktion nach 3/0 verschoben, die
+    Namen der ETS aber behalten -> nur benennen, nicht verschieben."""
+    from knix_arranger.services.ets_function_service import ref_hints
+    ref = EtsFunctionRef("SwitchOnOff", "3/0/245", "Schalten", "DPST-1-1")
+    linked = {"3/0/245", "12/1/200", "3/1/0"}
+    assert ref_hints("FT-6", ref, linked, (3, 0)) == [
+        "von der ETS benannt: nach den Richtlinien benennen"]
+    assert ref_hints("FT-6", ref, linked, (3, 1)) == [
+        "von der ETS angelegt: in MG 3/1 verschieben und benennen"]
+    blinds = EtsFunctionRef("MoveUpDown", "12/1/200", "Bewegen", "DPST-1-8")
+    assert ref_hints("FT-7", blinds, linked, (4, 1)) == [
+        "von der ETS angelegt: in MG 4/1 verschieben und benennen"]
+    assert ref_hints("FT-0", blinds, linked, (4, None)) == [
+        "von der ETS angelegt: in HG 4 verschieben und benennen"]
+    assert role_label("FT-7", EtsFunctionRef("", "3/1/0", "Beschattung")) == "zusätzliche GA"
+
+
+def test_status_ga_of_function():
+    """Status-GA je Funktion: darf in den Rückmelde-MGs liegen, braucht genau
+    ein Status-KO, das auf sie sendet (Chalet 261021: 3/0/246 hing als zweite
+    GA an drei Status-KOs)."""
+    from knix_arranger.services.ets_function_service import ref_hints
+    from knix_arranger.services.multi_ga_check import KoSender
+    status = EtsFunctionRef("InfoOnOff", "3/7/10", "L_OG_05_01 RM", "DPST-1-1")
+    linked = {"3/7/10"}
+    one = KoSender("1.1.5", 12, "Status", True)
+    assert ref_hints("FT-1", status, linked, (3, 0), {"3/7/10": [(one, "3/7/10")]}) == []
+    assert ref_hints("FT-1", status, linked, (3, 0), {}) == ["Status: an keinem Status-KO"]
+    assert ref_hints("FT-1", status, linked, (3, 0), {"3/7/10": [(one, "3/7/0")]}) == [
+        "Status: KO sendet auf 3/7/0"]
+    assert ref_hints("FT-1", status, linked, (3, 0),
+                     {"3/7/10": [(one, "3/7/0"), (one, "3/7/5")]}) == [
+        "Status: an 2 Status-KOs – Wert springt"]
+    # Befehls-GA in MG 7: falsche MG
+    switch = EtsFunctionRef("SwitchOnOff", "3/7/11", "Schalten", "DPST-1-1")
+    assert ref_hints("FT-1", switch, {"3/7/11"}, (3, 0), {}) == [
+        "von der ETS angelegt: in MG 3/0 verschieben und benennen"]
+
+
 def test_floor_on_main_group_14_or_higher_warns():
     """FA-411c: HG 14/15 ungefiltert, 16–31 bei älteren Kopplern unsicher."""
     from knix_arranger.models.building import Building, Wing, main_group_risk

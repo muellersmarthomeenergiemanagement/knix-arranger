@@ -146,6 +146,13 @@ def _all_devices(project):
             yield from line.devices
 
 
+def is_status_ko(co) -> bool:
+    """Sendendes KO, das einen Zustand meldet (Name oder Flags ohne Schreiben)."""
+    return _has_feedback_hint(f"{co.name} {co.object_function}") or (
+        bool(co.flags) and not _writes(co.flags)
+    )
+
+
 def build_sender_index(project) -> dict[str, list[KoSender]]:
     """GA -> KOs, die diese GA als erste Adresse führen und übertragen."""
     index: dict[str, list[KoSender]] = {}
@@ -155,16 +162,29 @@ def build_sender_index(project) -> dict[str, list[KoSender]]:
                 continue
             if co.flags and not _transmits(co.flags):
                 continue
-            label = f"{co.name} {co.object_function}"
-            is_status = _has_feedback_hint(label) or (
-                bool(co.flags) and not _writes(co.flags)
-            )
             index.setdefault(co.connected_gas[0], []).append(KoSender(
                 physical_address=device.physical_address,
                 co_number=co.object_number,
                 co_name=co.name or co.object_function,
-                is_status=is_status,
+                is_status=is_status_ko(co),
             ))
+    return index
+
+
+def build_status_link_index(project) -> dict[str, list[tuple[KoSender, str]]]:
+    """GA -> sendende Status-KOs, an denen sie hängt (an beliebiger Stelle),
+    je mit der GA, auf die das KO tatsächlich sendet (seine erste)."""
+    index: dict[str, list[tuple[KoSender, str]]] = {}
+    for device in _all_devices(project):
+        for co in device.communication_objects:
+            if not co.connected_gas or (co.flags and not _transmits(co.flags)):
+                continue
+            if not is_status_ko(co):
+                continue
+            sender = KoSender(device.physical_address, co.object_number,
+                              co.name or co.object_function, True)
+            for ga in co.connected_gas:
+                index.setdefault(ga, []).append((sender, co.connected_gas[0]))
     return index
 
 

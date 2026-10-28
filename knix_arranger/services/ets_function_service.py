@@ -116,7 +116,8 @@ def role_label(function_type: str, ref) -> str:
         return point.label
     if function_type == "FT-0":
         return ""
-    return ref.role or "unbekannt"
+    # Ohne Rolle: vom Integrator zusätzlich zugeordnete GA (in der ETS mit GUID)
+    return ref.role or "zusätzliche GA"
 
 
 def is_ets_generated(ref) -> bool:
@@ -131,6 +132,80 @@ def _main_group(address: str) -> int:
         return int(address.split("/")[0])
     except ValueError:
         return -1
+
+
+def _middle_group(address: str) -> int:
+    try:
+        return int(address.split("/")[1])
+    except (ValueError, IndexError):
+        return -1
+
+
+def _home_groups(project):
+    """Funktion -> (HG des Stockwerks, MG des Funktionstyps oder None)."""
+    from .ets_function_plan import TYPE_MIDDLE_GROUP, floor_main_groups
+    main_of = floor_main_groups(project)
+
+    def home(floor, function) -> tuple[int | None, int | None]:
+        return main_of.get(floor.id), TYPE_MIDDLE_GROUP.get(function.function_type)
+    return home
+
+
+#: Rückmeldungen der Funktion: die ETS legt je Funktion eine Status-GA an,
+#: senden muss das Status-KO des Aktors (verknüpft die ETS nicht selbst).
+#: Position/Lamellen (FT-7) gelten wie in der Planung als Befehl.
+STATUS_ROLES = frozenset({"InfoOnOff", "InfoDimmingValue"})
+#: MGs für Rückmeldungen (Variante B; Chalet: 6 Jalousie, 7 Licht)
+STATUS_MIDDLE_GROUPS = (6, 7)
+
+
+def _misplaced(ref, home: tuple[int | None, int | None]) -> str:
+    """Wohin eine GA gehört, wenn sie nicht in HG des Stockwerks und MG des
+    Funktionstyps liegt ("HG 3", "MG 3/0"); "" = Ort stimmt. Status-GAs
+    dürfen auch in den Rückmelde-MGs liegen."""
+    main, middle = home
+    if main is not None and _main_group(ref.address) != main:
+        return f"HG {main}" if middle is None else f"MG {main}/{middle}"
+    mg = _middle_group(ref.address)
+    if (middle is not None and mg != middle
+            and not (ref.role in STATUS_ROLES and mg in STATUS_MIDDLE_GROUPS)):
+        return f"MG {_main_group(ref.address)}/{middle}"
+    return ""
+
+
+def _status_finding(ref, linked: set[str], status_links: dict | None):
+    """(Stufe, Kurzhinweis, Meldung, Massnahme) zur Status-GA einer Funktion,
+    None = in Ordnung oder nicht prüfbar. Ein Status-KO sendet nur auf seine
+    erste GA; mehrere Status-KOs auf einer GA: der Wert springt je nach dem
+    zuletzt sendenden Kanal."""
+    if status_links is None or ref.role not in STATUS_ROLES or ref.address not in linked:
+        return None
+    links = status_links.get(ref.address, [])
+    if not links:
+        return ("info", "Status: an keinem Status-KO",
+                "an keinem Status-KO eines Aktors",
+                "Status-KO des Aktors verknüpfen und den Status im Aktor aktivieren")
+    if len(links) > 1:
+        return ("warning", f"Status: an {len(links)} Status-KOs – Wert springt",
+                f"an {len(links)} Status-KOs ("
+                + ", ".join(s.text for s, _ in links[:3]) + ")",
+                "Status-GA nur an ein Status-KO hängen: jeder Kanal meldet auf seine "
+                "eigene Status-GA, gemeinsamer Status nur über Logik (ODER-Gatter, "
+                "Sammelstatus)")
+    sender, sent = links[0]
+    if sent != ref.address:
+        return ("info", f"Status: KO sendet auf {sent}",
+                f"{sender.text} sendet auf {sent}, nicht auf diese GA",
+                f"Der Funktion die Status-GA {sent} zuordnen oder diese GA als "
+                f"sendende GA des KOs setzen")
+    return None
+
+
+def _generated_hint(ref, home) -> str:
+    target = _misplaced(ref, home)
+    if target:
+        return f"von der ETS angelegt: in {target} verschieben und benennen"
+    return "von der ETS benannt: nach den Richtlinien benennen"
 
 
 @dataclass
@@ -182,14 +257,18 @@ def functions_by_address(project) -> dict[str, list[str]]:
     return result
 
 
-def ref_hints(function_type: str, ref, linked: set[str]) -> list[str]:
-    """Hinweise zu einer GA einer Funktion (gleich wie in der Validierung)."""
+def ref_hints(function_type: str, ref, linked: set[str],
+              home: tuple[int | None, int | None] = (None, None),
+              status_links: dict | None = None) -> list[str]:
+    """Hinweise zu einer GA einer Funktion (gleich wie in der Validierung);
+    home = HG des Stockwerks und MG des Funktionstyps (siehe _home_groups),
+    status_links = multi_ga_check.build_status_link_index (None = Status
+    nicht prüfen)."""
     if not ref.address:
         return ["GA nicht gefunden"]
     hints = []
     if is_ets_generated(ref):
-        hints.append("von der ETS angelegt: in die passende Hauptgruppe "
-                     "verschieben und benennen")
+        hints.append(_generated_hint(ref, home))
     elif function_type != "FT-0":
         point = function_point(function_type, ref)
         if point and not _dpt_matches(ref.datapoint_type, point.dpt):
@@ -197,11 +276,17 @@ def ref_hints(function_type: str, ref, linked: set[str]) -> list[str]:
                          f"{_dpt_text(point.dpt)}")
     if ref.address not in linked:
         hints.append("auf kein KO verknüpft")
+    status = _status_finding(ref, linked, status_links)
+    if status:
+        hints.append(status[1])
     return hints
 
 
 def overview_rows(project) -> list[FunctionRow]:
+    from .multi_ga_check import build_status_link_index
     linked = _linked_addresses(project)
+    home_of = _home_groups(project)
+    status_links = build_status_link_index(project)
     rows = []
     for floor, room, function in iter_functions(project):
         floor_text = floor.name or floor.short_code
@@ -217,7 +302,8 @@ def overview_rows(project) -> list[FunctionRow]:
                 type_label(function.function_type),
                 role_label(function.function_type, ref),
                 ref.address, ref.ga_name, _dpt_text(ref.datapoint_type),
-                ref_hints(function.function_type, ref, linked)))
+                ref_hints(function.function_type, ref, linked, home_of(floor, function),
+                          status_links)))
     return rows
 
 
@@ -251,8 +337,12 @@ def check_functions(project) -> list:
     function_addresses: set[str] = set()
     generated = 0
     planned_names = {f.name.strip().lower() for f in getattr(project, "functions", [])}
+    home_of = _home_groups(project)
+    from .multi_ga_check import build_status_link_index
+    status_links = build_status_link_index(project)
     for floor, room, function in iter_functions(project):
         where = f"{_room_label(floor, room)}, Funktion «{function.name}»"
+        home = home_of(floor, function)
         if not function.refs and function.function_type != "FT-0":
             issues.append(ValidationIssue(
                 "info", "FA-636", f"{where}: keine Gruppenadresse",
@@ -268,18 +358,22 @@ def check_functions(project) -> list:
             function_addresses.add(ref.address)
             if is_ets_generated(ref):
                 generated += 1
+                target = _misplaced(ref, home)
                 # In KNiX geplant: die Funktions-GAs gibt es schon, die der ETS
                 # sind überflüssig (verschieben brächte zwei GAs je Punkt)
-                measure = ("In der ETS löschen und der Funktion die KNiX-GA zuordnen "
-                           "(ETS-Arbeitsliste)"
-                           if function.name.strip().lower() in planned_names else
-                           "In der ETS in die Hauptgruppe des Stockwerks verschieben und "
-                           "nach den Richtlinien benennen")
+                if function.name.strip().lower() in planned_names:
+                    measure = ("In der ETS löschen und der Funktion die KNiX-GA zuordnen "
+                               "(ETS-Arbeitsliste)")
+                elif target:
+                    measure = (f"In der ETS in {target} verschieben und nach den "
+                               f"Richtlinien benennen")
+                else:
+                    measure = "In der ETS nach den Richtlinien benennen"
+                message = (f"{prefix}: GA von der ETS angelegt (HG {_main_group(ref.address)}, "
+                           f"Name «{ref.ga_name}»)" if target else
+                           f"{prefix}: GA mit dem Namen der ETS «{ref.ga_name}»")
                 issues.append(ValidationIssue(
-                    "info", "FA-636",
-                    f"{prefix}: GA von der ETS angelegt (HG {_main_group(ref.address)}, "
-                    f"Name «{ref.ga_name}»)",
-                    ref.address, measure,
+                    "info", "FA-636", message, ref.address, measure,
                     designation=ref.ga_name))
             elif function.function_type != "FT-0":
                 point = function_point(function.function_type, ref)
@@ -297,6 +391,12 @@ def check_functions(project) -> list:
                     "info", "FA-636", f"{prefix}: GA auf kein KO verknüpft",
                     ref.address,
                     "In der ETS mit den KOs von Aktor und Taster verknüpfen",
+                    designation=ref.ga_name))
+            status = _status_finding(ref, linked, status_links)
+            if status:
+                level, _hint, text, measure = status
+                issues.append(ValidationIssue(
+                    level, "FA-636", f"{prefix}: {text}", ref.address, measure,
                     designation=ref.ga_name))
     issues.extend(_check_catch_main_group(project, function_addresses, generated))
     return issues
