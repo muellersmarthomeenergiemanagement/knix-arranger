@@ -20,6 +20,7 @@ from ...services.ets_function_plan import (
     CUSTOM_DPTS, PLAN_POINTS, PLAN_TYPES, Location, _omitted, _point_label,
     function_ga_map, member_candidates, plan_type_label,
 )
+from ...services.function_gewerke import gewerk_label
 
 # Art je Funktionspunkt
 _AUTO, _LINKED, _OMIT = "auto", "linked", "omit"
@@ -124,13 +125,24 @@ class FunctionEditDialog(QDialog):
         self._members.clear()
         location = self._current_location()
         candidates = member_candidates(location, self._type.currentData()) if location else []
+        by_gewerk: dict[str, list] = {}
         for member in candidates:
-            item = QListWidgetItem(member.label)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            key = (member.assignment.id, member.element_number)
-            item.setCheckState(Qt.Checked if key in selected else Qt.Unchecked)
-            item.setData(Qt.UserRole, key)
-            self._members.addItem(item)
+            by_gewerk.setdefault(member.assignment.gewerk_code, []).append(member)
+        for code, group in by_gewerk.items():
+            # Zwischentitel je Gewerk (FA-530c), nicht wählbar
+            header = QListWidgetItem(f"{gewerk_label(self._project, code)} ({len(group)})")
+            header.setFlags(Qt.ItemIsEnabled)
+            font = header.font()
+            font.setBold(True)
+            header.setFont(font)
+            self._members.addItem(header)
+            for member in group:
+                item = QListWidgetItem(member.label)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                key = (member.assignment.id, member.element_number)
+                item.setCheckState(Qt.Checked if key in selected else Qt.Unchecked)
+                item.setData(Qt.UserRole, key)
+                self._members.addItem(item)
         if not candidates:
             self._members.addItem("Keine passenden Elemente an diesem Ort.")
         self._members.blockSignals(False)

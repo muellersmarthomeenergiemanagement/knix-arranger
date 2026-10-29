@@ -1,12 +1,12 @@
 """
 Ansicht "ETS-Funktionen": die in der ETS je Raum angelegten Funktionen
 (FA-529, Hinweise FA-636) und die in KNiX geplanten (FA-530) mit ihren GAs,
-Elementen und dem Stand in der ETS (FA-637).
+Elementen, ihren Gewerken (FA-530c) und dem Stand in der ETS (FA-637).
 """
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtGui import QBrush, QColor, QFont
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem,
     QTabWidget, QPushButton, QMessageBox,
@@ -15,10 +15,11 @@ from PySide6.QtWidgets import (
 from ...models.project import KnxProject
 from ...services.ets_function_service import overview_rows, type_label
 from ...services import ets_function_plan as plan
+from ...services.function_gewerke import EtsGewerke, GewerkCell, gewerk_cell
 from ..styles import COLOR_WARNING
 
-_COLUMNS = ["Raum / Funktion", "Rolle", "Adresse", "Name in der ETS", "DPT", "Hinweis"]
-_PLAN_COLUMNS = ["Ort / Funktion", "Funktionspunkt", "Adresse", "Bezeichnung",
+_COLUMNS = ["Raum / Funktion", "Gewerk", "Rolle", "Adresse", "Name in der ETS", "DPT", "Hinweis"]
+_PLAN_COLUMNS = ["Ort / Funktion", "Gewerk", "Funktionspunkt", "Adresse", "Bezeichnung",
                  "Stand in der ETS / Aktorkanal"]
 _STATE_TEXT = {"anlegen": "in der ETS anlegen", "ergänzen": "GAs zuordnen", "ok": "vorhanden"}
 
@@ -115,6 +116,8 @@ class EtsFunctionsView(QWidget):
         self._tree.clear()
         rooms: dict[tuple[str, str], QTreeWidgetItem] = {}
         functions: dict[tuple[str, str, str], QTreeWidgetItem] = {}
+        addresses: dict[tuple[str, str, str], list[str]] = {}
+        gewerke = EtsGewerke(self._project) if rows else None
         warn = QBrush(QColor(COLOR_WARNING))
         for row in rows:
             room_key = (row.floor, row.room)
@@ -132,14 +135,19 @@ class EtsFunctionsView(QWidget):
             if not row.address and not row.role:
                 # Funktion ohne GA
                 if row.hints:
-                    fn_item.setText(5, "; ".join(row.hints))
-                    fn_item.setForeground(5, warn)
+                    fn_item.setText(6, "; ".join(row.hints))
+                    fn_item.setForeground(6, warn)
                 continue
-            item = QTreeWidgetItem(["", row.role, row.address, row.ga_name,
+            item = QTreeWidgetItem(["", "", row.role, row.address, row.ga_name,
                                     row.datapoint_type, "; ".join(row.hints)])
+            if row.address:
+                _set_gewerk(item, gewerke.cell(row.address))
+                addresses.setdefault(fn_key, []).append(row.address)
             if row.hints:
-                item.setForeground(5, warn)
+                item.setForeground(6, warn)
             fn_item.addChild(item)
+        for fn_key, fn_item in functions.items():
+            _set_gewerk(fn_item, gewerke.function_cell(addresses.get(fn_key, [])))
         self._finish(self._tree, len(_COLUMNS))
 
     # ── Geplant ───────────────────────────────────────────────────────────
@@ -170,11 +178,19 @@ class EtsFunctionsView(QWidget):
             if status.other_room:
                 state += ", anderer Raum"
             fn_item = QTreeWidgetItem([f"{function.name} ({plan.plan_type_label(function.function_type)})",
-                                       "", "", "", state])
+                                       "", "", "", "", state])
             fn_item.setData(0, Qt.UserRole, function.id)
             if ets_read and (status.state != "ok" or status.other_room):
-                fn_item.setForeground(4, warn)
+                fn_item.setForeground(5, warn)
             place.addChild(fn_item)
+            members = plan.resolve_members(project, function)
+            codes = [m.assignment.gewerk_code for m in members if m is not None]
+            if codes:
+                _set_gewerk(fn_item, gewerk_cell(project, codes))
+            else:
+                # ohne Elemente: Gewerk der GA-Bezeichnung
+                _set_gewerk(fn_item, gewerk_cell(project, [plan.gewerk_code(project, function)]),
+                            grey=True)
             missing = {ga.address for ga in status.missing}
             gas = list(plan.function_ga_map(project, function).items())
             gas_node = QTreeWidgetItem([f"Funktions-GAs ({len(gas)})"])
@@ -187,18 +203,17 @@ class EtsFunctionsView(QWidget):
                     "fehlt" if ga.address in missing else "zugeordnet")
                 if ga.function_id != function.id:
                     ga_state = ", ".join(p for p in ("bestehende GA", ga_state) if p)
-                item = QTreeWidgetItem(["", plan._point_label(function.function_type, point),
+                item = QTreeWidgetItem(["", "", plan._point_label(function.function_type, point),
                                         ga.address, ga.designation, ga_state])
                 item.setData(0, Qt.UserRole, function.id)
                 if ga_state == "fehlt":
-                    item.setForeground(4, warn)
+                    item.setForeground(5, warn)
                 gas_node.addChild(item)
             # Aktorkanal je Element: über seine eigene GA im Belegungsplan
             own_gas = {}
             for member, _fga, own in plan.member_links(project, function):
                 if own is not None:
                     own_gas.setdefault((member.assignment.id, member.element_number), own)
-            members = plan.resolve_members(project, function)
             members_node = QTreeWidgetItem([f"Bediente Elemente ({len(members)})"])
             members_node.setToolTip(0, "Elemente der Gewerke, die die Funktion gemeinsam "
                                        "bedient")
@@ -206,13 +221,14 @@ class EtsFunctionsView(QWidget):
             fn_item.addChild(members_node)
             for member in members:
                 if member is None:
-                    item = QTreeWidgetItem(["", "Element entfernt"])
-                    item.setForeground(1, warn)
+                    item = QTreeWidgetItem(["", "", "Element entfernt"])
+                    item.setForeground(2, warn)
                 else:
                     own = own_gas.get((member.assignment.id, member.element_number))
                     channel = channels.get(own.address, "") if own else ""
-                    item = QTreeWidgetItem(["", member.label, "", "",
+                    item = QTreeWidgetItem(["", "", member.label, "", "",
                                             channel or "noch kein Aktorkanal"])
+                    _set_gewerk(item, gewerk_cell(project, [member.assignment.gewerk_code]))
                 item.setData(0, Qt.UserRole, function.id)
                 members_node.addChild(item)
         self._finish(self._plan_tree, len(_PLAN_COLUMNS))
@@ -335,3 +351,16 @@ class EtsFunctionsView(QWidget):
         tree.expandAll()
         for col in range(columns):
             tree.resizeColumnToContents(col)
+
+
+def _set_gewerk(item: QTreeWidgetItem, cell: GewerkCell, grey: bool = False) -> None:
+    """Spalte "Gewerk": abgeleitet kursiv, Namen mehrerer Gewerke im Tooltip."""
+    item.setText(1, cell.text)
+    if cell.tooltip:
+        item.setToolTip(1, cell.tooltip)
+    if cell.derived:
+        font = QFont(item.font(1))
+        font.setItalic(True)
+        item.setFont(1, font)
+    if grey:
+        item.setForeground(1, QBrush(QColor("#888")))

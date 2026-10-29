@@ -260,13 +260,17 @@ def test_view_dialog_and_button_choice(project):
     assert gas_node.text(0) == "Funktions-GAs (5)" and gas_node.childCount() == 5
     assert members_node.text(0) == "Bediente Elemente (3)"
     first = members_node.child(0)
-    assert [first.text(c) for c in range(4)] == ["", "J_EG_01_01 (Links)", "", ""]
-    assert first.text(4).startswith("Aktor ") and ", Kanal " in first.text(4)
+    assert [first.text(c) for c in range(5)] == ["", "J Jalousie", "J_EG_01_01 (Links)", "", ""]
+    assert first.text(5).startswith("Aktor ") and ", Kanal " in first.text(5)
+    assert function_item.text(1) == "J Jalousie"        # Gewerk (FA-530c)
 
     dialog = FunctionEditDialog(project, project.functions[0])
-    assert dialog._members.count() == 3
-    assert all(dialog._members.item(i).checkState() == Qt.Checked for i in range(3))
-    dialog._members.item(2).setCheckState(Qt.Unchecked)
+    # Zwischentitel je Gewerk, dann die drei Elemente
+    assert dialog._members.count() == 4
+    assert dialog._members.item(0).text() == "J Jalousie (3)"
+    assert not dialog._members.item(0).flags() & Qt.ItemIsUserCheckable
+    assert all(dialog._members.item(i).checkState() == Qt.Checked for i in range(1, 4))
+    dialog._members.item(3).setCheckState(Qt.Unchecked)
     dialog._accept()
     edited = dialog.result_function()
     assert len(edited.members) == 2 and edited.number == 1
