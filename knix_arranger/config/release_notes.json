@@ -2,6 +2,14 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.26",
+      "date": "2026-10-29",
+      "verbessert": [
+        "ETS-Funktionen: Neue Spalte «Gewerk» in beiden Reitern, z.B. «J Jalousie». Bei mehreren Gewerken stehen die Kürzel («L, LD»), die Namen zeigt der Tooltip. Von der ETS angelegte GAs ohne eigenes Gewerk (z.B. «Schalten» in HG 12) erhalten kursiv das Gewerk der Element-GAs am selben Aktorkanal; korrigierte Gewerke erscheinen als «G Gerät (statt T Taster)».",
+        "Dialog «Funktion»: Die Liste der Elemente ist nach Gewerk gegliedert, mit Zwischentiteln wie «J Jalousie (3)»."
+      ]
+    },
+    {
       "version": "1.4.25",
       "date": "2026-10-29",
       "neu": [
