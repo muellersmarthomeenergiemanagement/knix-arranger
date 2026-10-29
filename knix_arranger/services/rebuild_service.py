@@ -109,7 +109,7 @@ def adopt_device_ids(old: KnxProject, imported: KnxProject) -> int:
 
 def adopt_report_params(old: KnxProject, imported: KnxProject) -> int:
     """Tastenparameter und Szenenwerte aus früher eingelesenen ETS-Reports
-    übernehmen (die .knxproj liefert sie nicht, siehe keep_report_params).
+    übernehmen, wo die .knxproj sie nicht liefert (siehe keep_report_params).
     Gibt die Anzahl Geräte zurück."""
     from .project_reconcile_service import keep_report_params
     old_devices = {

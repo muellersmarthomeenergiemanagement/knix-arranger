@@ -15,6 +15,11 @@ from typing import Optional
 from ..models.project import KnxProject
 from ..utils.rtf import rtf_to_text
 from .bus_current import parse_bus_current
+from .knxprod_catalog_service import (
+    argument_substitution, clean_co_text, fill_text_parameter, german_all_texts,
+    german_co_texts, is_placeholder_text,
+)
+from . import ets_parameter_view
 from ..models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
@@ -132,6 +137,12 @@ class KnxprojImportService:
         self._app_names: dict[str, str] = {}
         # Hardware2Program-Id -> ApplicationProgram-Id (aus Hardware.xml)
         self._h2p_app: dict[str, str] = {}
+        # Je ApplicationProgram-Id: Parameter-Vorgaben und Module
+        # (_read_app_context)
+        self._app_context: dict[str, dict] = {}
+        # Parameterauswertung je ApplicationProgram-Id, nur für Applikationen
+        # der Geräte im Projekt (ets_parameter_view)
+        self._app_parameters: dict[str, ets_parameter_view.ApplicationParameters] = {}
         # KNX-Secure-Geraetezertifikate aus project.xml: Seriennummer
         # ("00C5:01088A39") -> FDSK (32 Hex-Zeichen). ETS legt den FDSK dort
         # im Klartext ab (mit dem Geraeteaufkleber verglichen, 2026-09).
@@ -322,7 +333,7 @@ class KnxprojImportService:
         project.areal, room_device_refs = self._parse_building(installation)
         self._resolve_function_refs(installation, project)
         ga_xml_lookup = self._build_ga_xml_id_lookup(installation)
-        app_co_lookup = self._build_app_co_lookup(zf)
+        app_co_lookup = self._build_app_co_lookup(zf, installation)
         project.topology, device_id_to_line = self._parse_topology(
             installation, hw_lookup, ga_xml_lookup, app_co_lookup
         )
@@ -470,7 +481,7 @@ class KnxprojImportService:
                 project.areal, room_device_refs = self._parse_building(installation)
                 self._resolve_function_refs(installation, project)
                 ga_xml_lookup = self._build_ga_xml_id_lookup(installation)
-                app_co_lookup = self._build_app_co_lookup(outer_zf)
+                app_co_lookup = self._build_app_co_lookup(outer_zf, installation)
                 project.topology, device_id_to_line = self._parse_topology(
                     installation, hw_lookup, ga_xml_lookup, app_co_lookup
                 )
@@ -639,26 +650,25 @@ class KnxprojImportService:
     # Schritt 2a-2: App-Programm CO-Lookup
     # ------------------------------------------------------------------
 
-    def _build_app_co_lookup(self, zf: zipfile.ZipFile) -> dict:
+    def _build_app_co_lookup(self, zf: zipfile.ZipFile,
+                             installation: ET.Element | None = None) -> dict:
         """
         Scannt alle M-XXXX/M-XXXX_A-*.xml Applikationsprogramm-Dateien im ZIP
-        und baut ein Lookup {ComObjectRef.Id → CO-Metadaten-Dict}.
-
-        Struktur eines Eintrags:
-          {
-            "name": "Ausgang A",          # ComObject.Name
-            "number": 0,                  # ComObject.Number
-            "function_text": "Switch",    # ComObject.FunctionText (ggf. durch Ref überschrieben)
-            "object_size": "1 Bit",       # ComObject.ObjectSize → data_type
-            "flags": "KSUE-A",            # Kompakter Flags-String
-            "priority": "Niedrig",        # ComObject.Priority (DE)
-            "write_flag": True,           # WriteFlag (für device_type-Heuristik)
-            "transmit_flag": True,        # TransmitFlag (für device_type-Heuristik)
-          }
+        und baut ein Lookup {ComObjectRef.Id → Attribute}: die des ComObject,
+        überschrieben von denen der Ref, je mit deutscher Übersetzung (Text,
+        FunctionText, Number, ObjectSize, Flags, TextParameterRefId,
+        BaseNumber ...). Daraus entsteht je Gerät das KO (_resolve_co).
+        Nebenbei je Applikation, was Textparameter und Module brauchen
+        (self._app_context).
         """
         import re as _re
         lookup: dict[str, dict] = {}
         pattern = _re.compile(r"^M-\w+/M-\w+_A-[\w.-]+\.xml$")
+        used_apps = set()
+        if installation is not None:
+            for di in installation.iter(_tag("DeviceInstance")):
+                hw2prog = di.get("Hardware2ProgramRefId", "")
+                used_apps.add(self._h2p_app.get(hw2prog) or self._app_program_id(hw2prog))
         for name in zf.namelist():
             if not pattern.match(name):
                 continue
@@ -668,6 +678,10 @@ class KnxprojImportService:
                 continue
             self._extract_app_co_refs(root, lookup)
             for app in root.iter(_tag("ApplicationProgram")):
+                self._app_context[app.get("Id", "")] = self._read_app_context(app)
+                if app.get("Id", "") in used_apps:
+                    self._app_parameters[app.get("Id", "")] = (
+                        ets_parameter_view.ApplicationParameters(app, german_all_texts(root)))
                 if app.get("IsSecureEnabled", "").lower() == "true":
                     self._secure_app_ids.add(app.get("Id", ""))
                 label = _application_label(root, app)
@@ -678,62 +692,295 @@ class KnxprojImportService:
 
     def _extract_app_co_refs(self, root: ET.Element, lookup: dict) -> None:
         """Extrahiert ComObject+ComObjectRef-Paare aus einem App-Programm-XML."""
-        _PRIO_MAP = {"Low": "Niedrig", "High": "Hoch", "Alert": "Alarm"}
+        german = german_co_texts(root)
 
-        # ComObjects nach vollständiger Id indizieren
-        co_by_id: dict[str, dict] = {}
-        for co in root.iter(_tag("ComObject")):
-            co_id = co.get("Id", "")
-            if not co_id:
-                continue
-            co_by_id[co_id] = {
-                "name": co.get("Name", ""),
-                "number": int(co.get("Number", "0") or "0"),
-                "function_text": co.get("FunctionText", ""),
-                "object_size": co.get("ObjectSize", ""),
-                "flags": self._co_flags(co),
-                "priority": _PRIO_MAP.get(co.get("Priority", ""), "Niedrig"),
-                "write_flag": co.get("WriteFlag", "") == "Enabled",
-                "transmit_flag": co.get("TransmitFlag", "") == "Enabled",
-            }
+        def translated(elem: ET.Element) -> dict:
+            # Leere Attribute der Ref (Name="") überschreiben nichts
+            attrs = {k: v for k, v in elem.attrib.items() if v}
+            attrs.update(german.get(elem.get("Id", ""), {}))
+            return attrs
 
-        # ComObjectRefs: Basis aus ComObject übernehmen, Ref-Overrides anwenden
+        co_by_id = {co.get("Id"): translated(co)
+                    for co in root.iter(_tag("ComObject")) if co.get("Id")}
+        # Attribute der Ref (z.B. ReadFlag ohne WriteFlag, Feller) haben Vorrang
         for cor in root.iter(_tag("ComObjectRef")):
             cor_id = cor.get("Id", "")
             ref_id = cor.get("RefId", "")
-            if not cor_id or ref_id not in co_by_id:
-                continue
-            meta = co_by_id[ref_id].copy()
-            # Optionale Attribute aus ComObjectRef überschreiben die ComObject-Basis
-            if cor.get("Name"):
-                meta["name"] = cor.get("Name")
-            if cor.get("FunctionText"):
-                meta["function_text"] = cor.get("FunctionText")
-            if cor.get("ObjectSize"):
-                meta["object_size"] = cor.get("ObjectSize")
-            if cor.get("WriteFlag"):
-                meta["write_flag"] = cor.get("WriteFlag") == "Enabled"
-                meta["flags"] = self._co_flags(cor) or meta["flags"]
-            lookup[cor_id] = meta
+            if cor_id and ref_id in co_by_id:
+                lookup[cor_id] = {**co_by_id[ref_id], **translated(cor)}
 
     @staticmethod
-    def _co_flags(elem: ET.Element) -> str:
-        """Erzeugt einen kompakten Flags-String aus ETS-Boolean-Attributen.
+    def _read_app_context(app: ET.Element) -> dict:
+        """Was die KOs einer Applikation im Projekt brauchen:
+        Vorgabewerte der Parameter (für Textparameter, je ParameterRef-Id)
+        und für Module die Argumente (Name, Allocates), Zähler (Allocator
+        Start) und je Modul die Argumentwerte bzw. den Zähler."""
+        parameter_values = {p.get("Id", ""): p.get("Value", "")
+                            for p in app.iter(_tag("Parameter"))}
+        defaults = {}
+        for ref in app.iter(_tag("ParameterRef")):
+            value = ref.get("Value")
+            defaults[ref.get("Id", "")] = (
+                value if value is not None
+                else parameter_values.get(ref.get("RefId", ""), ""))
+        arguments = {}
+        for arg in app.iter(_tag("Argument")):
+            try:
+                allocates = int(arg.get("Allocates", "0") or 0)
+            except ValueError:
+                allocates = 0
+            arguments[arg.get("Id", "")] = (arg.get("Name", ""), allocates)
+        allocators = {}
+        for alloc in app.iter(_tag("Allocator")):
+            try:
+                allocators[alloc.get("Id", "")] = int(alloc.get("Start", "0") or 0)
+            except ValueError:
+                pass
+        modules = {}
+        for module in app.iter(_tag("Module")):
+            values = {}
+            for arg in module:
+                if arg.get("AllocatorRefId"):
+                    values[arg.get("RefId", "")] = ("allocator", arg.get("AllocatorRefId"))
+                elif arg.get("Value") is not None:
+                    values[arg.get("RefId", "")] = ("value", arg.get("Value"))
+            modules[module.get("Id", "")] = values
+        return {"defaults": defaults, "arguments": arguments,
+                "allocators": allocators, "modules": modules}
+
+    # KO eines Moduls im Projekt: «MD-2_M-3_MI-1_O-2-0_R-10» = Modul MD-2,
+    # dessen Verwendung M-3, Instanz 1, KO-Ref O-2-0_R-10 des Moduls
+    _MODULE_CO_RE = re.compile(r"^(MD-\d+)_(M-\d+)_MI-(\d+)_(O-.+)$")
+
+    def _module_arguments(self, ap_id: str, md: str, module: str, index: int,
+                          project_args: dict[str, dict[str, str]]) -> dict[str, str]:
+        """Argumentwerte einer Modul-Instanz {Argument-Id: Wert}. Die ETS legt
+        sie teils im Projekt ab (ModuleInstance/Arguments), sonst gelten die
+        Werte des Moduls in der Applikation; Zähler (Allocator) vergeben je
+        Instanz einen Block: Start + (Instanz - 1) * Allocates. Teilen sich
+        mehrere Module einen Zähler, stimmt das nicht (bisher nicht gesehen)."""
+        stored = project_args.get(f"{md}_{module}_MI-{index}")
+        if stored:
+            return {ref if ref.startswith("M-") else f"{ap_id}_{ref}": value
+                    for ref, value in stored.items()}
+        context = self._app_context.get(ap_id, {})
+        values = {}
+        for arg_id, (kind, value) in context.get("modules", {}).get(
+                f"{ap_id}_{md}_{module}", {}).items():
+            if kind == "value":
+                values[arg_id] = value
+            elif value in context.get("allocators", {}):
+                allocates = context["arguments"].get(arg_id, ("", 0))[1]
+                values[arg_id] = str(context["allocators"][value] + (index - 1) * allocates)
+        return values
+
+    def _resolve_co(self, ap_id: str, instance: ET.Element, lookup: dict,
+                    parameters: dict[str, str],
+                    project_args: dict[str, dict[str, str]]) -> dict | None:
+        """Attribute eines KOs im Projekt, wie die ETS es zeigt: Applikation
+        (deutsch), bei Modulen Nummer und Texte der Instanz, Textparameter
+        mit dem Wert im Projekt, darüber die Änderungen am einzelnen KO
+        (ComObjectInstanceRef: Text, FunctionText, Flags, Priorität)."""
+        ref_id = instance.get("RefId", "")
+        context = self._app_context.get(ap_id, {})
+        module = self._MODULE_CO_RE.match(ref_id)
+        if module:
+            md, use, index, co_ref = module.groups()
+            attrs = lookup.get(f"{ap_id}_{md}_{co_ref}")
+            if attrs is None:
+                return None
+            attrs = dict(attrs)
+            args = self._module_arguments(ap_id, md, use, int(index), project_args)
+            names = {context.get("arguments", {}).get(arg_id, ("", 0))[0]: value
+                     for arg_id, value in args.items()}
+            subst = argument_substitution(names)
+            for attr in ("Text", "FunctionText", "Name"):
+                if attr in attrs:
+                    attrs[attr] = subst(attrs[attr])
+            try:
+                attrs["Number"] = str(int(attrs.get("Number", "0") or 0)
+                                      + int(args.get(attrs.get("BaseNumber", ""), 0) or 0))
+            except ValueError:
+                pass
+            # Textparameter der Instanz: «…_MD-2_P-2_R-2» -> «…_MD-2_M-3_MI-1_P-2_R-2»
+            module_prefix = f"{ap_id}_{md}_"
+            instance_prefix = f"{ap_id}_{md}_{use}_MI-{index}_"
+
+            def parameter_key(ref: str) -> str:
+                if ref.startswith(module_prefix):
+                    return instance_prefix + ref[len(module_prefix):]
+                return ref
+        else:
+            attrs = lookup.get(f"{ap_id}_{ref_id}")
+            if attrs is None:
+                return None
+            attrs = dict(attrs)
+
+            def parameter_key(ref: str) -> str:
+                return ref
+
+        text_parameter = attrs.get("TextParameterRefId", "")
+        if text_parameter or any("{{" in attrs.get(a, "") for a in ("Text", "FunctionText")):
+            value = parameters.get(parameter_key(text_parameter))
+            if value is None:
+                value = context.get("defaults", {}).get(text_parameter, "")
+            for attr in ("Text", "FunctionText"):
+                if "{{" in attrs.get(attr, ""):
+                    attrs[attr] = fill_text_parameter(attrs[attr], value)
+        # In der ETS am KO geändert
+        for attr, value in instance.attrib.items():
+            if value and attr in self._INSTANCE_OVERRIDES:
+                attrs[attr] = value
+        return attrs
+
+    _INSTANCE_OVERRIDES = frozenset((
+        "Text", "FunctionText", "Priority", "CommunicationFlag", "ReadFlag",
+        "WriteFlag", "TransmitFlag", "UpdateFlag", "ReadOnInitFlag",
+    ))
+
+    @staticmethod
+    def _device_parameters(di: ET.Element, ap_id: str) -> dict[str, str]:
+        """Parameterwerte eines Geräts {ParameterRef-Id: Wert}; die ETS
+        speichert nur die geänderten, teils ohne Applikations-Präfix."""
+        values = {}
+        for ref in di.iter(_tag("ParameterInstanceRef")):
+            ref_id = ref.get("RefId", "")
+            if ref_id and not ref_id.startswith("M-"):
+                ref_id = f"{ap_id}_{ref_id}"
+            values[ref_id] = ref.get("Value", "")
+        return values
+
+    @staticmethod
+    def _project_module_arguments(di: ET.Element) -> dict[str, dict[str, str]]:
+        """Argumente der Modul-Instanzen, die die ETS im Projekt ablegt:
+        {"MD-1_M-1_MI-1": {"MD-1_A-1": "41", …}}."""
+        found = {}
+        for instance in di.iter(_tag("ModuleInstance")):
+            values = {arg.get("RefId", ""): arg.get("Value", "")
+                      for arg in instance.iter(_tag("Argument"))}
+            if values:
+                found[instance.get("Id", "")] = values
+        return found
+
+    def _make_co(self, attrs: dict, connected_gas: list[str]) -> CommunicationObject:
+        try:
+            number = int(attrs.get("Number", "0") or 0)
+        except ValueError:
+            number = 0
+        size = attrs.get("ObjectSize", "")
+        return CommunicationObject(
+            object_number=number,
+            name=self._co_name(attrs),
+            object_function=clean_co_text(attrs.get("FunctionText", "")),
+            data_type=size,
+            object_size=size,
+            flags=self._co_flags(attrs),
+            priority=self._PRIORITY.get(attrs.get("Priority", ""), "Niedrig"),
+            connected_gas=connected_gas,
+        )
+
+    def _co_key(self, ap_id: str, ref_id: str) -> tuple[str, str]:
+        """(Modul-Instanz oder "", ComObjectRef-Id) wie in
+        ets_parameter_view.DeviceParameters.active_cos."""
+        module = self._MODULE_CO_RE.match(ref_id)
+        if module:
+            md, use, index, co_ref = module.groups()
+            return f"{md}_{use}_MI-{index}", f"{ap_id}_{md}_{co_ref}"
+        return "", f"{ap_id}_{ref_id}"
+
+    @staticmethod
+    def _drop_hidden_cos(device: Device, co_metas: list[dict], view) -> None:
+        """KOs, die die Parameter ausblenden, entfallen -- ausser sie sind
+        verknüpft (dann zeigt die ETS sie weiterhin)."""
+        keep = [co.connected_gas or meta.get("key") is None or meta["key"] in view.active_cos
+                for co, meta in zip(device.communication_objects, co_metas)]
+        device.communication_objects[:] = [
+            co for co, k in zip(device.communication_objects, keep) if k]
+        co_metas[:] = [m for m, k in zip(co_metas, keep) if k]
+
+    def _add_unlinked_cos(self, device: Device, co_metas: list[dict], view, ap_id: str,
+                          lookup: dict, parameters: dict, project_args: dict) -> None:
+        """Aktive KOs ohne Eintrag im Projekt: die ETS führt nur geänderte
+        oder verknüpfte KOs, der Report zeigt alle sichtbaren."""
+        present = {meta.get("key") for meta in co_metas}
+        numbers = {co.object_number for co in device.communication_objects}
+        added = []
+        for scope, cor_id in sorted(view.active_cos - present):
+            if scope:
+                md = scope.split("_", 1)[0]
+                ref_id = f"{scope}_{cor_id[len(f'{ap_id}_{md}_'):]}"
+            else:
+                ref_id = cor_id[len(ap_id) + 1:]
+            attrs = self._resolve_co(ap_id, ET.Element("ComObjectInstanceRef", RefId=ref_id),
+                                     lookup, parameters, project_args)
+            if attrs is None:
+                continue
+            co = self._make_co(attrs, [])
+            if co.object_number in numbers:
+                continue            # Nummer schon belegt (verknüpfte Variante)
+            numbers.add(co.object_number)
+            added.append(co)
+        if added:
+            device.communication_objects.extend(added)
+            device.communication_objects.sort(key=lambda c: c.object_number)
+
+    @staticmethod
+    def _drop_inactive_variants(device: Device, co_metas: list[dict]) -> None:
+        """Die ETS führt im Projekt auch Varianten eines KOs, die die
+        Parameter gerade ausblenden (MDT-Heizaktor: KO 59 achtmal, ABB:
+        «Ausgang A» Schalten/UND/ODER). Je Nummer bleibt die verknüpfte,
+        sonst die erste -- wie im Report, der nur die aktive zeigt."""
+        kept: dict[int, int] = {}
+        keep: list[bool] = []
+        for i, co in enumerate(device.communication_objects):
+            first = kept.get(co.object_number)
+            if first is None or not co.connected_gas:
+                if first is None:
+                    kept[co.object_number] = i
+                keep.append(first is None or bool(co.connected_gas))
+            elif not device.communication_objects[first].connected_gas:
+                keep[first] = False
+                kept[co.object_number] = i
+                keep.append(True)
+            else:
+                keep.append(True)       # mehrere verknüpft: alle behalten
+        device.communication_objects[:] = [
+            co for co, k in zip(device.communication_objects, keep) if k]
+        co_metas[:] = [m for m, k in zip(co_metas, keep) if k]
+
+    _PRIORITY = {"Low": "Niedrig", "High": "Hoch", "Alert": "Alarm"}
+
+    @staticmethod
+    def _co_name(attrs: dict) -> str:
+        """ETS-«Name» des KOs: Text; Name ist nur die interne Kennung und
+        gilt nur, wenn Text bloss aus Platzhaltern besteht."""
+        name = attrs.get("Text") or attrs.get("Name", "")
+        internal = attrs.get("Name", "")
+        if is_placeholder_text(name) and internal and not is_placeholder_text(internal):
+            name = internal
+        # «G7, Schalten, {{0}}» mit leerem Textparameter bleibt wie in der
+        # ETS «G7, Schalten,»
+        return clean_co_text(name)
+
+    @staticmethod
+    def _co_flags(elem) -> str:
+        """Flags wie im ETS-Report (Topologie-Import), z.B. "KLSÜA-".
 
         Format: 6 Zeichen, jeder Buchstabe steht für ein Flag (Enabled),
-        '-' steht für Disabled. Reihenfolge: K S U E A I
+        '-' steht für Disabled. Reihenfolge: K L S Ü A I
           K = CommunicationFlag (Kommunikation)
+          L = ReadFlag         (Lesen)
           S = WriteFlag        (Schreiben)
-          U = TransmitFlag     (Übertragen)
-          E = ReadFlag         (Einlesen)
+          Ü = TransmitFlag     (Übertragen)
           A = UpdateFlag       (Aktualisieren)
-          I = ReadOnInitFlag   (Initialisierungslesen)
+          I = ReadOnInitFlag   (Lesen bei Init)
+        Bis 1.4.23 "K S U E A I" (ko_links.parse_flags liest beides).
         """
         flag_map = [
             ("CommunicationFlag", "K"),
+            ("ReadFlag",          "L"),
             ("WriteFlag",         "S"),
-            ("TransmitFlag",      "U"),
-            ("ReadFlag",          "E"),
+            ("TransmitFlag",      "Ü"),
             ("UpdateFlag",        "A"),
             ("ReadOnInitFlag",    "I"),
         ]
@@ -1455,6 +1702,8 @@ class KnxprojImportService:
 
             # Kommunikationsobjekte (ComObjectInstanceRefs)
             co_metas: list[dict] = []
+            parameters = self._device_parameters(di, ap_id) if app_co_lookup else {}
+            project_args = self._project_module_arguments(di) if app_co_lookup else {}
             for co_ref in di.findall(
                 "k:ComObjectInstanceRefs/k:ComObjectInstanceRef", _NSM
             ):
@@ -1468,34 +1717,52 @@ class KnxprojImportService:
                     if ga_xml_lookup else raw_gas
                 )
 
-                # Probleme 2-4: CO-Metadaten aus App-Programm-Lookup
-                meta: dict | None = None
+                # Probleme 2-4: CO-Attribute aus der Applikation und dem Projekt
+                attrs: dict | None = None
                 if app_co_lookup and ap_id:
-                    meta = app_co_lookup.get(f"{ap_id}_{ref_id}")
-                co_metas.append(meta or {})
-
-                # object_number: aus Lookup, sonst aus RefId-Muster "O-{n}_R-{x}"
-                obj_num = meta["number"] if meta else 0
-                if not meta:
+                    attrs = self._resolve_co(ap_id, co_ref, app_co_lookup,
+                                             parameters, project_args)
+                if attrs is None:
+                    # object_number aus RefId-Muster "O-{n}_R-{x}"
                     m = _re.match(r"O-(\d+)", ref_id)
-                    if m:
-                        obj_num = int(m.group(1))
+                    co_metas.append({})
+                    device.communication_objects.append(CommunicationObject(
+                        object_number=int(m.group(1)) if m else 0,
+                        name=ref_id,
+                        connected_gas=connected_gas,
+                    ))
+                    continue
 
-                co = CommunicationObject(
-                    object_number=obj_num,
-                    name=meta["name"] if meta else ref_id,
-                    object_function=meta.get("function_text", "") if meta else "",
-                    data_type=meta.get("object_size", "") if meta else "",
-                    object_size=meta.get("object_size", "") if meta else "",
-                    flags=meta.get("flags", "") if meta else "",
-                    priority=meta.get("priority", "Niedrig") if meta else "Niedrig",
-                    connected_gas=connected_gas,
-                )
-                device.communication_objects.append(co)
+                co_metas.append({
+                    "write_flag": attrs.get("WriteFlag") == "Enabled",
+                    "transmit_flag": attrs.get("TransmitFlag") == "Enabled",
+                    "key": self._co_key(ap_id, ref_id),
+                })
+                device.communication_objects.append(self._make_co(attrs, connected_gas))
+
+            # Parameter des Geräts: aktive KOs, Tastenbelegung, Szenen
+            view = None
+            model = self._app_parameters.get(ap_id) if app_co_lookup else None
+            if model is not None:
+                try:
+                    view = model.evaluate(parameters, lambda md, use, index: self._module_arguments(
+                        ap_id, md, use, index, project_args))
+                except (RecursionError, ValueError) as exc:
+                    logger.warning(f"Parameter von {phys_addr} nicht auswertbar: {exc}")
+            if view is not None:
+                self._drop_hidden_cos(device, co_metas, view)
+            self._drop_inactive_variants(device, co_metas)
 
             # device_type-Heuristik für reguläre Teilnehmer
             if dev_type is None:
                 device.device_type = self._infer_device_type(product_name, co_metas)
+
+            if view is not None:
+                self._add_unlinked_cos(device, co_metas, view, ap_id, app_co_lookup,
+                                       parameters, project_args)
+                device.button_configuration = ets_parameter_view.button_configuration(view.pages)
+                device.scene_values = ets_parameter_view.scene_values(view.pages)
+                device.scene_triggers = ets_parameter_view.scene_triggers(view.pages)
 
             line.devices.append(device)
             if device_id_to_info is not None and xml_id:

@@ -137,9 +137,10 @@ class Device:
     product_name: str = ""        # Hersteller-Produktbezeichnung (nach manueller Zuweisung)
     application_program: str = ""
     installation_location: str = ""  # Einbauort, z.B. "UV2 (Steigzone)"
-    # Tastenbelegung/Parameterkonfiguration aus dem ETS-Report (nur Anzeige,
-    # keine automatische Auswertung -- Format ist je Hersteller/Applikation
-    # unterschiedlich, siehe XlsxImportService.extract_button_configuration).
+    # Tastenbelegung/Parameterkonfiguration aus dem ETS-Report bzw. der
+    # .knxproj (nur Anzeige, keine automatische Auswertung -- Format ist je
+    # Hersteller/Applikation unterschiedlich, siehe
+    # XlsxImportService.extract_button_configuration, ets_parameter_view).
     button_configuration: str = ""
     serial_number: str = ""
     datasheets: list[str] = field(default_factory=list)

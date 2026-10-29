@@ -71,12 +71,76 @@ def is_placeholder_text(text: str) -> bool:
 _ARGUMENT_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
 
-def _argument_substitution(values: dict[str, str]):
+def argument_substitution(values: dict[str, str]):
     """Setzt Argumente einer Modul-Instanz in Texte ein: «F{{ChNo}}: {{0}}»
     mit ChNo=2 -> «F2: {{0}}» ({{0}} = Textparameter, bleibt)."""
     def subst(text: str) -> str:
         return _ARGUMENT_RE.sub(lambda m: values.get(m.group(1), m.group(0)), text or "")
     return subst
+
+
+def fill_text_parameter(text: str, value: str) -> str:
+    """Setzt den Textparameter in «Logik 1 {{0}}» ein; ohne Wert gilt der
+    Standardtext des Platzhalters («{{0:Kanal A}}»). «F2: » mit leerem
+    Textparameter -> «F2»."""
+    text = _PLACEHOLDER_RE.sub(lambda m: value or (m.group(1) or ""), text or "")
+    return " ".join(text.split()).rstrip(" :")
+
+
+# Bevorzugte Sprachen der Übersetzungen (Schweiz zuerst)
+GERMAN_LANGUAGES = ("de-CH", "de-DE", "de-AT", "de")
+
+
+def german_co_texts(root: ET.Element) -> dict[str, dict[str, str]]:
+    """Übersetzte Texte der ComObjects/Refs: {Id: {"Text": …,
+    "FunctionText": …}} aus <Languages><Language Identifier="de-DE">.
+    Leer, wenn die Applikation nur eine Sprache hat."""
+    by_language: dict[str, dict[str, dict[str, str]]] = {}
+    for language in root.iter():
+        if not language.tag.endswith("Language"):
+            continue
+        identifier = language.get("Identifier", "")
+        if not identifier.lower().startswith("de"):
+            continue
+        texts = by_language.setdefault(identifier, {})
+        for element in language.iter():
+            if not element.tag.endswith("TranslationElement"):
+                continue
+            ref_id = element.get("RefId", "")
+            if "_O-" not in ref_id:
+                continue        # nur Kommunikationsobjekte
+            for translation in element:
+                attr = translation.get("AttributeName", "")
+                if attr in ("Text", "FunctionText") and translation.get("Text"):
+                    texts.setdefault(ref_id, {})[attr] = translation.get("Text")
+    for identifier in GERMAN_LANGUAGES:
+        for found, texts in by_language.items():
+            if found.lower() == identifier.lower():
+                return texts
+    return next(iter(by_language.values()), {})
+
+
+def german_all_texts(root: ET.Element) -> dict[str, dict[str, str]]:
+    """Deutsche Texte aller Elemente ({Id: {Attribut: Text}}), für
+    Parameter, Aufzählungswerte und Parameterseiten."""
+    by_language: dict[str, dict] = {}
+    for language in root.iter():
+        if language.tag.rsplit("}", 1)[-1] != "Language":
+            continue
+        identifier = language.get("Identifier", "")
+        if not identifier.lower().startswith("de"):
+            continue
+        texts = by_language.setdefault(identifier.lower(), {})
+        for element in language.iter():
+            if element.tag.rsplit("}", 1)[-1] == "TranslationElement":
+                for translation in element:
+                    if translation.get("Text"):
+                        texts.setdefault(element.get("RefId", ""), {})[
+                            translation.get("AttributeName", "")] = translation.get("Text")
+    for identifier in GERMAN_LANGUAGES:
+        if identifier.lower() in by_language:
+            return by_language[identifier.lower()]
+    return next(iter(by_language.values()), {})
 
 
 _MAX_ALTERNATIVES = 6
@@ -937,8 +1001,7 @@ class KnxprodCatalogService:
                 # «Logik 1 {{0}}»: {{0}} = Textparameter, dessen Vorgabe
                 default = param_value.get(param_ref_target.get(
                     merged["TextParameterRefId"], ""), "")
-                merged["Text"] = " ".join(_PLACEHOLDER_RE.sub(
-                    lambda m: default or (m.group(1) or ""), merged["Text"]).split()).rstrip(" :")
+                merged["Text"] = fill_text_parameter(merged["Text"], default)
             if ("", ref.get("Id", "")) not in conditions                     and ("", ref.get("Id", "")) in self._last_pruned:
                 continue            # nur unter festen, nie gültigen Werten
             co = _build(merged)
@@ -957,7 +1020,7 @@ class KnxprodCatalogService:
         argument_names = {a.get("Id", ""): a.get("Name", "") for a in root.iter()
                           if self._local(a.tag) == "Argument"} if self._last_instances else {}
         for instance, module_id, values in self._last_instances:
-            subst = _argument_substitution(values)
+            subst = argument_substitution(values)
             args = argument_names
             for ref in by_module.get(module_id, []):
                 key = (instance, ref.get("Id", ""))
@@ -969,12 +1032,8 @@ class KnxprodCatalogService:
                     merged.get("TextParameterRefId", ""), ""), "")
                 for attr in ("Text", "FunctionText", "Name"):
                     if merged.get(attr):
-                        text = subst(merged[attr])
                         # {{0}} = Textparameter: dessen Vorgabe, sonst Standardtext
-                        text = _PLACEHOLDER_RE.sub(lambda m: default or (m.group(1) or ""),
-                                                   text)
-                        # «F2: » mit leerem Textparameter -> «F2»
-                        merged[attr] = " ".join(text.split()).rstrip(" :")
+                        merged[attr] = fill_text_parameter(subst(merged[attr]), default)
                 try:
                     offset = int(values.get(args.get(base.get("BaseNumber", ""), ""), 0) or 0)
                 except ValueError:
@@ -1131,7 +1190,7 @@ class KnxprodCatalogService:
                 instance = el.get("Id", "")
                 self._last_instances.append((instance, el.get("RefId"), values))
                 if own_dynamic is not None:
-                    module_subst = _argument_substitution(values)
+                    module_subst = argument_substitution(values)
                     walk(own_dynamic, conds, block, None, instance, module_subst)
                 return
             for child in el:
@@ -1164,7 +1223,7 @@ class KnxprodCatalogService:
         refs_of: dict[str, list[str]] = {}
         for ref_id, ref in param_refs.items():
             refs_of.setdefault(ref.get("RefId", ""), []).append(ref_id)
-        substs = {instance: _argument_substitution(values)
+        substs = {instance: argument_substitution(values)
                   for instance, _md, values in self._last_instances}
         converted_by_key = {
             key: [[(parameter_of(ref), test) for ref, test in chain] for chain in found]
@@ -1211,57 +1270,12 @@ class KnxprodCatalogService:
         return result, {param: info for param, info in table.items() if param in used}
 
     def _german_all_texts(self, root: ET.Element) -> dict[str, dict[str, str]]:
-        """Deutsche Texte aller Elemente ({Id: {Attribut: Text}}), für
-        Parameter, Aufzählungswerte und Parameterseiten."""
-        by_language: dict[str, dict] = {}
-        for language in root.iter():
-            if self._local(language.tag) != "Language":
-                continue
-            identifier = language.get("Identifier", "")
-            if not identifier.lower().startswith("de"):
-                continue
-            texts = by_language.setdefault(identifier.lower(), {})
-            for element in language.iter():
-                if self._local(element.tag) == "TranslationElement":
-                    for translation in element:
-                        if translation.get("Text"):
-                            texts.setdefault(element.get("RefId", ""), {})[
-                                translation.get("AttributeName", "")] = translation.get("Text")
-        for identifier in self._GERMAN:
-            if identifier.lower() in by_language:
-                return by_language[identifier.lower()]
-        return next(iter(by_language.values()), {})
+        return german_all_texts(root)
 
-    # Bevorzugte Sprachen der Übersetzungen (Schweiz zuerst)
-    _GERMAN = ("de-CH", "de-DE", "de-AT", "de")
+    _GERMAN = GERMAN_LANGUAGES
 
     def _german_texts(self, root: ET.Element) -> dict[str, dict[str, str]]:
-        """Übersetzte Texte der ComObjects/Refs: {Id: {"Text": …,
-        "FunctionText": …}} aus <Languages><Language Identifier="de-DE">.
-        Leer, wenn die Applikation nur eine Sprache hat."""
-        by_language: dict[str, dict[str, dict[str, str]]] = {}
-        for language in root.iter():
-            if not language.tag.endswith("Language"):
-                continue
-            identifier = language.get("Identifier", "")
-            if not identifier.lower().startswith("de"):
-                continue
-            texts = by_language.setdefault(identifier, {})
-            for element in language.iter():
-                if not element.tag.endswith("TranslationElement"):
-                    continue
-                ref_id = element.get("RefId", "")
-                if "_O-" not in ref_id:
-                    continue        # nur Kommunikationsobjekte
-                for translation in element:
-                    attr = translation.get("AttributeName", "")
-                    if attr in ("Text", "FunctionText") and translation.get("Text"):
-                        texts.setdefault(ref_id, {})[attr] = translation.get("Text")
-        for identifier in self._GERMAN:
-            for found, texts in by_language.items():
-                if found.lower() == identifier.lower():
-                    return texts
-        return next(iter(by_language.values()), {})
+        return german_co_texts(root)
 
     def _parse_xml(self, data: bytes) -> ET.Element:
         """Parst XML-Bytes, entfernt ggf. störende Namespaces."""

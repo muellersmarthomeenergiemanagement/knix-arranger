@@ -41,13 +41,22 @@ def _product_flags(text: str) -> frozenset[str] | None:
     return frozenset(flag for c, (_l, flag) in zip(text, _PRODUCT_POSITIONS) if c != "-")
 
 
+# knxproj-Import bis 1.4.23: sechs Stellen Kommunikation, Schreiben,
+# Übertragen ("U"), Lesen ("E"), Aktualisieren, Init, z.B. "KSUEA-". Ohne die
+# Stellen las sich "UE" als Ü, und das Lesen-Flag ging verloren.
+_KNXPROJ_FLAGS = re.compile(r"[K-][S-][U-][E-][A-][I-]")
+_KNXPROJ_POSITIONS = (COMMUNICATE, WRITE, TRANSMIT, READ, UPDATE, INIT)
+
+
 def parse_flags(flags: str) -> frozenset[str]:
     """Flags eines KOs als Menge von K, L, S, Ü, A, I; leer, wenn unbekannt.
-    Versteht ETS-Report ("K-SÜA-"), knxproj ("KSUE-A"), Englisch ("CRWTU")
-    und die Fünf-Stellen-Form der Produktdaten ("K-Ü--")."""
+    Versteht ETS-Report ("K-SÜA-"), alten knxproj-Import ("KSUEA-"),
+    Englisch ("CRWTU") und die Fünf-Stellen-Form der Produktdaten ("K-Ü--")."""
     product = _product_flags((flags or "").upper())
     if product is not None:
         return product
+    if _KNXPROJ_FLAGS.fullmatch(flags or ""):
+        return frozenset(flag for c, flag in zip(flags, _KNXPROJ_POSITIONS) if c != "-")
     text = (flags or "").upper().replace("UE", "Ü")
     letters = [c for c in text if c.isalpha()]
     english = any(c in ("C", "R", "W", "T") for c in letters) and not any(

@@ -1557,7 +1557,8 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _report_params_note(pipeline, count: int) -> str:
         """Hinweis: Tastenparameter stammen aus einem früher eingelesenen
-        Report, die .knxproj liefert sie nicht."""
+        Report, weil die .knxproj sie für diese Geräte nicht liefert (Werte
+        aus Hersteller-Apps, nicht ausgewertete Parameterberechnungen)."""
         dated = ""
         paths = [pipeline.source(k) for k in (TOPOLOGY_XLSX, BUILDING_REPORT)]
         paths = [p for p in paths if p]

@@ -16,11 +16,12 @@ from ..utils.manufacturers import product_key
 
 
 def keep_report_params(old_dev, new_dev) -> bool:
-    """Tastenparameter, Szenenwerte und -auslöser stammen aus den ETS-Reports
-    (Excel); die .knxproj liefert sie (noch) nicht. Ohne diese Übernahme
-    löschte ein Re-Import der .knxproj sie -- die Bedienungsanleitung fiele
-    auf Vermutungen aus dem Datenpunkttyp zurück. Gibt True zurück, wenn
-    etwas übernommen wurde."""
+    """Tastenparameter, Szenenwerte und -auslöser: die .knxproj liefert sie
+    seit 1.4.24 selbst (ets_parameter_view), aber nicht für jedes Gerät
+    (Hersteller-Apps, Parameterberechnungen). Fehlen sie im neuen Import,
+    gilt der Stand aus dem früher eingelesenen Report -- sonst fiele die
+    Bedienungsanleitung auf Vermutungen aus dem Datenpunkttyp zurück. Gibt
+    True zurück, wenn etwas übernommen wurde."""
     kept = False
     for attr in ("button_configuration", "scene_values", "scene_triggers"):
         if not getattr(new_dev, attr) and getattr(old_dev, attr):
