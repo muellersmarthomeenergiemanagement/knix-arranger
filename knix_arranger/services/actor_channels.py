@@ -225,12 +225,12 @@ def suggest_co(channel_cos: list, function: str, used=frozenset(), dpt: str = ""
     if not keywords:
         keywords = (function.lower(),)
     feedback = is_feedback_function(function)
-    ga_main = _dpt_key(dpt)[0]
+    ga_main, ga_sub = _dpt_key(dpt)
     best, best_score = None, 0
     for co in channel_cos:
         if co.object_number in used or is_feedback(co) != feedback:
             continue
-        co_main = _dpt_key(co.data_type)[0]
+        co_main, co_sub = _dpt_key(co.data_type)
         if ga_main and co_main and co_main != ga_main:
             continue
         # Grösse muss passen: «Dimmwert» (1 Byte) nie auf «Soft schalten» (1 Bit)
@@ -242,6 +242,10 @@ def suggest_co(channel_cos: list, function: str, used=frozenset(), dpt: str = ""
         # zusammengeschrieben zählt auch ("TravelUpDown" ~ "up/down")
         score = sum(0.5 if kw in _WEAK_KEYWORDS else 1 for kw in keywords
                     if kw in text or (len(_compact(kw)) >= 4 and _compact(kw) in compact))
+        # Bei gleichen Stichworten gewinnt der gleiche Untertyp (Status 1.011
+        # vor Schalten 1.001 für eine Rückmeldung 1.011)
+        if score and ga_sub and co_sub == ga_sub:
+            score += 0.25
         if score > best_score:
             best, best_score = co, score
     return best

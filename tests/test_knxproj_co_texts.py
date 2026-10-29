@@ -223,6 +223,9 @@ def test_knxproj_matches_topology_report():
     common = set(from_report)
     assert all(from_proj[k].name == from_report[k].name for k in common)
     assert all(from_proj[k].object_function == from_report[k].object_function for k in common)
+    # DPT je KO: wo der Report eine Kennung ergibt, dieselbe
+    assert all(from_proj[k].data_type == from_report[k].data_type for k in common
+               if from_report[k].data_type.startswith("DP"))
     assert all(parse_flags(from_proj[k].flags) == parse_flags(from_report[k].flags)
                for k in common)
     assert all(sorted(from_proj[k].connected_gas) == sorted(from_report[k].connected_gas)

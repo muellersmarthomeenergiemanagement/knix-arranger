@@ -732,9 +732,20 @@ class XlsxImportService:
             object_function=_cell(row, cols["KO_FUNC"]),
             priority=_cell(row, cols["KO_PRIO"]) or "Niedrig",
             flags=_cell(row, cols["KO_FLAGS"]),
-            data_type=_cell(row, cols["KO_DT"]),
             connected_gas=connected_gas,
+            **self._ko_datapoint(_cell(row, cols["KO_DT"])),
         )
+
+    _SIZE_ONLY_RE = re.compile(r"\s*\d+\s*(bit|bits|byte|bytes)\s*", re.IGNORECASE)
+
+    @classmethod
+    def _ko_datapoint(cls, text: str) -> dict:
+        """Spalte «Datentyp» eines KOs im Report: «Auf/Ab», «1-Bit,
+        Freigeben» -> DPT-Kennung (data_type); steht nur die Grösse da
+        («2 bytes»), auch als object_size. Unbekannte Namen bleiben."""
+        size = text if cls._SIZE_ONLY_RE.fullmatch(text or "") else ""
+        from .ko_size import size_bits
+        return {"data_type": ets_dpt_id(text, size_bits(size)) or text, "object_size": size}
 
     def _extract_gas(self, ga_text: str) -> list[str]:
         """
@@ -2878,7 +2889,7 @@ class XlsxImportService:
                         object_number=ko_num,
                         name=ko_name,
                         object_function=ko_func,
-                        data_type=_cell(row, col_ko_dtype),
+                        **self._ko_datapoint(_cell(row, col_ko_dtype)),
                         priority=_cell(row, col_ko_prio) or "Niedrig",
                         flags=_cell(row, col_ko_flags),
                         connected_gas=connected_gas,

@@ -1,0 +1,2474 @@
+{
+ "DPST-1-1": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Schalten"
+ },
+ "DPST-1-10": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Start/Stop"
+ },
+ "DPST-1-100": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "heizen/kühlen"
+ },
+ "DPST-1-11": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Status"
+ },
+ "DPST-1-12": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Invertierung"
+ },
+ "DPST-1-13": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Dimmen Sendeart"
+ },
+ "DPST-1-14": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Eingangstyp"
+ },
+ "DPST-1-15": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Reset"
+ },
+ "DPST-1-16": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Bestätigung"
+ },
+ "DPST-1-17": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Auslöser"
+ },
+ "DPST-1-18": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Belegung"
+ },
+ "DPST-1-19": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Fenster/Tür"
+ },
+ "DPST-1-2": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Boolesch"
+ },
+ "DPST-1-21": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Logikfunktion"
+ },
+ "DPST-1-22": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Szene"
+ },
+ "DPST-1-23": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Rollladen/Jalousie Modus"
+ },
+ "DPST-1-24": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Tag/Nacht"
+ },
+ "DPST-1-3": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Freigeben"
+ },
+ "DPST-1-4": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Anstieg"
+ },
+ "DPST-1-5": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Alarm"
+ },
+ "DPST-1-6": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Binärer Wert"
+ },
+ "DPST-1-7": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Schritt"
+ },
+ "DPST-1-8": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Auf/Ab"
+ },
+ "DPST-1-9": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "Öffnen/Schließen"
+ },
+ "DPST-10-1": {
+  "bits": 24,
+  "main": "DPT-10",
+  "main_text": "Zeit",
+  "text": "Tageszeit"
+ },
+ "DPST-11-1": {
+  "bits": 24,
+  "main": "DPT-11",
+  "main_text": "Datum",
+  "text": "Datum"
+ },
+ "DPST-12-1": {
+  "bits": 32,
+  "main": "DPT-12",
+  "main_text": "4-Byte vorzeichenlos",
+  "text": "Zählimpulse (vorzeichenlos)"
+ },
+ "DPST-12-100": {
+  "bits": 32,
+  "main": "DPT-12",
+  "main_text": "4-Byte vorzeichenlos",
+  "text": "Zähler Zeit Sek (s)"
+ },
+ "DPST-12-101": {
+  "bits": 32,
+  "main": "DPT-12",
+  "main_text": "4-Byte vorzeichenlos",
+  "text": "Zähler Zeit Min (min)"
+ },
+ "DPST-12-102": {
+  "bits": 32,
+  "main": "DPT-12",
+  "main_text": "4-Byte vorzeichenlos",
+  "text": "Zähler Zeit Stunden (h)"
+ },
+ "DPST-12-1200": {
+  "bits": 32,
+  "main": "DPT-12",
+  "main_text": "4-Byte vorzeichenlos",
+  "text": "Volumen Flüssigkeit (l)"
+ },
+ "DPST-12-1201": {
+  "bits": 32,
+  "main": "DPT-12",
+  "main_text": "4-Byte vorzeichenlos",
+  "text": "Volumen (m³)"
+ },
+ "DPST-13-1": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "Zählimpulse (vorzeichenbehaftet)"
+ },
+ "DPST-13-10": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "Wirkarbeit (Wh)"
+ },
+ "DPST-13-100": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "Zeitdifferenz (s)"
+ },
+ "DPST-13-11": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "Scheinarbeit (VAh)"
+ },
+ "DPST-13-12": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "Blindarbeit (VARh)"
+ },
+ "DPST-13-1200": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "Delta Volumen Flüssigkeit (l)"
+ },
+ "DPST-13-1201": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "Delta Volumen (m³)"
+ },
+ "DPST-13-13": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "Wirkarbeit (kWh)"
+ },
+ "DPST-13-14": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "Scheinarbeit (kVAh)"
+ },
+ "DPST-13-15": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "Blindarbeit (kVARh)"
+ },
+ "DPST-13-16": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "Wirkenergie (MWh)"
+ },
+ "DPST-13-2": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "Durchflussmenge (m³/h)"
+ },
+ "DPST-14-0": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Beschleunigung (m/s²)"
+ },
+ "DPST-14-1": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Drehbeschleunigung (rad/s²)"
+ },
+ "DPST-14-10": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Fläche (m²)"
+ },
+ "DPST-14-11": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Kapazität (F)"
+ },
+ "DPST-14-12": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Flußdichte (C/m²)"
+ },
+ "DPST-14-1200": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Volumenstrom für Zähler (m³/h)"
+ },
+ "DPST-14-1201": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Volumenstrom für Zähler (1/ls)"
+ },
+ "DPST-14-13": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Ladungsdichte(C/m³)"
+ },
+ "DPST-14-14": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Kompressibilität (m²/N)"
+ },
+ "DPST-14-15": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Leitwert (S)"
+ },
+ "DPST-14-16": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Leitfähigkeit (S/m)"
+ },
+ "DPST-14-17": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Dichte (kg/m³)"
+ },
+ "DPST-14-18": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "elekt. Ladung (C)"
+ },
+ "DPST-14-19": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "elekt. Strom (A)"
+ },
+ "DPST-14-2": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Molare Energie (J/mol)"
+ },
+ "DPST-14-20": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Stromdichte (A/m²)"
+ },
+ "DPST-14-21": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "elekt. Dipolmoment (Cm)"
+ },
+ "DPST-14-22": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "elekt. Verschiebung (C/m²)"
+ },
+ "DPST-14-23": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "elekt. Feldstärke (V/m)"
+ },
+ "DPST-14-24": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "elekt. Fluss (C)"
+ },
+ "DPST-14-25": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "elek. Flussdichte (C/m²)"
+ },
+ "DPST-14-26": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "elek. Polarisierung (C/m²)"
+ },
+ "DPST-14-27": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "elekt. Potential (V)"
+ },
+ "DPST-14-28": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "elekt. Potentialdifferenz (V)"
+ },
+ "DPST-14-29": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "elektromag. Moment (Am²)"
+ },
+ "DPST-14-3": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Radioaktivität (1/s)"
+ },
+ "DPST-14-30": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "elekt. Kraft (V)"
+ },
+ "DPST-14-31": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Energie (J)"
+ },
+ "DPST-14-32": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Kraft (N)"
+ },
+ "DPST-14-33": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Frequenz (Hz)"
+ },
+ "DPST-14-34": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Winkelfrequenz (rad/s)"
+ },
+ "DPST-14-35": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Wärmekapazität (J/K)"
+ },
+ "DPST-14-36": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Wärmefluss (W)"
+ },
+ "DPST-14-37": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Wärmemenge (J)"
+ },
+ "DPST-14-38": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Widerstand (Ω)"
+ },
+ "DPST-14-39": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Länge (m)"
+ },
+ "DPST-14-4": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Stoffmenge (mol)"
+ },
+ "DPST-14-40": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Lichtmenge (J)"
+ },
+ "DPST-14-41": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Helligkeit (cd/m²)"
+ },
+ "DPST-14-42": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Lichtstrom (lm)"
+ },
+ "DPST-14-43": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Leuchtstärke (cd)"
+ },
+ "DPST-14-44": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Magnetfeldstärke (A/m))"
+ },
+ "DPST-14-45": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Magnetischer Fluss (Wb)"
+ },
+ "DPST-14-46": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Magnetische Flussdichte (T)"
+ },
+ "DPST-14-47": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Magnetisches Moment (Am²)"
+ },
+ "DPST-14-48": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Magnetische Polarisation (T)"
+ },
+ "DPST-14-49": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Magnetisierung (A/m)"
+ },
+ "DPST-14-5": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Amplitude"
+ },
+ "DPST-14-50": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Magnetomotorische Kraft (A)"
+ },
+ "DPST-14-51": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Masse (kg)"
+ },
+ "DPST-14-52": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Massendurchatz (kg/s)"
+ },
+ "DPST-14-53": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Moment (N/s)"
+ },
+ "DPST-14-54": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Phasenwinkel (rad)"
+ },
+ "DPST-14-55": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Phasenwinkel (°)"
+ },
+ "DPST-14-56": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Leistung (W)"
+ },
+ "DPST-14-57": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Leistungsfaktor (cos Φ) "
+ },
+ "DPST-14-58": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Druck (Pa)"
+ },
+ "DPST-14-59": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Blindleitwert (Ω)"
+ },
+ "DPST-14-6": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Winkel (Radiant)"
+ },
+ "DPST-14-60": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Widerstand (Ω)"
+ },
+ "DPST-14-61": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "spez. elekt. Widerstand (Ωm)"
+ },
+ "DPST-14-62": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Selbstinduktivität (H)"
+ },
+ "DPST-14-63": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Raumwinkel (sr)"
+ },
+ "DPST-14-64": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Lautstärke (W/m²)"
+ },
+ "DPST-14-65": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Geschwindigkeit (m/s)"
+ },
+ "DPST-14-66": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Belastung (Pa)"
+ },
+ "DPST-14-67": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Oberflächenspannung (N/m)"
+ },
+ "DPST-14-68": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Temperatur (°C)"
+ },
+ "DPST-14-69": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Absoluttemperatur (°C)"
+ },
+ "DPST-14-7": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Winkel (Grad)"
+ },
+ "DPST-14-70": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Temperaturdifferenz (K)"
+ },
+ "DPST-14-71": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Wärmekapazität (J/K)"
+ },
+ "DPST-14-72": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Wärmeleitfähigkeit (W/mK)"
+ },
+ "DPST-14-73": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Thermoelekrische Energie (V/K)"
+ },
+ "DPST-14-74": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Zeit (s)"
+ },
+ "DPST-14-75": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Drehmoment (Nm)"
+ },
+ "DPST-14-76": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Volumen (m³)"
+ },
+ "DPST-14-77": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Durchfluss (m³/s)"
+ },
+ "DPST-14-78": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Gewicht (N)"
+ },
+ "DPST-14-79": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Arbeit (J)"
+ },
+ "DPST-14-8": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Dehimpuls (Js)"
+ },
+ "DPST-14-80": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Scheinleistung (VA)"
+ },
+ "DPST-14-81": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Blindleistung (VAr)"
+ },
+ "DPST-14-9": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "Winkelfrequenz (rad/s)"
+ },
+ "DPST-15-0": {
+  "bits": 32,
+  "main": "DPT-15",
+  "main_text": "Zugang",
+  "text": "Zugang"
+ },
+ "DPST-16-0": {
+  "bits": 112,
+  "main": "DPT-16",
+  "main_text": "Zeichensatz",
+  "text": "Zeichen (ASCII)"
+ },
+ "DPST-16-1": {
+  "bits": 112,
+  "main": "DPT-16",
+  "main_text": "Zeichensatz",
+  "text": "Zeichen (ISO 8859-1)"
+ },
+ "DPST-17-1": {
+  "bits": 8,
+  "main": "DPT-17",
+  "main_text": "Szenen Nummer",
+  "text": "Szenen Nummer"
+ },
+ "DPST-18-1": {
+  "bits": 8,
+  "main": "DPT-18",
+  "main_text": "Szenensteuerung",
+  "text": "Szenensteuerung"
+ },
+ "DPST-19-1": {
+  "bits": 64,
+  "main": "DPT-19",
+  "main_text": "Datum/Zeit",
+  "text": "Datum/Zeit"
+ },
+ "DPST-2-1": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "Prio. Schalten"
+ },
+ "DPST-2-10": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "Prio. Start"
+ },
+ "DPST-2-11": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "Prio. Aktivität"
+ },
+ "DPST-2-12": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "Prio. Invers"
+ },
+ "DPST-2-2": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "Boolesche Steuerung"
+ },
+ "DPST-2-3": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "Prio. Freigeben"
+ },
+ "DPST-2-4": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "Prio. Übergang"
+ },
+ "DPST-2-5": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "Prio. Alarm"
+ },
+ "DPST-2-6": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "Prio. binärer Wert"
+ },
+ "DPST-2-7": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "Prio. Schritt"
+ },
+ "DPST-2-8": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "Richtungskontrolle 1"
+ },
+ "DPST-2-9": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "Richtungskontrolle 2"
+ },
+ "DPST-20-1": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "SCLO Modus"
+ },
+ "DPST-20-100": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Kraftstofftyp"
+ },
+ "DPST-20-1000": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Kommunikationsmodus"
+ },
+ "DPST-20-1001": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Typ der erweiterten Information"
+ },
+ "DPST-20-1002": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Auswahl RF Modus"
+ },
+ "DPST-20-1003": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Auswahl RF Filtermodus"
+ },
+ "DPST-20-101": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Brennertyp"
+ },
+ "DPST-20-102": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "HVAC Modus"
+ },
+ "DPST-20-103": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "DHW Modus"
+ },
+ "DPST-20-104": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Ladepriorität"
+ },
+ "DPST-20-105": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "HVAC Kontrollmodus"
+ },
+ "DPST-20-106": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "HVAC Notfall Modus"
+ },
+ "DPST-20-107": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Übergangsmodus"
+ },
+ "DPST-20-108": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Ventilmodus"
+ },
+ "DPST-20-109": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Klappenmodus"
+ },
+ "DPST-20-11": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "System Fehlerklasse"
+ },
+ "DPST-20-110": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Heizmodus"
+ },
+ "DPST-20-111": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Lüftermodus"
+ },
+ "DPST-20-112": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Master/Slave Modus"
+ },
+ "DPST-20-113": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Status Raum Sollwert"
+ },
+ "DPST-20-114": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Zähler Gerätetyp"
+ },
+ "DPST-20-115": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Ent/Befeuchten Modus"
+ },
+ "DPST-20-116": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "H / C-Stufe aktivieren"
+ },
+ "DPST-20-12": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "HVAC Fehlerklasse"
+ },
+ "DPST-20-120": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "ADA Typ"
+ },
+ "DPST-20-121": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Backup Modus"
+ },
+ "DPST-20-1219": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Control Pilot State"
+ },
+ "DPST-20-122": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Synchronisations- Starttyp"
+ },
+ "DPST-20-1220": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "OCPP State"
+ },
+ "DPST-20-1221": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "EVSEErrorCode"
+ },
+ "DPST-20-13": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Zeitdifferenz"
+ },
+ "DPST-20-14": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Windstärke (0..12)"
+ },
+ "DPST-20-17": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Sensor Modus"
+ },
+ "DPST-20-2": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Gebäude Modus"
+ },
+ "DPST-20-20": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Aktor Verbindungstyp"
+ },
+ "DPST-20-21": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Wolkendecke"
+ },
+ "DPST-20-22": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Modus nach Spannungswiederkehr"
+ },
+ "DPST-20-3": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Belegung"
+ },
+ "DPST-20-4": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Prioriät"
+ },
+ "DPST-20-5": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Licht Anwendungsmodus"
+ },
+ "DPST-20-6": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Licht Anwendungsbereich"
+ },
+ "DPST-20-600": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Verhalten sperren/freigeben"
+ },
+ "DPST-20-601": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Verhalten Busversorgung Anlauf/Abfall"
+ },
+ "DPST-20-602": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Dali Nachlaufzeit"
+ },
+ "DPST-20-603": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Blinkmodus"
+ },
+ "DPST-20-604": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Licht Kontrollmodus"
+ },
+ "DPST-20-605": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "PB SchaltModus"
+ },
+ "DPST-20-606": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "PB Aktionsmodus"
+ },
+ "DPST-20-607": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "PB Dimmmodus"
+ },
+ "DPST-20-608": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Einschaltmodus"
+ },
+ "DPST-20-609": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Lasttyp"
+ },
+ "DPST-20-610": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Lasttyp Erkennung"
+ },
+ "DPST-20-611": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Konverter Teststeuerung"
+ },
+ "DPST-20-612": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "converter control"
+ },
+ "DPST-20-613": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Converter Data Request"
+ },
+ "DPST-20-7": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Alarmklasse"
+ },
+ "DPST-20-8": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "PSU Modus"
+ },
+ "DPST-20-801": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "SAB Ausnahmeverhalten"
+ },
+ "DPST-20-802": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "SAB Verhalten sperren/freigeben"
+ },
+ "DPST-20-803": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "SSSB Modus"
+ },
+ "DPST-20-804": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "Rolladen Kontrollmodus"
+ },
+ "DPST-206-100": {
+  "bits": 24,
+  "main": "DPT-206",
+  "main_text": "16-Bit vorzeichenlos und 8-Bit Auswahl",
+  "text": "Zeitverzögerung und HVAC Modus"
+ },
+ "DPST-206-102": {
+  "bits": 24,
+  "main": "DPT-206",
+  "main_text": "16-Bit vorzeichenlos und 8-Bit Auswahl",
+  "text": "Zeitverzögerung und DHW Modus"
+ },
+ "DPST-206-104": {
+  "bits": 24,
+  "main": "DPT-206",
+  "main_text": "16-Bit vorzeichenlos und 8-Bit Auswahl",
+  "text": "Zeitverzögerung und Belegungsmodus"
+ },
+ "DPST-206-105": {
+  "bits": 24,
+  "main": "DPT-206",
+  "main_text": "16-Bit vorzeichenlos und 8-Bit Auswahl",
+  "text": "Zeitverzögerung und Gebäudemodus"
+ },
+ "DPST-207-600": {
+  "bits": 16,
+  "main": "DPT-207",
+  "main_text": "8-bit unsigned value & 8-bit enum",
+  "text": "Status Lighting Actuator"
+ },
+ "DPST-21-1": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "Allgemeiner Status"
+ },
+ "DPST-21-100": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "Zwangsführung"
+ },
+ "DPST-21-1000": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "RF- Kommunikationsmodus Info"
+ },
+ "DPST-21-1001": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "cEMI Server unterstützte RF Filter Modi"
+ },
+ "DPST-21-101": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "Zwangsführung Cool"
+ },
+ "DPST-21-1010": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "Kanalaktivierung für 8 Kanäle"
+ },
+ "DPST-21-102": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "Raumheizungsregler Status"
+ },
+ "DPST-21-103": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "Solar DHW Regler Status"
+ },
+ "DPST-21-104": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "Brennstoff- Typ"
+ },
+ "DPST-21-105": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "Raumkühlungsregler Status"
+ },
+ "DPST-21-106": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "Lüftungsregler Status"
+ },
+ "DPST-21-107": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "kombinierter Status RTSM"
+ },
+ "DPST-21-2": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "Geräte- Kontrolle"
+ },
+ "DPST-21-601": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "Licht Aktor Fehler Information"
+ },
+ "DPST-217-1": {
+  "bits": 16,
+  "main": "DPT-217",
+  "main_text": "Datenpunkttyp Version",
+  "text": "DPT Version"
+ },
+ "DPST-219-1": {
+  "bits": 48,
+  "main": "DPT-219",
+  "main_text": "Alarm Info",
+  "text": "Alarm Info"
+ },
+ "DPST-22-100": {
+  "bits": 16,
+  "main": "DPT-22",
+  "main_text": "16-Bit Feld",
+  "text": "DHW Regler Status"
+ },
+ "DPST-22-1000": {
+  "bits": 16,
+  "main": "DPT-22",
+  "main_text": "16-Bit Feld",
+  "text": "Medium"
+ },
+ "DPST-22-101": {
+  "bits": 16,
+  "main": "DPT-22",
+  "main_text": "16-Bit Feld",
+  "text": "RHCC Status"
+ },
+ "DPST-22-1010": {
+  "bits": 16,
+  "main": "DPT-22",
+  "main_text": "16-Bit Feld",
+  "text": "Kanalaktivierung für 16 Kanäle"
+ },
+ "DPST-22-102": {
+  "bits": 16,
+  "main": "DPT-22",
+  "main_text": "16-Bit Feld",
+  "text": "HVA kombinierter Status"
+ },
+ "DPST-22-103": {
+  "bits": 16,
+  "main": "DPT-22",
+  "main_text": "16-Bit Feld",
+  "text": "RTC kombinierter Status"
+ },
+ "DPST-222-100": {
+  "bits": 48,
+  "main": "DPT-222",
+  "main_text": "3x 2-Byte Gleitkommawert",
+  "text": "Raumtemperatur Sollwert"
+ },
+ "DPST-222-101": {
+  "bits": 48,
+  "main": "DPT-222",
+  "main_text": "3x 2-Byte Gleitkommawert",
+  "text": "Raumtemperatur Sollwertverschiebung"
+ },
+ "DPST-225-1": {
+  "bits": 24,
+  "main": "DPT-225",
+  "main_text": "scaling speed",
+  "text": "Skaliergeschwindigkeit"
+ },
+ "DPST-225-2": {
+  "bits": 24,
+  "main": "DPT-225",
+  "main_text": "scaling speed",
+  "text": "Skalierung Schrittzeit"
+ },
+ "DPST-229-1": {
+  "bits": 48,
+  "main": "DPT-229",
+  "main_text": "4-1-1 Byte kombinierte Information",
+  "text": "Ablesewert (Wert,Encoding,Befehl)"
+ },
+ "DPST-23-1": {
+  "bits": 2,
+  "main": "DPT-23",
+  "main_text": "2-Bit Feld",
+  "text": "Ein/Aus Aktion"
+ },
+ "DPST-23-102": {
+  "bits": 2,
+  "main": "DPT-23",
+  "main_text": "2-Bit Feld",
+  "text": "HVAC Taster Aktion"
+ },
+ "DPST-23-2": {
+  "bits": 2,
+  "main": "DPT-23",
+  "main_text": "2-Bit Feld",
+  "text": "Alarm Reaktion"
+ },
+ "DPST-23-3": {
+  "bits": 2,
+  "main": "DPT-23",
+  "main_text": "2-Bit Feld",
+  "text": "Auf/Ab Aktion"
+ },
+ "DPST-230-1000": {
+  "bits": 64,
+  "main": "DPT-230",
+  "main_text": "MBus Adresse",
+  "text": "MBus Adresse"
+ },
+ "DPST-232-600": {
+  "bits": 24,
+  "main": "DPT-232",
+  "main_text": "3-Byte Farbe RGB",
+  "text": "RGB Wert 3x(0..255)"
+ },
+ "DPST-232-601": {
+  "bits": 24,
+  "main": "DPT-232",
+  "main_text": "3-Byte Farbe RGB",
+  "text": "Farbe HSV"
+ },
+ "DPST-234-1": {
+  "bits": 16,
+  "main": "DPT-234",
+  "main_text": "Sprachcode ISO 639-1",
+  "text": "Sprachcode (ASCII)"
+ },
+ "DPST-235-1": {
+  "bits": 48,
+  "main": "DPT-235",
+  "main_text": "Vorzeichenbehaftet mit Klassifizierung und Gültigkeit",
+  "text": "elektrische Energie mit Tarif"
+ },
+ "DPST-236-1": {
+  "bits": 8,
+  "main": "DPT-236",
+  "main_text": "Priorisierte Modussteuerung",
+  "text": "Priorisierte Modussteuerung"
+ },
+ "DPST-237-600": {
+  "bits": 16,
+  "main": "DPT-237",
+  "main_text": "Konfiguration/ Diagnose",
+  "text": "Diagnosewert"
+ },
+ "DPST-238-600": {
+  "bits": 8,
+  "main": "DPT-238",
+  "main_text": "Konfiguration/ Diagnose",
+  "text": "Diagnosewert"
+ },
+ "DPST-24-1": {
+  "bits": 312,
+  "main": "DPT-24",
+  "main_text": "",
+  "text": "Variable-Length ISO-8859-1 String"
+ },
+ "DPST-240-800": {
+  "bits": 24,
+  "main": "DPT-240",
+  "main_text": "Positionen",
+  "text": "Kombinierte Position"
+ },
+ "DPST-241-800": {
+  "bits": 32,
+  "main": "DPT-241",
+  "main_text": "Status",
+  "text": "Status Beschattung & Jalousieaktoren"
+ },
+ "DPST-242-600": {
+  "bits": 48,
+  "main": "DPT-242",
+  "main_text": "Status",
+  "text": "Farbe xyY"
+ },
+ "DPST-244-600": {
+  "bits": 16,
+  "main": "DPT-244",
+  "main_text": "Konverter Status",
+  "text": "DALI Konverter Status"
+ },
+ "DPST-245-600": {
+  "bits": 48,
+  "main": "DPT-245",
+  "main_text": "Konverter Testergebnis",
+  "text": "DALI Konverter Testergebnis"
+ },
+ "DPST-246-600": {
+  "bits": 16,
+  "main": "DPT-246",
+  "main_text": "Batterieinformationen",
+  "text": "Batterieinformationen"
+ },
+ "DPST-247-600": {
+  "bits": 96,
+  "main": "DPT-247",
+  "main_text": "Converter Test Info",
+  "text": "Converter Test Info"
+ },
+ "DPST-248-600": {
+  "bits": 40,
+  "main": "DPT-248",
+  "main_text": "DPT_Converter_Info_Fix",
+  "text": "Converter Info Fix"
+ },
+ "DPST-249-600": {
+  "bits": 48,
+  "main": "DPT-249",
+  "main_text": "brightness colour temperature transition",
+  "text": "Helligkeit Farbtemperaturübergang"
+ },
+ "DPST-25-1000": {
+  "bits": 8,
+  "main": "DPT-25",
+  "main_text": "2-Nibble Feld",
+  "text": "Busy/Nak Wiederholungen"
+ },
+ "DPST-250-600": {
+  "bits": 24,
+  "main": "DPT-250",
+  "main_text": "Status",
+  "text": "Helligkeit Farbtemperaturregelung"
+ },
+ "DPST-251-600": {
+  "bits": 48,
+  "main": "DPT-251",
+  "main_text": "4-Byte Farbe RGBW",
+  "text": "RGBW Wert 4x(0..100%)"
+ },
+ "DPST-251-601": {
+  "bits": 48,
+  "main": "DPT-251",
+  "main_text": "4-Byte Farbe RGBW",
+  "text": "Farbe HSVW"
+ },
+ "DPST-252-600": {
+  "bits": 40,
+  "main": "DPT-252",
+  "main_text": "Relative Control RGBW",
+  "text": "RGBW relative control"
+ },
+ "DPST-252-601": {
+  "bits": 40,
+  "main": "DPT-252",
+  "main_text": "Relative Control RGBW",
+  "text": "HSVW relative control"
+ },
+ "DPST-254-600": {
+  "bits": 24,
+  "main": "DPT-254",
+  "main_text": "Relative Control RGB",
+  "text": "RGB relative control"
+ },
+ "DPST-254-601": {
+  "bits": 24,
+  "main": "DPT-254",
+  "main_text": "Relative Control RGB",
+  "text": "Relative Control HSV"
+ },
+ "DPST-255-1": {
+  "bits": 64,
+  "main": "DPT-255",
+  "main_text": "F32F32",
+  "text": "Geografischer Standort (Längen- und Breitengrad) in Grad"
+ },
+ "DPST-26-1": {
+  "bits": 8,
+  "main": "DPT-26",
+  "main_text": "8-Bit Feld",
+  "text": "Szeneninformation"
+ },
+ "DPST-27-1": {
+  "bits": 32,
+  "main": "DPT-27",
+  "main_text": "32-Bit Feld",
+  "text": "Bit-kombinierte Info Ein/Aus"
+ },
+ "DPST-272-600": {
+  "bits": 56,
+  "main": "DPT-272",
+  "main_text": "Converter Info",
+  "text": "Converter Info"
+ },
+ "DPST-273-1": {
+  "bits": 64,
+  "main": "DPT-273",
+  "main_text": "Prognosen für F16-Werte",
+  "text": "Vorhergesagte Temperatur"
+ },
+ "DPST-273-2": {
+  "bits": 64,
+  "main": "DPT-273",
+  "main_text": "Prognosen für F16-Werte",
+  "text": "Vorhergesagte Windgeschwindigkeit"
+ },
+ "DPST-273-3": {
+  "bits": 64,
+  "main": "DPT-273",
+  "main_text": "Prognosen für F16-Werte",
+  "text": "Vorhergesagte relative Luftfeuchtigkeit"
+ },
+ "DPST-273-4": {
+  "bits": 64,
+  "main": "DPT-273",
+  "main_text": "Prognosen für F16-Werte",
+  "text": "Vorhergesagte absolute Luftfeuchtigkeit"
+ },
+ "DPST-273-5": {
+  "bits": 64,
+  "main": "DPT-273",
+  "main_text": "Prognosen für F16-Werte",
+  "text": "Vorhergesagter CO2-Gehalt"
+ },
+ "DPST-273-6": {
+  "bits": 64,
+  "main": "DPT-273",
+  "main_text": "Prognosen für F16-Werte",
+  "text": "Vorhergesagte Luftschadstoffe"
+ },
+ "DPST-273-7": {
+  "bits": 64,
+  "main": "DPT-273",
+  "main_text": "Prognosen für F16-Werte",
+  "text": "Vorhergesagte Sonneneinstrahlung"
+ },
+ "DPST-275-100": {
+  "bits": 64,
+  "main": "DPT-275",
+  "main_text": "F16F16F16F16",
+  "text": "Temperatur Soll-Wert-Einstellung für 4 HLK Modi"
+ },
+ "DPST-275-101": {
+  "bits": 64,
+  "main": "DPT-275",
+  "main_text": "F16F16F16F16",
+  "text": "Temperatur Sollwertverschiebungseinstellung für 4 HLK Modi"
+ },
+ "DPST-28-1": {
+  "bits": 312,
+  "main": "DPT-28",
+  "main_text": "",
+  "text": "Unicode UTF-8 String"
+ },
+ "DPST-285-1": {
+  "bits": 128,
+  "main": "DPT-285",
+  "main_text": "ipv6",
+  "text": "IPv6-Adresse kodiert in der Netzwerk-Byte-Reihenfolge"
+ },
+ "DPST-288-600": {
+  "bits": 64,
+  "main": "DPT-288",
+  "main_text": "Helligkeit Farbe RGBW-Übergang",
+  "text": "Helligkeit/Farbe RGBW-Übergang"
+ },
+ "DPST-288-601": {
+  "bits": 64,
+  "main": "DPT-288",
+  "main_text": "Helligkeit Farbe RGBW-Übergang",
+  "text": "Helligkeit/Farbe HSVW-Übergang"
+ },
+ "DPST-29-10": {
+  "bits": 64,
+  "main": "DPT-29",
+  "main_text": "Elektrische Energie",
+  "text": "Wirkarbeit (Wh)"
+ },
+ "DPST-29-11": {
+  "bits": 64,
+  "main": "DPT-29",
+  "main_text": "Elektrische Energie",
+  "text": "Scheinarbeit (VAh)"
+ },
+ "DPST-29-12": {
+  "bits": 64,
+  "main": "DPT-29",
+  "main_text": "Elektrische Energie",
+  "text": "Blindarbeit (VARh)"
+ },
+ "DPST-3-7": {
+  "bits": 4,
+  "main": "DPT-3",
+  "main_text": "3-Bit gesteuert",
+  "text": "Dimmer Schritt"
+ },
+ "DPST-3-8": {
+  "bits": 4,
+  "main": "DPT-3",
+  "main_text": "3-Bit gesteuert",
+  "text": "Jalousie Schritt"
+ },
+ "DPST-30-1010": {
+  "bits": 24,
+  "main": "DPT-30",
+  "main_text": "24- fach Kanalaktivierung",
+  "text": "Aktivierungsstatus 0..23"
+ },
+ "DPST-4-1": {
+  "bits": 8,
+  "main": "DPT-4",
+  "main_text": "Zeichensatz",
+  "text": "Zeichen (ASCII)"
+ },
+ "DPST-4-2": {
+  "bits": 8,
+  "main": "DPT-4",
+  "main_text": "Zeichensatz",
+  "text": "Zeichen (ISO 8859-1)"
+ },
+ "DPST-5-1": {
+  "bits": 8,
+  "main": "DPT-5",
+  "main_text": "8-Bit vorzeichenlos",
+  "text": "Prozent (0..100%)"
+ },
+ "DPST-5-10": {
+  "bits": 8,
+  "main": "DPT-5",
+  "main_text": "8-Bit vorzeichenlos",
+  "text": "Zählimpulse (0..255)"
+ },
+ "DPST-5-100": {
+  "bits": 8,
+  "main": "DPT-5",
+  "main_text": "8-Bit vorzeichenlos",
+  "text": "Lüfterstufe (0..255)"
+ },
+ "DPST-5-3": {
+  "bits": 8,
+  "main": "DPT-5",
+  "main_text": "8-Bit vorzeichenlos",
+  "text": "Winkel (Grad)"
+ },
+ "DPST-5-4": {
+  "bits": 8,
+  "main": "DPT-5",
+  "main_text": "8-Bit vorzeichenlos",
+  "text": "Prozent (0..255%)"
+ },
+ "DPST-5-5": {
+  "bits": 8,
+  "main": "DPT-5",
+  "main_text": "8-Bit vorzeichenlos",
+  "text": "Dezimalfaktor (0..255)"
+ },
+ "DPST-5-6": {
+  "bits": 8,
+  "main": "DPT-5",
+  "main_text": "8-Bit vorzeichenlos",
+  "text": "Tarif (0..255)"
+ },
+ "DPST-6-1": {
+  "bits": 8,
+  "main": "DPT-6",
+  "main_text": "8-Bit vorzeichenbehaftet",
+  "text": "Prozent (-128..127%)"
+ },
+ "DPST-6-10": {
+  "bits": 8,
+  "main": "DPT-6",
+  "main_text": "8-Bit vorzeichenbehaftet",
+  "text": "Zählimpulse (-128..127)"
+ },
+ "DPST-6-20": {
+  "bits": 8,
+  "main": "DPT-6",
+  "main_text": "8-Bit vorzeichenbehaftet",
+  "text": "Status mit Modus"
+ },
+ "DPST-7-1": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "Pulse"
+ },
+ "DPST-7-10": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "Property Datentyp"
+ },
+ "DPST-7-11": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "Länge (mm)"
+ },
+ "DPST-7-12": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "Strom (mA)"
+ },
+ "DPST-7-13": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "Helligkeit (lux)"
+ },
+ "DPST-7-2": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "Zeit (ms)"
+ },
+ "DPST-7-3": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "Zeit (10 ms)"
+ },
+ "DPST-7-4": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "Zeit (100 ms)"
+ },
+ "DPST-7-5": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "Zeit (s)"
+ },
+ "DPST-7-6": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "Zeit (min)"
+ },
+ "DPST-7-600": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "Absolute Farbtemperatur (K)"
+ },
+ "DPST-7-7": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "Zeit (h)"
+ },
+ "DPST-8-1": {
+  "bits": 16,
+  "main": "DPT-8",
+  "main_text": "2-Byte vorzeichenbehaftet",
+  "text": "Pulsdifferenz"
+ },
+ "DPST-8-10": {
+  "bits": 16,
+  "main": "DPT-8",
+  "main_text": "2-Byte vorzeichenbehaftet",
+  "text": "Prozentdifferenz (%)"
+ },
+ "DPST-8-11": {
+  "bits": 16,
+  "main": "DPT-8",
+  "main_text": "2-Byte vorzeichenbehaftet",
+  "text": "Rotationswinkel (°)"
+ },
+ "DPST-8-12": {
+  "bits": 16,
+  "main": "DPT-8",
+  "main_text": "2-Byte vorzeichenbehaftet",
+  "text": "Länge (m)"
+ },
+ "DPST-8-2": {
+  "bits": 16,
+  "main": "DPT-8",
+  "main_text": "2-Byte vorzeichenbehaftet",
+  "text": "Zeitdifferenz (ms)"
+ },
+ "DPST-8-3": {
+  "bits": 16,
+  "main": "DPT-8",
+  "main_text": "2-Byte vorzeichenbehaftet",
+  "text": "Zeitdifferenz (10 ms)"
+ },
+ "DPST-8-4": {
+  "bits": 16,
+  "main": "DPT-8",
+  "main_text": "2-Byte vorzeichenbehaftet",
+  "text": "Zeitdifferenz (100 ms)"
+ },
+ "DPST-8-5": {
+  "bits": 16,
+  "main": "DPT-8",
+  "main_text": "2-Byte vorzeichenbehaftet",
+  "text": "Zeitdifferenz (s)"
+ },
+ "DPST-8-6": {
+  "bits": 16,
+  "main": "DPT-8",
+  "main_text": "2-Byte vorzeichenbehaftet",
+  "text": "Zeitdifferenz (min)"
+ },
+ "DPST-8-7": {
+  "bits": 16,
+  "main": "DPT-8",
+  "main_text": "2-Byte vorzeichenbehaftet",
+  "text": "Zeitdifferenz (h)"
+ },
+ "DPST-9-1": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Temperatur (°C)"
+ },
+ "DPST-9-10": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Zeit (s)"
+ },
+ "DPST-9-11": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Zeit (ms)"
+ },
+ "DPST-9-2": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Temperaturdifferenz (K)"
+ },
+ "DPST-9-20": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Spannung (mV)"
+ },
+ "DPST-9-21": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Strom (mA)"
+ },
+ "DPST-9-22": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Leistungsdichte (W/m²)"
+ },
+ "DPST-9-23": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Kelvin/Prozent (K/%)"
+ },
+ "DPST-9-24": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Leistung (kW)"
+ },
+ "DPST-9-25": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Durchflussmenge (l/h)"
+ },
+ "DPST-9-26": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Regenmenge (l/m²)"
+ },
+ "DPST-9-27": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Temperatur (°F)"
+ },
+ "DPST-9-28": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Windgeschwindigkeit (km/h)"
+ },
+ "DPST-9-29": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Absolute Feuchtigkeit (g/m³)"
+ },
+ "DPST-9-3": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Kelvin/Stunde (K/h)"
+ },
+ "DPST-9-30": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Dichte (µg/m³)"
+ },
+ "DPST-9-31": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "coefficient"
+ },
+ "DPST-9-4": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Lux (Lux)"
+ },
+ "DPST-9-5": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Geschwindigkeit (m/s)"
+ },
+ "DPST-9-6": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Druck (Pa)"
+ },
+ "DPST-9-7": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Feuchtigkeit (%)"
+ },
+ "DPST-9-8": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Teile/Million (ppm)"
+ },
+ "DPST-9-9": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "Luftdurchsatz (m³/h)"
+ },
+ "DPT-1": {
+  "bits": 1,
+  "main": "DPT-1",
+  "main_text": "1-Bit",
+  "text": "1-Bit"
+ },
+ "DPT-10": {
+  "bits": 24,
+  "main": "DPT-10",
+  "main_text": "Zeit",
+  "text": "Zeit"
+ },
+ "DPT-11": {
+  "bits": 24,
+  "main": "DPT-11",
+  "main_text": "Datum",
+  "text": "Datum"
+ },
+ "DPT-12": {
+  "bits": 32,
+  "main": "DPT-12",
+  "main_text": "4-Byte vorzeichenlos",
+  "text": "4-Byte vorzeichenlos"
+ },
+ "DPT-13": {
+  "bits": 32,
+  "main": "DPT-13",
+  "main_text": "4-Byte vorzeichenbehaftet",
+  "text": "4-Byte vorzeichenbehaftet"
+ },
+ "DPT-14": {
+  "bits": 32,
+  "main": "DPT-14",
+  "main_text": "4-Byte Gleitkommawert",
+  "text": "4-Byte Gleitkommawert"
+ },
+ "DPT-15": {
+  "bits": 32,
+  "main": "DPT-15",
+  "main_text": "Zugang",
+  "text": "Zugang"
+ },
+ "DPT-16": {
+  "bits": 112,
+  "main": "DPT-16",
+  "main_text": "Zeichensatz",
+  "text": "Zeichensatz"
+ },
+ "DPT-17": {
+  "bits": 8,
+  "main": "DPT-17",
+  "main_text": "Szenen Nummer",
+  "text": "Szenen Nummer"
+ },
+ "DPT-18": {
+  "bits": 8,
+  "main": "DPT-18",
+  "main_text": "Szenensteuerung",
+  "text": "Szenensteuerung"
+ },
+ "DPT-19": {
+  "bits": 64,
+  "main": "DPT-19",
+  "main_text": "Datum/Zeit",
+  "text": "Datum/Zeit"
+ },
+ "DPT-2": {
+  "bits": 2,
+  "main": "DPT-2",
+  "main_text": "1-Bit gesteuert",
+  "text": "1-Bit gesteuert"
+ },
+ "DPT-20": {
+  "bits": 8,
+  "main": "DPT-20",
+  "main_text": "1-Byte",
+  "text": "1-Byte"
+ },
+ "DPT-206": {
+  "bits": 24,
+  "main": "DPT-206",
+  "main_text": "16-Bit vorzeichenlos und 8-Bit Auswahl",
+  "text": "16-Bit vorzeichenlos und 8-Bit Auswahl"
+ },
+ "DPT-207": {
+  "bits": 16,
+  "main": "DPT-207",
+  "main_text": "8-bit unsigned value & 8-bit enum",
+  "text": "8-bit unsigned value & 8-bit enum"
+ },
+ "DPT-21": {
+  "bits": 8,
+  "main": "DPT-21",
+  "main_text": "8-Bit Feld",
+  "text": "8-Bit Feld"
+ },
+ "DPT-217": {
+  "bits": 16,
+  "main": "DPT-217",
+  "main_text": "Datenpunkttyp Version",
+  "text": "Datenpunkttyp Version"
+ },
+ "DPT-219": {
+  "bits": 48,
+  "main": "DPT-219",
+  "main_text": "Alarm Info",
+  "text": "Alarm Info"
+ },
+ "DPT-22": {
+  "bits": 16,
+  "main": "DPT-22",
+  "main_text": "16-Bit Feld",
+  "text": "16-Bit Feld"
+ },
+ "DPT-222": {
+  "bits": 48,
+  "main": "DPT-222",
+  "main_text": "3x 2-Byte Gleitkommawert",
+  "text": "3x 2-Byte Gleitkommawert"
+ },
+ "DPT-225": {
+  "bits": 24,
+  "main": "DPT-225",
+  "main_text": "scaling speed",
+  "text": "scaling speed"
+ },
+ "DPT-229": {
+  "bits": 48,
+  "main": "DPT-229",
+  "main_text": "4-1-1 Byte kombinierte Information",
+  "text": "4-1-1 Byte kombinierte Information"
+ },
+ "DPT-23": {
+  "bits": 2,
+  "main": "DPT-23",
+  "main_text": "2-Bit Feld",
+  "text": "2-Bit Feld"
+ },
+ "DPT-230": {
+  "bits": 64,
+  "main": "DPT-230",
+  "main_text": "MBus Adresse",
+  "text": "MBus Adresse"
+ },
+ "DPT-232": {
+  "bits": 24,
+  "main": "DPT-232",
+  "main_text": "3-Byte Farbe RGB",
+  "text": "3-Byte Farbe RGB"
+ },
+ "DPT-234": {
+  "bits": 16,
+  "main": "DPT-234",
+  "main_text": "Sprachcode ISO 639-1",
+  "text": "Sprachcode ISO 639-1"
+ },
+ "DPT-235": {
+  "bits": 48,
+  "main": "DPT-235",
+  "main_text": "Vorzeichenbehaftet mit Klassifizierung und Gültigkeit",
+  "text": "Vorzeichenbehaftet mit Klassifizierung und Gültigkeit"
+ },
+ "DPT-236": {
+  "bits": 8,
+  "main": "DPT-236",
+  "main_text": "Priorisierte Modussteuerung",
+  "text": "Priorisierte Modussteuerung"
+ },
+ "DPT-237": {
+  "bits": 16,
+  "main": "DPT-237",
+  "main_text": "Konfiguration/ Diagnose",
+  "text": "Konfiguration/ Diagnose"
+ },
+ "DPT-238": {
+  "bits": 8,
+  "main": "DPT-238",
+  "main_text": "Konfiguration/ Diagnose",
+  "text": "Konfiguration/ Diagnose"
+ },
+ "DPT-24": {
+  "bits": 312,
+  "main": "DPT-24",
+  "main_text": "",
+  "text": ""
+ },
+ "DPT-240": {
+  "bits": 24,
+  "main": "DPT-240",
+  "main_text": "Positionen",
+  "text": "Positionen"
+ },
+ "DPT-241": {
+  "bits": 32,
+  "main": "DPT-241",
+  "main_text": "Status",
+  "text": "Status"
+ },
+ "DPT-242": {
+  "bits": 48,
+  "main": "DPT-242",
+  "main_text": "Status",
+  "text": "Status"
+ },
+ "DPT-244": {
+  "bits": 16,
+  "main": "DPT-244",
+  "main_text": "Konverter Status",
+  "text": "Konverter Status"
+ },
+ "DPT-245": {
+  "bits": 48,
+  "main": "DPT-245",
+  "main_text": "Konverter Testergebnis",
+  "text": "Konverter Testergebnis"
+ },
+ "DPT-246": {
+  "bits": 16,
+  "main": "DPT-246",
+  "main_text": "Batterieinformationen",
+  "text": "Batterieinformationen"
+ },
+ "DPT-247": {
+  "bits": 96,
+  "main": "DPT-247",
+  "main_text": "Converter Test Info",
+  "text": "Converter Test Info"
+ },
+ "DPT-248": {
+  "bits": 40,
+  "main": "DPT-248",
+  "main_text": "DPT_Converter_Info_Fix",
+  "text": "DPT_Converter_Info_Fix"
+ },
+ "DPT-249": {
+  "bits": 48,
+  "main": "DPT-249",
+  "main_text": "brightness colour temperature transition",
+  "text": "brightness colour temperature transition"
+ },
+ "DPT-25": {
+  "bits": 8,
+  "main": "DPT-25",
+  "main_text": "2-Nibble Feld",
+  "text": "2-Nibble Feld"
+ },
+ "DPT-250": {
+  "bits": 24,
+  "main": "DPT-250",
+  "main_text": "Status",
+  "text": "Status"
+ },
+ "DPT-251": {
+  "bits": 48,
+  "main": "DPT-251",
+  "main_text": "4-Byte Farbe RGBW",
+  "text": "4-Byte Farbe RGBW"
+ },
+ "DPT-252": {
+  "bits": 40,
+  "main": "DPT-252",
+  "main_text": "Relative Control RGBW",
+  "text": "Relative Control RGBW"
+ },
+ "DPT-254": {
+  "bits": 24,
+  "main": "DPT-254",
+  "main_text": "Relative Control RGB",
+  "text": "Relative Control RGB"
+ },
+ "DPT-255": {
+  "bits": 64,
+  "main": "DPT-255",
+  "main_text": "F32F32",
+  "text": "F32F32"
+ },
+ "DPT-26": {
+  "bits": 8,
+  "main": "DPT-26",
+  "main_text": "8-Bit Feld",
+  "text": "8-Bit Feld"
+ },
+ "DPT-27": {
+  "bits": 32,
+  "main": "DPT-27",
+  "main_text": "32-Bit Feld",
+  "text": "32-Bit Feld"
+ },
+ "DPT-272": {
+  "bits": 56,
+  "main": "DPT-272",
+  "main_text": "Converter Info",
+  "text": "Converter Info"
+ },
+ "DPT-273": {
+  "bits": 64,
+  "main": "DPT-273",
+  "main_text": "Prognosen für F16-Werte",
+  "text": "Prognosen für F16-Werte"
+ },
+ "DPT-275": {
+  "bits": 64,
+  "main": "DPT-275",
+  "main_text": "F16F16F16F16",
+  "text": "F16F16F16F16"
+ },
+ "DPT-28": {
+  "bits": 312,
+  "main": "DPT-28",
+  "main_text": "",
+  "text": ""
+ },
+ "DPT-285": {
+  "bits": 128,
+  "main": "DPT-285",
+  "main_text": "ipv6",
+  "text": "ipv6"
+ },
+ "DPT-288": {
+  "bits": 64,
+  "main": "DPT-288",
+  "main_text": "Helligkeit Farbe RGBW-Übergang",
+  "text": "Helligkeit Farbe RGBW-Übergang"
+ },
+ "DPT-29": {
+  "bits": 64,
+  "main": "DPT-29",
+  "main_text": "Elektrische Energie",
+  "text": "Elektrische Energie"
+ },
+ "DPT-3": {
+  "bits": 4,
+  "main": "DPT-3",
+  "main_text": "3-Bit gesteuert",
+  "text": "3-Bit gesteuert"
+ },
+ "DPT-30": {
+  "bits": 24,
+  "main": "DPT-30",
+  "main_text": "24- fach Kanalaktivierung",
+  "text": "24- fach Kanalaktivierung"
+ },
+ "DPT-4": {
+  "bits": 8,
+  "main": "DPT-4",
+  "main_text": "Zeichensatz",
+  "text": "Zeichensatz"
+ },
+ "DPT-5": {
+  "bits": 8,
+  "main": "DPT-5",
+  "main_text": "8-Bit vorzeichenlos",
+  "text": "8-Bit vorzeichenlos"
+ },
+ "DPT-6": {
+  "bits": 8,
+  "main": "DPT-6",
+  "main_text": "8-Bit vorzeichenbehaftet",
+  "text": "8-Bit vorzeichenbehaftet"
+ },
+ "DPT-7": {
+  "bits": 16,
+  "main": "DPT-7",
+  "main_text": "2-Byte vorzeichenlos",
+  "text": "2-Byte vorzeichenlos"
+ },
+ "DPT-8": {
+  "bits": 16,
+  "main": "DPT-8",
+  "main_text": "2-Byte vorzeichenbehaftet",
+  "text": "2-Byte vorzeichenbehaftet"
+ },
+ "DPT-9": {
+  "bits": 16,
+  "main": "DPT-9",
+  "main_text": "2-Byte Gleitkommawert",
+  "text": "2-Byte Gleitkommawert"
+ }
+}

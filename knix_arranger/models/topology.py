@@ -31,6 +31,17 @@ def normalize_flags(flags: str) -> str:
                     "A" if update == "U" else "-", "-"))
 
 
+def normalize_dpt(data_type: str, object_size: str = "") -> str:
+    """Report-Name oder Grösse als DPT-Kennung («Schalten» -> DPST-1-1,
+    «1 Bit» -> DPT-1); was nicht eindeutig ist, bleibt."""
+    if not data_type or data_type.startswith("DPST-"):
+        return data_type
+    from ..services.ko_size import size_bits
+    from ..utils.ets_dpt_names import ets_dpt_id
+    bits = size_bits(object_size) or size_bits(data_type)
+    return ets_dpt_id(data_type, bits) or data_type
+
+
 @dataclass
 class CommunicationObject:
     """KNX-Kommunikationsobjekt eines Geräts (FA-515)."""
@@ -39,7 +50,11 @@ class CommunicationObject:
     object_function: str = ""     # z.B. "Schalten"
     priority: str = "Niedrig"
     flags: str = ""               # z.B. "K-SUEA-"
-    data_type: str = ""           # DPT ("DPST-1-1"), bei ETS-Importen teils "1 bit"
+    # DPT ("DPST-1-1"); ohne Angabe die Grösse ("2 Bytes") bzw. ein nicht
+    # eindeutiger Name aus dem Report. Ältere Projekte (bis 1.4.24) führten
+    # bei ETS-Importen die Grösse oder den Report-Namen ("Schalten") -- beim
+    # Laden übersetzt (normalize_dpt)
+    data_type: str = ""
     connected_gas: list[str] = field(default_factory=list)  # z.B. ["3/0/65"]
     object_size: str = ""         # Grösse laut Herstellerdatei, z.B. "1 Bit", "1 Byte"
 
@@ -63,7 +78,7 @@ class CommunicationObject:
             object_function=data.get("object_function", ""),
             priority=data.get("priority", "Niedrig"),
             flags=normalize_flags(data.get("flags", "")),
-            data_type=data.get("data_type", ""),
+            data_type=normalize_dpt(data.get("data_type", ""), data.get("object_size", "")),
             connected_gas=data.get("connected_gas", []),
             object_size=data.get("object_size", ""),
         )

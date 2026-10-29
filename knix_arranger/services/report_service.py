@@ -327,6 +327,14 @@ VALIDATION_RULES = {
         "nach dem Verschieben.",
         "Prüfen; nicht gewollte Taste in der Bauherrenberatung entfernen.",
     ),
+    "FA-638": (
+        "Datenpunkttyp deutet den Wert anders",
+        "KO und GA haben denselben Haupttyp, aber einen Untertyp, der den Wert "
+        "anders deutet: z.B. sendet ein Taster 5.001 Prozent (1 % = 3) an eine GA "
+        "5.010 Zählimpulse (3 = 3). Die Geräte verstehen den Wert dann verschieden.",
+        "Datenpunkttyp von KO und GA angleichen bzw. den Wert am Sender so "
+        "parametrieren, wie der Empfänger ihn erwartet.",
+    ),
     "FA-635": (
         "L-Flag an einem Empfänger",
         "Das KO empfängt an allen seinen GAs nur (Befehl, Rückmeldung oder Messwert "

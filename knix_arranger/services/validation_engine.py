@@ -123,6 +123,7 @@ class ValidationEngine:
             issues.extend(self._check_product_kinds(project))
             issues.extend(self._check_ko_flags(project))
             issues.extend(self._check_ko_plausibility(project))
+            issues.extend(self._check_dpt_subtypes(project))
             issues.extend(self._check_flag_recommendations(project))
             issues.extend(self._check_product_capabilities(project))
             issues.extend(self._check_bedienelement_leftovers(project))
@@ -319,6 +320,42 @@ class ValidationEngine:
                 "L-Flag entfernen (in der ETS; in KNiX: Topologie › Flags bearbeiten…)",
                 designation=ga.designation if ga else "",
                 details={"devices": [device.physical_address]}))
+        return issues
+
+    @staticmethod
+    def _check_dpt_subtypes(project) -> list[ValidationIssue]:
+        """FA-638: KO und GA mit gleichem Haupttyp, aber einem Untertyp, der
+        den Wert anders deutet (5.001 Prozent an 5.010 Zählimpulse). Je KO
+        und GA einmal; Parametervarianten derselben KO-Nummer zählen mit."""
+        from .ko_links import links_by_ga
+        from .ko_plausibility import ko_variants, subtype_problem
+        gas = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+        variants: dict[int, dict] = {}
+        seen: set[tuple] = set()
+        issues = []
+        for address, links in sorted(links_by_ga(project).items()):
+            ga = gas.get(address)
+            ga_dpt = ets_dpt_id(ga.datapoint_type) if ga else ""
+            if not ga_dpt:
+                continue
+            for link in links:
+                key = (link.device.physical_address, link.co.object_number, address)
+                if key in seen:
+                    continue
+                seen.add(key)
+                by_number = variants.setdefault(id(link.device), ko_variants(link.device))
+                problem = subtype_problem(
+                    [co.data_type for co in by_number.get(link.co.object_number, [link.co])],
+                    ga_dpt)
+                if problem:
+                    issues.append(ValidationIssue(
+                        "info", "FA-638",
+                        f"{link.label}: Datenpunkttyp deutet den Wert anders ({problem})",
+                        address,
+                        "Datenpunkttyp von KO und GA angleichen (in der ETS am KO bzw. an "
+                        "der GA) oder prüfen, ob Sender und Empfänger den Wert gleich deuten",
+                        designation=ga.designation,
+                        details={"devices": [link.device.physical_address]}))
         return issues
 
     @staticmethod

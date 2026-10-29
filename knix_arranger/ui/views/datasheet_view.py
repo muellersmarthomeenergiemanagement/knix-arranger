@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QColor
 from ...models.project import KnxProject
+from ...services.ko_size import ko_dpt_text
 from ...utils.manufacturers import canonical_manufacturer
 from ..column_utils import fit_columns
 from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
@@ -480,7 +481,7 @@ class DatasheetView(QWidget):
                 QTableWidgetItem(str(getattr(co, "object_number", ""))),
                 QTableWidgetItem(getattr(co, "name", "")),
                 QTableWidgetItem(getattr(co, "object_function", "")),
-                QTableWidgetItem(getattr(co, "data_type", "")),
+                QTableWidgetItem(ko_dpt_text(co)),
                 QTableWidgetItem(flags),
             ]
             items[0].setTextAlignment(Qt.AlignCenter)

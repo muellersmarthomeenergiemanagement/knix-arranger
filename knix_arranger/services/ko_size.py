@@ -89,13 +89,24 @@ def ko_direction(co) -> str:
     return "sendet" if send else ("empfängt" if receive else "")
 
 
+def ko_dpt_text(co) -> str:
+    """Datentyp eines KOs für die Anzeige: «1.008 Auf/Ab» mit Untertyp,
+    sonst die Grösse («1 Byte») bzw. der Text aus dem Report."""
+    from ..utils.ets_dpt_names import dpt_table, dpt_text
+    dpt = getattr(co, "data_type", "") or getattr(co, "datapoint_type", "") or ""
+    if dpt in dpt_table() and dpt.startswith("DPST-"):
+        return dpt_text(dpt)
+    return size_text(co_bits(co)) or dpt
+
+
 def ko_label(co, number: bool = True, details: bool = True) -> str:
-    """KO wie in der ETS (Name – Objektfunktion), mit details Grösse und
-    Richtung, z.B. «9: Kanal C1 – Rückmeldung Ein/Aus (1 Bit, sendet)»."""
+    """KO wie in der ETS (Name – Objektfunktion), mit details Datentyp bzw.
+    Grösse und Richtung, z.B. «9: Kanal C1 – Rückmeldung Ein/Aus (1.001
+    Schalten, sendet)»."""
     name, function = co.name or "", co.object_function or ""
     text = name if function in name else f"{name} – {function}".strip(" –")
     if details:
-        extras = [e for e in (size_text(co_bits(co)), ko_direction(co)) if e]
+        extras = [e for e in (ko_dpt_text(co), ko_direction(co)) if e]
         if extras:
             text += f" ({', '.join(extras)})"
     return f"{co.object_number}: {text}" if number else text

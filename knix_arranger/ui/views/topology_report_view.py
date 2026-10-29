@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from ...models.project import KnxProject
 from ...models.topology import Topology
+from ...services.ko_size import ko_dpt_text
 from ...services.belegungsplan_service import (
     _split_button_channel, build_ga_by_designation, resolve_ga_display,
 )
@@ -452,7 +453,7 @@ class TopologyReportView(QWidget):
                 QTableWidgetItem(str(co.object_number)),
                 QTableWidgetItem(co.name),
                 QTableWidgetItem(co.object_function),
-                QTableWidgetItem(co.data_type),
+                QTableWidgetItem(ko_dpt_text(co)),
                 QTableWidgetItem(co.flags),
                 QTableWidgetItem(", ".join(co.connected_gas)),
             ]
@@ -510,7 +511,7 @@ class TopologyReportView(QWidget):
                                 device.physical_address,
                                 f"KO {co.object_number}: {co.name}",
                                 co.object_function,
-                                co.data_type,
+                                ko_dpt_text(co),
                             ))
 
         for ga_addr in sorted(ga_map.keys()):
@@ -551,7 +552,7 @@ class TopologyReportView(QWidget):
                                 ga,
                                 f"KO {co.object_number}: {co.name}",
                                 co.object_function,
-                                co.data_type,
+                                ko_dpt_text(co),
                             ])
                             child.setData(0, Qt.UserRole, ("ga", ga))
 

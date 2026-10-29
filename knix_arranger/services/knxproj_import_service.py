@@ -20,6 +20,8 @@ from .knxprod_catalog_service import (
     german_co_texts, is_placeholder_text,
 )
 from . import ets_parameter_view
+from .ko_size import size_bits
+from ..utils.ets_dpt_names import ets_dpt_id
 from ..models.group_address import (
     GroupAddressStructure, MainGroup, MiddleGroup, GroupAddress,
 )
@@ -780,7 +782,7 @@ class KnxprojImportService:
         """Attribute eines KOs im Projekt, wie die ETS es zeigt: Applikation
         (deutsch), bei Modulen Nummer und Texte der Instanz, Textparameter
         mit dem Wert im Projekt, darüber die Änderungen am einzelnen KO
-        (ComObjectInstanceRef: Text, FunctionText, Flags, Priorität)."""
+        (ComObjectInstanceRef: Text, FunctionText, DPT, Flags, Priorität)."""
         ref_id = instance.get("RefId", "")
         context = self._app_context.get(ap_id, {})
         module = self._MODULE_CO_RE.match(ref_id)
@@ -834,7 +836,7 @@ class KnxprojImportService:
         return attrs
 
     _INSTANCE_OVERRIDES = frozenset((
-        "Text", "FunctionText", "Priority", "CommunicationFlag", "ReadFlag",
+        "Text", "FunctionText", "Priority", "DatapointType", "CommunicationFlag", "ReadFlag",
         "WriteFlag", "TransmitFlag", "UpdateFlag", "ReadOnInitFlag",
     ))
 
@@ -868,11 +870,14 @@ class KnxprojImportService:
         except ValueError:
             number = 0
         size = attrs.get("ObjectSize", "")
+        # DPT des KOs («DPT-9 DPST-9-1» -> DPST-9-1), ohne Angabe die Grösse
+        # (1 Bit ohne Angabe = DPT-1 wie im Report)
+        dpt = ets_dpt_id(attrs.get("DatapointType", "") or size, size_bits(size))
         return CommunicationObject(
             object_number=number,
             name=self._co_name(attrs),
             object_function=clean_co_text(attrs.get("FunctionText", "")),
-            data_type=size,
+            data_type=dpt or size,
             object_size=size,
             flags=self._co_flags(attrs),
             priority=self._PRIORITY.get(attrs.get("Priority", ""), "Niedrig"),

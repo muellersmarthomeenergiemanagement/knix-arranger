@@ -155,3 +155,41 @@ def sensor_selection_problems(links: list, selection: dict[str, int],
         if problem:
             result[link.key] = problem
     return result
+
+
+# -- Untertyp von KO und GA (FA-638) ---------------------------------------
+#
+# Bei diesen Haupttypen ändert der Untertyp, was ein Wert bedeutet: 5.001
+# Prozent (255 = 100 %) gegen 5.010 Zählimpulse (255 = 255), 9.001 °C gegen
+# 9.004 Lux, 3.007 Dimmen gegen 3.008 Jalousie. Bei DPT 1 sind 0/1 auf beiden
+# Seiten gleich; dort weichen die Hersteller oft ab (Jalousieaktor
+# «Beschattung» 1.022 an GA 1.023, Sperrobjekt 1.003 an GA 1.001), eine
+# Prüfung brächte fast nur Fehlalarme (Chalet Franziska: 205 von 1307
+# Verknüpfungen, alle harmlos). DPT 16 (ASCII/ISO) ebenfalls ohne Folgen.
+VALUE_SUBTYPE_MAINS = frozenset({"3", "5", "6", "7", "8", "9", "12", "13", "14"})
+
+
+def subtype_problem(co_dpts: list[str], ga_dpt: str) -> str:
+    """Grund, warum der Untertyp des KOs (Varianten derselben Nummer) nicht
+    zur GA passt; "" wenn er passt, eine Seite keinen Untertyp hat oder der
+    Haupttyp ihn nicht braucht (VALUE_SUBTYPE_MAINS)."""
+    from .actor_channels import _dpt_key
+    from ..utils.ets_dpt_names import dpt_text
+    ga_main, ga_sub = _dpt_key(ga_dpt)
+    if ga_main not in VALUE_SUBTYPE_MAINS or not ga_sub:
+        return ""
+    others = []
+    for dpt in co_dpts:
+        main, sub = _dpt_key(dpt)
+        if main != ga_main or not sub or sub == ga_sub:
+            return ""          # andere Haupttypen meldet FA-634, gleiche passen
+        others.append(dpt)
+    if not others:
+        return ""
+    return f"KO {dpt_text(_canonical(others[0]))}, GA {dpt_text(_canonical(ga_dpt))}"
+
+
+def _canonical(dpt: str) -> str:
+    from .actor_channels import _dpt_key
+    main, sub = _dpt_key(dpt)
+    return f"DPST-{main}-{int(sub)}" if sub else f"DPT-{main}"
