@@ -1215,6 +1215,12 @@ class MainWindow(QMainWindow):
             # Tote Verweise aus früheren Versionen bereinigen (FA-624)
             from ..services.reference_cleanup import clean_references
             cleaned = clean_references(self._project)
+            # Bezeichnungen bis 1.4.27: ZENTRAL…/Szenenaufruf… -> BZ-07
+            from ..services.scene_addressing import adopt_bz07_designations
+            renamed = adopt_bz07_designations(self._project)
+            if renamed:
+                cleaned.append(f"{renamed} zentrale und Szenen-GAs nach BZ-07 benannt "
+                               "(ZE zentral, SZ Szenen)")
             from ..services.product_sync import refresh_entry_channels
             refreshed = refresh_entry_channels(self._project)
             if refreshed:

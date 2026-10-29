@@ -38,7 +38,7 @@ import logging
 from ..models.project import KnxProject
 from ..models.group_address import GroupAddress
 from ..models.scene import Scene, SceneAction
-from .scene_addressing import group_named_scenes
+from .scene_addressing import channel_scope_keys
 
 logger = logging.getLogger("knix_arranger.scene_detection_service")
 
@@ -123,8 +123,7 @@ def _reserved_designations(project: KnxProject) -> set[str]:
     address_generator._create_central_main_group). Gruppierung/Benennung
     muss mit scene_addressing.group_named_scenes() uebereinstimmen.
     """
-    groups = group_named_scenes(project.scenes, project.areal)
-    return {designation for designation, _scenes in groups.values()}
+    return set(channel_scope_keys(project.scenes, project.areal))
 
 
 def _make_number(designation: str) -> int:

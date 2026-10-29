@@ -48,6 +48,16 @@ logger = logging.getLogger("knix_arranger.address_generator")
 OMITTED_PREFIX = "Weggelassen: "
 
 _FIXED_CENTRAL_ADDRESSES = frozenset({"0/0/1", "0/0/2", "0/1/1", "0/1/2", "0/4/1"})
+#: Bezeichnungen der festen Zentraladressen bis 1.4.27 -> nach BZ-07 (ZE =
+#: zentral, Szenen SZ). Beim Generieren und Öffnen umgestellt, von Hand
+#: vergebene Bezeichnungen bleiben.
+LEGACY_CENTRAL_DESIGNATIONS = {
+    "ZENTRAL Alle Lichter AUS": "L_ZE_01 AUS (alle Lichter)",
+    "ZENTRAL Alle Lichter EIN (Panik)": "L_ZE_02 EIN (Panik)",
+    "ZENTRAL Alle Jalousien AUF": "J_ZE_01 AUF (alle Jalousien)",
+    "ZENTRAL Beschattung": "J_ZE_02 BESCHATTUNG (zentral)",
+    "ZENTRAL Szene Abwesenheit": "SZ_ZE_01 SZENE (Abwesenheit)",
+}
 
 # Gewerke, deren Blöcke zentral in HG 0 liegen statt beim Stockwerk ihres
 # Raums (FA-442): Gewerk -> Mittelgruppe. Die Wetterstation gilt für das ganze
@@ -203,13 +213,15 @@ class AddressGenerator:
                 for mg in central_hg.middle_groups
             ]
         # Feste Zentraladressen: vom Integrator vergebene Bezeichnung und id
-        # behalten (z.B. "ZENTRAL Szene Abwesenheit Komplex")
+        # behalten (z.B. "ZENTRAL Szene Abwesenheit Komplex"), die frühere
+        # Vorgabe von KNiX nicht
         for mg in central_hg.middle_groups:
             for ga in mg.group_addresses:
                 old = existing_central.get(ga.address)
                 if (ga.address in _FIXED_CENTRAL_ADDRESSES and old is not None
                         and old.function_name == ga.function_name):
-                    ga.designation = old.designation
+                    if old.designation not in LEGACY_CENTRAL_DESIGNATIONS:
+                        ga.designation = old.designation
                     ga.id = old.id
         # Zentrale Gewerk-Blöcke (Wetterstation, 0/5/x) aus allen Räumen
         central_blocks = self._generate_merged_floor_addresses(
@@ -795,13 +807,13 @@ class AddressGenerator:
         mg_licht = MiddleGroup(number=0, name="Licht")
         mg_licht.group_addresses.append(GroupAddress(
             main_group=0, middle_group=0, sub_group=1,
-            designation="ZENTRAL Alle Lichter AUS",
+            designation=LEGACY_CENTRAL_DESIGNATIONS["ZENTRAL Alle Lichter AUS"],
             datapoint_type="DPST-1-1", central="true",
             gewerk_code="L", function_name="E/A",
         ))
         mg_licht.group_addresses.append(GroupAddress(
             main_group=0, middle_group=0, sub_group=2,
-            designation="ZENTRAL Alle Lichter EIN (Panik)",
+            designation=LEGACY_CENTRAL_DESIGNATIONS["ZENTRAL Alle Lichter EIN (Panik)"],
             datapoint_type="DPST-1-1", central="true",
             gewerk_code="L", function_name="E/A",
         ))
@@ -811,13 +823,13 @@ class AddressGenerator:
         mg_jalousie = MiddleGroup(number=1, name="Jalousie")
         mg_jalousie.group_addresses.append(GroupAddress(
             main_group=0, middle_group=1, sub_group=1,
-            designation="ZENTRAL Alle Jalousien AUF",
+            designation=LEGACY_CENTRAL_DESIGNATIONS["ZENTRAL Alle Jalousien AUF"],
             datapoint_type="DPST-1-8", central="true",
             gewerk_code="J", function_name="AUF/AB",
         ))
         mg_jalousie.group_addresses.append(GroupAddress(
             main_group=0, middle_group=1, sub_group=2,
-            designation="ZENTRAL Beschattung",
+            designation=LEGACY_CENTRAL_DESIGNATIONS["ZENTRAL Beschattung"],
             datapoint_type="DPST-1-8", central="true",
             gewerk_code="J", function_name="BESCHATTUNG",
         ))
@@ -842,7 +854,7 @@ class AddressGenerator:
                          if not s.is_detected and "0/4/1" in s.source_ga_addresses]
         mg_szenen.group_addresses.append(GroupAddress(
             main_group=0, middle_group=4, sub_group=1,
-            designation="ZENTRAL Szene Abwesenheit",
+            designation=LEGACY_CENTRAL_DESIGNATIONS["ZENTRAL Szene Abwesenheit"],
             datapoint_type="DPST-18-1", central="true",
             function_name="SZENE",
             description=scene_value_mapping_text(bound_central),

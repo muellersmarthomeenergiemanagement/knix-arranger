@@ -43,14 +43,14 @@ class TestAddressGeneratorVarianteA:
         assert mg0.number == 0
         assert len(mg0.group_addresses) >= 2
         assert mg0.group_addresses[0].address == "0/0/1"  # 0/0/0 ist Systemadresse (FA-444)
-        assert "Alle Lichter AUS" in mg0.group_addresses[0].designation
+        assert "AUS (alle Lichter)" in mg0.group_addresses[0].designation
         assert mg0.group_addresses[0].central == "true"
 
         # MG 1: Jalousie zentral
         mg1 = hg0.middle_groups[1]
         assert mg1.number == 1
         assert mg1.group_addresses[0].address == "0/1/1"  # 0/1/0 vermieden (FA-444)
-        assert "Alle Jalousien AUF" in mg1.group_addresses[0].designation
+        assert "AUF (alle Jalousien)" in mg1.group_addresses[0].designation
 
     def test_hg2_eg_main_group(self, eg_room_with_gewerke, gewerk_catalog):
         """HG 2 = Erdgeschoss (FA-411)."""
@@ -1321,8 +1321,8 @@ class TestSceneAddressGeneration:
         # Feste Abwesenheits-GA + genau EINE gemeinsame Szenenaufruf-GA
         # (nicht eine pro Szene).
         assert len(gas) == 2
-        assert gas[0].designation == "ZENTRAL Szene Abwesenheit"
-        assert gas[1].designation == "ZENTRAL Szenenaufruf"
+        assert gas[0].designation == "SZ_ZE_01 SZENE (Abwesenheit)"
+        assert gas[1].designation == "SZ_ZE_02 SZENE (zentral)"
         # 18.001: abrufen und speichern (Bit 7) über dieselbe GA
         assert [ga.datapoint_type for ga in gas] == ["DPST-18-1", "DPST-18-1"]
 
@@ -1338,7 +1338,7 @@ class TestSceneAddressGeneration:
         structure = gen.generate(simple_efh, scenes=scenes)
 
         gas = self._szenen_gas(structure)
-        szenenaufruf = next(g for g in gas if g.designation == "ZENTRAL Szenenaufruf")
+        szenenaufruf = next(g for g in gas if g.designation == "SZ_ZE_02 SZENE (zentral)")
         assert szenenaufruf.description == "0=Abwesenheit, 1=Abwesenheit, 2=Dinner"
 
     def test_room_scoped_scenes_get_named_channel(self, simple_efh, gewerk_catalog):
@@ -1351,7 +1351,7 @@ class TestSceneAddressGeneration:
 
         gas = self._szenen_gas(structure)
         designations = {ga.designation for ga in gas}
-        assert "Szenenaufruf Schlafzimmer" in designations
+        assert "SZ_E01_01 SZENE (Schlafzimmer)" in designations
 
     def test_detected_scenes_are_not_regenerated(self, simple_efh, gewerk_catalog):
         from knix_arranger.models.scene import Scene
@@ -1376,7 +1376,7 @@ class TestSceneAddressGeneration:
         gen = AddressGenerator(gewerk_catalog, variant="A")
         structure = gen.generate(simple_efh, scenes=scenes)
 
-        assert any("3" in w and "ZENTRAL Szenenaufruf" in w for w in structure.warnings)
+        assert any("3" in w and "SZ_ZE_02 SZENE (zentral)" in w for w in structure.warnings)
 
 
 class TestManualGaLinking:

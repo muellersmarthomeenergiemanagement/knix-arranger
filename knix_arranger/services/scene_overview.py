@@ -128,7 +128,7 @@ def scene_target_ga(project, scene, label_lookup: dict, ga_by_address: dict | No
 
 def is_fixed_scene_address(ga) -> bool:
     """Bestehende Szenen-GA, an die man Szenen bindet: feste Zentraladresse
-    («ZENTRAL Szene Abwesenheit») oder von Hand angelegt -- nicht der
+    («SZ_ZE_01 SZENE (Abwesenheit)») oder von Hand angelegt -- nicht der
     erzeugte Szenenaufruf eines Geltungsbereichs, keine Reserve und kein
     Szenen-Eingang eines Gewerk-Elements."""
     return (ga.function_name == "SZENE" and not ga.is_placeholder

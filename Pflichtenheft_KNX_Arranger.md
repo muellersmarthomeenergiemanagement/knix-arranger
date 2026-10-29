@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.82
+**Version:** 3.83
 **Datum:** 29.10.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -78,6 +78,7 @@
 | 3.80 | 29.10.2026 | M. Mueller / Claude AI | Ansicht ETS-Funktionen mit Spalte "Gewerk" (Code und Name, mehrere nur als Codes mit Namen im Tooltip, Korrektur "G Geraet (statt T Taster)", ETS-eigene GAs abgeleitet ueber die Aktor-KOs); Dialog "Funktion" mit Zwischentiteln je Gewerk (FA-530c) |
 | 3.81 | 29.10.2026 | M. Mueller / Claude AI | Checklisten nicht mehr vorhandener Raeume: Bereinigung ordnet Pruefergebnisse ueber die Adresse dem heutigen Raum zu und entfernt leere (FA-624), Validierung bietet Zuordnen oder Entfernen per Doppel-/Rechtsklick (FA-623); DALI- und Verteiler-Checklisten nicht mehr als "Raum fehlt" gemeldet |
 | 3.82 | 29.10.2026 | M. Mueller / Claude AI | Bezeichnung von GAs ohne Raum oder einzelnes Gewerk (BZ-07): Stockwerk oder ZE als Ortsteil, Szenen SZ, Ausloeser SF, FA-610 akzeptiert Stockwerk und ZE; Funktionen mit gemischten Gewerken je Gewerk eine eigene GA (FA-530), Warnung bei einer Funktions-GA auf verschiedenen Gewerken (FA-637) |
+| 3.83 | 29.10.2026 | M. Mueller / Claude AI | Zentrale GAs und Szenenaufruf-GAs von KNiX nach BZ-07 benannt (L_ZE_01, SZ_ZE_01, SZ_EG_06_01 ...), Umstellung bestehender geplanter Projekte beim Oeffnen (FA-441) |
 | 3.79 | 29.10.2026 | M. Mueller / Claude AI | Datenpunkttyp je KO: .knxproj (aktive Variante, Aenderung am KO) und Topologie-Report (Anzeigenamen ueber die DPT-Tabelle des KNX-Stamms, auch "Haupttyp, Untertyp", mehrdeutige Namen nach Groesse) liefern die DPT-Kennung, aeltere Projekte werden beim Laden uebersetzt (FA-522a); Anzeige "1.008 Auf/Ab"; neue Pruefung FA-638 Untertyp mit anderer Bedeutung des Werts; KO-Vorschlag bevorzugt den gleichen Untertyp |
 | 3.78 | 29.10.2026 | M. Mueller / Claude AI | .knxproj-Import wertet die Parameter der Geraete aus (FA-522b): sichtbare Parameterseiten und Werte wie unter "Geraeteparameter" im Report, aktive KOs auch ohne Verknuepfung, je KO-Nummer die aktive Variante; Tastenbelegung, Szenenwerte und Szenenausloeser kommen damit aus der .knxproj, der fruehere Report gilt nur noch fuer Geraete ohne Werte (FA-528a). Geprueft mit Chalet Franziska (2553 KOs, 31 Tastenbelegungen, Szenenwerte und -ausloeser gleich wie im Report) und P19 (361 KOs) |
 | 3.77 | 29.10.2026 | M. Mueller / Claude AI | .knxproj-Import: Kommunikationsobjekte wie im ETS-Topologie-Report (FA-522a): Name aus Text statt interner Kennung, deutsche Uebersetzung, Textparameter mit dem Wert im Projekt, Aenderungen am einzelnen KO (Text, Objektfunktion, Flags, Prioritaet), KOs in Modulen mit Nummer und Texten der Instanz, je KO-Nummer nur die aktive Variante; Flags in der Schreibweise des Reports, Lesen-Flag frueherer Importe richtig gedeutet |
@@ -588,7 +589,7 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 
 | ID | Anforderung |
 |----|-------------|
-| FA-441 | Das System muss in Hauptgruppe 0 automatisch zentrale/stockwerkuebergreifende Gruppenadressen anlegen koennen (z.B. "Alle Lichter AUS", "Zentral Jalousien Beschattung", Szenensteuerung). |
+| FA-441 | Das System muss in Hauptgruppe 0 automatisch zentrale/stockwerkuebergreifende Gruppenadressen anlegen koennen (z.B. "Alle Lichter AUS", "Zentral Jalousien Beschattung", Szenensteuerung). Bezeichnungen nach BZ-07 (ab 1.4.28): L_ZE_01 AUS (alle Lichter), L_ZE_02 EIN (Panik), J_ZE_01 AUF (alle Jalousien), J_ZE_02 BESCHATTUNG (zentral), SZ_ZE_01 SZENE (Abwesenheit); Szenenaufruf-GA je Geltungsbereich SZ_ZE_02 SZENE (zentral), SZ_<Stockwerk>_<Nr> SZENE (<Zone>) mit Nummer je Zone des Stockwerks, SZ_<Ort des Raums>_01 SZENE (<Raum>). Bei geplanten Projekten werden die Bezeichnungen bis 1.4.27 ("ZENTRAL Alle Lichter AUS", "Szenenaufruf Studio") beim Oeffnen umgestellt, samt Tasten, Szenen-Aktionen und Checklisten, die eine GA ueber die Bezeichnung finden; von Hand vergebene Bezeichnungen bleiben, importierte Projekte unveraendert. |
 | FA-442 | Zentraladressen muessen eigene Mittelgruppen-Zuordnung nutzen (0/0=Licht, 0/1=Jalousie, 0/2=Heizung, 0/4=Szenen, 0/5=Wetterstation). |
 | FA-443 | Das System muss vordefinierte Zentral-Funktionen anbieten (z.B. "Alles AUS", "Panik", "Abwesenheit", "Beschattung zentral"). |
 | FA-444 | Das System darf die Gruppenadresse 0/0/0 nicht verwenden. 0/0/0 ist eine KNX-Systemadresse (GA-08). Zentraladressen in HG 0 muessen bei Untergruppe 1 beginnen (z.B. 0/0/1 = "Alle Lichter AUS"). **(M)** |

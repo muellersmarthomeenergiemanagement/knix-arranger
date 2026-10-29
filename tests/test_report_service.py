@@ -216,7 +216,7 @@ class TestSzenenReport:
                 ga.room_id = room2.id
         szenen_ga = next(
             ga for ga in project.group_addresses.all_addresses()
-            if ga.designation == "Szenenaufruf Kueche"
+            if ga.designation.endswith(" SZENE (Kueche)")
         )
 
         device = Device(
@@ -265,7 +265,7 @@ class TestSzenenReport:
         )
         szenen_ga = next(
             ga for ga in project.group_addresses.all_addresses()
-            if ga.designation == "ZENTRAL Szenenaufruf"
+            if ga.designation == "SZ_ZE_02 SZENE (zentral)"
         )
 
         # button_channel wird nicht hier vorgegeben, sondern von
@@ -355,7 +355,7 @@ class TestSzenenReport:
         )
         szenen_ga = next(
             ga for ga in project.group_addresses.all_addresses()
-            if ga.designation == "ZENTRAL Szenenaufruf"
+            if ga.designation == "SZ_ZE_02 SZENE (zentral)"
         )
 
         # Alte Zuweisung ohne scene_id -- mehrdeutig, da beide Szenen denselben

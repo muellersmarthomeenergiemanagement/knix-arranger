@@ -17,15 +17,48 @@ muessen:
 """
 from __future__ import annotations
 
+import re
 
-def build_scope_label_lookup(areal) -> dict[str, str]:
-    """id -> Klartextname fuer alle Raeume/Wohnungen/Zonen eines Areals."""
-    lookup: dict[str, str] = {}
+#: Feste Szenen-Zentraladresse 0/4/1 trägt SZ_ZE_01, der zentrale
+#: Szenenaufruf deshalb SZ_ZE_02 (BZ-07)
+CENTRAL_SCENE_CHANNEL = "SZ_ZE_02 SZENE (zentral)"
+_GENERATED_CHANNEL_RE = re.compile(r"^SZ_[A-Z0-9][A-Z0-9_.\-]*_\d{2} SZENE \(")
+
+
+class ScopeLabels(dict):
+    """id -> Klartextname; .codes: id -> Ort und Nummer der Szenenaufruf-GA
+    ("EG_06_01" für einen Raum, "EG_01" für die erste Zone des Stockwerks)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.codes: dict[str, str] = {}
+
+
+def build_scope_label_lookup(areal) -> ScopeLabels:
+    """id -> Klartextname fuer alle Raeume/Wohnungen/Zonen eines Areals,
+    dazu der Ortsteil der Szenenaufruf-GAs (ScopeLabels.codes)."""
+    from .naming_engine import label_floor_code
+    lookup = ScopeLabels()
+    floor_of_apartment = {}
+    for building in areal.buildings:
+        for floor in building.all_floors:
+            for apt in floor.apartments:
+                floor_of_apartment[apt.id] = floor
+                for room in apt.rooms:
+                    number = room.number or "00"
+                    code = label_floor_code(floor.short_code, number)
+                    lookup.codes[room.id] = f"{code}_{number}_01" if code else f"{number}_01"
     for room in areal.all_rooms:
         if room.name:
             lookup[room.id] = room.name
     multi = len(areal.buildings) > 1
+    zones_per_floor: dict[str, int] = {}
     for b_idx, building, name, apts in _zones(areal):
+        floor = floor_of_apartment.get(apts[0].id)
+        place = (floor.short_code if floor is not None else "") or "ZE"
+        zones_per_floor[place] = zones_per_floor.get(place, 0) + 1
+        for apt in apts:
+            lookup.codes[apt.id] = f"{place}_{zones_per_floor[place]:02d}"
         if name:
             label = f"{building.name} / {name}" if multi and b_idx > 0 else name
             for apt in apts:
@@ -114,8 +147,13 @@ def is_generated_scene_channel(ga) -> bool:
     Geltungsbereich -- eine Szene bindet man nie an sie (feste
     Zentraladressen wie «ZENTRAL Anwesenheit Komplex» und Szenen-Eingänge
     der Gewerk-Elemente schon)."""
-    return (ga is not None and ga.function_name == "SZENE" and not ga.gewerk_code
-            and not ga.is_manual and "Szenenaufruf" in (ga.designation or ""))
+    if ga is None or ga.function_name != "SZENE" or ga.gewerk_code or ga.is_manual:
+        return False
+    designation = ga.designation or ""
+    # Bis 1.4.27 «Szenenaufruf Studio», seither «SZ_EG_06_01 SZENE (Studio)»;
+    # 0/4/1 (SZ_ZE_01) ist die feste Zentraladresse
+    return "Szenenaufruf" in designation or (
+        bool(_GENERATED_CHANNEL_RE.match(designation)) and ga.address != "0/4/1")
 
 
 def release_generated_bindings(project) -> int:
@@ -171,11 +209,22 @@ def scene_target_designation(scene, label_lookup: dict[str, str],
 
 
 def scene_channel_designation(group_key: str, label_lookup: dict[str, str]) -> str:
-    """Bezeichnung der gemeinsamen Szenenaufruf-GA fuer eine Gruppe."""
+    """Bezeichnung der gemeinsamen Szenenaufruf-GA fuer eine Gruppe (BZ-07):
+    "SZ_EG_06_01 SZENE (Studio)", zentral "SZ_ZE_02 SZENE (zentral)". Ohne
+    Ortsteil (label_lookup kein ScopeLabels) die Bezeichnung vor 1.4.28."""
+    if group_key == "central":
+        return CENTRAL_SCENE_CHANNEL
+    code = getattr(label_lookup, "codes", {}).get(group_key)
+    if not code:
+        return legacy_channel_designation(group_key, label_lookup)
+    return f"SZ_{code} SZENE ({label_lookup.get(group_key, group_key)})"
+
+
+def legacy_channel_designation(group_key: str, label_lookup: dict[str, str]) -> str:
+    """Bezeichnung bis 1.4.27 ("Szenenaufruf Studio"), für die Umstellung."""
     if group_key == "central":
         return "ZENTRAL Szenenaufruf"
-    label = label_lookup.get(group_key, group_key)
-    return f"Szenenaufruf {label}"
+    return f"Szenenaufruf {label_lookup.get(group_key, group_key)}"
 
 
 def scene_value_mapping_text(group_scenes) -> str:
@@ -210,3 +259,71 @@ def group_named_scenes(scenes, areal) -> dict[str, tuple[str, list]]:
             groups[key] = (scene_channel_designation(key, label_lookup), [])
         groups[key][1].append(scene)
     return groups
+
+
+def adopt_bz07_designations(project) -> int:
+    """Bezeichnungen bis 1.4.27 auf BZ-07 umstellen ("ZENTRAL Alle Lichter
+    AUS" -> "L_ZE_01 AUS (alle Lichter)", "Szenenaufruf Studio" ->
+    "SZ_EG_06_01 SZENE (Studio)"): die GAs und alles, was eine GA über ihre
+    Bezeichnung findet (Tasten, Szenen-Aktionen, Checklisten). Nur geplante
+    Projekte -- importierte Bezeichnungen stammen aus der ETS. Gibt die
+    Anzahl umgestellter GAs zurück."""
+    topology = getattr(project, "topology", None)
+    if topology is not None and topology.is_imported:
+        return 0
+    from .address_generator import _FIXED_CENTRAL_ADDRESSES, LEGACY_CENTRAL_DESIGNATIONS
+    labels = build_scope_label_lookup(project.areal)
+    channels = {legacy_channel_designation(key, labels): scene_channel_designation(key, labels)
+                for key in [*labels.codes, "central"]}
+    renamed: dict[str, str] = {}
+    by_address: dict[str, str] = {}
+    for ga in project.group_addresses.all_addresses():
+        old = ga.designation or ""
+        if ga.address in _FIXED_CENTRAL_ADDRESSES and old in LEGACY_CENTRAL_DESIGNATIONS:
+            new = LEGACY_CENTRAL_DESIGNATIONS[old]
+        elif old in channels and is_generated_scene_channel(ga):
+            new = channels[old]
+        else:
+            continue
+        ga.designation = renamed[old] = new
+        by_address[ga.address] = new
+    if not renamed:
+        return 0
+
+    def follow(text: str) -> str:
+        # "Szenenaufruf Studio" oder mit Adresse "0/4/2  Szenenaufruf Studio"
+        if text in renamed:
+            return renamed[text]
+        address, sep, rest = text.partition(" ")
+        rest = rest.lstrip()
+        if sep and rest in renamed and by_address.get(address) == renamed[rest]:
+            return text[:len(text) - len(rest)] + renamed[rest]
+        return text
+
+    for room in project.all_rooms:
+        for be in room.bedienelemente:
+            for fa in be.function_assignments:
+                fa.function_ga = follow(fa.function_ga)
+            for sf in be.funktionen:
+                sf.ga_designation = follow(sf.ga_designation)
+                for extra in sf.extra_gas:
+                    extra.ga_designation = follow(extra.ga_designation)
+    for scene in project.scenes:
+        for action in scene.actions:
+            action.group_address = follow(action.group_address)
+    for checklist in getattr(project, "checklists", []):
+        for item in checklist.items:
+            item.function_ga = follow(item.function_ga)
+    return len(renamed)
+
+
+def channel_scope_keys(scenes, areal) -> dict[str, str]:
+    """Bezeichnung der Szenenaufruf-GA -> Geltungsbereich, für jede Gruppe
+    benannter Szenen; auch die Bezeichnung bis 1.4.27 (noch nicht
+    umgestellte Daten, z.B. ältere Sicherungen)."""
+    labels = build_scope_label_lookup(areal) if areal is not None else {}
+    result = {}
+    for key, (designation, _scenes) in group_named_scenes(scenes, areal).items():
+        result[designation] = key
+        result.setdefault(legacy_channel_designation(key, labels), key)
+    return result

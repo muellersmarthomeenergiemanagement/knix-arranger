@@ -12,6 +12,7 @@ from knix_arranger.services.topology_engine import TopologyEngine
 from knix_arranger.services.address_generator import AddressGenerator
 from knix_arranger.models.project import KnxProject
 from knix_arranger.models.scene import Scene
+from knix_arranger.services.scene_addressing import is_generated_scene_channel
 
 
 def _mg(structure, hg_number: int, mg_number: int):
@@ -43,10 +44,10 @@ class TestRecalcServicePreservesScenes:
         # Geltungsbereich teilen sich eine GA statt je einer eigenen, siehe
         # scene_addressing.py -- daher steht "Kino" nicht in der Bezeichnung).
         mg4_before = _mg(project.group_addresses, 0, 4)
-        assert any("Szenenaufruf" in ga.designation for ga in mg4_before.group_addresses)
+        assert any(is_generated_scene_channel(ga) for ga in mg4_before.group_addresses)
 
         result = RecalcService().recalc_actors_and_addresses(project)
         assert result["ok"]
 
         mg4_after = _mg(project.group_addresses, 0, 4)
-        assert any("Szenenaufruf" in ga.designation for ga in mg4_after.group_addresses)
+        assert any(is_generated_scene_channel(ga) for ga in mg4_after.group_addresses)

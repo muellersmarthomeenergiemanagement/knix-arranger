@@ -337,7 +337,7 @@ class TestGewerkAndSceneSelection:
 
         sf = slot._sf
         assert sf.scene_id == scene.id
-        assert sf.ga_designation == "ZENTRAL Szenenaufruf"
+        assert sf.ga_designation == "SZ_ZE_02 SZENE (zentral)"
         assert sf.bedienart == "Szene abrufen"
         assert sf.label == "Kino"
         assert be.is_auto is False

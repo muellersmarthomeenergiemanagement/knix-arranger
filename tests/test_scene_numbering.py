@@ -23,6 +23,7 @@ from knix_arranger.services.scene_numbering import (
 )
 from knix_arranger.services.topology_engine import TopologyEngine
 from knix_arranger.services.validation_engine import ValidationEngine
+from knix_arranger.services.scene_addressing import is_generated_scene_channel
 
 
 def _project(gewerk_catalog):
@@ -145,7 +146,7 @@ def test_uebernehmen_bindet_nicht_an_erzeugten_szenenaufruf(gewerk_catalog):
 
     def channels():
         return {g.designation: g.address for g in project.group_addresses.all_addresses()
-                if "Szenenaufruf" in g.designation}
+                if is_generated_scene_channel(g)}
     before = channels()
     assert len(before) == 2
     view = SceneView()
@@ -357,3 +358,45 @@ def test_detection_skips_element_scene_inputs_in_planned_projects(gewerk_catalog
     project.topology.is_imported = True
     assert any(s.source_ga_addresses[0] in {g.address for g in element_inputs}
                for s in detect_scenes(project))
+
+
+# ── Bezeichnungen nach BZ-07 (ZE zentral, SZ Szenen) ───────────────────────
+
+def test_old_central_and_scene_names_are_adopted(gewerk_catalog):
+    """Projekte bis 1.4.27: «ZENTRAL Alle Lichter AUS» und «Szenenaufruf
+    Wohnen» werden beim Öffnen umgestellt, Tasten und Szenen-Aktionen, die
+    die GA über die Bezeichnung finden, folgen. Eigene Namen bleiben."""
+    from knix_arranger.models.building import Bedienelement, SensorFunktion
+    from knix_arranger.services.address_generator import regenerate_addresses
+    from knix_arranger.services.scene_addressing import adopt_bz07_designations
+    project, wohnen, _kueche, _apt = _project(gewerk_catalog)
+    project.scenes = [_scene("Abend", 1, "room", wohnen.id)]
+    regenerate_addresses(project)
+    gas = {g.address: g for g in project.group_addresses.all_addresses()}
+    channel = next(g for g in gas.values() if is_generated_scene_channel(g))
+    # Raumnummer mit Buchstaben: ohne Stockwerk (BZ-01)
+    assert channel.designation == "SZ_E01_01 SZENE (Wohnen)"
+    new_channel = channel.designation
+    # Stand bis 1.4.27 nachstellen
+    gas["0/0/1"].designation = "ZENTRAL Alle Lichter AUS"
+    gas["0/1/2"].designation = "Beschattung Südfassade"     # von Hand vergeben
+    channel.designation = "Szenenaufruf Wohnen"
+    wohnen.bedienelemente = [Bedienelement(funktionen=[
+        SensorFunktion(ga_designation="Szenenaufruf Wohnen", scene_id=project.scenes[0].id),
+        SensorFunktion(ga_designation="0/0/1  ZENTRAL Alle Lichter AUS")])]
+    project.scenes.append(_scene("Kino", 2, "room", wohnen.id, "Szenenaufruf Wohnen"))
+
+    assert adopt_bz07_designations(project) == 2
+
+    assert gas["0/0/1"].designation == "L_ZE_01 AUS (alle Lichter)"
+    assert gas["0/1/2"].designation == "Beschattung Südfassade"
+    assert channel.designation == new_channel
+    assert [sf.ga_designation for sf in wohnen.bedienelemente[0].funktionen] == [
+        new_channel, "0/0/1  L_ZE_01 AUS (alle Lichter)"]
+    assert project.scenes[1].actions[0].group_address == new_channel
+    assert adopt_bz07_designations(project) == 0
+    # Nach dem Öffnen behält die Generierung die neuen Namen
+    regenerate_addresses(project)
+    gas = {g.address: g for g in project.group_addresses.all_addresses()}
+    assert gas["0/0/1"].designation == "L_ZE_01 AUS (alle Lichter)"
+    assert gas["0/1/2"].designation == "Beschattung Südfassade"

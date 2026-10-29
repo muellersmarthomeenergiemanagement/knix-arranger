@@ -30,6 +30,7 @@ from knix_arranger.services.scene_addressing import (
     normalize_scene_scopes, zone_choices, zone_room_ids,
 )
 from knix_arranger.ui.views.scene_view import SceneView
+from knix_arranger.services.scene_addressing import is_generated_scene_channel
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -101,8 +102,9 @@ class TestZonen:
         regenerate_addresses(project, variant="B")
         mg4 = next(mg for mg in project.group_addresses.main_groups[0].middle_groups
                    if mg.number == 4)
-        channels = [ga for ga in mg4.group_addresses if ga.designation.startswith("Szenenaufruf")]
-        assert [ga.designation for ga in channels] == ["Szenenaufruf Chalet Wohnung"]
+        channels = [ga for ga in mg4.group_addresses if is_generated_scene_channel(ga)]
+        assert len(channels) == 1
+        assert channels[0].designation.endswith(" SZENE (Chalet Wohnung)")
         assert channels[0].description == "0=Morgen, 1=Abend"
 
     def test_raeume_der_zone_ueber_alle_stockwerke(self):
@@ -198,7 +200,7 @@ class TestBestehendeSzenenAdresse:
         assert not any(ga.address == "0/4/2" for ga in project.group_addresses.all_addresses())
         regenerate_addresses(project, variant="B")
         ga = next(g for g in project.group_addresses.all_addresses() if g.address == "0/4/2")
-        assert ga.designation == "Szenenaufruf Chalet Wohnung"
+        assert ga.designation.endswith(" SZENE (Chalet Wohnung)")
 
     def test_nein_nur_beschriftung(self):
         project, view = _view_with_existing_address()

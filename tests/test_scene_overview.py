@@ -67,7 +67,7 @@ def test_einteilung_nach_adresse():
     project, _kueche = _project()
     overview = build_scene_overview(project)
     keys = [g.key for g in overview.addresses]
-    assert keys == ["0/4/1", "geplant:Szenenaufruf Küche"]        # bestehende zuerst
+    assert keys == ["0/4/1", "geplant:SZ_OG_05_01 SZENE (Küche)"]        # bestehende zuerst
     chalet = overview.addresses[0]
     assert chalet.channel.name == "Anwesendheit Chalet"            # Kanal ist keine Szene
     assert [(s.scene_number, s.name) for s in chalet.scenes] == [(1, "Anwesend"), (2, "Abwesend")]
@@ -110,7 +110,7 @@ def test_baum_zeigt_adressen_mit_szenen(qapp):
     view = _view(project)
     tops = _top_texts(view)
     assert tops[0].startswith("0/4/1") and "Anwesendheit Chalet" in tops[0]
-    assert tops[1] == "Szenenaufruf Küche  (GA noch nicht erzeugt)"
+    assert tops[1] == "SZ_OG_05_01 SZENE (Küche)  (GA noch nicht erzeugt)"
     assert tops[2] == "Szenen der Visualisierung (1)"
     assert tops[3] == "Nicht eindeutig (1)"
     chalet = view._tree.topLevelItem(0)
@@ -191,10 +191,10 @@ def test_feste_szenen_adresse_ohne_szenen_im_baum(qapp):
                for g in build_scene_overview(project).addresses)    # Bericht: unverändert
     view = _view(project)
     tops = _top_texts(view)
-    assert tops[0].startswith("0/4/1") and "ZENTRAL Szene Abwesenheit" in tops[0]
+    assert tops[0].startswith("0/4/1") and "SZ_ZE_01 SZENE (Abwesenheit)" in tops[0]
     assert view._tree.topLevelItem(0).text(3) == "0 Szenen"
     # Erzeugte Szenenaufrufe erscheinen nicht leer
-    assert not any("Szenenaufruf" in t and "0 Szenen" in t for t in tops)
+    assert not any("SZ_ZE_02" in t and "0 Szenen" in t for t in tops)
 
 
 def test_szene_auf_fester_adresse_anlegen(qapp):
@@ -212,5 +212,5 @@ def test_szene_auf_fester_adresse_anlegen(qapp):
     ga = next(g for g in project.group_addresses.all_addresses() if g.address == "0/4/1")
     assert ga.description == f"{scene.scene_number - 1}=Abwesend"
     # keine eigene Szenenaufruf-GA für die gebundene Szene
-    assert not any(g.designation == "ZENTRAL Szenenaufruf"
+    assert not any(g.designation == "SZ_ZE_02 SZENE (zentral)"
                    for g in project.group_addresses.all_addresses())

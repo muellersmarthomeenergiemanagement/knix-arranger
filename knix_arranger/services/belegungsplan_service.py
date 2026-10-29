@@ -11,7 +11,7 @@ import logging
 import re
 
 from .building_service import BuildingService
-from .scene_addressing import group_named_scenes, zone_room_ids
+from .scene_addressing import channel_scope_keys, zone_room_ids
 
 logger = logging.getLogger("knix_arranger.belegungsplan")
 
@@ -1068,10 +1068,7 @@ class BelegungsplanService:
 
         designation_to_scope: dict[str, str] = {}
         if scene_gas:
-            groups = group_named_scenes(project.scenes, project.areal)
-            designation_to_scope = {
-                designation: key for key, (designation, _scenes) in groups.items()
-            }
+            designation_to_scope = channel_scope_keys(project.scenes, project.areal)
 
         rows: list[ActorRow] = []
         for area in project.topology.areas:
