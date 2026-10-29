@@ -2,6 +2,22 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.27",
+      "date": "2026-10-29",
+      "neu": [
+        "Funktionen mit gemischten Gewerken (Typ «Benutzerdefiniert», z.B. «Kino» mit Licht, Jalousie und Musik): KNiX legt je Gewerk eigene GAs mit derselben F-Nummer an, z.B. «L_OG_03_F3 E/A (Kino)» und «J_OG_03_F3 AUF/AB (Kino)». Jede GA kommt nur auf die Kanäle ihres Gewerks – eine gemeinsame GA würde «Aus» an die Jalousie als «Auf» senden. Punkte, die kein Element kennt, erhalten eine GA mit Gewerk SF zum Verknüpfen von Hand. Der Dialog «Funktion» weist auf gemischte Gewerke hin; bestehende Funktionen werden beim nächsten Speichern aufgeteilt.",
+        "Validierung (FA-637): Warnung, wenn eine Funktions-GA auf Kanälen verschiedener Gewerke liegt, z.B. eine mitbenutzte oder aus der ETS übernommene GA."
+      ],
+      "verbessert": [
+        "Checklisten nach einem Neuaufbau aus der ETS: Prüfergebnisse von Räumen, die es nicht mehr gibt, gehen beim Öffnen über die physikalische Adresse in die Checkliste des heutigen Raums. Verwaiste Checklisten ohne Ergebnis entfallen; «Abgleichen» erzeugt sie neu.",
+        "Validierung «Verweis ins Leere» (FA-623) bei einer Checkliste ohne Raum: Doppelklick ordnet die Prüfergebnisse einem Raum zu, der gleichnamige ist vorgewählt. Rechtsklick bietet zusätzlich die direkte Übernahme in den vorgeschlagenen Raum und das Entfernen der Checkliste (mit Rückfrage, rückgängig machbar).",
+        "Bezeichnungen ohne Raum (FA-610): Als Ort gelten auch das Stockwerk (L_OG_01 AUS) und ZE für zentral (A_ZE_01 RAUCHALARM AUS). Szenen tragen SZ, Auslöser ohne eigenes Gewerk SF, Funktionen F mit ihrer Nummer."
+      ],
+      "behoben": [
+        "DALI- und Verteiler-Checklisten wurden in der Validierung als «Checkliste: Raum fehlt» gemeldet."
+      ]
+    },
+    {
       "version": "1.4.26",
       "date": "2026-10-29",
       "verbessert": [
