@@ -696,6 +696,9 @@ class MainWindow(QMainWindow):
         if target.kind == vt.PRODUCT:
             self._open_wizard_at_product(target.key)
             return
+        if target.kind == vt.CHECKLIST:
+            self._repair_checklist(target)
+            return
         views = {vt.GA: "addresses", vt.DEVICE: "topology", vt.LINE: "topology",
                  vt.ROOM: "building", vt.FLOOR: "building", vt.BAUHERR: "bauherr_form",
                  vt.KEYS: "topology", vt.KOS: "material_list"}
@@ -724,6 +727,58 @@ class MainWindow(QMainWindow):
             self._status_bar.set_status(
                 "Nicht gefunden – das Projekt hat sich seit der Validierung geändert. "
                 "Bitte erneut validieren.")
+
+    def _repair_checklist(self, target) -> None:
+        """Checkliste eines nicht mehr vorhandenen Raums (FA-623): Ergebnisse
+        einem Raum zuordnen oder die Checkliste entfernen."""
+        from ..services import checklist_repair as cr
+        checklist = next((c for c in self._project.checklists if c.id == target.key), None)
+        if checklist is None:
+            self._status_bar.set_status(
+                "Checkliste nicht gefunden – bitte erneut validieren.")
+            return
+        action = target.focus[0]
+        n = cr.checked_count(checklist)
+        if action == "remove":
+            if n and QMessageBox.question(
+                    self, "Checkliste entfernen",
+                    f"Die Checkliste «{checklist.room_name}» enthält {n} Prüfergebnisse. "
+                    "Sie gehen verloren (Rückgängig ist möglich).\n\nEntfernen?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            self._on_begin_change(f"Checkliste {checklist.room_name} entfernen")
+            cr.remove_checklist(self._project, checklist.id)
+            status = f"Checkliste «{checklist.room_name}» entfernt."
+        else:
+            room_id = target.focus[1] if action == "move" else self._choose_checklist_room(checklist)
+            if not room_id:
+                return
+            room = next(r for r in self._project.all_rooms if r.id == room_id)
+            self._on_begin_change(f"Checkliste {checklist.room_name} zuordnen")
+            moved = cr.move_checklist(self._project, checklist.id, room_id)
+            status = (f"{moved} Prüfergebnisse aus «{checklist.room_name}» in Raum "
+                      f"{room.number} {room.name} übernommen.")
+        self._on_any_change("checklists")
+        self._mark_stale("commissioning")
+        self._validate()
+        self._status_bar.set_status(status)
+
+    def _choose_checklist_room(self, checklist) -> str:
+        """Raum für die Ergebnisse einer verwaisten Checkliste wählen."""
+        from PySide6.QtWidgets import QInputDialog
+        from ..services.checklist_repair import suggest_room
+        rooms, labels = [], []
+        for floor in self._project.areal.all_floors:
+            for r in floor.all_rooms:
+                rooms.append(r)
+                labels.append(f"{floor.short_code or floor.name} · {r.number} {r.name}".strip())
+        suggested = suggest_room(self._project, checklist)
+        current = rooms.index(suggested) if suggested in rooms else 0
+        label, ok = QInputDialog.getItem(
+            self, "Prüfergebnisse zuordnen",
+            f"Die Prüfergebnisse der Checkliste «{checklist.room_name}» in die "
+            "Checkliste dieses Raums übernehmen:", labels, current, False)
+        return rooms[labels.index(label)].id if ok else ""
 
     def _open_in_bauherr(self, be_id: str):
         """Doppelklick in der Verknüpfungsmatrix: Taster in der Bauherren-

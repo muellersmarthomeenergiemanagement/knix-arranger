@@ -235,6 +235,8 @@ class ValidationEngine:
                                "die Konfiguration entfernen",
         "Secure: FDSK ohne Gerät": "FDSK im KNX-Secure-Archiv dem richtigen Gerät "
                                    "zuordnen oder bewusst im Archiv belassen",
+        "Checkliste: Raum fehlt": "Doppelklick: Prüfergebnisse einem heutigen Raum "
+                                  "zuordnen; Rechtsklick: auch Checkliste entfernen",
     }
 
     def _check_references(self, project) -> list[ValidationIssue]:
@@ -245,7 +247,7 @@ class ValidationEngine:
         return [ValidationIssue(
             "warning", "FA-623", f"{issue.kind}: {issue.detail}", "",
             self._REFERENCE_HINTS.get(issue.kind, "Verweis prüfen und neu zuordnen"),
-            details={"kind": issue.kind})
+            details={"kind": issue.kind, "ref": issue.ref})
             for issue in check_integrity(project)]
 
     def _check_ko_flags(self, project) -> list[ValidationIssue]:

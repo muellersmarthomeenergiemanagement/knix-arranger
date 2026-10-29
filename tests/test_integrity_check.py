@@ -149,3 +149,64 @@ def test_validation_reports_references_and_structure(gewerk_catalog):
     assert ("FA-623", "warning", "DALI") in found
     assert ("FA-625", "warning", "Raum CUG01 Waschen") in found
     assert not any(item.rule in ("FA-623", "FA-625") for item in current_items(project))
+
+
+# ── Checklisten nicht mehr vorhandener Räume (FA-623/624) ─────────────────
+
+def _orphan(room_name, items):
+    from knix_arranger.models.documentation import CommissioningChecklist
+    return CommissioningChecklist(room_id="alter-raum", room_name=room_name, items=items)
+
+
+def test_cleanup_moves_checklist_results_by_address(gewerk_catalog):
+    """Neuaufbau mit Option «Inbetriebnahme»: Ergebnisse mit Adresse wandern
+    in die Checkliste des heutigen Raums, verwaiste ohne Ergebnis fallen weg,
+    der Rest bleibt für die Validierung."""
+    from knix_arranger.models.documentation import ChecklistItem
+    from knix_arranger.services.reference_cleanup import clean_references
+    project, waschen, _technik = _project(gewerk_catalog)
+    taster = next(be for be in waschen.bedienelemente if be.element_type == "Tastereinheit")
+    project.checklists = [
+        _orphan("01 Waschküche", [
+            ChecklistItem(be_type="Tastereinheit", be_number=taster.participant_number,
+                          check_type="Montage", result="OK", checked_by="MM"),
+            ChecklistItem(be_type="Tastereinheit", be_number=taster.participant_number,
+                          check_type="Applikation")]),
+        _orphan("02 Leer", [ChecklistItem(be_type="Tastereinheit", check_type="Montage")]),
+        _orphan("03 Ohne Adresse", [ChecklistItem(be_type="Tastereinheit",
+                                                  check_type="Montage", result="OK")]),
+        _orphan("04 Dali", [])]
+    project.checklists[3].room_id = "__dali__"
+
+    clean_references(project)
+
+    names = [cl.room_name for cl in project.checklists]
+    assert names == ["03 Ohne Adresse", "04 Dali", "CUG01 Waschen"]
+    moved = next(i for i in project.checklists[2].items
+                 if i.be_number == taster.participant_number and i.check_type == "Montage")
+    assert (moved.result, moved.checked_by, moved.be_id) == ("OK", "MM", taster.id)
+    assert [i.kind for i in check_integrity(project)] == ["Checkliste: Raum fehlt"]
+
+
+def test_validation_offers_to_move_or_remove_checklist(gewerk_catalog):
+    """Rechtsklick auf «Checkliste: Raum fehlt»: Raum wählen, Vorschlag nach
+    Namen übernehmen oder entfernen."""
+    from knix_arranger.models.documentation import ChecklistItem
+    from knix_arranger.services import checklist_repair as cr
+    from knix_arranger.services import validation_targets as vt
+    from knix_arranger.services.validation_engine import ValidationEngine
+    project, waschen, _technik = _project(gewerk_catalog)
+    orphan = _orphan("07 Waschen", [ChecklistItem(be_type="Tastereinheit",
+                                                  check_type="Montage", result="OK")])
+    project.checklists = [orphan]
+
+    issue = next(i for i in ValidationEngine(gewerk_catalog).validate(
+        project.group_addresses, project) if i.rule_id == "FA-623")
+    targets = vt.targets_for({"rule_id": issue.rule_id, "address": issue.address,
+                              "message": issue.message, "details": issue.details}, project)
+    assert [t.focus[0] for t in targets] == ["choose", "move", "remove"]
+    assert targets[1].focus[1] == waschen.id
+
+    assert cr.move_checklist(project, orphan.id, waschen.id) == 1
+    assert [cl.room_id for cl in project.checklists] == [waschen.id]
+    assert check_integrity(project) == []

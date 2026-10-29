@@ -76,6 +76,13 @@ def clean_references(project) -> list[str]:
             entry.device_id = ""   # die Materialliste ordnet dann über die Adresse zu
             count("Materialliste: Verweis auf nicht mehr vorhandenes Gerät entfernt")
 
+    # Checklisten gelöschter Räume: Ergebnisse über die Adresse dem Raum des
+    # Geräts zuordnen, leere entfernen; der Rest bleibt für die Validierung
+    from .checklist_repair import adopt_orphan_checklists
+    moved, removed = adopt_orphan_checklists(project)
+    count("Checkliste: Prüfergebnis über die Adresse dem heutigen Raum zugeordnet", moved)
+    count("Checkliste eines nicht mehr vorhandenen Raums ohne Prüfergebnis entfernt", removed)
+
     # Checklisten: Prüfpunkt wieder mit dem Bedienelement verbinden (Typ und
     # Adresse im Raum), sonst nur den Verweis lösen -- das Prüfergebnis bleibt
     be_ids = {be.id for r in project.all_rooms for be in r.bedienelemente}

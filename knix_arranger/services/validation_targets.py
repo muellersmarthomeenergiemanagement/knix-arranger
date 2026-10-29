@@ -24,6 +24,8 @@ KEYS = "keys"              # Dialog «Tasten anpassen» (FA-629), key = physikal
 KOS = "kos"                # Dialog «Kanäle und KOs zuordnen», key = physikalische
                            # Adresse, focus = (Stromkreis/ga_key, Funktion, KO-Vorschlag)
 PRODUCT = "product"        # Assistent Schritt 5, Produkt einer Zuweisung, key = Zuweisungs-id
+CHECKLIST = "checklist"    # Checkliste ohne Raum (FA-623), key = Checklisten-id,
+                           # focus = ("move", Raum-id) | ("choose",) | ("remove",)
 
 _GA_RE = re.compile(r"^\d{1,2}/\d/\d{1,3}$")
 _PA_RE = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{1,3}$")
@@ -123,6 +125,24 @@ def targets_for(issue: dict, project) -> list[Target]:
                            f"Produkt von {assignment.gewerk_code} in Raum "
                            f"{room.number} {room.name} prüfen (Assistent, Schritt 5)…"))
                 break
+    # Checkliste eines nicht mehr vorhandenen Raums (FA-623)
+    details = issue.get("details") or {}
+    if rule == "FA-623" and details.get("kind") == "Checkliste: Raum fehlt":
+        from .checklist_repair import checked_count, suggest_room
+        checklist = next((c for c in project.checklists if c.id == details.get("ref")), None)
+        if checklist is not None:
+            # Erst die Auswahl (Doppelklick verschiebt nichts ohne Rückfrage)
+            room = suggest_room(project, checklist)
+            n = checked_count(checklist)
+            add(Target(CHECKLIST, checklist.id,
+                       "Prüfergebnisse einem Raum zuordnen…", ("choose",)))
+            if room is not None:
+                add(Target(CHECKLIST, checklist.id,
+                           f"{n} Prüfergebnisse in Raum {room.number} {room.name} übernehmen",
+                           ("move", room.id)))
+            add(Target(CHECKLIST, checklist.id,
+                       f"Checkliste entfernen ({n} Prüfergebnisse gehen verloren)…"
+                       if n else "Checkliste entfernen", ("remove",)))
     # Zu wenige Tasten (FA-629): Dialog mit den Wegen, dann Bauherrenberatung
     room_id = (issue.get("details") or {}).get("room_id")
     if rule == "FA-629" and address in devices:

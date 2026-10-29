@@ -17,13 +17,14 @@ from dataclasses import dataclass
 class IntegrityIssue:
     kind: str       # Art des Verweises, z.B. "Secure: Gerät fehlt"
     detail: str     # betroffenes Element
+    ref: str = ""   # ID des Elements, z.B. der Checkliste (Rechtsklick in der Validierung)
 
 
 def check_integrity(project) -> list[IntegrityIssue]:
     issues: list[IntegrityIssue] = []
 
-    def bad(kind: str, detail: str) -> None:
-        issues.append(IntegrityIssue(kind, detail))
+    def bad(kind: str, detail: str, ref: str = "") -> None:
+        issues.append(IntegrityIssue(kind, detail, ref))
 
     imported = project.topology.is_imported
     rooms = {r.id: r for r in project.all_rooms}
@@ -117,9 +118,10 @@ def check_integrity(project) -> list[IntegrityIssue]:
         if e.device_id and e.device_id not in device_ids:
             bad("Materialliste: Gerät fehlt", e.product_name or e.device_type)
     be_ids = {be.id for r in project.all_rooms for be in r.bedienelemente}
+    from .checklist_repair import orphan_checklists
+    for cl in orphan_checklists(project):
+        bad("Checkliste: Raum fehlt", cl.room_name, cl.id)
     for cl in project.checklists:
-        if cl.room_id and cl.room_id not in rooms:
-            bad("Checkliste: Raum fehlt", cl.room_name)
         for item in cl.items:
             if item.be_id and item.be_id not in be_ids:
                 bad("Checkliste: Bedienelement fehlt", f"{cl.room_name} {item.be_type}")
