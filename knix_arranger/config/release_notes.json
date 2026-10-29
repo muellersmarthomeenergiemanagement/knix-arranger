@@ -2,6 +2,15 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.28",
+      "date": "2026-10-29",
+      "verbessert": [
+        "Zentrale GAs heissen nach dem Bezeichnungskonzept mit ZE für zentral, z.B. «L_ZE_01 AUS (alle Lichter)», «J_ZE_01 AUF (alle Jalousien)» und «SZ_ZE_01 SZENE (Abwesenheit)» statt «ZENTRAL …».",
+        "Szenenaufruf-GAs tragen das Kürzel SZ und ihren Ort: «SZ_ZE_02 SZENE (zentral)», «SZ_EG_01 SZENE (Wohnzone)» für eine Zone, «SZ_EG_06_01 SZENE (Studio)» für einen Raum, statt «Szenenaufruf …».",
+        "Mit KNiX geplante Projekte werden beim Öffnen umgestellt, samt Tasten, Szenen und Checklisten, die diese GAs verwenden (siehe Änderungsprotokoll). Selbst vergebene Bezeichnungen bleiben, aus der ETS importierte Projekte bleiben unverändert."
+      ]
+    },
+    {
       "version": "1.4.27",
       "date": "2026-10-29",
       "neu": [
