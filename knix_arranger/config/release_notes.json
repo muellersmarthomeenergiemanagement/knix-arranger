@@ -2,6 +2,18 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.25",
+      "date": "2026-10-29",
+      "neu": [
+        "Validierung «Datenpunkttyp deutet den Wert anders» (FA-638, Hinweis): Haben ein Kommunikationsobjekt und seine GA denselben Haupttyp, aber einen Untertyp mit anderer Bedeutung, meldet KNiX beide DPTs. Beispiel: Ein Taster sendet 5.001 Prozent an eine GA mit 5.010 Zählimpulsen – 1 % kommt beim Empfänger als 3 an. Geprüft werden Werte mit Skalierung oder Einheit (z.B. DPT 5, 9, 14); bei 1-Bit-Objekten nicht, weil der Wert 0/1 gleich bleibt."
+      ],
+      "verbessert": [
+        "Kommunikationsobjekte zeigen ihren Datenpunkttyp wie die ETS, z.B. «1.011 Status» oder «5.001 Prozent (0..100%)». Beim Import aus der .knxproj kommt er aus dem Gerät bzw. aus Ihrer Änderung in der ETS, beim Topologie-Report aus dem dort angezeigten Namen.",
+        "Automatische KO-Zuordnung: Passen mehrere Objekte gleich gut, wählt KNiX das mit dem gleichen Untertyp wie die GA, z.B. das Status-Objekt 1.011 für eine Rückmeldung.",
+        "Bestehende Projekte übernehmen die Datenpunkttypen beim Öffnen, ohne neuen Import."
+      ]
+    },
+    {
       "version": "1.4.24",
       "date": "2026-10-29",
       "verbessert": [
