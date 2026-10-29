@@ -8,6 +8,8 @@ import re
 # Gliederung (z.B. E01, OG03, SEG02, S-EG02, S.EG.02). Der Unterstrich ist das
 # Trennzeichen der GA-Bezeichnung GEWERK_RAUM_NR und darf nicht vorkommen.
 ROOM_NUMBER_PATTERN = r"[A-Z0-9](?:[A-Z0-9.\-]*[A-Z0-9])?"
+# Ortsteil zentraler GAs ("L_ZE_01 AUS (alle Lichter)"), Szenen tragen SZ
+CENTRAL_LOCATION = "ZE"
 
 # Stockwerk vor reinen Raumnummern: "J_DG_04_02 AUF/AB" (naming_engine)
 _DESIGNATION_RE = re.compile(

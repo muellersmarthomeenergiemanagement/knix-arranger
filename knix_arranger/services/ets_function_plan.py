@@ -20,6 +20,13 @@ Funktion in die höchste HG (geplant: HG 13 «ETS-Funktionen»); der Integrator
 löscht sie und ordnet die KNiX-GAs zu (ETS-Arbeitsliste).
 Tasten bedienen eine Funktion über SensorFunktion.function_id.
 
+Gemischte Gewerke (Benutzerdefiniert, Mitglieder in verschiedenen
+Mittelgruppen, z.B. Licht und Jalousie): je Gewerk eigene GAs mit derselben
+F-Nummer ("L_OG_03_F3 E/A (Kino)", "J_OG_03_F3 AUF/AB (Kino)") -- eine GA
+für alle schickte "Aus" (1.001) auch an die Jalousie, die es als "Auf"
+(1.008) versteht (User 2026-10-29, point_groups). Punkte, die kein Element
+kennt, bekommen eine GA mit Gewerk SF in MG 4.
+
 Funktions-GAs tragen GroupAddress.function_id. Nach einem .knxproj-
 Re-Import (frisch eingelesene GAs) stellt restore_function_ids sie über die
 Bezeichnung wieder her.
@@ -280,14 +287,15 @@ def _element_function(ga) -> str:
     return _SUFFIX_FUNCTION.get(label.rsplit("_", 1)[-1].lower(), "") if "_" in label else ""
 
 
-def _element_gas(project) -> dict[tuple[str, int], dict[str, GroupAddress]]:
+def _element_gas(project, structure=None) -> dict[tuple[str, int], dict[str, GroupAddress]]:
     """(Zuweisung, Element) -> Funktion -> Befehls-GA des Elements.
     Rückmeldungen (Variante B: MG 6/7) zählen nicht, sie tragen in
     importierten Projekten dieselbe Bezeichnung wie der Befehl."""
     imported = project.topology.is_imported
     renumber = room_wide_renumbering(project) if imported else None
+    structure = structure if structure is not None else project.group_addresses
     result: dict[tuple[str, int], dict[str, GroupAddress]] = {}
-    for ga in project.group_addresses.all_addresses():
+    for ga in structure.all_addresses():
         if not ga.assignment_id or ga.is_placeholder or ga.function_id:
             continue
         if imported and ga.middle_group in (6, 7):
@@ -433,7 +441,11 @@ def function_ga_map(project, function: KnixFunction,
     mit der Bezeichnung), in der Reihenfolge der Funktionspunkte."""
     structure = structure if structure is not None else project.group_addresses
     all_gas = structure.all_addresses()
-    found = {ga.function_name: ga for ga in all_gas if ga.function_id == function.id}
+    own = [ga for ga in all_gas if ga.function_id == function.id]
+    names = [ga.function_name for ga in own]
+    # Gemischte Gewerke: ein Punkt mit einer GA je Gewerk ("E/A [MM]")
+    found = {split_key(ga.function_name, ga.gewerk_code) if names.count(ga.function_name) > 1
+             else ga.function_name: ga for ga in own}
     if function.linked_gas:
         by_address = {ga.address: ga for ga in all_gas}
         for point, text in function.linked_gas.items():
@@ -447,7 +459,75 @@ def function_ga_map(project, function: KnixFunction,
             if ga is not None:
                 found.setdefault(point, ga)
     order = {p.function: i for i, p in enumerate(function_points(function))}
-    return dict(sorted(found.items(), key=lambda item: order.get(item[0], 99)))
+    return dict(sorted(found.items(), key=lambda item: order.get(point_of(item[0]), 99)))
+
+
+def split_key(point: str, code: str) -> str:
+    """Schlüssel eines Punkts mit einer GA je Gewerk: "E/A [MM]"."""
+    return f"{point} [{code}]"
+
+
+def point_of(key: str) -> str:
+    """Funktionspunkt eines Schlüssels von function_ga_map ("E/A [MM]" -> "E/A")."""
+    if key.endswith("]") and " [" in key:
+        return key.rsplit(" [", 1)[0]
+    return key
+
+
+@dataclass
+class PointGroup:
+    """GA eines Funktionspunkts: Gewerk, MG und die Mitglieder, auf deren
+    Aktorkanäle sie kommt."""
+    key: str               # Schlüssel in function_ga_map
+    point: PlanPoint
+    gewerk_code: str
+    middle_group: int
+    members: list
+
+
+def _gewerk_middle_group(project, code: str) -> int | None:
+    catalog = getattr(project, "gewerk_catalog", None)
+    gewerk = catalog.get(code) if catalog is not None else None
+    if gewerk is not None and 0 <= gewerk.middle_group <= 7:
+        return gewerk.middle_group
+    return None
+
+
+def is_mixed(project, function: KnixFunction, members=None) -> bool:
+    """Mitglieder in verschiedenen Mittelgruppen (Licht und Jalousie)."""
+    if members is None:
+        members = [m for m in resolve_members(project, function) if m is not None]
+    return len({_gewerk_middle_group(project, m.assignment.gewerk_code)
+                for m in members}) > 1
+
+
+def point_groups(project, function: KnixFunction, members=None,
+                 structure=None) -> list[PointGroup]:
+    """Je Funktionspunkt die GA(s) der Funktion. Gewerke in einer MG: eine GA
+    für alle Mitglieder (Gewerk des ersten). Gemischt: eine GA je MG der
+    Mitglieder, die eine GA dieser Funktion haben; kennt kein Mitglied den
+    Punkt, eine GA mit SF in MG 4 (von Hand verknüpfen)."""
+    if members is None:
+        members = [m for m in resolve_members(project, function) if m is not None]
+    if not is_mixed(project, function, members):
+        code, mg = gewerk_code(project, function), function_middle_group(project, function)
+        return [PointGroup(p.function, p, code, mg, members) for p in function_points(function)]
+    element_gas = _element_gas(project, structure)
+    groups = []
+    for p in function_points(function):
+        by_mg: dict[int, list] = {}
+        for m in members:
+            if element_gas.get((m.assignment.id, m.element_number), {}).get(p.function):
+                mg = _gewerk_middle_group(project, m.assignment.gewerk_code)
+                by_mg.setdefault(GENERAL_MIDDLE_GROUP if mg is None else mg, []).append(m)
+        if not by_mg:
+            groups.append(PointGroup(p.function, p, "SF", GENERAL_MIDDLE_GROUP, members))
+            continue
+        for mg, group in sorted(by_mg.items()):
+            code = group[0].assignment.gewerk_code
+            key = split_key(p.function, code) if len(by_mg) > 1 else p.function
+            groups.append(PointGroup(key, p, code, mg, group))
+    return groups
 
 
 def gewerk_code(project, function: KnixFunction) -> str:
@@ -458,8 +538,8 @@ def gewerk_code(project, function: KnixFunction) -> str:
 
 
 def designation(project, function: KnixFunction, point: PlanPoint,
-                location: Location) -> str:
-    return (f"{gewerk_code(project, function)}_{location.code}_F{function.number} "
+                location: Location, code: str = "") -> str:
+    return (f"{code or gewerk_code(project, function)}_{location.code}_F{function.number} "
             f"{point.function} ({function.name})")
 
 
@@ -507,6 +587,7 @@ def sync_function_gas(project, structure=None, previous: list | None = None) -> 
         previous = function_gas(structure)
     _remove_function_gas(structure)
     old = {(ga.function_id, ga.function_name): ga for ga in previous}
+    old_by_gewerk = {(ga.function_id, ga.function_name, ga.gewerk_code): ga for ga in previous}
     used: dict[tuple[int, int], set[int]] = {}
     for ga in structure.all_addresses():
         used.setdefault((ga.main_group, ga.middle_group), set()).add(ga.sub_group)
@@ -528,13 +609,16 @@ def sync_function_gas(project, structure=None, previous: list | None = None) -> 
     for function in functions:
         location = locate(project, function)
         # Übernommene Gruppenbedienung (FA-531): nur die GAs aus der ETS
-        points = [p for p in planned_points(function)
-                  if (function.id, p.function) not in known_points]
+        planned = {p.function: p for p in planned_points(function)
+                   if (function.id, p.function) not in known_points}
         hg = main_groups.get(location.floor.id, 0) if location is not None else 0
-        if location is None or not points or hg <= 0:
+        if location is None or not planned or hg <= 0:
             continue
-        mg = function_middle_group(project, function)
-        targets = [(p, mg, p.offset) for p in points]
+        # Je Punkt eine GA, bei gemischten Gewerken eine je MG -- alle auf
+        # demselben Platz im Block ihrer MG
+        targets = [(g, g.middle_group, planned[g.point.function].offset)
+                   for g in point_groups(project, function, structure=structure)
+                   if g.point.function in planned]
         # Blöcke, die die Punkte brauchen (eigene Punkte ggf. ein zweiter)
         span = (max(off for _p, _m, off in targets) // BLOCK + 1) * BLOCK
 
@@ -542,9 +626,13 @@ def sync_function_gas(project, structure=None, previous: list | None = None) -> 
             return start >= 0 and start + span - 1 <= 255 and all(
                 start + off not in used.get((hg, m), set()) for _p, m, off in targets)
 
+        def previous_ga(g):
+            return (old_by_gewerk.get((function.id, g.point.function, g.gewerk_code))
+                    or old.get((function.id, g.point.function)))
+
         start = None
-        for p, m, off in targets:
-            prev = old.get((function.id, p.function))
+        for g, m, off in targets:
+            prev = previous_ga(g)
             if prev is not None and prev.main_group == hg and prev.middle_group == m:
                 candidate = prev.sub_group - off
                 if candidate >= 0 and fits(candidate):
@@ -557,17 +645,21 @@ def sync_function_gas(project, structure=None, previous: list | None = None) -> 
             warnings.append(f"Funktion «{function.name}»: kein freier 5er-Block "
                             f"in {hg}/{mg}")
             continue
-        for p, m, off in targets:
-            prev = old.get((function.id, p.function))
+        taken_ids = set()
+        for g, m, off in targets:
+            prev = previous_ga(g)
+            if prev is not None and prev.id in taken_ids:
+                prev = None          # neu aufgeteilt: nur eine GA behält die id
             ga = GroupAddress(id=prev.id) if prev is not None else GroupAddress()
+            taken_ids.add(ga.id)
             if prev is not None:
                 for name in ("description", "comment", "security", "central", "unfiltered"):
                     setattr(ga, name, getattr(prev, name))
             ga.main_group, ga.middle_group, ga.sub_group = hg, m, start + off
-            ga.designation = designation(project, function, p, location)
-            ga.datapoint_type = p.dpt
-            ga.gewerk_code = gewerk_code(project, function)
-            ga.function_name = p.function
+            ga.designation = designation(project, function, g.point, location, g.gewerk_code)
+            ga.datapoint_type = g.point.dpt
+            ga.gewerk_code = g.gewerk_code
+            ga.function_name = g.point.function
             ga.function_id = function.id
             _insert(structure, ga)
             used.setdefault((hg, m), set()).add(ga.sub_group)
@@ -651,14 +743,16 @@ def member_links(project, function: KnixFunction):
     Mitglied und Funktionspunkt."""
     gas = function_ga_map(project, function)
     element_gas = _element_gas(project)
-    for member in resolve_members(project, function):
-        if member is None:
-            continue
+    members = [m for m in resolve_members(project, function) if m is not None]
+    groups = point_groups(project, function, members)
+    for member in members:
         own = element_gas.get((member.assignment.id, member.element_number), {})
-        for point in function_points(function):
-            fga = gas.get(point.function)
+        for group in groups:
+            if not any(m is member for m in group.members):
+                continue
+            fga = gas.get(group.key) or gas.get(group.point.function)
             if fga is not None:
-                yield member, fga, own.get(point.function)
+                yield member, fga, own.get(group.point.function)
 
 
 # ── Abgleich mit der ETS ──────────────────────────────────────────────────
@@ -791,6 +885,38 @@ def check_plan(project) -> list:
         if linked is not None:
             issues.extend(_link_issues(project, function, where, linked))
         issues.extend(_manual_link_issues(project, function, where, ga_map))
+        issues.extend(_mixed_ga_issues(project, function, where))
+    return issues
+
+
+def _mixed_ga_issues(project, function, where) -> list:
+    """Eine Funktions-GA auf Aktorkanälen verschiedener Gewerke (MG), z.B.
+    Licht und Jalousie: derselbe Wert bedeutet dort anderes (1.001 Aus =
+    1.008 Auf). Eigene GAs teilt KNiX beim Speichern der Funktion auf;
+    bleibt es, ist es eine mitbenutzte oder aus der ETS übernommene GA."""
+    from .validation_engine import ValidationIssue
+    codes: dict[str, dict[int, str]] = {}
+    by_address = {}
+    for member, fga, own in member_links(project, function):
+        if own is None:
+            continue
+        mg = _gewerk_middle_group(project, member.assignment.gewerk_code)
+        codes.setdefault(fga.address, {}).setdefault(mg, member.assignment.gewerk_code)
+        by_address[fga.address] = fga
+    issues = []
+    for address, by_mg in codes.items():
+        if len(by_mg) < 2:
+            continue
+        fga = by_address[address]
+        own_ga = fga.function_id == function.id and not fga.ets_known
+        issues.append(ValidationIssue(
+            "warning", "FA-637",
+            f"{where}: Funktion «{function.name}», GA {address} bedient verschiedene "
+            f"Gewerke ({', '.join(by_mg.values())})",
+            address,
+            "Funktion öffnen und speichern: KNiX legt je Gewerk eine eigene GA an"
+            if own_ga else "Je Gewerk eine eigene GA verwenden (Funktion bearbeiten)",
+            designation=fga.designation))
     return issues
 
 

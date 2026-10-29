@@ -1014,11 +1014,17 @@ class ValidationEngine:
 
         None bei importierten Projekten (Bezeichnungen stammen aus der ETS)
         oder wenn noch keine Räume erfasst sind -- dann nur Formatprüfung.
+        Als Ort gelten auch Stockwerk ("L_OG_01 AUS", ganzes Stockwerk) und
+        ZE (zentral, ganzes Gebäude).
         """
         if project is None or project.topology.is_imported:
             return None
+        from ..utils.validators import CENTRAL_LOCATION
         numbers = {r.number for r in project.areal.all_rooms if r.number}
-        return numbers or None
+        if not numbers:
+            return None
+        return numbers | {f.short_code for f in project.areal.all_floors
+                          if f.short_code} | {CENTRAL_LOCATION}
 
     def _check_naming(self, addresses: list[GroupAddress],
                       room_numbers: set[str] | None = None) -> list[ValidationIssue]:
@@ -1039,7 +1045,8 @@ class ValidationEngine:
                         f"Bezeichnung nicht konform mit KNX Swiss Standard: "
                         f"'{ga.designation}'",
                         ga.address,
-                        "Erwartetes Format: GEWERK_[STOCKWERK_]RAUM_NR FUNKTION (Klartext)",
+                        "Erwartetes Format: GEWERK_[STOCKWERK_]RAUM_NR FUNKTION (Klartext); "
+                        "ohne Raum: Stockwerk oder ZE (zentral), Szenen SZ, gemischt SF",
                         designation=ga.designation,
                     ))
                 elif room_numbers is not None and not ga.function_id:

@@ -633,3 +633,58 @@ def test_checklist_has_one_item_per_function_button(project):
     checklist = DocumentationService(project)._create_room_checklist(wohnen)
     items = [i for i in checklist.items if i.be_number == "1.1.101" and i.item_kind == "function"]
     assert [i.description for i in items] == ["Funktion Fensterfront (J 01, 02, 03)"]
+
+
+def test_mixed_gewerke_get_one_ga_per_gewerk(project):
+    """Benutzerdefiniert mit Licht, Jalousie und Heizung (User 2026-10-29):
+    je Gewerk eigene GAs mit derselben F-Nummer, jede nur auf die Kanäle
+    ihres Gewerks -- ein gemeinsames "Aus" (1.001) hiesse für die Jalousie
+    "Auf" (1.008). Punkte ohne Element-GA: SF in MG 4."""
+    from knix_arranger.models.ets_function import CustomPoint
+    from knix_arranger.services.ets_function_plan import function_ga_map
+    wohnen = _room(project, "Wohnen")
+    codes = {a.gewerk_code: a for a in wohnen.gewerk_assignments}
+    kino = KnixFunction(
+        name="Kino", function_type="FT-0", room_id=wohnen.id, number=2,
+        members=[FunctionMember(codes["LD"].id, 1), FunctionMember(codes["J"].id, 1),
+                 FunctionMember(codes["H"].id, 1)],
+        custom_points=[CustomPoint("E/A", "DPST-1-1"), CustomPoint("SPERREN", "DPST-1-1"),
+                       CustomPoint("START", "DPST-1-10")])
+    project.functions.append(kino)
+    sync_function_gas(project)
+
+    gas = function_ga_map(project, kino)
+    assert {k: ga.designation for k, ga in gas.items()} == {
+        "E/A": "LD_EG_01_F2 E/A (Kino)",
+        "SPERREN [J]": "J_EG_01_F2 SPERREN (Kino)",
+        "SPERREN [H]": "H_EG_01_F2 SPERREN (Kino)",
+        "START": "SF_EG_01_F2 START (Kino)"}
+    assert [gas[k].middle_group for k in gas] == [0, 1, 2, 4]
+    served = {(m.assignment.gewerk_code, fga.address) for m, fga, own in
+              member_links(project, kino) if own is not None}
+    assert served == {("LD", gas["E/A"].address), ("J", gas["SPERREN [J]"].address),
+                      ("H", gas["SPERREN [H]"].address)}
+    assert not [i for i in check_plan(project) if "verschiedene Gewerke" in i.message]
+
+    # Adressen bleiben beim nächsten Abgleich
+    before = {k: ga.address for k, ga in gas.items()}
+    sync_function_gas(project)
+    assert {k: ga.address for k, ga in function_ga_map(project, kino).items()} == before
+
+
+def test_shared_ga_on_mixed_gewerke_is_reported(project):
+    """Mitbenutzte GA auf Kanälen verschiedener Gewerke: Warnung FA-637."""
+    from knix_arranger.models.ets_function import CustomPoint
+    wohnen = _room(project, "Wohnen")
+    codes = {a.gewerk_code: a for a in wohnen.gewerk_assignments}
+    shared = next(ga for ga in project.group_addresses.all_addresses()
+                  if ga.assignment_id == codes["J"].id and ga.planned_function == "SPERREN")
+    kino = KnixFunction(
+        name="Kino", function_type="FT-0", room_id=wohnen.id, number=2,
+        members=[FunctionMember(codes["J"].id, 1), FunctionMember(codes["H"].id, 1)],
+        custom_points=[CustomPoint("SPERREN", "DPST-1-1")],
+        linked_gas={"SPERREN": f"{shared.address}  {shared.designation}"})
+    project.functions.append(kino)
+    sync_function_gas(project)
+    issues = [i for i in check_plan(project) if "verschiedene Gewerke" in i.message]
+    assert len(issues) == 1 and "(J, H)" in issues[0].message

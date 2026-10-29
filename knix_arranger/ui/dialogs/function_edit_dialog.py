@@ -17,8 +17,8 @@ from PySide6.QtWidgets import (
 
 from ...models.ets_function import CustomPoint, KnixFunction, FunctionMember
 from ...services.ets_function_plan import (
-    CUSTOM_DPTS, PLAN_POINTS, PLAN_TYPES, Location, _omitted, _point_label,
-    function_ga_map, member_candidates, plan_type_label,
+    CUSTOM_DPTS, PLAN_POINTS, PLAN_TYPES, Location, _gewerk_middle_group, _omitted,
+    _point_label, function_ga_map, member_candidates, plan_type_label, point_of,
 )
 from ...services.function_gewerke import gewerk_label
 
@@ -88,6 +88,16 @@ class FunctionEditDialog(QDialog):
         layout.addWidget(QLabel("Elemente:"))
         self._members = QListWidget()
         layout.addWidget(self._members, 1)
+        # Gemischte Gewerke: je Gewerk eigene GAs (ets_function_plan.point_groups)
+        self._mixed_hint = QLabel(
+            "Gewerke gemischt: KNiX legt je Gewerk eigene GAs mit derselben F-Nummer an "
+            "(z.B. L_…_F3 E/A und J_…_F3 AUF/AB) – eine gemeinsame GA verstünden Licht "
+            "und Jalousie verschieden. Verschiedene Werte in einem Ablauf: besser als Szene.")
+        self._mixed_hint.setWordWrap(True)
+        self._mixed_hint.setStyleSheet("color: #b36b00;")
+        self._mixed_hint.setVisible(False)
+        layout.addWidget(self._mixed_hint)
+        self._members.itemChanged.connect(lambda _item: self._update_mixed_hint())
 
         layout.addWidget(QLabel("GAs der Funktion:"))
         self._gas = QTableWidget(0, 3)
@@ -142,10 +152,20 @@ class FunctionEditDialog(QDialog):
                 key = (member.assignment.id, member.element_number)
                 item.setCheckState(Qt.Checked if key in selected else Qt.Unchecked)
                 item.setData(Qt.UserRole, key)
+                item.setData(Qt.UserRole + 1, code)
                 self._members.addItem(item)
         if not candidates:
             self._members.addItem("Keine passenden Elemente an diesem Ort.")
         self._members.blockSignals(False)
+        self._update_mixed_hint()
+
+    def _update_mixed_hint(self) -> None:
+        middle_groups = set()
+        for i in range(self._members.count()):
+            item = self._members.item(i)
+            if item.data(Qt.UserRole) and item.checkState() == Qt.Checked:
+                middle_groups.add(_gewerk_middle_group(self._project, item.data(Qt.UserRole + 1)))
+        self._mixed_hint.setVisible(len(middle_groups) > 1)
 
     # ── GAs ──────────────────────────────────────────────────────────────
 
@@ -182,10 +202,11 @@ class FunctionEditDialog(QDialog):
                 ga_text = "– weggelassen"
             else:
                 kind = _AUTO
-                current = self._current_gas.get(point)
-                ga_text = (f"{current.address}  {current.designation}"
-                           if current is not None and current.function_id == self._function.id
-                           else "wird von KNiX angelegt")
+                # Gemischte Gewerke: mehrere GAs je Punkt ("E/A [MM]")
+                current = [ga for key, ga in self._current_gas.items()
+                           if point_of(key) == point and ga.function_id == self._function.id]
+                ga_text = ("; ".join(f"{ga.address}  {ga.designation}" for ga in current)
+                           or "wird von KNiX angelegt")
             ga_item = QTableWidgetItem(ga_text)
             ga_item.setFlags(Qt.ItemIsEnabled)
             self._gas.setItem(row, 1, ga_item)

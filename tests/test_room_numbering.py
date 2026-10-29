@@ -193,6 +193,14 @@ class TestValidierung:
         assert issues[0].level == "error"
         assert issues[0].details["room"] == "SEG21"
 
+    def test_stockwerk_und_zentral_als_ort(self):
+        """GAs ohne Raum: Stockwerk oder ZE (zentral) als Ortsteil, Szenen SZ."""
+        floor = _chalet()[1].floors[0].short_code
+        project = _project_with([f"L_{floor}_01 AUS", "A_ZE_01 RAUCHALARM AUS",
+                                 "SZ_ZE_01 SZENE (Abwesend)"])
+        issues = ValidationEngine().validate(project.group_addresses, project)
+        assert [i for i in issues if i.rule_id == "FA-610"] == []
+
     def test_importiertes_projekt_nur_formatpruefung(self):
         project = _project_with(["L_XEG09_01 E/A"], imported=True)
         issues = ValidationEngine().validate(project.group_addresses, project)

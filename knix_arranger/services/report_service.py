@@ -181,7 +181,9 @@ VALIDATION_RULES = {
         "Bezeichnung nicht KNX-Swiss-konform",
         "Erwartetes Format: GEWERK_RAUM_NR FUNKTION (Klartext). Die "
         "Raumnummer ist frei gestaltbar (A–Z, 0–9, - und .), muss bei "
-        "geplanten Projekten aber ein Raum der Gebäudestruktur sein.",
+        "geplanten Projekten aber ein Raum der Gebäudestruktur sein. Ohne Raum "
+        "steht das Stockwerk (L_OG_01) oder ZE für zentral (A_ZE_01); Szenen "
+        "tragen SZ, gemischte Auslöser SF, Funktionen F statt der Nummer.",
         "Bei importierten Projekten mit eigenem Namensschema kann dieser "
         "Hinweis ignoriert werden.",
     ),
