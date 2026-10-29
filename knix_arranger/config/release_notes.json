@@ -2,6 +2,19 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.24",
+      "date": "2026-10-29",
+      "verbessert": [
+        "Import aus der ETS-Datei (.knxproj): Die Kommunikationsobjekte heissen jetzt wie in der ETS, z.B. «Taste 1, links» statt «Object 1» und «Ausgang A / Schalten» statt «Output A / Switch». Textparameter aus der ETS stehen im Namen, z.B. «G1, Schalten, LDA.OG.05.01» beim DALI-Gateway. In der ETS geänderte Namen, Objektfunktionen und Flags werden übernommen.",
+        "Import aus der .knxproj: Geräte mit Modulen (z.B. Theben DALI-Gateway, thePixa) erhalten die richtigen Objektnummern und Namen. Bisher erschienen solche Objekte mit internen Kennungen.",
+        "Import aus der .knxproj: KNiX wertet die Geräteparameter aus wie die ETS. Damit erscheinen auch nicht verknüpfte Objekte, und von Objekten mit mehreren Varianten nur die aktive. Tastenbelegung, Szenenwerte und Szenenauslöser kommen jetzt direkt aus der .knxproj – der Topologie- oder Gebäude-Report ist dafür nicht mehr nötig. Er gilt nur noch für Geräte, deren Werte die .knxproj nicht liefert.",
+        "Für bestehende Projekte: Die neuen Namen und Parameter kommen mit dem nächsten Import bzw. «Projekt neu aus ETS aufbauen» aus der .knxproj."
+      ],
+      "behoben": [
+        "Flags importierter Objekte: Das L-Flag (Lesen) ging beim Import aus der .knxproj verloren, wenn Lesen und Übertragen gesetzt waren. Die Validierung (z.B. FA-627/FA-635) liest es jetzt richtig, auch in bereits gespeicherten Projekten."
+      ]
+    },
+    {
       "version": "1.4.23",
       "date": "2026-10-28",
       "verbessert": [
