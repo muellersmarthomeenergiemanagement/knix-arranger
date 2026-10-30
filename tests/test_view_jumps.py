@@ -110,12 +110,13 @@ class TestScenesAndPrograms:
         assert "06:30" in found[0][1] and "07:00" not in found[0][1]
         assert "(inaktiv)" in found[1][1]
 
-    def test_ga_menu_has_three_jump_menus(self, gewerk_catalog):
+    def test_ga_menu_has_four_jump_menus(self, gewerk_catalog):
         project, wohnen, _k = _project(gewerk_catalog)
         menu = QMenu()
         add_ga_jump_menus(menu, _jumps(project), _ga(project, wohnen))
         titles = [a.text() for a in menu.actions() if a.menu()]
-        assert titles == ["In Topologie zeigen", "In Szenen zeigen", "Im Zeitprogramm zeigen"]
+        assert titles == ["In Topologie zeigen", "In Szenen zeigen", "Im Zeitprogramm zeigen",
+                          "In ETS-Funktionen zeigen"]
 
     def test_no_jump_menus_for_reserve(self, gewerk_catalog):
         project, wohnen, _k = _project(gewerk_catalog)
@@ -221,3 +222,58 @@ class TestTargets:
         entry_id = view._table.item(row, 0).data(256)
         entry = next(e for e in view._material_list.entries if e.id == entry_id)
         assert device.physical_address in entry.physical_addresses or entry.device_id == device.id
+
+
+class TestFunctionsMatrixKeys:
+    """FA-1011g bis i: ETS-Funktion, Verknüpfungsmatrix, Tastenbelegung."""
+
+    def _group(self):
+        from tests.test_group_functions import _project as group_project
+        from knix_arranger.services.group_function_detection import (
+            adopt, suggest_group_functions,
+        )
+        project, _room, _lights = group_project()
+        function = adopt(project, suggest_group_functions(project)[0], "Licht Küche")
+        return project, function
+
+    def test_functions_with_function_ga_and_member(self):
+        project, function = self._group()
+        jumps = _jumps(project)
+        by = {g.address: g for g in project.group_addresses.all_addresses()}
+        assert jumps.functions_with(by["3/4/89"]) == [
+            ((function.id, "3/4/89"), "Licht Küche – Funktions-GA")]
+        assert jumps.functions_with(by["3/0/70"]) == [
+            ((function.id, ""), "Licht Küche – bedient dieses Element")]
+        assert jumps.functions_with(by["3/7/70"]) == []
+
+    def test_ets_functions_view_selects_function_ga(self):
+        from knix_arranger.ui.views.ets_functions_view import EtsFunctionsView
+        project, function = self._group()
+        view = EtsFunctionsView()
+        view.set_project(project)
+        assert view.select_function(function.id, "3/4/89")
+        current = view._plan_tree.currentItem()
+        assert current.text(3) == "3/4/89"
+        assert view._tabs.currentIndex() == 1
+        assert view.select_function(function.id)
+        assert view._plan_tree.currentItem().data(0, 256) == function.id
+
+    def test_device_at(self, gewerk_catalog):
+        project, _w, _k = _project(gewerk_catalog)
+        device = Device(physical_address="1.1.77")
+        project.topology.areas[0].lines[0].devices.append(device)
+        assert _jumps(project).device_at("1.1.77") is device
+        assert _jumps(project).device_at("") is None
+
+    def test_matrix_menu_entries(self):
+        from knix_arranger.ui.views.linking_matrix_view import LinkingMatrixView
+        project, _function = self._group()
+        view = LinkingMatrixView()
+        view.jumps = _jumps(project)
+        texts = [t for t, _run in view._jump_actions("1.1.1", ["3/0/70", "3/0/70"], "be-1")]
+        assert texts == ["Zur Gruppenadresse 3/0/70 springen",
+                         "Gerät 1.1.1 in der Topologie zeigen", "",
+                         "Tastenbelegung bearbeiten…"]
+        assert [t for t, _r in view._jump_actions("9.9.9", [])] == []
+        view.jumps = None
+        assert view._jump_actions("1.1.1", ["3/0/70"]) == []

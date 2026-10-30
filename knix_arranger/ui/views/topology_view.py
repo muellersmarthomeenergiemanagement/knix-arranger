@@ -972,7 +972,8 @@ class TopologyView(QWidget):
 
 
     def _add_device_jumps(self, menu: QMenu, device: Device) -> None:
-        """Gerät in Materialliste und Gebäudeansicht (FA-1011e, FA-1011d)."""
+        """Gerät in Materialliste und Gebäudeansicht (FA-1011e, FA-1011d),
+        Taster in der Bauherrenberatung (FA-1011h)."""
         if self.jumps is None or device.device_type in ("coupler", "power_supply"):
             return
         menu.addSeparator()
@@ -987,6 +988,11 @@ class TopologyView(QWidget):
         room_act = menu.addAction("Raum in der Gebäudeansicht zeigen",
                                   lambda: self.jumps.room(room_id))
         room_act.setEnabled(bool(room_id))
+        if self._project is not None:
+            _room, be = bedienelement_of_device(self._project, device)
+            if be is not None:
+                menu.addAction("Tastenbelegung bearbeiten…",
+                               lambda: self.jumps.keys(be.id))
 
     def _add_jump_to_ga(self, menu: QMenu, item: QTreeWidgetItem):
         """«Zur Gruppenadresse springen» für eine Zeile mit GA (FA-1011a)."""

@@ -118,6 +118,25 @@ class ViewJumps:
         if not self._w._material_list_view.open_ko_assignment(device.physical_address):
             self._not_found(f"Gerät {device.physical_address}: keine KOs zuzuordnen")
 
+    def device_at(self, physical_address: str):
+        """Gerät mit dieser physikalischen Adresse, sonst None."""
+        if self._project is None or not physical_address:
+            return None
+        return next((d for area in self._project.topology.areas for line in area.lines
+                     for d in line.devices if d.physical_address == physical_address), None)
+
+    def keys(self, be_id: str) -> None:
+        """Tastenbelegung eines Tasters in der Bauherrenberatung (FA-1011h)."""
+        self._w._open_in_bauherr(be_id)
+
+    def ets_function(self, target) -> None:
+        """Funktion in der Ansicht ETS-Funktionen, target = (Schlüssel, GA)
+        aus functions_with (FA-1011g)."""
+        key, address = target
+        self._open("ets_functions")
+        if not self._w._ets_functions_view.select_function(key, address):
+            self._not_found("Funktion nicht gefunden")
+
     # ── Listen für die Untermenüs ──
 
     def devices_at(self, address: str) -> list:
@@ -150,6 +169,27 @@ class ViewJumps:
                 state = "" if tp.active else " (inaktiv)"
                 found.append((tp, f"{tp.name}{state} – {', '.join(times[:4])}"
                                   + (" …" if len(times) > 4 else "")))
+        return found
+
+    def functions_with(self, ga) -> list:
+        """Funktionen zur GA (FA-1011g): als Funktions-GA, als GA eines
+        bedienten Elements (Geplant) und in der ETS eingelesene Funktionen."""
+        from ..services.ets_function_plan import function_ga_map, member_links
+        from ..services.ets_function_service import overview_rows
+        found = []
+        for function in getattr(self._project, "functions", []):
+            if any(fga.address == ga.address
+                   for fga in function_ga_map(self._project, function).values()):
+                found.append(((function.id, ga.address), f"{function.name} – Funktions-GA"))
+            elif any(own is not None and own.address == ga.address
+                     for _m, _f, own in member_links(self._project, function)):
+                found.append(((function.id, ""), f"{function.name} – bedient dieses Element"))
+        seen = set()
+        for row in overview_rows(self._project):
+            key = ("ets", row.floor, row.room, row.function)
+            if row.address == ga.address and key not in seen:
+                seen.add(key)
+                found.append(((key, ga.address), f"{row.function} – in der ETS ({row.room})"))
         return found
 
     def room_of_device(self, device) -> str:

@@ -986,6 +986,33 @@ def build_document() -> Document:
         "korrigieren unpassende Zuordnungen (siehe Änderungsprotokoll).")
     doc.add_paragraph()
 
+    # ── 8.4  Springen ─────────────────────────────────────────────────────────
+    add_heading2(doc, "8.4  Zwischen den Ansichten springen")
+    add_body(doc,
+        "Per Rechtsklick führt KNiX zum Gegenstück in einer anderen Ansicht, wie in "
+        "der ETS:")
+    add_table_2col(doc, [
+        ("GA in der Topologie", "«Zur Gruppenadresse … springen»"),
+        ("GA in den Gruppenadressen",
+         "«In Topologie zeigen» (je Gerät und KO), «In Szenen zeigen» (mit Wert), "
+         "«Im Zeitprogramm zeigen» (mit Schaltzeiten), «In ETS-Funktionen zeigen»"),
+        ("Szenen-Aktion, Schaltzeitpunkt, GA in den ETS-Funktionen",
+         "«Zur Gruppenadresse … springen»"),
+        ("Zelle der Verknüpfungsmatrix",
+         "zur GA, «Gerät … in der Topologie zeigen», «Tastenbelegung bearbeiten…»"),
+        ("Raum in der Gebäudeansicht",
+         "«Geräte in der Topologie zeigen», «GAs des Raums zeigen»"),
+        ("Gerät in der Topologie",
+         "«In Materialliste zeigen», «Kanäle und KOs zuordnen…», "
+         "«Raum in der Gebäudeansicht zeigen», bei Tastern «Tastenbelegung bearbeiten…»"),
+        ("Position in der Materialliste", "«In Topologie zeigen»"),
+    ], header=("Rechtsklick auf", "Sprung"))
+    add_tip(doc,
+        "Alt+Links bringt Sie zur vorherigen Ansicht zurück, Alt+Rechts wieder vor. "
+        "«GAs des Raums zeigen» blendet die übrigen GAs aus, «Alle GAs zeigen» hebt "
+        "das auf.")
+    doc.add_paragraph()
+
     # ── 9  Tastenkürzel ───────────────────────────────────────────────────────
     add_heading1(doc, "9  Wichtige Tastenkürzel")
 
@@ -1001,6 +1028,8 @@ def build_document() -> Document:
         ("Ctrl+P",       "Projekteigenschaften"),
         ("Ctrl+Z",       "Rückgängig"),
         ("Ctrl+Y",       "Wiederholen"),
+        ("Alt+Links",    "Zurück zur vorherigen Ansicht"),
+        ("Alt+Rechts",   "Vorwärts zur nächsten Ansicht"),
         ("Ctrl+V",       "Validieren"),
         ("Ctrl+U",       "Nach Updates suchen"),
         ("F1",           "Hilfe anzeigen (kontextsensitiv)"),

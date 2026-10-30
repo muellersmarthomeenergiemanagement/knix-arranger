@@ -499,7 +499,8 @@ class MainWindow(QMainWindow):
         self._history = ViewHistory()
         for view in (self._topology_view, self._address_tree, self._address_table,
                      self._building_view, self._material_list_view, self._scene_view,
-                     self._time_program_view):
+                     self._time_program_view, self._ets_functions_view,
+                     self._linking_matrix_view):
             view.jumps = self._jumps
 
         # Bus-Signale zu Handlern verdrahten

@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem,
-    QTabWidget, QPushButton, QMessageBox,
+    QTabWidget, QPushButton, QMessageBox, QMenu,
 )
 
 from ...models.project import KnxProject
@@ -50,6 +50,9 @@ class EtsFunctionsView(QWidget):
         self._tabs = QTabWidget()
         self._tree = QTreeWidget()
         self._tree.setHeaderLabels(_COLUMNS)
+        self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(
+            lambda pos: self._show_ga_menu(self._tree, pos))
 
         plan_page = QWidget()
         plan_layout = QVBoxLayout(plan_page)
@@ -74,6 +77,9 @@ class EtsFunctionsView(QWidget):
         plan_layout.addLayout(buttons)
         self._plan_tree = QTreeWidget()
         self._plan_tree.setHeaderLabels(_PLAN_COLUMNS)
+        self._plan_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._plan_tree.customContextMenuRequested.connect(
+            lambda pos: self._show_ga_menu(self._plan_tree, pos))
         self._plan_tree.itemDoubleClicked.connect(lambda _i, _c: self._edit_function())
         self._plan_tree.currentItemChanged.connect(lambda *_a: self._update_buttons())
         plan_layout.addWidget(self._plan_tree, 1)
@@ -85,6 +91,34 @@ class EtsFunctionsView(QWidget):
 
     def set_bus(self, bus) -> None:
         self._bus = bus
+
+    # Sprünge in andere Ansichten (ViewJumps), von MainWindow gesetzt (FA-1011g)
+    jumps = None
+
+    def select_function(self, key, address: str = "") -> bool:
+        """Funktion anwählen, mit address deren GA-Zeile (Sprung aus den
+        Gruppenadressen, FA-1011g). key: Funktion-id (Geplant) oder
+        ("ets", Stockwerk, Raum, Funktion) (In der ETS)."""
+        from ..tree_select import select_tree_item
+        ets = isinstance(key, tuple)
+        tree = self._tree if ets else self._plan_tree
+        self._tabs.setCurrentIndex(0 if ets else 1)
+        if address and select_tree_item(tree, lambda item: (
+                item.data(0, Qt.UserRole) == key and item.text(3) == address)) is not None:
+            return True
+        return select_tree_item(
+            tree, lambda item: item.data(0, Qt.UserRole) == key) is not None
+
+    def _show_ga_menu(self, tree: QTreeWidget, pos) -> None:
+        """GA-Zeile: zur GA springen (FA-1011g)."""
+        item = tree.itemAt(pos)
+        address = item.text(3) if item is not None else ""
+        if self.jumps is None or "/" not in address:
+            return
+        menu = QMenu(self)
+        act = menu.addAction(f"Zur Gruppenadresse {address} springen")
+        if menu.exec(tree.viewport().mapToGlobal(pos)) == act:
+            self.jumps.ga(address)
 
     def set_project(self, project: KnxProject | None) -> None:
         self._project = project
@@ -130,6 +164,7 @@ class EtsFunctionsView(QWidget):
             fn_item = functions.get(fn_key)
             if fn_item is None:
                 fn_item = QTreeWidgetItem([f"{row.function} ({row.type_label})"])
+                fn_item.setData(0, Qt.UserRole, ("ets", *fn_key))
                 room_item.addChild(fn_item)
                 functions[fn_key] = fn_item
             if not row.address and not row.role:
@@ -140,6 +175,7 @@ class EtsFunctionsView(QWidget):
                 continue
             item = QTreeWidgetItem(["", "", row.role, row.address, row.ga_name,
                                     row.datapoint_type, "; ".join(row.hints)])
+            item.setData(0, Qt.UserRole, ("ets", *fn_key))
             if row.address:
                 _set_gewerk(item, gewerke.cell(row.address))
                 addresses.setdefault(fn_key, []).append(row.address)

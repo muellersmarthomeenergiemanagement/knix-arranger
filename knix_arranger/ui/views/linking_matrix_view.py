@@ -16,7 +16,7 @@ import logging
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QTableWidget,
     QTableWidgetItem, QPushButton, QLabel, QHeaderView, QFileDialog,
-    QMessageBox, QFrame, QSizePolicy, QComboBox,
+    QMessageBox, QFrame, QSizePolicy, QComboBox, QMenu,
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
@@ -155,10 +155,14 @@ class LinkingMatrixView(QWidget):
         self._sensor_table = self._create_table(_S_FIXED_HEADERS)
         self._sensor_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self._sensor_table.cellDoubleClicked.connect(self._on_sensor_cell_double_clicked)
+        self._sensor_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._sensor_table.customContextMenuRequested.connect(self._show_sensor_menu)
         self._tabs.addTab(self._sensor_table, "Sensoren / Taster")
 
         # Aktor-Tab
         self._actor_table = self._create_table(_A_HEADERS)
+        self._actor_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._actor_table.customContextMenuRequested.connect(self._show_actor_menu)
         self._tabs.addTab(self._actor_table, "Aktoren")
 
         # Button-Leiste
@@ -375,6 +379,66 @@ class LinkingMatrixView(QWidget):
             )
             return
         self.open_in_bauherr.emit(meta.be_id)
+
+    # ── Rechtsklick: zur GA, zum Gerät, zur Tastenbelegung (FA-1011i) ────────
+
+    # Sprünge in andere Ansichten (ViewJumps), von MainWindow gesetzt
+    jumps = None
+
+    def _jump_actions(self, physical_address: str, addresses: list[str],
+                      be_id: str = "") -> list[tuple[str, object]]:
+        """Einträge des Rechtsklick-Menüs: (Text, Aktion), Text "" = Trennlinie."""
+        if self.jumps is None:
+            return []
+        entries = [(f"Zur Gruppenadresse {address} springen",
+                    lambda a=address: self.jumps.ga(a))
+                   for address in dict.fromkeys(a for a in addresses if a)]
+        device = self.jumps.device_at(physical_address)
+        if device is not None:
+            first = next((a for a in addresses if a), "")
+            entries.append((f"Gerät {physical_address} in der Topologie zeigen",
+                            lambda: self.jumps.device(device, first)))
+        if be_id:
+            entries += [("", None), ("Tastenbelegung bearbeiten…",
+                                     lambda: self.jumps.keys(be_id))]
+        return entries
+
+    def _jump_menu(self, table, pos, *args) -> None:
+        entries = self._jump_actions(*args)
+        if not entries:
+            return
+        menu = QMenu(self)
+        acts = {}
+        for text, run in entries:
+            if text:
+                acts[menu.addAction(text)] = run
+            else:
+                menu.addSeparator()
+        action = menu.exec(table.viewport().mapToGlobal(pos))
+        if action in acts:
+            acts[action]()
+
+    def _show_sensor_menu(self, pos) -> None:
+        """Zelle: ihre GA(s), die Bedienstelle in der Topologie, ihre
+        Tastenbelegung; ausserhalb der Funktionsspalten nur das Gerät."""
+        index = self._sensor_table.indexAt(pos)
+        if not index.isValid() or index.row() >= len(self._sensor_row_order):
+            return
+        group = self._sensor_groups[self._sensor_row_order[index.row()]]
+        col = index.column() - len(_S_FIXED_HEADERS)
+        entries = (group["cells"].get(self._sensor_col_keys[col], [])
+                   if 0 <= col < len(self._sensor_col_keys) else [])
+        meta = group["meta"]
+        self._jump_menu(self._sensor_table, pos, meta.physical_address,
+                        [e.ga_address for e in entries], meta.be_id)
+
+    def _show_actor_menu(self, pos) -> None:
+        row = self._actor_table.rowAt(pos.y())
+        rows = self._belegungsplan.actor_rows if self._belegungsplan else []
+        if not 0 <= row < len(rows):
+            return
+        self._jump_menu(self._actor_table, pos, rows[row].physical_address,
+                        [rows[row].ga_address])
 
     def _fill_actor_tab(self):
         rows = self._belegungsplan.actor_rows if self._belegungsplan else []
