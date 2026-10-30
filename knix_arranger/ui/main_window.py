@@ -408,6 +408,11 @@ class MainWindow(QMainWindow):
         self._validation_view.set_target_provider(self._validation_targets)
         self._validation_view.jump_requested.connect(self._jump_to_target)
         self._topology_view.bauherr_requested.connect(self._open_room_in_bauherr)
+        # Topologie <-> Gruppenadressen springen (FA-1011a)
+        self._topology_view.ga_requested.connect(self._show_ga_in_addresses)
+        for view in (self._address_tree, self._address_table):
+            view.linked_devices = self._linked_devices
+            view.device_requested.connect(self._show_device_in_topology)
         self._gewerk_view = GewerkView()
         self._scene_view = SceneView()
         self._scene_view.request_generate_addresses.connect(
@@ -679,6 +684,24 @@ class MainWindow(QMainWindow):
         self._status_bar.set_project_name(self._project.name)
         self._status_bar.set_variant(self._project.config.mg_variant)
         self._status_bar.set_ga_count(ga_count)
+
+    def _show_ga_in_addresses(self, address: str) -> None:
+        """GA aus der Topologie in der Baumansicht anwählen (FA-1011a)."""
+        self._sidebar.select("addresses")
+        self._navigate("addresses")
+        if not self._address_tree.select_address(address):
+            self._status_bar.showMessage(f"GA {address} nicht gefunden", 5000)
+
+    def _linked_devices(self, address: str) -> list:
+        """Geräte an einer GA, wie die Topologie sie zeigt (FA-1011a)."""
+        self._refresh_view("topology")
+        return self._topology_view.linked_devices(address)
+
+    def _show_device_in_topology(self, device, address: str) -> None:
+        """KO-Zeile der GA unter dem Gerät in der Topologie anwählen (FA-1011a)."""
+        self._sidebar.select("topology")
+        self._navigate("topology")
+        self._topology_view.select_ga_row(device, address)
 
     def _open_room_in_bauherr(self, room_id: str) -> None:
         """Raum in der Bauherrenberatung öffnen (Tasten verteilen, FA-1411c)."""

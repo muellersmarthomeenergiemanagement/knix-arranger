@@ -16,6 +16,7 @@ from ..dialogs.ga_scene_dialog import GaSceneDialog
 from ..styles import GEWERK_COLORS
 from ...models.group_address import GroupAddressStructure, GroupAddress
 from ..column_utils import fit_columns
+from ..topology_jump import add_topology_menu
 from ..widgets.drag_drop import DragDropTree
 from ..tree_select import select_tree_item
 from ...services.ets_corrections import gewerk_display
@@ -86,6 +87,10 @@ class AddressTreeView(QWidget):
     ga_modified = Signal()  # Emitted when a GA was edited
     # Gewerk für die markierten GAs festlegen (Korrekturschicht, MainWindow)
     gewerk_change_requested = Signal(list)
+    # Gerät in der Topologie anwählen: (Device, GA-Adresse), FA-1011a
+    device_requested = Signal(object, str)
+    # Adresse -> [(Device, Text)], von MainWindow gesetzt (FA-1011a)
+    linked_devices = None
 
     # Qt.UserRole für Adress-String, UserRole+1 für GA-Objekt,
     # UserRole+2 für (HG, MG) eines Mittelgruppen-Knotens
@@ -421,6 +426,9 @@ class AddressTreeView(QWidget):
             gewerk_action = menu.addAction(
                 f"Gewerk zuordnen… ({len(selected)} GA)" if len(selected) > 1
                 else "Gewerk zuordnen…")
+            if not ga.is_placeholder:
+                add_topology_menu(menu, ga.address, self.linked_devices,
+                                  self.device_requested.emit)
             restore_action = None
             function = omitted_function_of(ga)
             if function and self._project is not None:

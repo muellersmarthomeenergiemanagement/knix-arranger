@@ -11,7 +11,7 @@ Alle Änderungen werden sofort über den ProjectBus propagiert.
 from __future__ import annotations
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QLabel,
-    QHBoxLayout, QMenu, QInputDialog, QMessageBox, QPushButton,
+    QHBoxLayout, QMenu, QInputDialog, QMessageBox, QPushButton, QTreeWidgetItemIterator,
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -88,6 +88,16 @@ _ROLE_LABELS = {
 _ROLE_DATA = Qt.UserRole
 
 
+def _device_item_of(item: QTreeWidgetItem) -> QTreeWidgetItem | None:
+    """Gerätezeile, unter der eine Zeile steht (oder die Zeile selbst)."""
+    while item is not None:
+        d = item.data(0, _ROLE_DATA)
+        if isinstance(d, tuple) and len(d) == 4 and d[0] == "device" and d[3] is not None:
+            return item
+        item = item.parent()
+    return None
+
+
 def _full_ga(address: str, designation: str) -> str:
     """Spalte "Adresse": GA mit Bezeichnung, wie bei den Sensoren."""
     designation = " ".join((designation or "").split())
@@ -100,6 +110,8 @@ class TopologyView(QWidget):
     topology_changed = Signal()   # nach jeder manuellen Änderung
     # Raum in der Bauherrenberatung öffnen (Tasten verteilen, FA-1411c)
     bauherr_requested = Signal(str)
+    # GA in der Ansicht Gruppenadressen anwählen (FA-1011a)
+    ga_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -205,6 +217,38 @@ class TopologyView(QWidget):
             return (isinstance(d, tuple) and len(d) == 4 and d[0] == "device"
                     and d[3] is not None and d[3].physical_address == physical_address)
         return select_tree_item(self._tree, match) is not None
+
+    def linked_devices(self, ga_addr: str) -> list[tuple[Device, str]]:
+        """Geräte, unter denen die GA in diesem Baum steht, mit Text für das
+        Menü «In Topologie zeigen» (FA-1011a). Quelle ist der Baum selbst,
+        damit beide Richtungen dieselben Verknüpfungen kennen."""
+        found: dict[tuple[int, str], tuple[Device, str]] = {}
+        it = QTreeWidgetItemIterator(self._tree)
+        while it.value():
+            item = it.value()
+            it += 1
+            if ga_address_of(item.text(1)) != ga_addr:
+                continue
+            dev_item = _device_item_of(item)
+            if dev_item is None:
+                continue
+            device = dev_item.data(0, _ROLE_DATA)[3]
+            label = f"{device.physical_address} {dev_item.text(0)} – {item.text(0)}"
+            found.setdefault((id(device), item.text(0)), (device, label))
+        return list(found.values())
+
+    def select_ga_row(self, device: Device, ga_addr: str) -> bool:
+        """GA-Zeile unter einem Gerät anwählen (FA-1011a), ohne solche Zeile
+        das Gerät."""
+        def match(item):
+            dev_item = _device_item_of(item)
+            return (dev_item is not None and dev_item is not item
+                    and dev_item.data(0, _ROLE_DATA)[3] is device
+                    and ga_address_of(item.text(1)) == ga_addr)
+        if select_tree_item(self._tree, match) is not None:
+            return True
+        return select_tree_item(self._tree, lambda item: (
+            _device_item_of(item) is item and item.data(0, _ROLE_DATA)[3] is device)) is not None
 
     def select_line(self, key: str) -> bool:
         """Linie "Bereich.Linie" anwählen; "B.0" = Hauptlinie (Bereich),
@@ -828,7 +872,8 @@ class TopologyView(QWidget):
         if flag_links and (not data or data[0] == "ko_ga"):
             self._flags_menu(item, data, flag_links, pos)
             return
-        if not data:
+        if not data or data[0] == "ko_ga":
+            self._ga_row_menu(item, data, pos)
             return
 
         kind = data[0]
@@ -920,11 +965,28 @@ class TopologyView(QWidget):
             elif action == prog_act:
                 self._toggle_programmed(device)
 
-        elif kind == "ko_ga":
-            _, device, co_number, ga_addr = data
-            unlink_act = menu.addAction(f"GA {ga_addr} von diesem KO trennen…")
-            if menu.exec(global_pos) == unlink_act:
-                self._unlink_ga(device, co_number, ga_addr)
+
+    def _add_jump_to_ga(self, menu: QMenu, item: QTreeWidgetItem):
+        """«Zur Gruppenadresse springen» für eine Zeile mit GA (FA-1011a)."""
+        ga_addr = ga_address_of(item.text(1))
+        if not ga_addr:
+            return None
+        return menu.addAction(f"Zur Gruppenadresse {ga_addr} springen"), ga_addr
+
+    def _ga_row_menu(self, item, data, pos) -> None:
+        """Kontextmenü einer GA-Zeile ohne Flags: springen, KO trennen."""
+        menu = QMenu(self)
+        jump = self._add_jump_to_ga(menu, item)
+        unlink_act = None
+        if data:
+            unlink_act = menu.addAction(f"GA {data[3]} von diesem KO trennen…")
+        if menu.isEmpty():
+            return
+        action = menu.exec(self._tree.viewport().mapToGlobal(pos))
+        if jump and action == jump[0]:
+            self.ga_requested.emit(jump[1])
+        elif unlink_act is not None and action == unlink_act:
+            self._unlink_ga(data[1], data[2], data[3])
 
     def _flags(self, item, column: int, dpt: str, links: list, key=None) -> None:
         """Flags der KOs; dazu die Soll-Flags der Rolle (FA-635): bei Geräten
@@ -952,9 +1014,12 @@ class TopologyView(QWidget):
         """Kontextmenü einer GA-Zeile mit Flags: KO trennen (falls verknüpft)
         und «Flags bearbeiten…» je KO."""
         menu = QMenu(self)
+        jump = self._add_jump_to_ga(menu, item)
         unlink_act = None
         if data and data[0] == "ko_ga":
             unlink_act = menu.addAction(f"GA {data[3]} von diesem KO trennen…")
+        if jump or unlink_act:
+            menu.addSeparator()
         imported = self._project is not None and self._project.topology.is_imported
         flag_acts = {}
         cos = {(id(l.device), l.co.object_number): l for l in links}
@@ -970,7 +1035,9 @@ class TopologyView(QWidget):
         if imported:
             menu.setToolTipsVisible(True)
         action = menu.exec(self._tree.viewport().mapToGlobal(pos))
-        if unlink_act is not None and action == unlink_act:
+        if jump and action == jump[0]:
+            self.ga_requested.emit(jump[1])
+        elif unlink_act is not None and action == unlink_act:
             self._unlink_ga(data[1], data[2], data[3])
         elif action in flag_acts:
             self._edit_flags(flag_acts[action])
