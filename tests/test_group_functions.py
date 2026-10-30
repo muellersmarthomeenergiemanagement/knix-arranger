@@ -127,3 +127,16 @@ def test_room_wide_numbering_is_mapped_to_elements():
     [suggestion] = suggest_group_functions(project)
     assert suggestion.missing_channels == 0
     assert [n for _r, _a, n in suggestion.members] == [1, 2]
+
+
+def test_adopted_function_ga_once_per_channel_in_belegungsplan():
+    """Die übernommene Funktions-GA hängt in der ETS schon am KO: der
+    Belegungsplan (Topologie, Aktorenbericht) zeigt sie je Kanal einmal,
+    nicht zusätzlich über das Mitglied (Chalet 1.1.6, 3/4/89 doppelt)."""
+    from knix_arranger.services.belegungsplan_service import BelegungsplanService
+    project, _room, _lights = _project()
+    adopt(project, suggest_group_functions(project)[0], "Licht Küche")
+    rows = [(r.channel_number, r.function_name) for r in
+            BelegungsplanService().generate(project).actor_rows if r.ga_address == "3/4/89"]
+    assert sorted(rows) == sorted(set(rows))
+    assert len(rows) == 2       # Kanal A und Kanal B

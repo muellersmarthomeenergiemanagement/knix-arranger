@@ -1016,23 +1016,33 @@ class BelegungsplanService:
     @staticmethod
     def _function_rows(project, rows: list[ActorRow]) -> list[ActorRow]:
         """Funktions-GAs (FA-530) auf den Kanälen ihrer Mitglieder: dieselbe
-        Zeile wie die GA des Elements mit gleicher Funktion."""
+        Zeile wie die GA des Elements mit gleicher Funktion. Nicht, wenn die
+        Funktions-GA dort schon steht (importiert: am KO verknüpft), sonst
+        erscheint sie doppelt."""
         if not getattr(project, "functions", None):
             return []
         from dataclasses import replace
         from .ets_function_plan import member_links
+
+        def key(row: ActorRow) -> tuple:
+            return (row.physical_address, row.channel_number, row.function_name,
+                    row.co_function, row.ga_address)
+
         by_address: dict[str, list[ActorRow]] = {}
         for row in rows:
             by_address.setdefault(row.ga_address, []).append(row)
+        seen = {key(row) for row in rows}
         result = []
         for function in project.functions:
             for _member, fga, own in member_links(project, function):
                 if own is None:
                     continue
                 for row in by_address.get(own.address, []):
-                    result.append(replace(
-                        row, ga_address=fga.address, ga_designation=fga.designation,
-                        dpt=fga.datapoint_type))
+                    added = replace(row, ga_address=fga.address,
+                                    ga_designation=fga.designation, dpt=fga.datapoint_type)
+                    if key(added) not in seen:
+                        seen.add(key(added))
+                        result.append(added)
         return result
 
     def _collect_central_actor_rows(
