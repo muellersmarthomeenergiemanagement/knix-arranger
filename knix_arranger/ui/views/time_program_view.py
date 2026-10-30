@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QComboBox, QCheckBox, QSpinBox,
     QTimeEdit, QDateEdit, QFormLayout, QSplitter, QHeaderView, QAbstractItemView,
     QDialog, QDialogButtonBox, QDoubleSpinBox, QLineEdit, QMessageBox,
-    QInputDialog,
+    QInputDialog, QMenu,
 )
 from PySide6.QtCore import Qt, QTime, QDate, QTimer
 from PySide6.QtGui import QBrush, QColor, QStandardItemModel
@@ -370,6 +370,7 @@ class TimeProgramView(QWidget):
 
         # Rechte Seite: Tabs
         right = QTabWidget()
+        self._tabs = right
         self._tab_sp = self._build_switchpoint_tab()
         right.addTab(self._tab_sp, "Schaltzeitpunkte")
         self._tab_days = self._build_days_tab()
@@ -417,6 +418,8 @@ class TimeProgramView(QWidget):
         self._sp_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._sp_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._sp_table.doubleClicked.connect(self._edit_switch_point)
+        self._sp_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._sp_table.customContextMenuRequested.connect(self._show_sp_menu)
         vl.addWidget(self._sp_table, stretch=1)
 
         sp_btns = QHBoxLayout()
@@ -669,6 +672,46 @@ class TimeProgramView(QWidget):
             # Neu aufbauen erst nach diesem Signal: die Zeile, die es gerade
             # sendet, würde sonst mitten im Aufruf gelöscht
             QTimer.singleShot(0, lambda: self._refresh_programs(select_id=tp.id))
+
+    # Sprünge in andere Ansichten (ViewJumps), von MainWindow gesetzt (FA-1011c)
+    jumps = None
+
+    def select_switch_point(self, tp, ga_id: str) -> bool:
+        """Zeitprogramm anwählen, im Tagesprofil den ersten Schaltzeitpunkt
+        auf diese GA (Sprung aus den Gruppenadressen, FA-1011c)."""
+        if self._project is None or tp not in self._project.time_programs:
+            return False
+        self._refresh_programs(select_id=tp.id)
+        self._on_program_selected(self._project.time_programs.index(tp))
+        self._tabs.setCurrentWidget(self._tab_sp)
+        for idx, dp in enumerate(tp.day_profiles):
+            sp = next((p for p in dp.switch_points if p.target_ga_id == ga_id), None)
+            if sp is None:
+                continue
+            self._cb_dp.setCurrentIndex(idx)
+            self._on_dp_selected(idx)
+            for row in range(self._sp_table.rowCount()):
+                if self._sp_table.item(row, 0).data(Qt.ItemDataRole.UserRole) == sp.id:
+                    self._sp_table.selectRow(row)
+                    break
+            return True
+        return True
+
+    def _show_sp_menu(self, pos) -> None:
+        """Schaltzeitpunkt: zur GA springen, die er schaltet (FA-1011c)."""
+        row = self._sp_table.rowAt(pos.y())
+        if self.jumps is None or not self._current_dp or row < 0:
+            return
+        sp_id = self._sp_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        sp = next((p for p in self._current_dp.switch_points if p.id == sp_id), None)
+        ga = next((g for g in self._project.group_addresses.all_addresses()
+                   if sp is not None and g.id == sp.target_ga_id), None)
+        if ga is None:
+            return
+        menu = QMenu(self)
+        act = menu.addAction(f"Zur Gruppenadresse {ga.address} springen")
+        if menu.exec(self._sp_table.viewport().mapToGlobal(pos)) == act:
+            self.jumps.ga(ga.address)
 
     def _on_dp_selected(self, idx: int):
         if self._current_tp and 0 <= idx < len(self._current_tp.day_profiles):

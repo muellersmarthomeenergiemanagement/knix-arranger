@@ -11,7 +11,7 @@ from ..widgets.search_filter_bar import SearchFilterBar
 from ..dialogs.ga_edit_dialog import GaEditDialog
 from ...models.group_address import GroupAddressStructure, GroupAddress
 from ..column_utils import fit_columns
-from ..topology_jump import add_topology_menu
+from ..jump_menu import add_ga_jump_menus
 from ...services.ets_corrections import gewerk_display
 from ...services.time_program_service import timed_label
 
@@ -23,10 +23,8 @@ class AddressTableView(QWidget):
     ga_modified = Signal()  # Emitted when a GA was edited
     # Gewerk für die markierten GAs festlegen (Korrekturschicht, MainWindow)
     gewerk_change_requested = Signal(list)
-    # Gerät in der Topologie anwählen: (Device, GA-Adresse), FA-1011a
-    device_requested = Signal(object, str)
-    # Adresse -> [(Device, Text)], von MainWindow gesetzt (FA-1011a)
-    linked_devices = None
+    # Sprünge in andere Ansichten (ViewJumps), von MainWindow gesetzt (FA-1011a ff.)
+    jumps = None
 
     COLUMNS = [
         "Adresse", "Bezeichnung", "DPT", "Gewerk", "Raum",
@@ -179,9 +177,8 @@ class AddressTableView(QWidget):
         gewerk_action = menu.addAction(
             f"Gewerk zuordnen… ({len(selected)} GA)" if len(selected) > 1
             else "Gewerk zuordnen…")
-        if not ga.is_placeholder:
-            add_topology_menu(menu, ga.address, self.linked_devices,
-                              self.device_requested.emit)
+        menu.addSeparator()
+        add_ga_jump_menus(menu, self.jumps, ga)
         action = menu.exec(self._table.viewport().mapToGlobal(pos))
         if action == edit_action:
             self._edit_ga(ga)

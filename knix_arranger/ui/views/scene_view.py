@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QPushButton, QComboBox, QSpinBox,
     QLineEdit, QGroupBox, QFormLayout, QAbstractItemView,
     QMessageBox, QDoubleSpinBox, QTreeWidget, QTreeWidgetItem, QInputDialog,
-    QListWidget, QListWidgetItem, QCompleter,
+    QListWidget, QListWidgetItem, QCompleter, QMenu,
 )
 from PySide6.QtCore import Qt, Signal, QStringListModel
 from PySide6.QtGui import QColor
@@ -118,6 +118,8 @@ class SceneView(QWidget):
         self._tree.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._tree.setAlternatingRowColors(True)
         self._tree.currentItemChanged.connect(self._on_selection)
+        self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(self._show_tree_menu)
         left.addWidget(self._tree)
 
         # Buttons
@@ -296,6 +298,8 @@ class SceneView(QWidget):
             self._actions_table.setColumnWidth(
                 col, max(100, self._actions_table.horizontalHeader().sectionSizeHint(col) + 16))
         self._actions_table.itemChanged.connect(self._on_action_item_changed)
+        self._actions_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._actions_table.customContextMenuRequested.connect(self._show_action_menu)
         actions_layout.addWidget(self._actions_table)
 
         # Aktion hinzufügen
@@ -560,6 +564,45 @@ class SceneView(QWidget):
         if data[0] == "scene":
             return self._overview.address_of(data[1])
         return None
+
+    # Sprünge in andere Ansichten (ViewJumps), von MainWindow gesetzt (FA-1011b)
+    jumps = None
+
+    def select_scene(self, scene) -> bool:
+        """Szene anwählen (Sprung aus den Gruppenadressen, FA-1011b)."""
+        self._refresh_table(select=scene)
+        return self._get_selected_scene() is scene
+
+    def _action_address(self, action) -> str:
+        """Adresse der GA einer Aktion: ga_address, sonst über die Bezeichnung."""
+        if action.ga_address:
+            return action.ga_address
+        ga = next((g for g in self._project.group_addresses.all_addresses()
+                   if g.designation and g.designation == action.group_address), None)
+        return ga.address if ga is not None else ""
+
+    def _jump_menu(self, widget, pos, address: str) -> None:
+        if self.jumps is None or not address:
+            return
+        menu = QMenu(self)
+        act = menu.addAction(f"Zur Gruppenadresse {address} springen")
+        if menu.exec(widget.viewport().mapToGlobal(pos)) == act:
+            self.jumps.ga(address)
+
+    def _show_tree_menu(self, pos) -> None:
+        """Szenen-Adresse: zu ihrer GA springen (FA-1011b)."""
+        item = self._tree.itemAt(pos)
+        data = item.data(0, _ROLE) if item is not None else None
+        if data and data[0] == "address" and data[1].ga is not None:
+            self._jump_menu(self._tree, pos, data[1].ga.address)
+
+    def _show_action_menu(self, pos) -> None:
+        """Aktion: zur GA springen, die sie schaltet (FA-1011b)."""
+        scene = self._get_selected_scene()
+        row = self._actions_table.rowAt(pos.y())
+        if scene is None or not 0 <= row < len(scene.actions):
+            return
+        self._jump_menu(self._actions_table, pos, self._action_address(scene.actions[row]))
 
     def _select_scene(self, scene) -> None:
         """Wählt eine Szene (oder SceneAddress) im Baum aus."""

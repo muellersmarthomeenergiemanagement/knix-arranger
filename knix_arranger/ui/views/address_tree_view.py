@@ -16,7 +16,7 @@ from ..dialogs.ga_scene_dialog import GaSceneDialog
 from ..styles import GEWERK_COLORS
 from ...models.group_address import GroupAddressStructure, GroupAddress
 from ..column_utils import fit_columns
-from ..topology_jump import add_topology_menu
+from ..jump_menu import add_ga_jump_menus
 from ..widgets.drag_drop import DragDropTree
 from ..tree_select import select_tree_item
 from ...services.ets_corrections import gewerk_display
@@ -87,10 +87,8 @@ class AddressTreeView(QWidget):
     ga_modified = Signal()  # Emitted when a GA was edited
     # Gewerk für die markierten GAs festlegen (Korrekturschicht, MainWindow)
     gewerk_change_requested = Signal(list)
-    # Gerät in der Topologie anwählen: (Device, GA-Adresse), FA-1011a
-    device_requested = Signal(object, str)
-    # Adresse -> [(Device, Text)], von MainWindow gesetzt (FA-1011a)
-    linked_devices = None
+    # Sprünge in andere Ansichten (ViewJumps), von MainWindow gesetzt (FA-1011a ff.)
+    jumps = None
 
     # Qt.UserRole für Adress-String, UserRole+1 für GA-Objekt,
     # UserRole+2 für (HG, MG) eines Mittelgruppen-Knotens
@@ -152,6 +150,20 @@ class AddressTreeView(QWidget):
         self._search_bar.search_changed.connect(self._apply_filter)
         self._search_bar.filter_changed.connect(self._on_category_changed)
         layout.addWidget(self._search_bar)
+
+        # Nur die GAs eines Raums (aus der Gebäudeansicht, FA-1011d)
+        self._only: set[str] | None = None
+        only_row = QHBoxLayout()
+        self._only_label = QLabel("")
+        self._only_label.setStyleSheet("font-weight: bold;")
+        self._only_clear = QPushButton("Alle GAs zeigen")
+        self._only_clear.clicked.connect(self.clear_only)
+        only_row.addWidget(self._only_label)
+        only_row.addWidget(self._only_clear)
+        only_row.addStretch()
+        self._only_label.setVisible(False)
+        self._only_clear.setVisible(False)
+        layout.addLayout(only_row)
 
         # Baum; in geplanten Projekten GAs per Ziehen tauschen oder in eine
         # andere Mittelgruppe verschieben (FA-1015 d)
@@ -231,6 +243,8 @@ class AddressTreeView(QWidget):
         der sie ausblendet, wird gelöscht."""
         def match(item):
             return item.data(0, Qt.UserRole) == address
+        if self._only is not None and address not in self._only:
+            self.clear_only()
         found = select_tree_item(self._tree, match)
         if found is not None and (self._search_bar.search_text or self._active_category):
             self._search_bar.clear()
@@ -243,6 +257,27 @@ class AddressTreeView(QWidget):
                 found = select_tree_item(
                     self._tree, lambda item: item.data(0, self.MG_ROLE) == group)
         return found is not None
+
+    def show_only(self, addresses: set[str], label: str) -> int:
+        """Nur diese GAs zeigen, z.B. die eines Raums (FA-1011d); gibt die
+        Anzahl gezeigter GAs zurück."""
+        self._search_bar.clear()
+        self._only = set(addresses)
+        self._only_label.setText(f"{label}: {len(self._only)} GA")
+        self._only_label.setVisible(True)
+        self._only_clear.setVisible(True)
+        self._apply_filter()
+        self._tree.expandAll()
+        return len(self._only)
+
+    def clear_only(self) -> None:
+        """Raumfilter aufheben."""
+        if self._only is None:
+            return
+        self._only = None
+        self._only_label.setVisible(False)
+        self._only_clear.setVisible(False)
+        self._apply_filter()
 
     def _drag_data(self, item: QTreeWidgetItem):
         ga = item.data(0, self.GA_OBJECT_ROLE)
@@ -290,6 +325,8 @@ class AddressTreeView(QWidget):
             self._build_tree()
         finally:
             self._building = False
+        if self._only is not None:
+            self._apply_filter()
         fit_columns(self._tree, stretch_to_fit=False)
 
     def _build_tree(self):
@@ -426,9 +463,8 @@ class AddressTreeView(QWidget):
             gewerk_action = menu.addAction(
                 f"Gewerk zuordnen… ({len(selected)} GA)" if len(selected) > 1
                 else "Gewerk zuordnen…")
-            if not ga.is_placeholder:
-                add_topology_menu(menu, ga.address, self.linked_devices,
-                                  self.device_requested.emit)
+            menu.addSeparator()
+            add_ga_jump_menus(menu, self.jumps, ga)
             restore_action = None
             function = omitted_function_of(ga)
             if function and self._project is not None:
@@ -642,7 +678,8 @@ class AddressTreeView(QWidget):
                     search in item.text(col).lower() for col in range(_COLUMNS)
                 )
                 cat_ok = (allowed_codes is None) or (item.text(COL_GEWERK) in allowed_codes)
-                item.setHidden(not (text_ok and cat_ok))
+                only_ok = self._only is None or item.data(0, Qt.UserRole) in self._only
+                item.setHidden(not (text_ok and cat_ok and only_ok))
             else:
                 # HG / MG: sichtbar wenn mindestens ein Kind sichtbar ist
                 item.setHidden(not has_visible_children)

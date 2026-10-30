@@ -265,6 +265,8 @@ class MaterialListView(QWidget):
         self._table.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._table.itemChanged.connect(self._on_item_changed)
         self._table.doubleClicked.connect(self._on_double_click_row)
+        self._table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self._table)
 
         # --- Zusammenfassung ---
@@ -1404,6 +1406,54 @@ class MaterialListView(QWidget):
     def _assign_channels_selected(self) -> None:
         self._assign_channels(self._channel_devices(self._selected_entry()))
 
+    # Sprünge in andere Ansichten (ViewJumps), von MainWindow gesetzt (FA-1011e)
+    jumps = None
+
+    def _entry_of(self, device):
+        return next((e for e in (self._material_list.entries if self._material_list else [])
+                     if (e.device_id and e.device_id == device.id)
+                     or (device.physical_address
+                         and device.physical_address in e.physical_addresses)), None)
+
+    def select_device(self, device) -> bool:
+        """Position eines Geräts anwählen (Sprung aus der Topologie, FA-1011e);
+        Filter, die sie ausblenden, werden zurückgesetzt."""
+        entry = self._entry_of(device)
+        if entry is None:
+            return False
+        if not self._select_entry(entry):
+            for combo in (self._filter_combo, self._type_filter_combo, self._line_filter_combo):
+                combo.setCurrentIndex(0)
+            return self._select_entry(entry)
+        return True
+
+    def _entry_devices(self, entry) -> list:
+        """Geräte einer Position in der Topologie."""
+        if not self._project:
+            return []
+        return [d for area in self._project.topology.areas for line in area.lines
+                for d in line.devices
+                if (entry.device_id and d.id == entry.device_id)
+                or (d.physical_address and d.physical_address in entry.physical_addresses)]
+
+    def _show_context_menu(self, pos) -> None:
+        """Rechtsklick auf eine Position: Geräte in der Topologie (FA-1011e)."""
+        if self.jumps is None:
+            return
+        row = self._table.rowAt(pos.y())
+        item = self._table.item(row, 0) if row >= 0 else None
+        entry = next((e for e in (self._material_list.entries if self._material_list else [])
+                      if item is not None and e.id == item.data(Qt.UserRole)), None)
+        if entry is None:
+            return
+        from ..jump_menu import add_jump_menu
+        menu = QMenu(self)
+        add_jump_menu(menu, "In Topologie zeigen",
+                      lambda: [(d, f"{d.physical_address or '–'} {d.product or d.device_type}")
+                               for d in self._entry_devices(entry)],
+                      lambda d: self.jumps.device(d), "kein Gerät in der Topologie")
+        menu.exec(self._table.viewport().mapToGlobal(pos))
+
     def open_ko_assignment(self, physical_address: str, focus: tuple = ()) -> bool:
         """«Kanäle und KOs zuordnen» für ein Gerät öffnen (Sprung aus der
         Validierung, FA-634); focus = (Stromkreis bzw. ga_key, Funktion,
@@ -1423,13 +1473,14 @@ class MaterialListView(QWidget):
         self._assign_channels([device], focus=(device.id, *focus) if focus else None)
         return True
 
-    def _select_entry(self, entry) -> None:
+    def _select_entry(self, entry) -> bool:
         for row in range(self._table.rowCount()):
             item = self._table.item(row, 0)
             if item is not None and item.data(Qt.UserRole) == entry.id:
                 self._table.selectRow(row)
                 self._table.scrollToItem(item)
-                return
+                return True
+        return False
 
     def _assign_channels(self, devices: list, focus: tuple | None = None) -> None:
         """focus = (Geräte-id, Stromkreis bzw. ga_key, Funktion, KO-Vorschlag)."""

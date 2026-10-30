@@ -1004,6 +1004,19 @@ class ReportService:
                                 bucket.append(ga)
         return groups, missing
 
+    def room_ga_addresses(self, room_id: str) -> set[str]:
+        """Adressen, die im Raumbuch beim Raum stehen: Zuordnung wie
+        _room_gewerk_groups, dazu die GAs der Funktionen dieses Raums
+        (Filter «GAs des Raums», FA-1011d)."""
+        from .ets_function_plan import function_elements, function_ga_map
+        groups, _missing = self._room_gewerk_groups()
+        addresses = {ga.address for gas in groups.get(room_id, {}).values() for ga in gas}
+        homes = function_elements(self.project)
+        for function in getattr(self.project, "functions", []):
+            if homes.get(function.id, ("", []))[0] == room_id:
+                addresses |= {ga.address for ga in function_ga_map(self.project, function).values()}
+        return addresses
+
     def generate_room_gewerk_report(self, filepath: str):
         """Erzeugt das "Raumbuch KNX" als PDF im Querformat.
 

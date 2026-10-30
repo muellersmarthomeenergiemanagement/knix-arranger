@@ -922,6 +922,7 @@ class BuildingView(QWidget):
             menu.addAction("Verteiler hinzufügen", self._add_verteiler)
             self._add_move_menu(menu, data[1])
             menu.addAction("Umbenennen",           self._rename_selected)
+            self._add_room_jumps(menu, room)
             menu.addSeparator()
             menu.addAction("Löschen",              self._delete_selected)
         elif kind == "verteiler":
@@ -933,6 +934,23 @@ class BuildingView(QWidget):
             menu.addAction("Löschen",              self._delete_selected)
 
         menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+
+    # Sprünge in andere Ansichten (ViewJumps), von MainWindow gesetzt (FA-1011d)
+    jumps = None
+
+    def _add_room_jumps(self, menu: QMenu, room) -> None:
+        """Geräte des Raums in der Topologie, GAs des Raums (FA-1011d)."""
+        if self.jumps is None:
+            return
+        from ..jump_menu import add_jump_menu
+        menu.addSeparator()
+        add_jump_menu(
+            menu, "Geräte in der Topologie zeigen",
+            lambda: [(d, f"{d.physical_address or '–'} {d.product or d.device_type}")
+                     for d in self._devices_for_room(room)],
+            lambda d: self.jumps.device(d), "keine Geräte mit diesem Raum")
+        menu.addAction("GAs des Raums zeigen", lambda: self.jumps.room_gas(room))
 
 
 def gewerk_summary(room: Room) -> str:

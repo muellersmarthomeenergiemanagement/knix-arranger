@@ -287,6 +287,20 @@ class MainWindow(QMainWindow):
         # Ansicht
         view_menu = menubar.addMenu("&Ansicht")
 
+        # Zurück/Vorwärts durch die geöffneten Ansichten (FA-1011f)
+        self._back_action = QAction("&Zurück", self)
+        self._back_action.setShortcut(QKeySequence("Alt+Left"))
+        self._back_action.setToolTip("Zur vorher geöffneten Ansicht, z.B. nach einem Sprung")
+        self._back_action.triggered.connect(lambda: self._history_go(False))
+        self._back_action.setEnabled(False)
+        view_menu.addAction(self._back_action)
+        self._forward_action = QAction("&Vorwärts", self)
+        self._forward_action.setShortcut(QKeySequence("Alt+Right"))
+        self._forward_action.triggered.connect(lambda: self._history_go(True))
+        self._forward_action.setEnabled(False)
+        view_menu.addAction(self._forward_action)
+        view_menu.addSeparator()
+
         wizard_action = QAction("&Wizard starten", self)
         wizard_action.setShortcut(QKeySequence("Ctrl+W"))
         wizard_action.triggered.connect(self._start_wizard)
@@ -408,11 +422,6 @@ class MainWindow(QMainWindow):
         self._validation_view.set_target_provider(self._validation_targets)
         self._validation_view.jump_requested.connect(self._jump_to_target)
         self._topology_view.bauherr_requested.connect(self._open_room_in_bauherr)
-        # Topologie <-> Gruppenadressen springen (FA-1011a)
-        self._topology_view.ga_requested.connect(self._show_ga_in_addresses)
-        for view in (self._address_tree, self._address_table):
-            view.linked_devices = self._linked_devices
-            view.device_requested.connect(self._show_device_in_topology)
         self._gewerk_view = GewerkView()
         self._scene_view = SceneView()
         self._scene_view.request_generate_addresses.connect(
@@ -483,6 +492,15 @@ class MainWindow(QMainWindow):
 
         for view in self._views.values():
             self._stack.addWidget(view)
+
+        # Sprünge zwischen Ansichten per Rechtsklick (FA-1011a ff.)
+        from .view_jumps import ViewHistory, ViewJumps
+        self._jumps = ViewJumps(self)
+        self._history = ViewHistory()
+        for view in (self._topology_view, self._address_tree, self._address_table,
+                     self._building_view, self._material_list_view, self._scene_view,
+                     self._time_program_view):
+            view.jumps = self._jumps
 
         # Bus-Signale zu Handlern verdrahten
         self._bus.building_changed.connect(self._on_structure_changed)
@@ -605,6 +623,26 @@ class MainWindow(QMainWindow):
         view = self._views.get(key)
         if view:
             self._stack.setCurrentWidget(view)
+            if not getattr(self, "_history_step", False):
+                self._history.visit(key)
+            self._update_history_actions()
+
+    def _history_go(self, forward: bool) -> None:
+        """Zur vorher bzw. danach geöffneten Ansicht (Alt+Links/Rechts, FA-1011f)."""
+        key = self._history.forward() if forward else self._history.back()
+        if key is None:
+            return
+        self._history_step = True
+        try:
+            self._sidebar.select(key)
+            self._navigate(key)
+        finally:
+            self._history_step = False
+
+    def _update_history_actions(self) -> None:
+        if hasattr(self, "_back_action"):
+            self._back_action.setEnabled(self._history.can_back())
+            self._forward_action.setEnabled(self._history.can_forward())
 
     def _view_refreshers(self) -> dict:
         """Ansicht -> Neuaufbau mit dem aktuellen Projekt."""
@@ -684,24 +722,6 @@ class MainWindow(QMainWindow):
         self._status_bar.set_project_name(self._project.name)
         self._status_bar.set_variant(self._project.config.mg_variant)
         self._status_bar.set_ga_count(ga_count)
-
-    def _show_ga_in_addresses(self, address: str) -> None:
-        """GA aus der Topologie in der Baumansicht anwählen (FA-1011a)."""
-        self._sidebar.select("addresses")
-        self._navigate("addresses")
-        if not self._address_tree.select_address(address):
-            self._status_bar.showMessage(f"GA {address} nicht gefunden", 5000)
-
-    def _linked_devices(self, address: str) -> list:
-        """Geräte an einer GA, wie die Topologie sie zeigt (FA-1011a)."""
-        self._refresh_view("topology")
-        return self._topology_view.linked_devices(address)
-
-    def _show_device_in_topology(self, device, address: str) -> None:
-        """KO-Zeile der GA unter dem Gerät in der Topologie anwählen (FA-1011a)."""
-        self._sidebar.select("topology")
-        self._navigate("topology")
-        self._topology_view.select_ga_row(device, address)
 
     def _open_room_in_bauherr(self, room_id: str) -> None:
         """Raum in der Bauherrenberatung öffnen (Tasten verteilen, FA-1411c)."""

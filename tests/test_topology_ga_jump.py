@@ -18,7 +18,7 @@ from knix_arranger.models.group_address import (
 from knix_arranger.models.topology import (
     Topology, Area, Line, Device, CommunicationObject,
 )
-from knix_arranger.ui.topology_jump import add_topology_menu
+from knix_arranger.ui.jump_menu import add_jump_menu
 from knix_arranger.ui.views.address_tree_view import AddressTreeView
 from knix_arranger.ui.views.topology_view import TopologyView
 
@@ -59,6 +59,7 @@ def _setup():
     structure.main_groups.append(hg)
 
     view = TopologyView()
+    view.jumps = object()   # nur «nicht None»: Menüeinträge erscheinen
     view.set_group_addresses(structure)
     view.set_topology(topology)
     return view, actor, sensor, structure
@@ -104,7 +105,7 @@ class TestGaToTopology:
     def test_linked_devices_lists_each_device_and_ko(self):
         view, actor, sensor, _st = _setup()
         found = view.linked_devices("1/0/0")
-        assert [d for d, _l in found] == [actor, sensor]
+        assert [d for (d, _row), _l in found] == [actor, sensor]
         assert found[0][1].startswith("1.1.1 ")
         assert "Ausgang A" in found[0][1]
 
@@ -118,6 +119,15 @@ class TestGaToTopology:
         current = view._tree.currentItem()
         assert current is _row(view, sensor, "1/1/0")
 
+    def test_select_ga_row_picks_row_by_text(self):
+        view, actor, _s, _st = _setup()
+        actor.communication_objects[1].connected_gas.append("1/0/0")
+        view.set_topology(view._topology)
+        rows = [row for (d, row), _l in view.linked_devices("1/0/0") if d is actor]
+        assert len(rows) == 2
+        assert view.select_ga_row(actor, "1/0/0", rows[1])
+        assert view._tree.currentItem().text(0) == rows[1]
+
     def test_select_ga_row_falls_back_to_device(self):
         view, actor, _s, _st = _setup()
         assert view.select_ga_row(actor, "1/5/0")
@@ -127,25 +137,28 @@ class TestGaToTopology:
         view, actor, sensor, _st = _setup()
         picked = []
         menu = QMenu()
-        sub = add_topology_menu(menu, "1/1/0", view.linked_devices,
-                                lambda d, a: picked.append((d, a)))
+        sub = add_jump_menu(menu, "In Topologie zeigen", lambda: view.linked_devices("1/1/0"),
+                            picked.append, "keine verknüpften Geräte")
         sub.aboutToShow.emit()
         actions = sub.actions()
         assert len(actions) == 2
         actions[1].trigger()
-        assert picked == [(sensor, "1/1/0")]
+        assert [d for d, _row in picked] == [sensor]
 
     def test_submenu_without_devices_shows_disabled_hint(self):
         view, *_ = _setup()
         menu = QMenu()
-        sub = add_topology_menu(menu, "1/5/0", view.linked_devices, lambda d, a: None)
+        sub = add_jump_menu(menu, "In Topologie zeigen", lambda: view.linked_devices("1/5/0"),
+                            lambda d: None, "keine verknüpften Geräte")
         sub.aboutToShow.emit()
         [only] = sub.actions()
         assert only.text() == "keine verknüpften Geräte"
         assert not only.isEnabled()
 
-    def test_no_submenu_without_provider(self):
-        assert add_topology_menu(QMenu(), "1/0/0", None, lambda d, a: None) is None
+    def test_no_jump_entries_without_jumps(self):
+        view, actor, _s, _st = _setup()
+        view.jumps = None
+        assert view._add_jump_to_ga(QMenu(), _row(view, actor, "1/0/0")) is None
 
 
 def test_planned_sensor_found_over_key_assignment():
@@ -170,7 +183,7 @@ def test_planned_sensor_found_over_key_assignment():
     view = TopologyView()
     view._areal = areal
     view.set_topology(Topology(areas=[area]))
-    [(device, label)] = view.linked_devices("1/0/0")
+    [((device, _row), label)] = view.linked_devices("1/0/0")
     assert device is taster
     assert label == "1.1.30 Taster – Befehl: Licht"
     assert view.select_ga_row(taster, "1/0/0")

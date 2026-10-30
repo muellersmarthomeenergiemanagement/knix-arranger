@@ -110,8 +110,8 @@ class TopologyView(QWidget):
     topology_changed = Signal()   # nach jeder manuellen Änderung
     # Raum in der Bauherrenberatung öffnen (Tasten verteilen, FA-1411c)
     bauherr_requested = Signal(str)
-    # GA in der Ansicht Gruppenadressen anwählen (FA-1011a)
-    ga_requested = Signal(str)
+    # Sprünge in andere Ansichten (ViewJumps), von MainWindow gesetzt (FA-1011a ff.)
+    jumps = None
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -218,11 +218,11 @@ class TopologyView(QWidget):
                     and d[3] is not None and d[3].physical_address == physical_address)
         return select_tree_item(self._tree, match) is not None
 
-    def linked_devices(self, ga_addr: str) -> list[tuple[Device, str]]:
-        """Geräte, unter denen die GA in diesem Baum steht, mit Text für das
-        Menü «In Topologie zeigen» (FA-1011a). Quelle ist der Baum selbst,
-        damit beide Richtungen dieselben Verknüpfungen kennen."""
-        found: dict[tuple[int, str], tuple[Device, str]] = {}
+    def linked_devices(self, ga_addr: str) -> list[tuple[tuple[Device, str], str]]:
+        """Zeilen, unter denen die GA in diesem Baum steht: ((Gerät, Zeilentext),
+        Text für das Menü «In Topologie zeigen»), FA-1011a. Quelle ist der
+        Baum selbst, damit beide Richtungen dieselben Verknüpfungen kennen."""
+        found: dict[tuple[int, str], tuple[tuple[Device, str], str]] = {}
         it = QTreeWidgetItemIterator(self._tree)
         while it.value():
             item = it.value()
@@ -234,18 +234,22 @@ class TopologyView(QWidget):
                 continue
             device = dev_item.data(0, _ROLE_DATA)[3]
             label = f"{device.physical_address} {dev_item.text(0)} – {item.text(0)}"
-            found.setdefault((id(device), item.text(0)), (device, label))
+            found.setdefault((id(device), item.text(0)), ((device, item.text(0)), label))
         return list(found.values())
 
-    def select_ga_row(self, device: Device, ga_addr: str) -> bool:
-        """GA-Zeile unter einem Gerät anwählen (FA-1011a), ohne solche Zeile
-        das Gerät."""
-        def match(item):
+    def select_ga_row(self, device: Device, ga_addr: str, row_text: str = "") -> bool:
+        """GA-Zeile unter einem Gerät anwählen (FA-1011a), bei mehreren die
+        mit row_text (Kanal, KO); ohne solche Zeile das Gerät."""
+        def match(item, text=""):
             dev_item = _device_item_of(item)
             return (dev_item is not None and dev_item is not item
                     and dev_item.data(0, _ROLE_DATA)[3] is device
-                    and ga_address_of(item.text(1)) == ga_addr)
-        if select_tree_item(self._tree, match) is not None:
+                    and ga_address_of(item.text(1)) == ga_addr
+                    and (not text or item.text(0) == text))
+        if ga_addr and row_text and select_tree_item(
+                self._tree, lambda item: match(item, row_text)) is not None:
+            return True
+        if ga_addr and select_tree_item(self._tree, match) is not None:
             return True
         return select_tree_item(self._tree, lambda item: (
             _device_item_of(item) is item and item.data(0, _ROLE_DATA)[3] is device)) is not None
@@ -916,6 +920,7 @@ class TopologyView(QWidget):
                 addr_act = menu.addAction("Physikalische Adresse bearbeiten…")
                 if line is not None:
                     move_act = menu.addAction("Auf andere Linie verschieben…")
+            self._add_device_jumps(menu, device)
             menu.addSeparator()
             if device.is_programmed:
                 prog_act = menu.addAction("Programmierung aufheben…")
@@ -966,10 +971,27 @@ class TopologyView(QWidget):
                 self._toggle_programmed(device)
 
 
+    def _add_device_jumps(self, menu: QMenu, device: Device) -> None:
+        """Gerät in Materialliste und Gebäudeansicht (FA-1011e, FA-1011d)."""
+        if self.jumps is None or device.device_type in ("coupler", "power_supply"):
+            return
+        menu.addSeparator()
+        menu.addAction("In Materialliste zeigen", lambda: self.jumps.material(device))
+        ko_act = menu.addAction("Kanäle und KOs zuordnen…",
+                                lambda: self.jumps.ko_assignment(device))
+        if not device.communication_objects:
+            ko_act.setEnabled(False)
+            ko_act.setToolTip("Erst ein Produkt mit KOs zuweisen (Materialliste).")
+            menu.setToolTipsVisible(True)
+        room_id = self.jumps.room_of_device(device)
+        room_act = menu.addAction("Raum in der Gebäudeansicht zeigen",
+                                  lambda: self.jumps.room(room_id))
+        room_act.setEnabled(bool(room_id))
+
     def _add_jump_to_ga(self, menu: QMenu, item: QTreeWidgetItem):
         """«Zur Gruppenadresse springen» für eine Zeile mit GA (FA-1011a)."""
         ga_addr = ga_address_of(item.text(1))
-        if not ga_addr:
+        if not ga_addr or self.jumps is None:
             return None
         return menu.addAction(f"Zur Gruppenadresse {ga_addr} springen"), ga_addr
 
@@ -984,7 +1006,7 @@ class TopologyView(QWidget):
             return
         action = menu.exec(self._tree.viewport().mapToGlobal(pos))
         if jump and action == jump[0]:
-            self.ga_requested.emit(jump[1])
+            self.jumps.ga(jump[1])
         elif unlink_act is not None and action == unlink_act:
             self._unlink_ga(data[1], data[2], data[3])
 
@@ -1036,7 +1058,7 @@ class TopologyView(QWidget):
             menu.setToolTipsVisible(True)
         action = menu.exec(self._tree.viewport().mapToGlobal(pos))
         if jump and action == jump[0]:
-            self.ga_requested.emit(jump[1])
+            self.jumps.ga(jump[1])
         elif unlink_act is not None and action == unlink_act:
             self._unlink_ga(data[1], data[2], data[3])
         elif action in flag_acts:
