@@ -2,6 +2,23 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.29",
+      "date": "2026-10-30",
+      "neu": [
+        "Rechtsklick auf eine GA in der Topologie: «Zur Gruppenadresse … springen» öffnet sie in den Gruppenadressen.",
+        "Rechtsklick auf eine GA in den Gruppenadressen (Baum und Tabelle): «In Topologie zeigen» mit den verknüpften Geräten je Kanal und KO, «In Szenen zeigen» mit dem Wert je Szene, «Im Zeitprogramm zeigen» mit den Schaltzeiten. Aus Szenen-Aktionen und Schaltzeitpunkten führt «Zur Gruppenadresse … springen» zurück.",
+        "Rechtsklick auf einen Raum in der Gebäudeansicht: «Geräte in der Topologie zeigen» und «GAs des Raums zeigen» (nur die GAs des Raums, wie im Raumbuch; «Alle GAs zeigen» hebt den Filter auf).",
+        "Rechtsklick auf ein Gerät in der Topologie: «In Materialliste zeigen», «Kanäle und KOs zuordnen…» und «Raum in der Gebäudeansicht zeigen»; in der Materialliste führt «In Topologie zeigen» zurück.",
+        "Ansicht › Zurück (Alt+Links) und Vorwärts (Alt+Rechts) wechseln durch die zuletzt geöffneten Ansichten, z.B. nach einem Sprung zurück.",
+        "Rechtsklick auf eine GA: «In ETS-Funktionen zeigen» führt zur Funktion, deren Funktions-GA sie ist oder deren Element sie schaltet, auch bei in der ETS eingelesenen Funktionen.",
+        "Rechtsklick in der Verknüpfungsmatrix: zur GA der Zelle, zum Gerät in der Topologie und zur Tastenbelegung.",
+        "«Tastenbelegung bearbeiten…» im Rechtsklick jedes Tasters in der Topologie öffnet ihn direkt in der Bauherrenberatung."
+      ],
+      "behoben": [
+        "Gruppenbedienungen, die als Funktion übernommen sind (z.B. «Raum5_Licht Zentral»), erschienen an jedem Kanal doppelt: in der Topologie, im Aktorenbericht und im ETS-Belegungsplan."
+      ]
+    },
+    {
       "version": "1.4.28",
       "date": "2026-10-29",
       "verbessert": [
