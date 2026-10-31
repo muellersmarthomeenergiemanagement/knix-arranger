@@ -2,6 +2,16 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.30",
+      "date": "2026-10-31",
+      "verbessert": [
+        "Mehrere KOs mit L-Flag an derselben GA werden auch bei importierten Projekten als Warnung gemeldet, nicht mehr nur als Hinweis: mehrere Antworten auf eine Leseanfrage können das Verhalten am Bus stören."
+      ],
+      "behoben": [
+        "Die Topologie zeigt die Geräte einer Linie nach physikalischer Adresse sortiert. Bisher standen sie in der Reihenfolge der ETS-Datei, so dass z.B. 1.1.10 weit unten stand und zu fehlen schien."
+      ]
+    },
+    {
       "version": "1.4.29",
       "date": "2026-10-30",
       "neu": [
