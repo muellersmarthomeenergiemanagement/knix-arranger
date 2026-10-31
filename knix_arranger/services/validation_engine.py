@@ -278,9 +278,10 @@ class ValidationEngine:
             readers = list({(l.device.physical_address, l.co.object_number): l
                             for l in known if READ in l.flags
                             and not flags_unparametrized(l, imported)}.values())
+            # Auch importiert eine Warnung: mehrere Antworten stören den Bus
             if len(readers) > 1:
                 issues.append(ValidationIssue(
-                    "info" if imported else "warning", "FA-627",
+                    "warning", "FA-627",
                     f"{len(readers)} KOs beantworten Leseanfragen (L-Flag): "
                     + ", ".join(l.label for l in readers),
                     address,

@@ -25,6 +25,7 @@ from ...services.belegungsplan_service import (
 )
 from ...services.button_move import bedienelement_of_device, remove_bedienelement
 from ...services.multi_ga_check import ga_address_of, ko_for_ga, unlink_ga
+from ...services.report_sorting import physical_address_key
 from ...services.verteiler_service import VerteilerPlacement, verteiler_label
 from ...services.structure_move import (
     can_merge_lines, can_move_device, can_move_line, merge_lines, move_device, move_kind,
@@ -549,8 +550,11 @@ class TopologyView(QWidget):
                     self._colorize(sv_line_item, _COLOR_POWER)
 
                 # Reguläre Geräte (auch Koppler auf anderen Adressen, z.B.
-                # IP-Schnittstellen, damit kein vorhandenes Gerät fehlt)
-                for device in line.devices:
+                # IP-Schnittstellen, damit kein vorhandenes Gerät fehlt),
+                # numerisch sortiert -- die Importdatei liefert sie in
+                # beliebiger Reihenfolge (1.1.10 sonst hinter 1.1.68)
+                for device in sorted(line.devices,
+                                     key=lambda d: physical_address_key(d.physical_address)):
                     if id(device) in shown:
                         continue
                     detail_parts = []

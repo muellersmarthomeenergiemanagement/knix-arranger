@@ -103,7 +103,7 @@ def test_several_readers_reported():
     found = _issues(project, "FA-627")
     assert len(found) == 1 and found[0].address == "2/7/30"
     assert "1.1.10" in found[0].message and "1.1.15" in found[0].message
-    assert found[0].level == "info"                     # importiert: ETS massgebend
+    assert found[0].level == "warning"                  # auch importiert
     project.topology.is_imported = False
     assert _issues(project, "FA-627")[0].level == "warning"
 
