@@ -457,47 +457,49 @@ def build_document() -> Document:
     # ── 6  ETS6-Import ────────────────────────────────────────────────────────
     add_heading1(doc, "6  Bestehendes ETS6-Projekt importieren")
     add_body(doc,
-        "Wenn Sie bereits ein bestehendes KNX-Projekt in ETS6 haben, können Sie es in "
-        "den KNiX Arranger importieren. Gehen Sie dazu auf Datei → Import und wählen "
-        "Sie das gewünschte Format. Empfohlener Weg: die drei ETS6-Berichte «Gebäude», "
-        "«Topologie» und «Gruppenadressen» jeweils als Excel (XLSX) exportieren – dabei "
-        "in ETS6 alle verfügbaren Detail-/Parameteroptionen aktivieren, damit möglichst "
-        "viele Informationen (Räume, Objekte, Tastenbelegungen usw.) übernommen werden "
-        "können.")
+        "Ein bestehendes ETS6-Projekt lesen Sie über Datei → Import ein. Empfohlen ist "
+        "die Projektdatei .knxproj (in der ETS6: Projekt exportieren). Sie enthält alles, "
+        "was die Excel-Berichte der ETS zeigen – ein einziger Import genügt:")
     doc.add_paragraph()
 
     add_table_2col(doc,
-        header=("Format", "Verwendung und Hinweise"),
+        header=("Bereich", "Aus der .knxproj übernommen"),
         rows=[
-            ("Gebäude-Report (XLSX)",
-             "ETS6: Berichte → Gebäude → als Excel exportieren (alle Details aktivieren). "
-             "Liefert die reale Raum-/Verteilerzuordnung der Geräte aus ETS6."),
-            ("Topologie-Report (XLSX)",
-             "ETS6: Berichte → Topologie → als Excel exportieren, Zusatzwahl «Objekte» "
-             "aktivieren. Liefert Bereiche, Linien, Geräte und Kommunikationsobjekte."),
-            ("Gruppenadressen-Report (XLSX)",
-             "ETS6: Berichte → Gruppenadressen → als Excel exportieren (alle Details "
-             "aktivieren). Liefert alle Gruppenadressen mit Name, Adresse und Datentyp."),
-            ("KNXPROJ",
-             "Natives ETS-Projektformat. Importiert Topologie und GAs eines bestehenden "
-             "ETS-Projekts in einem Schritt."),
+            ("Gebäude", "Gebäude, Stockwerke, Räume, Geräte je Raum"),
+            ("Topologie", "Bereiche, Linien, Geräte mit Produkt und Hersteller"),
+            ("Gruppenadressen", "GAs mit Name und Datenpunkttyp"),
+            ("Kommunikationsobjekte",
+             "Texte, Flags, Datenpunkttyp und die Verknüpfungen mit den GAs"),
+            ("Parameter",
+             "Parameter der Applikationen, daraus Tastenbelegung, Szenenwerte und Auslöser"),
+            ("ETS-Funktionen", "Funktionen je Raum mit ihren GAs"),
+            ("Gewerke",
+             "aus den GA-Namen abgeleitet (z. B. «J.DG.04.02_move» → Jalousie) und den "
+             "Räumen zugewiesen; in Schritt 5 des Wizards prüfen und ergänzen"),
+            ("KNX Secure",
+             "Gerätezertifikate (FDSK) und das eingegebene Projektpasswort – nur "
+             "verschlüsselt im KNX-Secure-Archiv (fragt dafür nach dem Master-Passwort)"),
         ]
     )
     doc.add_paragraph()
     add_tip(doc,
-        "Die drei XLSX-Reports werden automatisch anhand ihres Titels erkannt – Sie "
-        "können sie in beliebiger Reihenfolge nacheinander importieren "
-        "(Datei → Import, je Report einmal).")
+        "Ist das ETS-Projekt mit einem Passwort geschützt, fragt KNiX beim Import "
+        "danach. Nach Änderungen in der ETS das Projekt neu exportieren und die neue "
+        ".knxproj einlesen: sie ist immer der aktuelle Stand der ETS.")
     doc.add_paragraph()
 
     add_body(doc,
-        "Nach dem Import erscheint das Projekt in der Übersicht. "
-        "Die importierten Daten können Sie anschliessend im Wizard oder in den "
-        "Einzelansichten (Topologie, Gruppenadressen) prüfen und ergänzen.")
+        "Die Excel-Berichte «Gebäude», «Topologie» (mit «Objekte») und «Gruppenadressen» "
+        "braucht es nur noch, wenn keine .knxproj vorliegt. KNiX erkennt sie am Titel; "
+        "lesen Sie sie in beliebiger Reihenfolge nacheinander ein (Datei → Import, je "
+        "Bericht einmal).")
+    add_body(doc,
+        "Nach dem Import erscheint das Projekt in der Übersicht. Prüfen Sie die Daten "
+        "anschliessend in der Validierung und in den Einzelansichten.")
     add_note(doc,
-        "Beim Import einer KNXPROJ-Datei werden Gewerk-Zuweisungen nicht übernommen, "
-        "da diese ETS-spezifisch sind. Sie können Gewerke in Schritt 5 des Wizards "
-        "nachträglich zuweisen.")
+        "Einzelne Berechnungen in Parametern wertet KNiX nicht aus. Bekannt: beim "
+        "Theben thePixa erscheinen einige KOs zusätzlich als unverknüpft – das betrifft "
+        "nur die Anzeige, nicht die GAs.")
     doc.add_paragraph()
 
     # ── 7  Der Planungs-Wizard ────────────────────────────────────────────────
@@ -1126,7 +1128,8 @@ def build_document() -> Document:
              "Bitte legen Sie diese Datei dem Feedback-Mail bei."),
             ("KNXPROJ-Import schlägt fehl",
              "Stellen Sie sicher, dass die Datei aus ETS6 exportiert wurde "
-             "(nicht ETS5 oder älter). Bei Fehlern: knxproj-Datei dem Feedback beilegen."),
+             "(nicht ETS5 oder älter). Geschütztes Projekt: das ETS6-Projektpasswort "
+             "eingeben. Bei Fehlern: knxproj-Datei dem Feedback beilegen."),
             ("Anzeigeprobleme / UI abgeschnitten",
              "Mindestauflösung 1280 × 768. Prüfen Sie die Windows-Skalierung "
              "(empfohlen: 100 % bei 1920 × 1080)."),
