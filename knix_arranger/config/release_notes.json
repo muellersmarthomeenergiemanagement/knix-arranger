@@ -2,6 +2,16 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.32",
+      "date": "2026-11-02",
+      "neu": [
+        "ETS-Funktionen: Unter jeder in der ETS angelegten Funktion steht «Bediente Elemente» mit Gewerk, Raum, Element-GA und Aktorkanal. So sehen Sie, welche Gewerke und Räume eine Funktion tatsächlich bedient, auch wenn ihre GAs selbst kein Gewerk tragen."
+      ],
+      "verbessert": [
+        "Die Validierung warnt, wenn dieselbe GA in der ETS mehreren Funktionen zugeordnet ist: jede dieser Funktionen bedient dann auch die Elemente der anderen. Wind- und Regenalarm für mehrere Jalousie-Funktionen gelten als richtig und werden nicht gemeldet."
+      ]
+    },
+    {
       "version": "1.4.31",
       "date": "2026-11-02",
       "neu": [
