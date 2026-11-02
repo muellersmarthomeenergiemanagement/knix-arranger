@@ -811,7 +811,10 @@ def build_document() -> Document:
             ("ETS-Funktionen",
              "Die in der ETS je Raum angelegten Funktionen (Reiter «In der ETS», "
              "beim .knxproj-Import eingelesen) mit Hinweisen, z. B. von der ETS in "
-             "HG 12 angelegte GAs. Im Reiter «Geplant» legen Sie Funktionen an, die "
+             "HG 12 angelegte GAs oder dieselbe GA in mehreren Funktionen. «Bediente "
+             "Elemente» zeigt je Funktion die Elemente mit Gewerk, Raum und "
+             "Aktorkanal – so sehen Sie, welche Gewerke betroffen sind. "
+             "Im Reiter «Geplant» legen Sie Funktionen an, die "
              "mehrere Elemente gemeinsam bedienen (z. B. «Fensterfront» für drei "
              "Jalousien mit Bewegen, Stopp, Position, Lamellen und Sperren, oder "
              "«Wohnzone Abwesend» für die Betriebsart der Heizung): eigene GAs ab "

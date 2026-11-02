@@ -257,6 +257,132 @@ def functions_by_address(project) -> dict[str, list[str]]:
     return result
 
 
+def function_key(floor, room, function) -> tuple[str, str, str]:
+    """(Stockwerk, Raum, Funktion) wie in FunctionRow, Schlüssel der Ansicht."""
+    return floor.name or floor.short_code, _room_label(floor, room), function.name
+
+
+def function_text(room, function) -> str:
+    """«Jalousien Balkon» (01 Fitness)"""
+    return f"«{function.name}» ({_room_label(None, room)})"
+
+
+# Gemeinsame Eingänge vieler Funktionen, z.B. eine Wetterstation für alle
+# Jalousien: in mehreren Funktionen richtig (die ETS legt sie so an)
+SHARED_OK_ROLES = frozenset({"WindAlarm", "RainAlarm"})
+
+
+def shared_function_gas(project) -> dict[str, list[tuple]]:
+    """GAs, die in der ETS mehreren Funktionen zugeordnet sind (FA-636b):
+    GA -> [(Stockwerk, Raum, Funktion)]. Jede dieser Funktionen bedient
+    dann auch alle Elemente der anderen. Wind- und Regenalarm zählen nicht."""
+    by_address: dict[str, list[tuple]] = {}
+    for floor, room, function in iter_functions(project):
+        for ref in function.refs:
+            if ref.address and ref.role not in SHARED_OK_ROLES:
+                entries = by_address.setdefault(ref.address, [])
+                if not any(f is function for _fl, _r, f in entries):
+                    entries.append((floor, room, function))
+    return {a: e for a, e in by_address.items() if len(e) > 1}
+
+
+def _check_shared_gas(project) -> list:
+    """Eine Warnung je Gruppe von Funktionen mit gemeinsamen GAs (FA-636b)."""
+    from .validation_engine import ValidationIssue
+    groups: dict[tuple, tuple[list, list[str]]] = {}
+    for address, entries in shared_function_gas(project).items():
+        key = tuple(id(f) for _fl, _r, f in entries)
+        groups.setdefault(key, (entries, []))[1].append(address)
+    issues = []
+    for entries, addresses in groups.values():
+        names = ", ".join(function_text(room, f) for _fl, room, f in entries)
+        issues.append(ValidationIssue(
+            "warning", "FA-636",
+            f"GA {', '.join(addresses)} in {len(entries)} Funktionen zugeordnet: {names} – "
+            f"jede bedient auch die Elemente der anderen",
+            addresses[0],
+            "In der ETS jeder Funktion eigene GAs geben oder die doppelten Funktionen "
+            "zu einer zusammenfassen",
+            details={"kind": "shared", "addresses": addresses}))
+    return issues
+
+
+@dataclass
+class MemberLink:
+    """Ein von einer eingelesenen Funktion bedientes Element: Aktorkanal mit
+    einer Funktions-GA und der Element-GA des Gewerks am selben KO."""
+    code: str              # Gewerk
+    place: str             # "02 Bibliothek, Element 2 Fenster gross"
+    address: str           # Element-GA
+    designation: str
+    channel: str           # "1.1.5 Bedienung Storen (M1)"
+
+
+class EtsFunctionMembers:
+    """Bediente Elemente der eingelesenen Funktionen, abgeleitet aus den
+    KO-Verknüpfungen der Aktoren (FA-529b): die Funktion hat in der ETS keine
+    Mitglieder, nur GAs."""
+
+    def __init__(self, project):
+        from .ets_corrections import effective_gewerk
+        from .report_service import ReportService
+        self._project = project
+        self._gas = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+        self._index = ReportService(project).gewerk_index()
+        self._rooms = {r.id: r for r in project.all_rooms}
+        self._function_gas = {ref.address for _fl, _r, f in iter_functions(project)
+                              for ref in f.refs if ref.address}
+        self._gewerk = lambda ga: effective_gewerk(project, ga)
+        self._actor_cos = [(d, co) for area in project.topology.areas
+                           for line in area.lines for d in line.devices
+                           if d.device_type in ("actor", "gateway")
+                           for co in d.communication_objects if co.connected_gas]
+
+    def _place(self, address: str, code: str) -> str:
+        for room_id, short, element in self._index.get(address, []):
+            room = self._rooms.get(room_id)
+            if room is None or short != code:
+                continue
+            text = _room_label(None, room)
+            assignment = next((a for a in room.gewerk_assignments
+                               if a.gewerk_code == code), None)
+            if element and assignment is not None and assignment.count > 1:
+                text += f", Element {element} {assignment.element_label(element)}".rstrip()
+            return text
+        return ""
+
+    def members(self, function) -> list[MemberLink]:
+        addresses = {ref.address for ref in function.refs if ref.address}
+        found: dict[tuple, MemberLink] = {}
+        for device, co in self._actor_cos:
+            if not addresses & set(co.connected_gas):
+                continue
+            element = next((a for a in sorted(co.connected_gas, key=_address_key)
+                            if a not in self._function_gas and a in self._gas
+                            and _main_group(a) != 0
+                            and self._gewerk(self._gas[a])), None)
+            if element is None:
+                continue
+            ga = self._gas[element]
+            code = self._gewerk(ga)
+            # Ein Eintrag je Element, nicht je KO (Bewegen, Schritt, Position …)
+            place = self._place(element, code)
+            key = (device.physical_address, place or element.rsplit("/", 1)[0], code)
+            if key not in found:
+                # KO-Name ohne Funktion: "Bedienung Storen (M2), Endlage" -> Kanal
+                channel = (co.name or "").split(",")[0].strip()
+                found[key] = MemberLink(code, place, element, ga.designation,
+                                        f"{device.physical_address} {channel}".strip())
+        return sorted(found.values(), key=lambda m: (m.code, m.place, _address_key(m.address)))
+
+
+def _address_key(address: str) -> tuple:
+    try:
+        return tuple(int(p) for p in address.split("/"))
+    except ValueError:
+        return (999,)
+
+
 def ref_hints(function_type: str, ref, linked: set[str],
               home: tuple[int | None, int | None] = (None, None),
               status_links: dict | None = None) -> list[str]:
@@ -287,6 +413,7 @@ def overview_rows(project) -> list[FunctionRow]:
     linked = _linked_addresses(project)
     home_of = _home_groups(project)
     status_links = build_status_link_index(project)
+    shared = shared_function_gas(project)
     rows = []
     for floor, room, function in iter_functions(project):
         floor_text = floor.name or floor.short_code
@@ -297,13 +424,17 @@ def overview_rows(project) -> list[FunctionRow]:
                 [] if function.function_type == "FT-0" else ["keine GA"]))
             continue
         for ref in function.refs:
+            hints = ref_hints(function.function_type, ref, linked, home_of(floor, function),
+                              status_links)
+            others = [function_text(r, f) for _fl, r, f in shared.get(ref.address, [])
+                      if f is not function]
+            if others:
+                hints.append(f"auch in {', '.join(others)}")
             rows.append(FunctionRow(
                 floor_text, _room_label(floor, room), function.name,
                 type_label(function.function_type),
                 role_label(function.function_type, ref),
-                ref.address, ref.ga_name, _dpt_text(ref.datapoint_type),
-                ref_hints(function.function_type, ref, linked, home_of(floor, function),
-                          status_links)))
+                ref.address, ref.ga_name, _dpt_text(ref.datapoint_type), hints))
     return rows
 
 
@@ -398,6 +529,7 @@ def check_functions(project) -> list:
                 issues.append(ValidationIssue(
                     level, "FA-636", f"{prefix}: {text}", ref.address, measure,
                     designation=ref.ga_name))
+    issues.extend(_check_shared_gas(project))
     issues.extend(_check_catch_main_group(project, function_addresses, generated))
     return issues
 

@@ -150,6 +150,56 @@ def test_checks():
     assert own[0].level == "info"
 
 
+def _share(project, address):
+    """Leselampen und Schlafzimmer dimmen mit derselben Schalt-GA."""
+    dim = _fn(project, "Schlafzimmer dimmen")
+    dim.refs.append(EtsFunctionRef("SwitchOnOff", address, "Schalten", "DPST-1-1"))
+
+
+def test_shared_ga_in_two_functions_warns():
+    """FA-636b: dieselbe GA in mehreren Funktionen (Chalet: 3/1/250–254 in drei
+    Räumen); Wind- und Regenalarm für alle Jalousien zählen nicht."""
+    from knix_arranger.services.ets_function_service import shared_function_gas
+    project = _import()
+    assert shared_function_gas(project) == {}          # Windalarm 12/1/27 in zwei Jalousien
+    _share(project, "12/1/6")
+    assert list(shared_function_gas(project)) == ["12/1/6"]
+    shared = [i for i in check_functions(project) if (i.details or {}).get("kind") == "shared"]
+    assert len(shared) == 1 and shared[0].level == "warning"
+    assert shared[0].address == "12/1/6"
+    assert "«Leselampen» (04 Schlafen)" in shared[0].message
+    assert "«Schlafzimmer dimmen» (04 Schlafen)" in shared[0].message
+    row = next(r for r in overview_rows(project)
+               if r.function == "Leselampen" and r.address == "12/1/6")
+    assert "auch in «Schlafzimmer dimmen» (04 Schlafen)" in row.hints
+
+
+def test_members_from_actor_channels():
+    """FA-529b: bediente Elemente aus den KO-Verknüpfungen: je Aktorkanal die
+    Element-GA neben der Funktions-GA, nicht GAs anderer Funktionen."""
+    from knix_arranger.models.group_address import GroupAddress
+    from knix_arranger.services.ets_function_service import EtsFunctionMembers
+    project = _import()
+    project.group_addresses.main_groups[0].middle_groups[0].group_addresses.append(
+        GroupAddress(main_group=3, middle_group=0, sub_group=1,
+                     designation="LD.DG.04.01_ea", gewerk_code="LD"))
+    device = Device(physical_address="1.1.5", device_type="actor")
+    device.communication_objects = [
+        CommunicationObject(object_number=1, name="Kanal A, Schalten",
+                            connected_gas=["12/1/6", "3/0/1"]),
+        CommunicationObject(object_number=2, name="Kanal A, Status",
+                            connected_gas=["12/1/7"]),
+    ]
+    line = Line(line_number=1)
+    line.devices.append(device)
+    area = Area(area_number=1)
+    area.lines.append(line)
+    project.topology.areas.append(area)
+    [member] = EtsFunctionMembers(project).members(_fn(project, "Leselampen"))
+    assert (member.code, member.address, member.channel) == ("LD", "3/0/1", "1.1.5 Kanal A")
+    assert EtsFunctionMembers(project).members(_fn(project, "Heizung Schlafzimmer")) == []
+
+
 def test_linked_ga_without_ko_hint():
     project = _import()
     device = Device(physical_address="1.1.1")

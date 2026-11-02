@@ -13,7 +13,10 @@ from PySide6.QtWidgets import (
 )
 
 from ...models.project import KnxProject
-from ...services.ets_function_service import overview_rows, type_label
+from ...services.ets_function_service import (
+    EtsFunctionMembers, function_key, function_text, iter_functions, overview_rows,
+    shared_function_gas, type_label,
+)
 from ...services import ets_function_plan as plan
 from ...services.function_gewerke import EtsGewerke, GewerkCell, gewerk_cell
 from ..styles import COLOR_WARNING
@@ -150,6 +153,7 @@ class EtsFunctionsView(QWidget):
         self._tree.clear()
         rooms: dict[tuple[str, str], QTreeWidgetItem] = {}
         functions: dict[tuple[str, str, str], QTreeWidgetItem] = {}
+        ga_nodes: dict[tuple[str, str, str], QTreeWidgetItem] = {}
         addresses: dict[tuple[str, str, str], list[str]] = {}
         gewerke = EtsGewerke(self._project) if rows else None
         warn = QBrush(QColor(COLOR_WARNING))
@@ -173,6 +177,12 @@ class EtsFunctionsView(QWidget):
                     fn_item.setText(6, "; ".join(row.hints))
                     fn_item.setForeground(6, warn)
                 continue
+            ga_node = ga_nodes.get(fn_key)
+            if ga_node is None:
+                ga_node = QTreeWidgetItem(["GAs"])
+                ga_node.setData(0, Qt.UserRole, ("ets", *fn_key))
+                fn_item.addChild(ga_node)
+                ga_nodes[fn_key] = ga_node
             item = QTreeWidgetItem(["", "", row.role, row.address, row.ga_name,
                                     row.datapoint_type, "; ".join(row.hints)])
             item.setData(0, Qt.UserRole, ("ets", *fn_key))
@@ -181,10 +191,51 @@ class EtsFunctionsView(QWidget):
                 addresses.setdefault(fn_key, []).append(row.address)
             if row.hints:
                 item.setForeground(6, warn)
-            fn_item.addChild(item)
+            ga_node.addChild(item)
+        for fn_key, ga_node in ga_nodes.items():
+            ga_node.setText(0, f"GAs ({ga_node.childCount()})")
         for fn_key, fn_item in functions.items():
             _set_gewerk(fn_item, gewerke.function_cell(addresses.get(fn_key, [])))
+        if rows:
+            self._add_members(functions)
         self._finish(self._tree, len(_COLUMNS))
+
+    def _add_members(self, functions: dict) -> None:
+        """Je Funktion «Bediente Elemente» aus den KO-Verknüpfungen der Aktoren
+        (FA-529b) und der Hinweis auf GAs anderer Funktionen (FA-636b)."""
+        project = self._project
+        members = EtsFunctionMembers(project)
+        shared = shared_function_gas(project)
+        warn = QBrush(QColor(COLOR_WARNING))
+        for floor, room, function in iter_functions(project):
+            fn_item = functions.get(function_key(floor, room, function))
+            if fn_item is None:
+                continue
+            others = []
+            for ref in function.refs:
+                for _fl, other_room, other in shared.get(ref.address, []):
+                    text = function_text(other_room, other)
+                    if other is not function and text not in others:
+                        others.append(text)
+            if others:
+                fn_item.setText(6, f"GAs auch in {', '.join(others)}")
+                fn_item.setForeground(6, warn)
+            found = members.members(function)
+            node = QTreeWidgetItem([f"Bediente Elemente ({len(found)})"])
+            node.setToolTip(0, "Elemente der Gewerke, deren Aktorkanal eine GA der Funktion "
+                               "hat (aus den KO-Verknüpfungen der ETS)")
+            node.setData(0, Qt.UserRole, fn_item.data(0, Qt.UserRole))
+            _set_gewerk(node, gewerk_cell(project, [m.code for m in found]))
+            fn_item.addChild(node)
+            for member in found:
+                item = QTreeWidgetItem(["", "", member.place, member.address,
+                                        " ".join(member.designation.split()), "",
+                                        f"Aktor {member.channel}"])
+                item.setData(0, Qt.UserRole, fn_item.data(0, Qt.UserRole))
+                _set_gewerk(item, gewerk_cell(project, [member.code]))
+                node.addChild(item)
+            if not found:
+                node.addChild(QTreeWidgetItem(["", "", "kein Aktorkanal verknüpft"]))
 
     # ── Geplant ───────────────────────────────────────────────────────────
 

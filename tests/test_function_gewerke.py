@@ -73,6 +73,13 @@ def test_view_shows_gewerk_column():
     lese = functions["Leselampen (Licht schalten)"]
     assert lese.text(1) == gewerk_label(view._project, "LD")
     assert lese.font(1).italic()
-    assert lese.child(0).text(2) and lese.child(0).text(1) == gewerk_label(view._project, "LD")
+    gas = lese.child(0)
+    assert gas.text(0).startswith("GAs (")
+    assert gas.child(0).text(2) and gas.child(0).text(1) == gewerk_label(view._project, "LD")
+    # Bediente Elemente über den Aktorkanal (FA-529b)
+    members = lese.child(1)
+    assert members.text(0) == "Bediente Elemente (1)"
+    assert members.child(0).text(3) == "3/0/1"
+    assert members.child(0).text(6) == "Aktor 1.1.5 Kanal A"
     blinds = functions["Jalousien Schlafzimmer (Sonnenschutz)"]
     assert blinds.text(1) == "J Jalousie" and not blinds.font(1).italic()

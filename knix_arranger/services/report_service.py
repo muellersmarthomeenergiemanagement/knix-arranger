@@ -1030,11 +1030,20 @@ class ReportService:
     def gewerke_of_address(self, address: str) -> list[tuple[str, str, int]]:
         """Rückweg zu room_gewerk_addresses: (Raum-id, Gewerk, Element) der
         GA, Zuordnung wie im Raumbuch (FA-1011k)."""
+        return self.gewerk_index().get(address, [])
+
+    def gewerk_index(self) -> dict[str, list[tuple[str, str, int]]]:
+        """GA -> [(Raum-id, Gewerk, Element)] für alle GAs auf einmal, wie
+        im Raumbuch; Zentraladressen (HG 0) nicht."""
         groups, _missing = self._room_gewerk_groups()
-        return [(room_id, short, element)
-                for room_id, by_key in groups.items()
-                for (_cat, _label, element, short), gas in by_key.items()
-                if any(ga.address == address for ga in gas)]
+        index: dict[str, list[tuple[str, str, int]]] = {}
+        for room_id, by_key in groups.items():
+            for (category, _label, element, short), gas in by_key.items():
+                if category == "zentral":
+                    continue
+                for ga in gas:
+                    index.setdefault(ga.address, []).append((room_id, short, element))
+        return index
 
     def generate_room_gewerk_report(self, filepath: str):
         """Erzeugt das "Raumbuch KNX" als PDF im Querformat.
