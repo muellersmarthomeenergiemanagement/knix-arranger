@@ -2,6 +2,19 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.31",
+      "date": "2026-11-02",
+      "neu": [
+        "Rechtsklick auf ein Gewerk unter einem Raum (Gebäude) oder auf eine Zeile der Gewerke-Übersicht: «Geräte in der Topologie zeigen» nennt Aktoren und Taster je Element, «GAs des Gewerks zeigen» blendet die übrigen GAs aus.",
+        "Rechtsklick auf eine GA in den Gruppenadressen oder in der Topologie: «Gewerk im Raum zeigen» führt zur Zeile in der Gewerke-Übersicht.",
+        "Die ETS-Arbeitsliste öffnet als Fenster: Doppelklick auf eine Aufgabe führt zum Gerät bzw. zur GA, das Fenster bleibt offen. Als PDF oder Excel speichern wie bisher.",
+        "Rechtsklick auf ein Gerät in der Topologie: «Gleiches Produkt in der Topologie»; in der Materialliste «Alle Geräte mit diesem Produkt», z.B. vor einem Produktwechsel.",
+        "Rechtsklick auf eine Linie in der Topologie: «Im Steigschema zeigen» und «Spannungsversorgung … zeigen».",
+        "Rechtsklick auf eine Szene: Geräte an der Szenen-GA in der Topologie und «Tastenbelegung bearbeiten» für die Taster, die die Szene aufrufen.",
+        "Rechtsklick auf ein Gerät in der Topologie: «Im KNX-Secure-Archiv zeigen» (bei aktiviertem Secure) und bei DALI-Gateways «In DALI-Konfiguration zeigen»; von dort führt «In Topologie zeigen» zurück."
+      ]
+    },
+    {
       "version": "1.4.30",
       "date": "2026-10-31",
       "verbessert": [
