@@ -105,8 +105,8 @@ class ValidationView(QWidget):
 
         self._btn_worklist = QPushButton("ETS-Arbeitsliste…")
         self._btn_worklist.setToolTip(
-            "Was in der ETS zu korrigieren ist – mit Anleitung, als PDF oder Excel. "
-            "Nach dem Re-Import zeigt KNiX, was erledigt ist.")
+            "Was in der ETS zu korrigieren ist – mit Sprung zum Gerät bzw. zur GA, "
+            "speicherbar als PDF oder Excel. Nach dem Re-Import zeigt KNiX, was erledigt ist.")
         self._btn_worklist.clicked.connect(self.worklist_requested.emit)
         header.addWidget(self._btn_worklist)
         self._btn_validate = QPushButton("Erneut validieren")

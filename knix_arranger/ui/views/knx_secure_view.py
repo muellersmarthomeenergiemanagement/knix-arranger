@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox, QPushButton,
     QTableWidget, QTableWidgetItem, QGroupBox, QTabWidget, QHeaderView,
     QAbstractItemView, QMessageBox, QComboBox, QLineEdit, QFormLayout,
-    QSplitter, QInputDialog, QTextEdit, QStyledItemDelegate,
+    QSplitter, QInputDialog, QTextEdit, QStyledItemDelegate, QMenu,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
@@ -483,6 +483,8 @@ class KnxSecureView(QWidget):
         self._dev_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._dev_table.horizontalHeader().setStretchLastSection(True)
         self._dev_table.cellDoubleClicked.connect(self._on_dev_table_double_click)
+        self._dev_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._dev_table.customContextMenuRequested.connect(self._show_dev_menu)
         layout.addWidget(self._dev_table)
 
         legend = QLabel(
@@ -525,6 +527,38 @@ class KnxSecureView(QWidget):
             self._dev_table.setItem(i, _COL_DEV_FDSK, fdsk_item)
 
         fit_columns(self._dev_table)
+
+    # Sprünge (FA-1011p): ViewJumps, von MainWindow gesetzt
+    jumps = None
+
+    def select_device(self, device) -> bool:
+        """Zeile eines Topologie-Geräts im Reiter FDSK anwählen."""
+        infos = sorted_device_infos(self._project.knx_secure)
+        row = next((i for i, info in enumerate(infos)
+                    if info.device_id == device.id
+                    or (device.physical_address
+                        and info.physical_address == device.physical_address)), None)
+        if row is None:
+            return False
+        self._tabs.setCurrentIndex(2)
+        self._dev_table.selectRow(row)
+        self._dev_table.scrollToItem(self._dev_table.item(row, _COL_DEV_NAME))
+        return True
+
+    def _show_dev_menu(self, pos) -> None:
+        row = self._dev_table.rowAt(pos.y())
+        infos = sorted_device_infos(self._project.knx_secure)
+        if self.jumps is None or not 0 <= row < len(infos):
+            return
+        info = infos[row]
+        device = next((d for a in self._project.topology.areas for l in a.lines
+                       for d in l.devices if d.id == info.device_id), None) \
+            or self.jumps.device_at(info.physical_address)
+        if device is None:
+            return
+        menu = QMenu(self)
+        menu.addAction("In Topologie zeigen", lambda: self.jumps.device(device))
+        menu.exec(self._dev_table.viewport().mapToGlobal(pos))
 
     def _on_dev_table_double_click(self, row: int, col: int):
         """FDSK manuell eingeben via Doppelklick auf FDSK-Spalte."""

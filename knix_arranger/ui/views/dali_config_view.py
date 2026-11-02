@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QPushButton, QTableWidget, QTableWidgetItem, QGroupBox, QTabWidget,
     QLineEdit, QSpinBox, QCheckBox, QComboBox, QHeaderView, QAbstractItemView,
-    QSplitter, QFormLayout, QMessageBox, QDialog, QDialogButtonBox,
+    QSplitter, QFormLayout, QMessageBox, QDialog, QDialogButtonBox, QMenu,
 )
 from PySide6.QtCore import Qt
 from ...models.project import KnxProject
@@ -90,6 +90,8 @@ class DaliConfigView(QWidget):
         left_layout.addWidget(QLabel("DALI-Gateways:"))
         self._gw_list = QListWidget()
         self._gw_list.currentRowChanged.connect(self._on_gw_selected)
+        self._gw_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._gw_list.customContextMenuRequested.connect(self._show_gw_menu)
         left_layout.addWidget(self._gw_list)
 
         self._btn_refresh = QPushButton("Aktualisieren")
@@ -155,6 +157,36 @@ class DaliConfigView(QWidget):
     def set_project(self, project: KnxProject):
         self._project = project
         self.refresh()
+
+    # ── Sprünge (FA-1011p) ────────────────────────────────────────────────────
+
+    # ViewJumps, von MainWindow gesetzt
+    jumps = None
+
+    def _gateway_device(self, cfg):
+        return next((d for d in self._service.get_dali_gateways_from_topology(self._project)
+                     if d.id == cfg.gateway_device_id
+                     or (cfg.gateway_address and d.physical_address == cfg.gateway_address)),
+                    None)
+
+    def select_gateway(self, device) -> bool:
+        """Gateway eines Topologie-Geräts anwählen; False, wenn es keins ist."""
+        for row in range(self._gw_list.count()):
+            if self._gateway_device(self._gw_list.item(row).data(Qt.UserRole)) is device:
+                self._gw_list.setCurrentRow(row)
+                return True
+        return False
+
+    def _show_gw_menu(self, pos) -> None:
+        item = self._gw_list.itemAt(pos)
+        if item is None or self.jumps is None:
+            return
+        device = self._gateway_device(item.data(Qt.UserRole))
+        if device is None:
+            return
+        menu = QMenu(self)
+        menu.addAction("Gateway in der Topologie zeigen", lambda: self.jumps.device(device))
+        menu.exec(self._gw_list.viewport().mapToGlobal(pos))
 
     # ── Gateway-Auswahl ───────────────────────────────────────────────────────
 

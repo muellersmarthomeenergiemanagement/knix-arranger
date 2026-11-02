@@ -105,6 +105,41 @@ class ViewJumps:
         self._open("addresses")
         self._w._address_tree.show_only(addresses, f"Raum {room.number} {room.name}".strip())
 
+    def gewerk_gas(self, room, assignment) -> None:
+        """Baumansicht der Gruppenadressen nur mit den GAs eines Gewerks im
+        Raum (FA-1011j)."""
+        from ..services.report_service import ReportService
+        by_element = ReportService(self._project).room_gewerk_addresses(
+            room.id, assignment.gewerk_code)
+        self._open("addresses")
+        self._w._address_tree.show_only(
+            {a for addresses in by_element.values() for a in addresses},
+            f"{assignment.gewerk_code} Raum {room.number} {room.name}".strip())
+
+    def gewerk(self, room, assignment) -> None:
+        """Zeile des Gewerks in der Gewerke-Übersicht (FA-1011k)."""
+        self._open("gewerke")
+        if not self._w._gewerk_view.select_assignment(assignment):
+            self._not_found(f"Gewerk {assignment.gewerk_code} in Raum {room.number} nicht gefunden")
+
+    def riser_line(self, line) -> None:
+        """Linie im Steigschema hervorheben (FA-1011n)."""
+        self._open("riser_diagram")
+        if not self._w._riser_diagram_view.select_line(line):
+            self._not_found(f"Linie {line.name or line.line_number} nicht im Steigschema")
+
+    def secure_device(self, device) -> None:
+        """Gerät im KNX-Secure-Archiv, Reiter FDSK (FA-1011p)."""
+        self._open("knx_secure")
+        if not self._w._knx_secure_view.select_device(device):
+            self._not_found(f"Gerät {device.physical_address} nicht im Secure-Archiv")
+
+    def dali_gateway(self, device) -> None:
+        """DALI-Gateway in der DALI-Konfiguration (FA-1011p)."""
+        self._open("dali_config")
+        if not self._w._dali_config_view.select_gateway(device):
+            self._not_found(f"Gerät {device.physical_address} ist kein DALI-Gateway")
+
     def material(self, device) -> None:
         """Position des Geräts in der Materialliste (FA-1011e)."""
         self._open("material_list")
@@ -144,6 +179,73 @@ class ViewJumps:
         [((Gerät, Zeilentext), Menütext)], FA-1011a."""
         self._w._refresh_view("topology")
         return self._w._topology_view.linked_devices(address)
+
+    def devices_of_gewerk(self, room, assignment) -> list:
+        """Geräte an den GAs eines Gewerks im Raum, Aktoren wie Taster, je
+        Element ein Eintrag pro Gerät: [((Gerät, GA, Zeilentext), Menütext)],
+        FA-1011j."""
+        from ..services.report_service import ReportService
+        by_element = ReportService(self._project).room_gewerk_addresses(
+            room.id, assignment.gewerk_code)
+        self._w._refresh_view("topology")
+        found, seen = [], set()
+        for element in sorted(by_element):
+            prefix = ""
+            if assignment.count > 1 and element:
+                prefix = f"{element} {assignment.element_label(element)}".strip() + ": "
+            for address in by_element[element]:
+                for (device, row), label in self._w._topology_view.linked_devices(address):
+                    if (element, id(device)) not in seen:
+                        seen.add((element, id(device)))
+                        found.append(((device, address, row), prefix + label))
+        return found
+
+    def gewerke_of(self, address: str) -> list:
+        """Gewerk im Raum zu einer GA (Rückweg zu FA-1011j, FA-1011k):
+        [((Raum, Zuweisung), Menütext)]."""
+        from ..services.report_service import ReportService
+        rooms = {r.id: r for r in self._project.all_rooms}
+        catalog = self._project.gewerk_catalog
+        found = []
+        for room_id, code, element in ReportService(self._project).gewerke_of_address(address):
+            room = rooms.get(room_id)
+            assignment = next((a for a in room.gewerk_assignments
+                               if a.gewerk_code == code), None) if room else None
+            if assignment is None:
+                continue
+            gewerk = catalog.get(code)
+            text = f"{code} {gewerk.name}" if gewerk else code
+            if element and assignment.count > 1:
+                text += f", Element {element} {assignment.element_label(element)}".rstrip()
+            found.append(((room, assignment), f"{text} – Raum {room.number} {room.name}".strip()))
+        return found
+
+    def devices_with_product(self, order_number: str, name: str, exclude=None) -> list:
+        """Geräte mit demselben Produkt: gleiche Bestellnummer, ohne sie gleicher
+        Produktname (FA-1011m). [(Gerät, Menütext)]"""
+        def same(d) -> bool:
+            if order_number:
+                return d.order_number == order_number
+            return bool(name) and (d.product_name or d.product) == name
+        if self._project is None:
+            return []
+        return [(d, f"{d.physical_address or '–'} {d.product_name or d.product}")
+                for area in self._project.topology.areas for line in area.lines
+                for d in line.devices if d is not exclude and same(d)]
+
+    def keys_at(self, address: str) -> list:
+        """Taster an einer GA, z.B. der Szenen-GA, für «Tastenbelegung
+        bearbeiten» (FA-1011o): [(Bedienelement-id, Menütext)]."""
+        from ..services.button_move import bedienelement_of_device
+        found, seen = [], set()
+        for (device, _row), _label in self.devices_at(address):
+            room, be = bedienelement_of_device(self._project, device)
+            if be is not None and be.id not in seen:
+                seen.add(be.id)
+                where = f" – Raum {room.number} {room.name}".rstrip() if room else ""
+                found.append((be.id, f"{device.physical_address} "
+                                     f"{device.product_name or device.product}{where}"))
+        return found
 
     def scenes_with(self, ga) -> list:
         """Szenen, in denen die GA eine Aktion hat, und die Szenen einer

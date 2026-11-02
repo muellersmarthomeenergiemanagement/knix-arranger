@@ -214,6 +214,18 @@ class RiserDiagramView(QWidget):
             self._highlight = ref or ""
             self._rebuild()
 
+    def select_line(self, line) -> bool:
+        """Linie hervorheben (Sprung aus der Topologie, FA-1011n); False, wenn
+        sie im Schema nicht vorkommt."""
+        ref = f"line:{line.id}"
+        self._highlight = ref
+        self._rebuild()
+        if any(self._lines.item(i).data(Qt.UserRole) == ref for i in range(self._lines.count())):
+            return True
+        self._highlight = ""
+        self._rebuild()
+        return False
+
     def _fit(self) -> None:
         rect = self._scene.sceneRect()
         if rect.isValid():

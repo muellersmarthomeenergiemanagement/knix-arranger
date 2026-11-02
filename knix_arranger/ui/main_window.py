@@ -418,7 +418,7 @@ class MainWindow(QMainWindow):
         self._address_table.gewerk_change_requested.connect(self._assign_gewerk)
         self._validation_view = ValidationView()
         self._validation_view.revalidate_requested.connect(self._validate)
-        self._validation_view.worklist_requested.connect(self._export_worklist)
+        self._validation_view.worklist_requested.connect(self._show_worklist)
         self._validation_view.set_target_provider(self._validation_targets)
         self._validation_view.jump_requested.connect(self._jump_to_target)
         self._topology_view.bauherr_requested.connect(self._open_room_in_bauherr)
@@ -498,9 +498,11 @@ class MainWindow(QMainWindow):
         self._jumps = ViewJumps(self)
         self._history = ViewHistory()
         for view in (self._topology_view, self._address_tree, self._address_table,
-                     self._building_view, self._material_list_view, self._scene_view,
+                     self._building_view, self._gewerk_view, self._material_list_view,
+                     self._scene_view,
                      self._time_program_view, self._ets_functions_view,
-                     self._linking_matrix_view):
+                     self._linking_matrix_view, self._dali_config_view,
+                     self._knx_secure_view):
             view.jumps = self._jumps
 
         # Bus-Signale zu Handlern verdrahten
@@ -2384,6 +2386,24 @@ class MainWindow(QMainWindow):
         dialog.exec()
         if dialog.project_changed:
             self._set_dirty(True)
+
+    def _show_worklist(self):
+        """ETS-Arbeitsliste als Fenster mit Sprüngen (FA-618, FA-1011l)."""
+        if not self._project:
+            return
+        from .dialogs.ets_worklist_dialog import EtsWorklistDialog
+        dialog = getattr(self, "_worklist_dialog", None)
+        if dialog is not None and dialog._project is self._project:
+            dialog.refresh()
+        else:
+            if dialog is not None:
+                dialog.close()
+            dialog = EtsWorklistDialog(self._project, self._jump_to_target,
+                                       self._export_worklist, self)
+            self._worklist_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def _export_worklist(self):
         """ETS-Arbeitsliste aus der Validierung (FA-618)."""

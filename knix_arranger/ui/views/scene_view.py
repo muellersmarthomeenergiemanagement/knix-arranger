@@ -590,11 +590,29 @@ class SceneView(QWidget):
             self.jumps.ga(address)
 
     def _show_tree_menu(self, pos) -> None:
-        """Szenen-Adresse: zu ihrer GA springen (FA-1011b)."""
+        """Szene oder Szenen-Adresse: zu ihrer GA springen (FA-1011b), Geräte
+        an der Szenen-GA und Tastenbelegung der Taster, die sie aufrufen
+        (FA-1011o)."""
         item = self._tree.itemAt(pos)
         data = item.data(0, _ROLE) if item is not None else None
-        if data and data[0] == "address" and data[1].ga is not None:
-            self._jump_menu(self._tree, pos, data[1].ga.address)
+        group = None
+        if data and data[0] == "address":
+            group = data[1]
+        elif data and data[0] == "scene" and self._overview is not None:
+            group = self._overview.address_of(data[1])
+        if self.jumps is None or getattr(group, "ga", None) is None:
+            return
+        address = group.ga.address
+        from ..jump_menu import add_jump_menu
+        menu = QMenu(self)
+        menu.addAction(f"Zur Gruppenadresse {address} springen",
+                       lambda: self.jumps.ga(address))
+        add_jump_menu(menu, "In Topologie zeigen", lambda: self.jumps.devices_at(address),
+                      lambda row: self.jumps.device(row[0], address, row[1]),
+                      "keine verknüpften Geräte")
+        add_jump_menu(menu, "Tastenbelegung bearbeiten", lambda: self.jumps.keys_at(address),
+                      self.jumps.keys, "kein Taster ruft diese Szenen-GA auf")
+        menu.exec(self._tree.viewport().mapToGlobal(pos))
 
     def _show_action_menu(self, pos) -> None:
         """Aktion: zur GA springen, die sie schaltet (FA-1011b)."""

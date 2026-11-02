@@ -110,13 +110,13 @@ class TestScenesAndPrograms:
         assert "06:30" in found[0][1] and "07:00" not in found[0][1]
         assert "(inaktiv)" in found[1][1]
 
-    def test_ga_menu_has_four_jump_menus(self, gewerk_catalog):
+    def test_ga_menu_has_five_jump_menus(self, gewerk_catalog):
         project, wohnen, _k = _project(gewerk_catalog)
         menu = QMenu()
         add_ga_jump_menus(menu, _jumps(project), _ga(project, wohnen))
         titles = [a.text() for a in menu.actions() if a.menu()]
-        assert titles == ["In Topologie zeigen", "In Szenen zeigen", "Im Zeitprogramm zeigen",
-                          "In ETS-Funktionen zeigen"]
+        assert titles == ["In Topologie zeigen", "Gewerk im Raum zeigen", "In Szenen zeigen",
+                          "Im Zeitprogramm zeigen", "In ETS-Funktionen zeigen"]
 
     def test_no_jump_menus_for_reserve(self, gewerk_catalog):
         project, wohnen, _k = _project(gewerk_catalog)
@@ -160,6 +160,186 @@ class TestRoom:
         assert jumps.room_of_device(Device(physical_address="1.1.40")) == wohnen.id
         assert jumps.room_of_device(Device(physical_address="1.1.41")) == ""
         assert jumps.room_of_device(Device(room_id="abc")) == "abc"
+
+
+class TestGewerk:
+    """FA-1011j: Gewerk eines Raums zu Geräten und GAs."""
+
+    def _two_elements(self, gewerk_catalog):
+        project, wohnen, kueche = _project(gewerk_catalog)
+        assignment = wohnen.gewerk_assignments[0]
+        assignment.count = 2
+        assignment.set_element_labels(["Decke", "Wand"])
+        regenerate_addresses(project)
+        return project, wohnen, kueche, assignment
+
+    def test_room_gewerk_addresses_per_element(self, gewerk_catalog):
+        project, wohnen, kueche, _a = self._two_elements(gewerk_catalog)
+        found = ReportService(project).room_gewerk_addresses(wohnen.id, "L")
+        assert sorted(found) == [1, 2]
+        own = {g.address for g in project.group_addresses.all_addresses()
+               if g.room_id == wohnen.id and g.gewerk_code == "L" and not g.is_placeholder}
+        assert {a for addrs in found.values() for a in addrs} == own
+        assert _ga(project, kueche).address not in found[1]
+        assert ReportService(project).room_gewerk_addresses(wohnen.id, "J") == {}
+
+    def test_devices_of_gewerk_once_per_element(self, gewerk_catalog):
+        project, wohnen, _k, assignment = self._two_elements(gewerk_catalog)
+        actor = Device(physical_address="1.1.5")
+        view = SimpleNamespace(linked_devices=lambda a: [((actor, f"KO {a}"), f"1.1.5 Aktor – {a}")])
+        jumps = ViewJumps(SimpleNamespace(_project=project, _topology_view=view,
+                                          _refresh_view=lambda key: None))
+        found = jumps.devices_of_gewerk(wohnen, assignment)
+        assert [t[0] for t, _l in found] == [actor, actor]
+        assert found[0][1].startswith("1 Decke: 1.1.5 Aktor")
+        assert found[1][1].startswith("2 Wand: 1.1.5 Aktor")
+        _d, address, row = found[0][0]
+        assert row == f"KO {address}"
+
+    def test_gewerk_menu(self, gewerk_catalog):
+        from knix_arranger.ui.jump_menu import add_gewerk_jump_menus
+        project, wohnen, _k = _project(gewerk_catalog)
+        menu = QMenu()
+        add_gewerk_jump_menus(menu, _jumps(project), wohnen, wohnen.gewerk_assignments[0])
+        assert [a.text() for a in menu.actions()] == [
+            "Geräte in der Topologie zeigen", "GAs des Gewerks zeigen"]
+        empty = QMenu()
+        add_gewerk_jump_menus(empty, None, wohnen, wohnen.gewerk_assignments[0])
+        assert empty.isEmpty()
+
+    def test_building_view_gewerk_row_only_for_jumps(self, gewerk_catalog):
+        from PySide6.QtCore import Qt
+        from knix_arranger.ui.views.building_view import _GEWERK_ROLE, BuildingView
+        from PySide6.QtWidgets import QTreeWidgetItem
+        _p, wohnen, _k = _project(gewerk_catalog)
+        room_item = QTreeWidgetItem(["Wohnen"])
+        BuildingView()._add_gewerk_items(room_item, wohnen)
+        row = room_item.child(0).child(0)
+        assert row.data(0, _GEWERK_ROLE) == (wohnen, wohnen.gewerk_assignments[0])
+        assert row.data(0, Qt.UserRole) is None
+
+
+class TestMoreJumps:
+    """FA-1011k bis p: GA zum Gewerk, Arbeitsliste, gleiches Produkt,
+    Steigschema, Taster an der Szenen-GA, Secure-Archiv und DALI."""
+
+    def test_gewerke_of_ga(self, gewerk_catalog):
+        project, wohnen, kueche = _project(gewerk_catalog)
+        found = _jumps(project).gewerke_of(_ga(project, wohnen).address)
+        assert [t for t, _l in found] == [(wohnen, wohnen.gewerk_assignments[0])]
+        assert found[0][1].startswith("L ") and found[0][1].endswith("Raum 01 Wohnen")
+        assert _jumps(project).gewerke_of("31/7/255") == []
+
+    def test_gewerke_of_ga_names_element(self, gewerk_catalog):
+        project, wohnen, _k, assignment = TestGewerk()._two_elements(gewerk_catalog)
+        ga = next(g for g in project.group_addresses.all_addresses()
+                  if g.room_id == wohnen.id and g.element_number == 2)
+        [(_t, label)] = _jumps(project).gewerke_of(ga.address)
+        assert "Element 2 Wand" in label
+
+    def test_gewerk_view_selects_assignment_through_filter(self, gewerk_catalog):
+        from knix_arranger.ui.views.gewerk_view import GewerkView, _COL_LABEL
+        project, _w, kueche = _project(gewerk_catalog)
+        view = GewerkView()
+        view.set_project(project)
+        view._zone_combo.addItem("Andere", "Andere")
+        view._zone_combo.setCurrentIndex(view._zone_combo.count() - 1)
+        assert view._table.rowCount() == 0
+        assert view.select_assignment(kueche.gewerk_assignments[0])
+        row = view._table.currentRow()
+        assert view._table.item(row, _COL_LABEL).data(256)[0] is kueche
+
+    def test_worklist_targets_from_where_and_task(self, gewerk_catalog):
+        from knix_arranger.services.ets_worklist import WorkItem
+        from knix_arranger.services.validation_targets import DEVICE, GA, worklist_targets
+        project, wohnen, _k = _project(gewerk_catalog)
+        device = Device(physical_address="1.1.40")
+        project.topology.areas[0].lines[0].devices.append(device)
+        address = _ga(project, wohnen).address
+        item = WorkItem("k", 1, "FA-614", f"{device.physical_address} KO 6 «Taste»",
+                        f"{address} trennen (zweite sendende GA).")
+        targets = worklist_targets(item, project)
+        assert [(t.kind, t.key) for t in targets] == [(DEVICE, device.physical_address),
+                                                     (GA, address)]
+        assert worklist_targets(WorkItem("k", 1, "X", "9.9.9", "31/7/255"), project) == []
+
+    def test_worklist_dialog_lists_items(self, gewerk_catalog, monkeypatch):
+        from knix_arranger.services import ets_worklist
+        from knix_arranger.services.ets_worklist import WorkItem
+        from knix_arranger.ui.dialogs.ets_worklist_dialog import EtsWorklistDialog
+        project, wohnen, _k = _project(gewerk_catalog)
+        address = _ga(project, wohnen).address
+        item = WorkItem("k", ets_worklist.PRIO_CHECK, "FA-604", f"GA {address}", "DPT setzen.")
+        monkeypatch.setattr(ets_worklist, "current_items", lambda p: [item])
+        jumped = []
+        dialog = EtsWorklistDialog(project, jumped.append, lambda: None)
+        group = dialog._tree.topLevelItem(0)
+        assert group.text(0) == "Prüfen (1)"
+        dialog._jump(group.child(0))
+        assert [t.key for t in jumped] == [address]
+
+    def test_devices_with_product(self, gewerk_catalog):
+        project, _w, _k = _project(gewerk_catalog)
+        line = project.topology.areas[0].lines[0]
+        a = Device(physical_address="1.1.70", order_number="SA-8", product="Schaltaktor")
+        b = Device(physical_address="1.1.71", order_number="SA-8", product="Schaltaktor")
+        c = Device(physical_address="1.1.72", order_number="SA-4", product="Schaltaktor")
+        line.devices += [a, b, c]
+        jumps = _jumps(project)
+        assert [d for d, _l in jumps.devices_with_product("SA-8", "", exclude=a)] == [b]
+        named = [d for d, _l in jumps.devices_with_product("", "Schaltaktor")]
+        assert {id(a), id(b), id(c)} <= {id(d) for d in named}
+        assert jumps.devices_with_product("", "") == []
+
+    def test_keys_at_scene_address(self, gewerk_catalog):
+        project, wohnen, _k = _project(gewerk_catalog)
+        taster = Device(physical_address="1.1.40", device_type="sensor", room_id=wohnen.id)
+        wohnen.bedienelemente.append(Bedienelement(participant_number="1.1.40"))
+        project.topology.areas[0].lines[0].devices.append(taster)
+        view = SimpleNamespace(linked_devices=lambda a: [((taster, "Taste 1"), "1.1.40 Taster")])
+        jumps = ViewJumps(SimpleNamespace(_project=project, _topology_view=view,
+                                          _refresh_view=lambda key: None))
+        [(be_id, label)] = jumps.keys_at("0/1/0")
+        assert be_id == wohnen.bedienelemente[0].id
+        assert label.startswith("1.1.40") and "Wohnen" in label
+
+    def test_riser_selects_line(self, gewerk_catalog):
+        from knix_arranger.models.topology import Line
+        from knix_arranger.ui.views.riser_diagram_view import RiserDiagramView
+        project, _w, _k = _project(gewerk_catalog)
+        view = RiserDiagramView()
+        view.set_project(project)
+        line = project.topology.areas[0].lines[0]
+        assert view.select_line(line)
+        assert view._highlight == f"line:{line.id}"
+        assert not view.select_line(Line(line_number=9))
+        assert view._highlight == ""
+
+    def test_secure_view_selects_device(self, gewerk_catalog):
+        from knix_arranger.models.knx_secure import DeviceSecureInfo
+        from knix_arranger.ui.views.knx_secure_view import KnxSecureView
+        project, _w, _k = _project(gewerk_catalog)
+        device = Device(physical_address="1.1.80", product="Schaltaktor")
+        project.topology.areas[0].lines[0].devices.append(device)
+        project.knx_secure.enabled = True
+        project.knx_secure.device_infos[device.id] = DeviceSecureInfo(
+            device_id=device.id, device_name="Schaltaktor", physical_address="1.1.80")
+        view = KnxSecureView(project)
+        view.set_project(project)
+        assert view.select_device(device)
+        assert view._tabs.currentIndex() == 2
+        assert not view.select_device(Device(physical_address="1.1.81"))
+
+    def test_dali_view_selects_gateway(self, gewerk_catalog):
+        from knix_arranger.ui.views.dali_config_view import DaliConfigView
+        project, _w, _k = _project(gewerk_catalog)
+        gateway = Device(physical_address="1.1.90", device_type="gateway",
+                         product="DALI-Gateway 2-fach")
+        project.topology.areas[0].lines[0].devices.append(gateway)
+        view = DaliConfigView(project)
+        view.set_project(project)
+        assert view.select_gateway(gateway)
+        assert not view.select_gateway(Device(physical_address="1.1.91"))
 
 
 def _leaves(tree):

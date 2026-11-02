@@ -9,7 +9,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidgetItem, QLabel, QListWidgetItem,
     QAbstractItemView, QComboBox, QHBoxLayout, QPushButton, QSpinBox,
-    QGroupBox, QSplitter, QHeaderView, QSizePolicy,
+    QGroupBox, QSplitter, QHeaderView, QSizePolicy, QMenu,
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor
@@ -21,6 +21,7 @@ from ...services.structure_move import (
 )
 from ..column_utils import fit_columns
 from ..dialogs.custom_gewerk_dialog import CustomGewerkDialog
+from ..jump_menu import add_gewerk_jump_menus
 from ..styles import COLOR_WARNING
 from ..widgets.drag_drop import DragDropTable, DragSourceList
 from ..wizard.step05_gewerke import label_hint
@@ -118,6 +119,8 @@ class GewerkView(QWidget):
         self._table.setAlternatingRowColors(True)
         self._table.verticalHeader().setVisible(False)
         self._table.setWordWrap(False)
+        self._table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._show_context_menu)
         # KEIN setStretchLastSection: erzwingt sonst eine volle Breite der
         # Aktion-Spalte (der kleine Entfernen-Button wuerde ueber die ganze
         # Zeile gestreckt) und quetscht die uebrigen Spaltenkoepfe unlesbar
@@ -358,6 +361,41 @@ class GewerkView(QWidget):
             name_width = self._table.columnWidth(_COL_GNAME)
             self._table.setColumnWidth(_COL_GNAME, max(_MIN_NAME_WIDTH, name_width - missing))
         header.setSectionResizeMode(_COL_LABEL, QHeaderView.Stretch)
+
+    # ── Sprünge in andere Ansichten (FA-1011j) ──
+
+    # ViewJumps, von MainWindow gesetzt
+    jumps = None
+
+    def select_assignment(self, assignment) -> bool:
+        """Zeile einer Gewerk-Zuweisung anwählen (Sprung aus GA und Topologie,
+        FA-1011k); Filter, die sie ausblenden, werden zurückgesetzt."""
+        for attempt in range(2):
+            for row in range(self._table.rowCount()):
+                item = self._table.item(row, _COL_LABEL)
+                data = item.data(Qt.UserRole) if item else None
+                if data and data[1] is assignment:
+                    self._table.selectRow(row)
+                    self._table.scrollToItem(item)
+                    return True
+            if attempt == 0:
+                self._floor_combo.setCurrentIndex(0)
+                self._zone_combo.setCurrentIndex(0)
+        return False
+
+    def _show_context_menu(self, pos) -> None:
+        item = self._table.itemAt(pos)
+        if item is None or self.jumps is None:
+            return
+        menu = QMenu(self)
+        label = self._table.item(item.row(), _COL_LABEL)
+        assignment = label.data(Qt.UserRole) if label else None
+        if assignment:
+            add_gewerk_jump_menus(menu, self.jumps, *assignment)
+        room = self._row_room(item)
+        if room is not None:
+            menu.addAction("Raum im Gebäude zeigen", lambda: self.jumps.room(room.id))
+        menu.exec(self._table.viewport().mapToGlobal(pos))
 
     # ── Ziehen und Ablegen (FA-1015 c) ──
 

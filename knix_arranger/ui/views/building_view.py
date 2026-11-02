@@ -35,6 +35,10 @@ _DEVICE_TYPE_LABELS: dict[str, str] = {
 
 # Bedienelemente vs. Sensoren: siehe OPERABLE_ELEMENT_TYPES (models/building.py)
 
+# (Raum, GewerkAssignment) an den Gewerk-Zeilen, nur für die Sprünge
+# (FA-1011j); bewusst nicht UserRole, sonst gälten Umbenennen und Löschen
+_GEWERK_ROLE = Qt.UserRole + 1
+
 
 class BuildingView(QWidget):
     """Gebäudestruktur als Baum mit Bearbeitungsfunktionen."""
@@ -445,10 +449,11 @@ class BuildingView(QWidget):
         for ga in room.gewerk_assignments:
             name = self._gewerk_name(ga.gewerk_code)
             labels = "; ".join(ga.element_labels[:ga.count])
-            QTreeWidgetItem(container, [
+            item = QTreeWidgetItem(container, [
                 f"{ga.gewerk_code} – {name}" if name else ga.gewerk_code,
                 "Gewerk", "", f"×{ga.count}: {labels}" if labels else f"×{ga.count}",
             ])
+            item.setData(0, _GEWERK_ROLE, (room, ga))
 
     def _add_actor_channel_items(self, dev_item: QTreeWidgetItem, device) -> None:
         """Fügt Kanal-Kindknoten mit ihren Gruppenadressen unter einem Aktor
@@ -880,6 +885,13 @@ class BuildingView(QWidget):
     def _show_context_menu(self, pos):
         item = self._tree.itemAt(pos)
         if not item:
+            return
+        gewerk = item.data(0, _GEWERK_ROLE)
+        if gewerk and self.jumps is not None:
+            from ..jump_menu import add_gewerk_jump_menus
+            menu = QMenu(self)
+            add_gewerk_jump_menus(menu, self.jumps, *gewerk)
+            menu.exec(self._tree.viewport().mapToGlobal(pos))
             return
         data = item.data(0, Qt.UserRole)
         if not data:

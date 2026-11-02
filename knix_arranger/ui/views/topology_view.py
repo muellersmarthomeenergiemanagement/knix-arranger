@@ -901,6 +901,7 @@ class TopologyView(QWidget):
             uv_act      = menu.addAction("UV-Einbauort bearbeiten…")
             self._add_line_area_menu(menu, line)
             self._add_line_merge_menu(menu, line)
+            self._add_line_jumps(menu, line)
             renumber_act = None
             if self._project is not None and not self._project.addresses_fixed:
                 menu.addSeparator()
@@ -997,13 +998,42 @@ class TopologyView(QWidget):
             if be is not None:
                 menu.addAction("Tastenbelegung bearbeiten…",
                                lambda: self.jumps.keys(be.id))
+        # Gleiches Produkt (FA-1011m), DALI-Gateway und Secure-Archiv (FA-1011p)
+        from ..jump_menu import add_jump_menu
+        add_jump_menu(menu, "Gleiches Produkt in der Topologie",
+                      lambda: self.jumps.devices_with_product(
+                          device.order_number, device.product_name or device.product, device),
+                      lambda d: self.jumps.device(d), "kein weiteres Gerät")
+        from ...services.dali_service import DaliService
+        if DaliService._is_dali_gateway(device):
+            menu.addAction("In DALI-Konfiguration zeigen",
+                           lambda: self.jumps.dali_gateway(device))
+        if self._project is not None and self._project.knx_secure.enabled:
+            menu.addAction("Im KNX-Secure-Archiv zeigen",
+                           lambda: self.jumps.secure_device(device))
+
+    def _add_line_jumps(self, menu: QMenu, line) -> None:
+        """Linie im Steigschema, Spannungsversorgung der Linie (FA-1011n)."""
+        if self.jumps is None:
+            return
+        menu.addSeparator()
+        menu.addAction("Im Steigschema zeigen", lambda: self.jumps.riser_line(line))
+        for sv in line_power_supplies(line):
+            name = sv.product_name or sv.product
+            menu.addAction(f"Spannungsversorgung {name} zeigen" if name
+                           else "Spannungsversorgung zeigen",
+                           lambda d=sv: self.select_ga_row(d, ""))
 
     def _add_jump_to_ga(self, menu: QMenu, item: QTreeWidgetItem):
         """«Zur Gruppenadresse springen» für eine Zeile mit GA (FA-1011a)."""
         ga_addr = ga_address_of(item.text(1))
         if not ga_addr or self.jumps is None:
             return None
-        return menu.addAction(f"Zur Gruppenadresse {ga_addr} springen"), ga_addr
+        act = menu.addAction(f"Zur Gruppenadresse {ga_addr} springen")
+        # Rückweg zum Gewerk im Raum (FA-1011k)
+        from ..jump_menu import add_gewerk_of_ga_menu
+        add_gewerk_of_ga_menu(menu, self.jumps, ga_addr)
+        return act, ga_addr
 
     def _ga_row_menu(self, item, data, pos) -> None:
         """Kontextmenü einer GA-Zeile ohne Flags: springen, KO trennen."""

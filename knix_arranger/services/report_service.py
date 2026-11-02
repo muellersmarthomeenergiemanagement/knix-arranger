@@ -1017,6 +1017,25 @@ class ReportService:
                 addresses |= {ga.address for ga in function_ga_map(self.project, function).values()}
         return addresses
 
+    def room_gewerk_addresses(self, room_id: str, code: str) -> dict[int, list[str]]:
+        """Adressen eines Gewerks im Raum je Element (0 = ohne Element),
+        Zuordnung wie im Raumbuch (FA-1011j)."""
+        groups, _missing = self._room_gewerk_groups()
+        found: dict[int, list[str]] = {}
+        for (_cat, _label, element, short), gas in groups.get(room_id, {}).items():
+            if short == code:
+                found.setdefault(element, []).extend(ga.address for ga in gas)
+        return found
+
+    def gewerke_of_address(self, address: str) -> list[tuple[str, str, int]]:
+        """Rückweg zu room_gewerk_addresses: (Raum-id, Gewerk, Element) der
+        GA, Zuordnung wie im Raumbuch (FA-1011k)."""
+        groups, _missing = self._room_gewerk_groups()
+        return [(room_id, short, element)
+                for room_id, by_key in groups.items()
+                for (_cat, _label, element, short), gas in by_key.items()
+                if any(ga.address == address for ga in gas)]
+
     def generate_room_gewerk_report(self, filepath: str):
         """Erzeugt das "Raumbuch KNX" als PDF im Querformat.
 

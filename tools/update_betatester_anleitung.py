@@ -992,21 +992,37 @@ def build_document() -> Document:
         "Per Rechtsklick führt KNiX zum Gegenstück in einer anderen Ansicht, wie in "
         "der ETS:")
     add_table_2col(doc, [
-        ("GA in der Topologie", "«Zur Gruppenadresse … springen»"),
+        ("GA in der Topologie", "«Zur Gruppenadresse … springen», «Gewerk im Raum zeigen»"),
         ("GA in den Gruppenadressen",
-         "«In Topologie zeigen» (je Gerät und KO), «In Szenen zeigen» (mit Wert), "
-         "«Im Zeitprogramm zeigen» (mit Schaltzeiten), «In ETS-Funktionen zeigen»"),
+         "«In Topologie zeigen» (je Gerät und KO), «Gewerk im Raum zeigen», "
+         "«In Szenen zeigen» (mit Wert), «Im Zeitprogramm zeigen» (mit Schaltzeiten), "
+         "«In ETS-Funktionen zeigen»"),
         ("Szenen-Aktion, Schaltzeitpunkt, GA in den ETS-Funktionen",
          "«Zur Gruppenadresse … springen»"),
+        ("Szene oder Szenen-Adresse",
+         "zur GA, «In Topologie zeigen», «Tastenbelegung bearbeiten» der aufrufenden Taster"),
         ("Zelle der Verknüpfungsmatrix",
          "zur GA, «Gerät … in der Topologie zeigen», «Tastenbelegung bearbeiten…»"),
         ("Raum in der Gebäudeansicht",
          "«Geräte in der Topologie zeigen», «GAs des Raums zeigen»"),
+        ("Gewerk unter einem Raum, Zeile der Gewerke-Übersicht",
+         "«Geräte in der Topologie zeigen» (Aktoren und Taster je Element), "
+         "«GAs des Gewerks zeigen»"),
         ("Gerät in der Topologie",
          "«In Materialliste zeigen», «Kanäle und KOs zuordnen…», "
-         "«Raum in der Gebäudeansicht zeigen», bei Tastern «Tastenbelegung bearbeiten…»"),
-        ("Position in der Materialliste", "«In Topologie zeigen»"),
+         "«Raum in der Gebäudeansicht zeigen», «Gleiches Produkt in der Topologie», "
+         "bei Tastern «Tastenbelegung bearbeiten…», bei DALI-Gateways «In "
+         "DALI-Konfiguration zeigen», mit KNX Secure «Im KNX-Secure-Archiv zeigen»"),
+        ("Linie in der Topologie",
+         "«Im Steigschema zeigen», «Spannungsversorgung … zeigen»"),
+        ("Position in der Materialliste",
+         "«In Topologie zeigen», «Alle Geräte mit diesem Produkt»"),
+        ("Gerät im Secure-Archiv, DALI-Gateway", "«In Topologie zeigen»"),
     ], header=("Rechtsklick auf", "Sprung"))
+    add_body(doc,
+        "Die ETS-Arbeitsliste («ETS-Arbeitsliste…» in der Validierung) öffnet als "
+        "Fenster: Doppelklick auf eine Aufgabe führt zum Gerät bzw. zur GA, das Fenster "
+        "bleibt offen. «Als PDF/Excel speichern…» erstellt die Liste für die ETS.")
     add_tip(doc,
         "Alt+Links bringt Sie zur vorherigen Ansicht zurück, Alt+Rechts wieder vor. "
         "«GAs des Raums zeigen» blendet die übrigen GAs aus, «Alle GAs zeigen» hebt "

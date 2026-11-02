@@ -1452,6 +1452,12 @@ class MaterialListView(QWidget):
                       lambda: [(d, f"{d.physical_address or '–'} {d.product or d.device_type}")
                                for d in self._entry_devices(entry)],
                       lambda d: self.jumps.device(d), "kein Gerät in der Topologie")
+        # Alle Positionen mit diesem Produkt, z.B. vor einem Produktwechsel (FA-1011m)
+        if entry.order_number or entry.product_name:
+            add_jump_menu(menu, "Alle Geräte mit diesem Produkt",
+                          lambda: self.jumps.devices_with_product(
+                              entry.order_number, entry.product_name),
+                          lambda d: self.jumps.device(d), "kein Gerät in der Topologie")
         menu.exec(self._table.viewport().mapToGlobal(pos))
 
     def open_ko_assignment(self, physical_address: str, focus: tuple = ()) -> bool:

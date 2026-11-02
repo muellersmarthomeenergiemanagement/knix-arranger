@@ -187,3 +187,20 @@ def targets_for(issue: dict, project) -> list[Target]:
         main, middle, _sub = missing_ga.split("/")
         add(Target(GA, missing_ga, f"Mittelgruppe {main}/{middle} in den Gruppenadressen zeigen"))
     return result
+
+
+def worklist_targets(item, project) -> list[Target]:
+    """Sprungziele einer Aufgabe der ETS-Arbeitsliste (FA-1011l): Geräte und
+    GAs aus «Ort in der ETS», danach aus Aufgabe und Bezeichnung."""
+    gas = {ga.address for ga in project.group_addresses.all_addresses()}
+    devices = {d.physical_address for area in project.topology.areas
+               for line in area.lines for d in line.devices if d.physical_address}
+    result: list[Target] = []
+    for text in (item.where, item.task, item.detail):
+        for pa in _PA_IN_TEXT.findall(text or ""):
+            if pa in devices and _device_target(pa) not in result:
+                result.append(_device_target(pa))
+        for address in _GA_IN_TEXT.findall(text or ""):
+            if address in gas and _ga_target(address) not in result:
+                result.append(_ga_target(address))
+    return result
