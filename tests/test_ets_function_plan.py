@@ -255,8 +255,9 @@ def test_view_dialog_and_button_choice(project):
     view.set_project(project)
     function_item = view._plan_tree.topLevelItem(0).child(0)
     assert function_item.text(0) == "Fensterfront (Sonnenschutz)"
-    assert function_item.childCount() == 2
+    assert function_item.childCount() == 3
     gas_node, members_node = function_item.child(0), function_item.child(1)
+    assert function_item.child(2).text(0).startswith("Bedienende Elemente (")
     assert gas_node.text(0) == "Funktions-GAs (5)" and gas_node.childCount() == 5
     assert members_node.text(0) == "Bediente Elemente (3)"
     first = members_node.child(0)

@@ -376,6 +376,45 @@ class EtsFunctionMembers:
         return sorted(found.values(), key=lambda m: (m.code, m.place, _address_key(m.address)))
 
 
+@dataclass
+class OperatorLink:
+    """Bedienendes Element einer Funktion: sendendes KO eines Tasters oder
+    Sensors auf eine Funktions-GA."""
+    place: str             # "Studio, Taste 2"
+    address: str           # Funktions-GA
+    text: str              # Objektfunktion, z.B. "AUF/AB, Jalousie"
+    device: str            # "Sensor 1.1.68 KO 6"
+    physical_address: str = ""
+
+
+def function_operators(project, addresses) -> list[OperatorLink]:
+    """Sendende KOs von Tastern, Sensoren, Visualisierungen … (nicht Aktoren
+    und Gateways) auf die GAs; die sendende GA eines KOs ist die erste."""
+    from .ko_links import parse_flags
+    from .topology_diagram import device_type_label
+    addresses = set(addresses)
+    rooms = {r.id: r for r in project.all_rooms}
+    result = []
+    for area in project.topology.areas:
+        for line in area.lines:
+            for device in line.devices:
+                if device.device_type in ("actor", "gateway"):
+                    continue
+                room = rooms.get(device.room_id)
+                where = _room_label(None, room) if room else device.installation_location
+                for co in device.communication_objects:
+                    flags = parse_flags(co.flags)
+                    if (not co.connected_gas or co.connected_gas[0] not in addresses
+                            or (flags and "Ü" not in flags)):
+                        continue
+                    place = ", ".join(p for p in (where, (co.name or "").strip()) if p)
+                    result.append(OperatorLink(
+                        place, co.connected_gas[0], (co.object_function or "").strip(),
+                        f"{device_type_label(device)} {device.physical_address} "
+                        f"KO {co.object_number}", device.physical_address))
+    return sorted(result, key=lambda o: (o.place, _address_key(o.address)))
+
+
 def _address_key(address: str) -> tuple:
     try:
         return tuple(int(p) for p in address.split("/"))
@@ -383,18 +422,61 @@ def _address_key(address: str) -> tuple:
         return (999,)
 
 
+#: Rolle der ETS -> Funktion nach dem Aktor-KO (ets_function_plan.ko_functions)
+_ROLE_FUNCTION = {
+    "MoveUpDown": "AUF/AB", "StopStepUpDown": "STOPP",
+    "WindAlarm": "STOERUNG", "RainAlarm": "STOERUNG",
+    "CurrentAbsolutePositionBlindsPercentage": "POSITION HOEHE",
+    "CurrentAbsolutePositionSlatPercentage": "POSITION LAMELLEN",
+    "SwitchOnOff": "E/A", "DimmingControl": "DIM", "DimmingValue": "WERT",
+    "HVACMode": "UMSCHALTEN BETRIEBSART",
+}
+_KO_FUNCTION_LABEL = {
+    "AUF/AB": "Bewegen", "STOPP": "Schritt/Stop", "POSITION HOEHE": "Position",
+    "POSITION LAMELLEN": "Lamellenstellung", "BESCHATTUNG": "Beschattung",
+    "SPERREN": "Sperren", "E/A": "Schalten", "DIM": "Dimmen", "WERT": "Wert",
+    "STOERUNG": "Alarm", "UMSCHALTEN BETRIEBSART": "Betriebsart",
+}
+
+
+def role_mismatch(function_type: str, ref, by_ko: dict[str, str] | None) -> tuple[str, str] | None:
+    """(Hinweis, Massnahme), wenn das Aktor-KO der GA etwas anderes tut, als
+    die Rolle in der Funktion sagt (FA-531a: Bedeutung vom Gerät), z.B. die
+    Beschattung auf dem Platz «Windalarm» -- die ETS erzeugt die GAs je
+    Rolle, umbenannt bleibt die Rolle."""
+    if not by_ko or not ref.role or not ref.address:
+        return None
+    point = function_point(function_type, ref)
+    expected = _ROLE_FUNCTION.get(ref.role)
+    actual = by_ko.get(ref.address)
+    if point is None or not expected or not actual or actual == expected:
+        return None
+    label = _KO_FUNCTION_LABEL.get(actual, actual)
+    other = next((p for p in FUNCTION_TYPES.get(function_type, ("", ()))[1]
+                  if _ROLE_FUNCTION.get(p.role) == actual), None)
+    measure = (f"In der ETS der Rolle «{other.label}» zuordnen" if other else
+               f"In der ETS als zusätzliche GA ohne Rolle führen; die Funktion "
+               f"«{type_label(function_type)}» hat keinen Platz für {label}")
+    return f"Rolle {point.label}, KO sagt {label}", measure
+
+
 def ref_hints(function_type: str, ref, linked: set[str],
               home: tuple[int | None, int | None] = (None, None),
-              status_links: dict | None = None) -> list[str]:
+              status_links: dict | None = None,
+              by_ko: dict[str, str] | None = None) -> list[str]:
     """Hinweise zu einer GA einer Funktion (gleich wie in der Validierung);
     home = HG des Stockwerks und MG des Funktionstyps (siehe _home_groups),
     status_links = multi_ga_check.build_status_link_index (None = Status
-    nicht prüfen)."""
+    nicht prüfen), by_ko = ets_function_plan.ko_functions."""
     if not ref.address:
         return ["GA nicht gefunden"]
     hints = []
+    mismatch = role_mismatch(function_type, ref, by_ko)
     if is_ets_generated(ref):
         hints.append(_generated_hint(ref, home))
+    elif mismatch:
+        # die falsche Rolle erklärt auch einen abweichenden DPT
+        hints.append(mismatch[0])
     elif function_type != "FT-0":
         point = function_point(function_type, ref)
         if point and not _dpt_matches(ref.datapoint_type, point.dpt):
@@ -413,6 +495,8 @@ def overview_rows(project) -> list[FunctionRow]:
     linked = _linked_addresses(project)
     home_of = _home_groups(project)
     status_links = build_status_link_index(project)
+    from .ets_function_plan import ko_functions
+    by_ko = ko_functions(project)
     shared = shared_function_gas(project)
     rows = []
     for floor, room, function in iter_functions(project):
@@ -425,7 +509,7 @@ def overview_rows(project) -> list[FunctionRow]:
             continue
         for ref in function.refs:
             hints = ref_hints(function.function_type, ref, linked, home_of(floor, function),
-                              status_links)
+                              status_links, by_ko)
             others = [function_text(r, f) for _fl, r, f in shared.get(ref.address, [])
                       if f is not function]
             if others:
@@ -471,6 +555,8 @@ def check_functions(project) -> list:
     home_of = _home_groups(project)
     from .multi_ga_check import build_status_link_index
     status_links = build_status_link_index(project)
+    from .ets_function_plan import ko_functions
+    by_ko = ko_functions(project)
     for floor, room, function in iter_functions(project):
         where = f"{_room_label(floor, room)}, Funktion «{function.name}»"
         home = home_of(floor, function)
@@ -506,6 +592,11 @@ def check_functions(project) -> list:
                 issues.append(ValidationIssue(
                     "info", "FA-636", message, ref.address, measure,
                     designation=ref.ga_name))
+            elif mismatch := role_mismatch(function.function_type, ref, by_ko):
+                issues.append(ValidationIssue(
+                    "warning", "FA-636", f"{prefix}: {mismatch[0]}", ref.address,
+                    mismatch[1], designation=ref.ga_name,
+                    details={"kind": "role", "role": ref.role}))
             elif function.function_type != "FT-0":
                 point = function_point(function.function_type, ref)
                 if point and not _dpt_matches(ref.datapoint_type, point.dpt):

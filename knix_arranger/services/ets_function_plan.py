@@ -814,6 +814,28 @@ def member_links(project, function: KnixFunction):
                 yield member, fga, own.get(group.point.function)
 
 
+def planned_operators(project, function: KnixFunction) -> list[tuple[str, str]]:
+    """(Bedienelement, Taste/Teilnehmer) je Sensorfunktion, die die Funktion
+    bedient, z.B. ("Studio, Tastereinheit 1", "1.1.68 Taste 2")."""
+    result = []
+    for room in project.all_rooms:
+        for be in room.bedienelemente:
+            if be.suppressed:
+                continue
+            for sf in be.funktionen:
+                if sf.function_id != function.id:
+                    continue
+                room_text = " ".join(p for p in (room.number, room.name) if p)
+                label = ", ".join(p for p in (room_text, f"{be.element_type} {be.taster_index}")
+                                  if p)
+                buttons = list(dict.fromkeys(fa.button_channel for fa in be.function_assignments
+                                             if fa.sf_id == sf.id and fa.button_channel))
+                where = " ".join(p for p in (be.participant_number, ", ".join(buttons)) if p)
+                if (label, where) not in result:
+                    result.append((label, where))
+    return result
+
+
 # ── Abgleich mit der ETS ──────────────────────────────────────────────────
 
 @dataclass

@@ -14,7 +14,8 @@ from PySide6.QtWidgets import (
 
 from ...models.project import KnxProject
 from ...services.ets_function_service import (
-    EtsFunctionMembers, function_key, function_text, iter_functions, overview_rows,
+    EtsFunctionMembers, function_key, function_operators, function_text, iter_functions,
+    overview_rows,
     shared_function_gas, type_label,
 )
 from ...services import ets_function_plan as plan
@@ -236,6 +237,20 @@ class EtsFunctionsView(QWidget):
                 node.addChild(item)
             if not found:
                 node.addChild(QTreeWidgetItem(["", "", "kein Aktorkanal verknüpft"]))
+            operators = function_operators(project, [r.address for r in function.refs
+                                                     if r.address])
+            node = QTreeWidgetItem([f"Bedienende Elemente ({len(operators)})"])
+            node.setToolTip(0, "Taster, Sensoren und Visualisierungen, die auf eine GA der "
+                               "Funktion senden (aus den KO-Verknüpfungen der ETS)")
+            node.setData(0, Qt.UserRole, fn_item.data(0, Qt.UserRole))
+            fn_item.addChild(node)
+            for operator in operators:
+                item = QTreeWidgetItem(["", "", operator.place, operator.address,
+                                        operator.text, "", operator.device])
+                item.setData(0, Qt.UserRole, fn_item.data(0, Qt.UserRole))
+                node.addChild(item)
+            if not operators:
+                node.addChild(QTreeWidgetItem(["", "", "kein Taster oder Sensor verknüpft"]))
 
     # ── Geplant ───────────────────────────────────────────────────────────
 
@@ -318,6 +333,32 @@ class EtsFunctionsView(QWidget):
                     _set_gewerk(item, gewerk_cell(project, [member.assignment.gewerk_code]))
                 item.setData(0, Qt.UserRole, function.id)
                 members_node.addChild(item)
+            # Geplante Bedienung (Sensorfunktionen) und Taster aus der ETS
+            planned = plan.planned_operators(project, function)
+            sending = function_operators(project, [ga.address for _p, ga in gas])
+            # in der ETS schon verknüpft: dort steht er mit KO
+            sent_by = {o.physical_address for o in sending}
+            planned = [(label, where) for label, where in planned
+                       if not where or where.split()[0] not in sent_by]
+            operators_node = QTreeWidgetItem(
+                [f"Bedienende Elemente ({len(planned) + len(sending)})"])
+            operators_node.setToolTip(0, "Taster und Sensoren, die die Funktion bedienen: "
+                                         "geplant und aus den KO-Verknüpfungen der ETS")
+            operators_node.setData(0, Qt.UserRole, function.id)
+            fn_item.addChild(operators_node)
+            for label, where in planned:
+                item = QTreeWidgetItem(["", "", label, "", "", where or "geplant"])
+                item.setData(0, Qt.UserRole, function.id)
+                operators_node.addChild(item)
+            for operator in sending:
+                item = QTreeWidgetItem(["", "", operator.place, operator.address,
+                                        operator.text, f"{operator.device} (ETS)"])
+                item.setData(0, Qt.UserRole, function.id)
+                operators_node.addChild(item)
+            if not planned and not sending:
+                item = QTreeWidgetItem(["", "", "noch kein Taster oder Sensor"])
+                item.setData(0, Qt.UserRole, function.id)
+                operators_node.addChild(item)
         self._finish(self._plan_tree, len(_PLAN_COLUMNS))
 
     @staticmethod

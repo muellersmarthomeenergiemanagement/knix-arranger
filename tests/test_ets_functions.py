@@ -320,7 +320,9 @@ def test_view_in_sidebar_and_filled():
     assert view._tree.topLevelItemCount() == 1
     room = view._tree.topLevelItem(0)
     assert room.childCount() == 6
-    assert room.child(1).childCount() == 2          # Leselampen
+    # Leselampen: GAs, bediente und bedienende Elemente
+    assert room.child(1).childCount() == 3
+    assert room.child(1).child(2).text(0).startswith("Bedienende Elemente (")
     assert "6 Funktion(en)" in view._summary.text()
     view.set_project(KnxProject())
     assert view._tree.topLevelItemCount() == 0
