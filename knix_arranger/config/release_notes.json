@@ -2,6 +2,16 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.34",
+      "date": "2026-11-03",
+      "neu": [
+        "ETS-Funktionen: Unter jeder Funktion steht neben «Bediente Elemente» jetzt auch «Bedienende Elemente» – die Taster und Sensoren, die auf die Funktion senden, mit Raum, Taste, GA und KO. Im Reiter «Geplant» zusätzlich die Tasten, die Sie der Funktion zugewiesen haben. Damit ist die Übersicht von der Taste bis zum Aktorkanal vollständig."
+      ],
+      "verbessert": [
+        "Steckt eine GA in der ETS-Funktion auf der falschen Rolle, z.B. die Beschattung auf dem Platz «Windalarm», meldet KNiX «Rolle Windalarm, KO sagt Beschattung» statt einer DPT-Abweichung, mit der Massnahme: der passenden Rolle zuordnen oder als zusätzliche GA ohne Rolle führen."
+      ]
+    },
+    {
       "version": "1.4.33",
       "date": "2026-11-03",
       "neu": [
