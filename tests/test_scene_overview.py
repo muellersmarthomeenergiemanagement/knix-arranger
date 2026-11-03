@@ -86,6 +86,26 @@ def test_sender_und_empfaenger():
     assert links[2].objects == ["17: Ausgang A – 8-Bit-Szene"]
 
 
+def test_weitere_adressen_zu_szenen():
+    """Chalet: 0/4/5 «Status Anwesend» (1 Bit, Tasten-LED) und «Szene Dimm»
+    fehlten im Szenenreport."""
+    project, _kueche = _project()
+    project.topology.is_imported = True
+    scenes_mg = project.group_addresses.main_groups[0].middle_groups[4]
+    scenes_mg.name = "Szenen"
+    for sub, name, dpt in ((2, "Anwesend-1bit", "DPST-1-1"),
+                           (5, "Status Anwesend   Chalet", "DPST-1-1"),
+                           (200, "Portalzugriff zulassen", "DPST-1-3"),
+                           (250, "Tag/Nacht_Chalet", "DPST-1-1")):
+        scenes_mg.group_addresses.append(GroupAddress(
+            main_group=0, middle_group=4, sub_group=sub, designation=name, datapoint_type=dpt))
+    project.group_addresses.main_groups[1].middle_groups[4].group_addresses.append(GroupAddress(
+        main_group=2, middle_group=4, sub_group=8, designation="Raum1_Szene Dimm",
+        datapoint_type="DPST-3-7"))
+    related = build_scene_overview(project).related
+    assert [g.address for g in related] == ["0/4/2", "0/4/5", "2/4/8"]
+
+
 # ── Szenen-Verwaltung ────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")

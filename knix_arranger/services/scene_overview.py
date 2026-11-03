@@ -16,6 +16,7 @@ Einteilung:
   Szenennummern (zur Fehlersuche).
 """
 from __future__ import annotations
+import re
 from dataclasses import dataclass, field
 
 from .dpt_suggestion import dpt_number
@@ -87,6 +88,7 @@ class SceneOverview:
     addresses: list[SceneAddress] = field(default_factory=list)
     visu: list = field(default_factory=list)
     unclear: list[SceneAddress] = field(default_factory=list)
+    related: list = field(default_factory=list)   # GroupAddress, siehe related_scene_addresses
 
     def address_of(self, scene):
         for group in self.addresses + self.unclear:
@@ -192,7 +194,39 @@ def build_scene_overview(project, include_empty: bool = False) -> SceneOverview:
     overview.unclear.sort(key=order)
     overview.visu.sort(key=lambda s: min(
         (group_address_key(a) for a in s.source_ga_addresses), default=(999,)))
+    if imported:
+        shown = set(groups) | {a for s in overview.visu for a in s.source_ga_addresses}
+        overview.related = related_scene_addresses(project, shown)
     return overview
+
+
+_SCENE_WORD = re.compile(r"szen|scene", re.IGNORECASE)
+
+
+def related_scene_addresses(project, shown: set[str]) -> list:
+    """Adressen, die zu Szenen gehören, aber keine Szenennummer übertragen
+    (Chalet: 0/4/2 «Anwesend-1bit», 0/4/5 «Status Anwesend» für die Tasten-LED,
+    2/4/8 «Raum1_Szene Dimm»): Bezeichnung mit «Szene», oder in einer
+    Szenen-Mittelgruppe mit einem Wort aus dem Namen einer nummerierten Szene
+    («Anwesend», «Ferien»). Ohne die schon gezeigten Adressen."""
+    words = {w for s in project.scenes if s.scene_number
+             for w in re.findall(r"[^\W\d_]{4,}", (s.name or "").lower())
+             if not _SCENE_WORD.match(w)}
+    result = []
+    for hg in project.group_addresses.main_groups:
+        for mg in hg.middle_groups:
+            scene_group = bool(_SCENE_WORD.search(mg.name or ""))
+            for ga in mg.group_addresses:
+                name = (ga.designation or "").strip()
+                if not name or ga.address in shown or ga.is_placeholder \
+                        or is_scene_dpt(ga.datapoint_type):
+                    continue
+                tokens = re.findall(r"[^\W\d_]+", name.lower())
+                if _SCENE_WORD.search(name) or (scene_group and any(
+                        t.startswith(w) for t in tokens for w in words)):
+                    result.append(ga)
+    result.sort(key=lambda g: group_address_key(g.address))
+    return result
 
 
 def _sends(device, cos) -> bool:

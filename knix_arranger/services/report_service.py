@@ -2465,6 +2465,8 @@ class ReportService:
         parts = [f"{len(existing)} Szenen-Adressen mit {n_scenes} Szenen"]
         if overview.visu:
             parts.append(f"{len(overview.visu)} Szenen der Visualisierung")
+        if overview.related:
+            parts.append(f"{len(overview.related)} weitere Adressen zu Szenen")
         if overview.unclear:
             parts.append(f"{len(overview.unclear)} nicht eindeutig")
         if planned:
@@ -2587,6 +2589,29 @@ class ReportService:
                 ])
             pdf.add_table(["Szene", "Gruppenadressen", "Ausgelöst durch"], rows,
                           col_widths=[0.24, 0.50, 0.26])
+
+        # ── Weitere Adressen zu Szenen ───────────────────────────────────────
+        if overview.related:
+            pdf.add_page_break()
+            pdf.add_heading("Weitere Adressen zu Szenen", level=2)
+            pdf.add_note(
+                "Hinweis:",
+                "Diese Adressen gehören zu Szenen, übertragen aber keine "
+                "Szenennummer: 1-Bit-Auslöser (z.B. Anwesend/Abwesend), "
+                "Rückmeldungen für die Tasten-LED und Dimmen der Szene.")
+            rows = []
+            for ga in overview.related:
+                links = linked_devices(self.project, ga.address)
+                rows.append([
+                    ga.address, _clean(ga.designation),
+                    dpt_number(ga.datapoint_type or "") or "–",
+                    "\n".join(f"{link.device.physical_address} "
+                              f"{_device_cell(link.device)[0]} ({link.role})\n"
+                              + "\n".join(f"    {o}" for o in link.objects)
+                              for link in links) or "nicht verknüpft",
+                ])
+            pdf.add_table(["Adresse", "Bezeichnung", "DPT", "Verknüpfte Geräte und Objekte"],
+                          rows, col_widths=[0.09, 0.27, 0.08, 0.56])
 
         # ── Nicht eindeutig ──────────────────────────────────────────────────
         if overview.unclear:
