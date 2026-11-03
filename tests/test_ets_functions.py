@@ -328,6 +328,45 @@ def test_view_in_sidebar_and_filled():
     assert view._tree.topLevelItemCount() == 0
 
 
+def test_view_starts_collapsed_with_search_and_filter():
+    """Beim Öffnen nur Raum › Funktion; Suche zeigt die Funktion der GA
+    aufgeklappt, leer wieder wie vorher; «Nur mit Hinweis» blendet aus."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from knix_arranger.ui.views.ets_functions_view import EtsFunctionsView
+    _app = QApplication.instance() or QApplication([])
+    view = EtsFunctionsView()
+    project = _import()
+    view.set_project(project)
+    room = view._tree.topLevelItem(0)
+    functions = [room.child(i) for i in range(room.childCount())]
+    assert room.isExpanded() and not any(f.isExpanded() for f in functions)
+    # Hinweise stehen in der Funktionszeile
+    assert any("mit Hinweis" in f.text(6) for f in functions)
+
+    view._search.setText("12/1/7")
+    visible = [f for f in functions if not f.isHidden()]
+    assert [f.text(0) for f in visible] == ["Leselampen (Licht schalten)"]
+    gas = visible[0].child(0)
+    assert visible[0].isExpanded() and gas.isExpanded()
+    assert [gas.child(i).text(3) for i in range(gas.childCount())
+            if not gas.child(i).isHidden()] == ["12/1/7"]
+
+    view._search.setText("")
+    assert all(not f.isHidden() for f in functions)
+    assert not any(f.isExpanded() for f in functions)
+
+    view._only_open.setChecked(True)
+    assert all(bool(f.text(6)) != f.isHidden() for f in functions)
+    view._only_open.setChecked(False)
+
+    # aufgeklappt bleibt nach dem Neuladen aufgeklappt
+    functions[1].setExpanded(True)
+    view.set_project(project)
+    assert view._tree.topLevelItem(0).child(1).isExpanded()
+
+
 def test_ets_generated_in_any_main_group():
     """ETS 6.4.1: erste freie MG der höchsten HG -- 13/0 nach vollem HG 12,
     ohne HG 12/13 auch 4/3 (Lücke im DG)."""

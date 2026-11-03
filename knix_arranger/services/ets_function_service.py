@@ -365,14 +365,19 @@ class EtsFunctionMembers:
                 continue
             ga = self._gas[element]
             code = self._gewerk(ga)
-            # Ein Eintrag je Element, nicht je KO (Bewegen, Schritt, Position …)
             place = self._place(element, code)
-            key = (device.physical_address, place or element.rsplit("/", 1)[0], code)
-            if key not in found:
-                # KO-Name ohne Funktion: "Bedienung Storen (M2), Endlage" -> Kanal
-                channel = (co.name or "").split(",")[0].strip()
-                found[key] = MemberLink(code, place, element, ga.designation,
-                                        f"{device.physical_address} {channel}".strip())
+            # KO-Name ohne Funktion: "Bedienung Storen (M2), Endlage" -> Kanal
+            channel = (co.name or "").split(",")[0].strip()
+            # Ein Eintrag je Aktorkanal, nicht je KO (Bewegen, Beschattung …):
+            # das Element mit Raum, sonst die kleinste Element-GA (Chalet M5:
+            # 3/1/0 «Halle» statt 3/1/4 «_beschattung» ohne Raum)
+            key = (device.physical_address, channel or element.rsplit("/", 1)[0], code)
+            link = MemberLink(code, place, element, ga.designation,
+                              f"{device.physical_address} {channel}".strip())
+            known = found.get(key)
+            if known is None or (bool(place), _neg_key(element)) > (
+                    bool(known.place), _neg_key(known.address)):
+                found[key] = link
         return sorted(found.values(), key=lambda m: (m.code, m.place, _address_key(m.address)))
 
 
@@ -413,6 +418,11 @@ def function_operators(project, addresses) -> list[OperatorLink]:
                         f"{device_type_label(device)} {device.physical_address} "
                         f"KO {co.object_number}", device.physical_address))
     return sorted(result, key=lambda o: (o.place, _address_key(o.address)))
+
+
+def _neg_key(address: str) -> tuple:
+    """Kleinere Adresse = grösserer Schlüssel (für max-Vergleiche)."""
+    return tuple(-p for p in _address_key(address))
 
 
 def _address_key(address: str) -> tuple:

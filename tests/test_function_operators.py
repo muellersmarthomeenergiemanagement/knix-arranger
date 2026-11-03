@@ -101,6 +101,44 @@ def test_matching_role_without_hint():
     assert role_mismatch("FT-7", ref, ko_functions(_blinds_function(ref))) is None
 
 
+def test_one_member_per_actor_channel():
+    """Chalet «J.Galerie»: Bewegen und Beschattung der Funktion liegen auf
+    zwei KOs desselben Kanals M5 -- ein Eintrag mit der Bewegen-GA 3/1/0,
+    nicht zusätzlich 3/1/4 «_beschattung»."""
+    from knix_arranger.models.group_address import (
+        GroupAddress, GroupAddressStructure, MainGroup, MiddleGroup,
+    )
+    from knix_arranger.services.ets_function_service import EtsFunctionMembers
+    project, studio = _project()
+    project.topology.is_imported = True
+    gas = [GroupAddress(main_group=3, middle_group=1, sub_group=n, designation=d,
+                        gewerk_code="J", datapoint_type=t)
+           for n, d, t in ((0, "J.OG.00.01_move", "DPST-1-8"),
+                           (4, "J.OG.00.01_beschattung", "DPST-1-22"))]
+    gas += [GroupAddress(main_group=4, middle_group=1, sub_group=n, designation=d)
+            for n, d in ((250, "J.Galerie Bewegen"), (254, "J.Galerie Beschattung"))]
+    project.group_addresses = GroupAddressStructure(main_groups=[
+        MainGroup(number=3, middle_groups=[MiddleGroup(number=1, group_addresses=gas[:2])]),
+        MainGroup(number=4, middle_groups=[MiddleGroup(number=1, group_addresses=gas[2:])])])
+
+    def co(n, name, connected):
+        return CommunicationObject(object_number=n, name=name, flags="K-S---",
+                                   connected_gas=connected)
+    project.topology.areas[0].lines[0].devices.append(Device(
+        device_type="actor", physical_address="1.1.5", communication_objects=[
+            co(90, "Bedienung Storen (M5), Endlage", ["3/1/0", "4/1/250"]),
+            co(92, "Bedienung Storen (M5), Beschattung", ["3/1/4", "4/1/254"])]))
+    function = EtsFunction("J.Galerie", "FT-7", [
+        EtsFunctionRef("MoveUpDown", "4/1/250"), EtsFunctionRef("", "4/1/254")])
+    studio.ets_functions = [function]
+    finder = EtsFunctionMembers(project)
+    # wie im Chalet: nur die Bewegen-GA hat einen Raum im Raumbuch
+    finder._place = lambda address, code: "00 Halle" if address == "3/1/0" else ""
+    members = [m for m in finder.members(function) if m.channel.startswith("1.1.5")]
+    assert [(m.address, m.place, m.channel) for m in members] == [
+        ("3/1/0", "00 Halle", "1.1.5 Bedienung Storen (M5)")]
+
+
 def test_planned_sensor_function():
     project, studio = _project()
     function = KnixFunction(name="Balkonseite", function_type="FT-7", room_id=studio.id)

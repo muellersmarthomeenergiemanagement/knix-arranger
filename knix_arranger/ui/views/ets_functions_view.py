@@ -5,11 +5,14 @@ Elementen, ihren Gewerken (FA-530c) und dem Stand in der ETS (FA-637).
 """
 from __future__ import annotations
 
+import re
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem,
-    QTabWidget, QPushButton, QMessageBox, QMenu,
+    QTabWidget, QPushButton, QMessageBox, QMenu, QLineEdit, QCheckBox,
+    QTreeWidgetItemIterator,
 )
 
 from ...models.project import KnxProject
@@ -26,6 +29,11 @@ _COLUMNS = ["Raum / Funktion", "Gewerk", "Rolle", "Adresse", "Name in der ETS", 
 _PLAN_COLUMNS = ["Ort / Funktion", "Gewerk", "Funktionspunkt", "Adresse", "Bezeichnung",
                  "Stand in der ETS / Aktorkanal"]
 _STATE_TEXT = {"anlegen": "in der ETS anlegen", "ergänzen": "GAs zuordnen", "ok": "vorhanden"}
+# Funktionszeile und "etwas zu tun" (Hinweis, anlegen/ergänzen): für das
+# Aufklappen beim Öffnen und den Filter "Nur mit Hinweis"
+_KIND = Qt.UserRole + 1
+_ATTENTION = Qt.UserRole + 2
+_COUNT_RE = re.compile(r" \(\d+\)$")
 
 
 class EtsFunctionsView(QWidget):
@@ -50,6 +58,26 @@ class EtsFunctionsView(QWidget):
         self._summary.setWordWrap(True)
         self._summary.setStyleSheet("color: #666;")
         layout.addWidget(self._summary)
+
+        filters = QHBoxLayout()
+        self._search = QLineEdit()
+        self._search.setPlaceholderText(
+            "Suchen: Funktion, Raum, Adresse, GA-Name, Gerät, Taste …")
+        self._search.setClearButtonEnabled(True)
+        self._search.textChanged.connect(lambda _t: self._apply_filters())
+        filters.addWidget(self._search, 1)
+        self._only_open = QCheckBox("Nur mit Hinweis")
+        self._only_open.toggled.connect(lambda _c: self._apply_filters())
+        filters.addWidget(self._only_open)
+        btn_expand = QPushButton("Alle aufklappen")
+        btn_expand.clicked.connect(lambda: self._current_tree().expandAll())
+        btn_collapse = QPushButton("Alle zuklappen")
+        btn_collapse.clicked.connect(lambda: _collapse(self._current_tree()))
+        filters.addWidget(btn_expand)
+        filters.addWidget(btn_collapse)
+        layout.addLayout(filters)
+        # Aufklappzustand vor dem Filtern, je Baum (None = kein Filter aktiv)
+        self._restore: dict[int, set | None] = {}
 
         self._tabs = QTabWidget()
         self._tree = QTreeWidget()
@@ -91,6 +119,7 @@ class EtsFunctionsView(QWidget):
         self._tabs.addTab(self._tree, "In der ETS")
         self._tabs.addTab(plan_page, "Geplant")
         layout.addWidget(self._tabs, 1)
+        self._tabs.currentChanged.connect(self._update_filter_label)
         self._update_buttons()
 
     def set_bus(self, bus) -> None:
@@ -104,6 +133,7 @@ class EtsFunctionsView(QWidget):
         Gruppenadressen, FA-1011g). key: Funktion-id (Geplant) oder
         ("ets", Stockwerk, Raum, Funktion) (In der ETS)."""
         from ..tree_select import select_tree_item
+        self._clear_filters()
         ets = isinstance(key, tuple)
         tree = self._tree if ets else self._plan_tree
         self._tabs.setCurrentIndex(0 if ets else 1)
@@ -129,8 +159,21 @@ class EtsFunctionsView(QWidget):
         rows = overview_rows(project) if project else []
         statuses = plan.compare_plan(project) if project else []
         self._summary.setText(self._summary_text(rows, statuses))
+        trees = (self._tree, self._plan_tree)
+        # geöffnete Knoten bleiben offen (z.B. nach dem Speichern)
+        states = {id(t): self._restore.get(id(t)) if self._filter_active()
+                  else (_expanded_paths(t) if t.topLevelItemCount() else None)
+                  for t in trees}
         self._fill(rows)
         self._fill_plan(statuses)
+        for tree in trees:
+            state = states[id(tree)]
+            if state is None:
+                _default_expand(tree)
+            else:
+                _restore_paths(tree, state)
+            self._restore[id(tree)] = None
+        self._apply_filters()
         self._update_buttons()
 
     def _summary_text(self, rows, statuses) -> str:
@@ -170,8 +213,11 @@ class EtsFunctionsView(QWidget):
             if fn_item is None:
                 fn_item = QTreeWidgetItem([f"{row.function} ({row.type_label})"])
                 fn_item.setData(0, Qt.UserRole, ("ets", *fn_key))
+                fn_item.setData(0, _KIND, "function")
                 room_item.addChild(fn_item)
                 functions[fn_key] = fn_item
+            if row.hints:
+                fn_item.setData(0, _ATTENTION, True)
             if not row.address and not row.role:
                 # Funktion ohne GA
                 if row.hints:
@@ -195,6 +241,12 @@ class EtsFunctionsView(QWidget):
             ga_node.addChild(item)
         for fn_key, ga_node in ga_nodes.items():
             ga_node.setText(0, f"GAs ({ga_node.childCount()})")
+            # zugeklappt: die Funktionszeile sagt, dass darunter etwas ist
+            hinted = sum(1 for i in range(ga_node.childCount()) if ga_node.child(i).text(6))
+            fn_item = functions[fn_key]
+            if hinted and not fn_item.text(6):
+                fn_item.setText(6, f"{hinted} GA(s) mit Hinweis")
+                fn_item.setForeground(6, warn)
         for fn_key, fn_item in functions.items():
             _set_gewerk(fn_item, gewerke.function_cell(addresses.get(fn_key, [])))
         if rows:
@@ -219,8 +271,10 @@ class EtsFunctionsView(QWidget):
                     if other is not function and text not in others:
                         others.append(text)
             if others:
-                fn_item.setText(6, f"GAs auch in {', '.join(others)}")
+                fn_item.setText(6, "; ".join(t for t in (
+                    fn_item.text(6), f"GAs auch in {', '.join(others)}") if t))
                 fn_item.setForeground(6, warn)
+                fn_item.setData(0, _ATTENTION, True)
             found = members.members(function)
             node = QTreeWidgetItem([f"Bediente Elemente ({len(found)})"])
             node.setToolTip(0, "Elemente der Gewerke, deren Aktorkanal eine GA der Funktion "
@@ -282,8 +336,12 @@ class EtsFunctionsView(QWidget):
             fn_item = QTreeWidgetItem([f"{function.name} ({plan.plan_type_label(function.function_type)})",
                                        "", "", "", "", state])
             fn_item.setData(0, Qt.UserRole, function.id)
+            fn_item.setData(0, _KIND, "function")
             if ets_read and (status.state != "ok" or status.other_room):
                 fn_item.setForeground(5, warn)
+                # übernommen: die GAs gibt es in der ETS, nichts anzulegen
+                if not (function.ets_gas and status.ets is None):
+                    fn_item.setData(0, _ATTENTION, True)
             place.addChild(fn_item)
             members = plan.resolve_members(project, function)
             codes = [m.assignment.gewerk_code for m in members if m is not None]
@@ -325,6 +383,7 @@ class EtsFunctionsView(QWidget):
                 if member is None:
                     item = QTreeWidgetItem(["", "", "Element entfernt"])
                     item.setForeground(2, warn)
+                    fn_item.setData(0, _ATTENTION, True)
                 else:
                     own = own_gas.get((member.assignment.id, member.element_number))
                     channel = channels.get(own.address, "") if own else ""
@@ -476,9 +535,119 @@ class EtsFunctionsView(QWidget):
 
     @staticmethod
     def _finish(tree: QTreeWidget, columns: int) -> None:
+        # Spaltenbreite über alle Zeilen, auch die danach zugeklappten
         tree.expandAll()
         for col in range(columns):
             tree.resizeColumnToContents(col)
+        _collapse(tree)
+
+    # ── Suche und Filter ──────────────────────────────────────────────────
+
+    def _current_tree(self) -> QTreeWidget:
+        return self._tree if self._tabs.currentIndex() == 0 else self._plan_tree
+
+    def _update_filter_label(self, index: int) -> None:
+        self._only_open.setText("Nur mit Hinweis" if index == 0 else "Nur offene")
+        self._only_open.setToolTip(
+            "Nur Funktionen mit Hinweis" if index == 0 else
+            "Nur Funktionen, die in der ETS anzulegen oder zu ergänzen sind")
+
+    def _filter_active(self) -> bool:
+        return bool(self._search.text().strip()) or self._only_open.isChecked()
+
+    def _clear_filters(self) -> None:
+        for widget in (self._search, self._only_open):
+            widget.blockSignals(True)
+        self._search.clear()
+        self._only_open.setChecked(False)
+        for widget in (self._search, self._only_open):
+            widget.blockSignals(False)
+        self._apply_filters()
+
+    def _apply_filters(self) -> None:
+        query = self._search.text().strip().lower()
+        only_open = self._only_open.isChecked()
+        for tree in (self._tree, self._plan_tree):
+            key = id(tree)
+            if self._filter_active():
+                if self._restore.get(key) is None:
+                    self._restore[key] = _expanded_paths(tree)
+                for i in range(tree.topLevelItemCount()):
+                    top = tree.topLevelItem(i)
+                    _filter_item(top, query, only_open, False, tree.columnCount())
+                    # Raum/Ort nur mit sichtbaren Funktionen
+                    top.setHidden(all(top.child(c).isHidden()
+                                      for c in range(top.childCount())))
+            else:
+                _show_all(tree)
+                state = self._restore.get(key)
+                if state is not None:
+                    _restore_paths(tree, state)
+                self._restore[key] = None
+
+
+def _path(item: QTreeWidgetItem) -> tuple[str, ...]:
+    """Pfad eines Knotens ohne Anzahl ("GAs (5)" -> "GAs")."""
+    parts = []
+    while item is not None:
+        parts.append(_COUNT_RE.sub("", item.text(0)))
+        item = item.parent()
+    return tuple(reversed(parts))
+
+
+def _items(tree: QTreeWidget):
+    it = QTreeWidgetItemIterator(tree)
+    while it.value():
+        yield it.value()
+        it += 1
+
+
+def _expanded_paths(tree: QTreeWidget) -> set[tuple[str, ...]]:
+    return {_path(item) for item in _items(tree) if item.isExpanded()}
+
+
+def _restore_paths(tree: QTreeWidget, paths: set) -> None:
+    for item in _items(tree):
+        item.setExpanded(_path(item) in paths)
+
+
+def _collapse(tree: QTreeWidget) -> None:
+    """Alles zu, nur die Räume/Orte offen: man sieht die Funktionen."""
+    tree.collapseAll()
+    for i in range(tree.topLevelItemCount()):
+        tree.topLevelItem(i).setExpanded(True)
+
+
+def _default_expand(tree: QTreeWidget) -> None:
+    """Beim Öffnen: nur Raum › Funktion; was zu tun ist, steht in der
+    Funktionszeile ("2 GA(s) mit Hinweis", "in der ETS anlegen")."""
+    _collapse(tree)
+
+
+def _show_all(tree: QTreeWidget) -> None:
+    for item in _items(tree):
+        item.setHidden(False)
+
+
+def _filter_item(item: QTreeWidgetItem, query: str, only_open: bool, inherited: bool,
+                 columns: int) -> tuple[bool, bool]:
+    """(sichtbar, Treffer darunter). Trifft ein Knoten, bleibt alles
+    darunter sichtbar; Knoten mit Treffern darunter klappen auf."""
+    if only_open and item.data(0, _KIND) == "function" and not item.data(0, _ATTENTION):
+        item.setHidden(True)
+        return False, False
+    own = bool(query) and any(query in item.text(c).lower() for c in range(columns))
+    matched = inherited or own or not query
+    any_visible = hit_below = False
+    for c in range(item.childCount()):
+        visible, hit = _filter_item(item.child(c), query, only_open, matched, columns)
+        any_visible |= visible
+        hit_below |= hit
+    if query and hit_below:
+        item.setExpanded(True)
+    visible = matched or any_visible
+    item.setHidden(not visible)
+    return visible, own or hit_below
 
 
 def _set_gewerk(item: QTreeWidgetItem, cell: GewerkCell, grey: bool = False) -> None:
