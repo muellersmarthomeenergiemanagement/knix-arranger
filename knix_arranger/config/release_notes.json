@@ -2,6 +2,20 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.33",
+      "date": "2026-11-03",
+      "neu": [
+        "Die Validierung meldet GAs, deren Name eine andere Funktion nennt als das Aktor-KO, an dem sie hängen, z.B. «…_hoehe» am Winkel-KO. Am Bus gilt das KO: entweder ist der Name oder die Verknüpfung falsch. In geplanten Projekten ein Fehler, in importierten ein Hinweis."
+      ],
+      "verbessert": [
+        "Importierte Projekte: Was eine GA tut, liest KNiX zuerst am Aktor-KO ab, erst danach am Namen. Frei vergebene Namen wie «J.Studio Lamellenstellung» werden so richtig erkannt.",
+        "«Gruppen erkennen…» übernimmt bei Jalousien auch die Lamellen- und die Beschattungs-GA."
+      ],
+      "behoben": [
+        "Eine aus der ETS übernommene Gruppenbedienung legte zusätzliche GAs an (z.B. «Position Lamellen» neben der bestehenden Lamellen-GA, «Sperren» ohne Sperr-KO am Aktor). Bitte solche Funktionen löschen und über «Gruppen erkennen…» neu übernehmen."
+      ]
+    },
+    {
       "version": "1.4.32",
       "date": "2026-11-02",
       "neu": [
