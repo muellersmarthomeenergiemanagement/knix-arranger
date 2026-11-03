@@ -2,6 +2,25 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.37",
+      "date": "2026-11-03",
+      "neu": [
+        "Bauherrenpaket: Im Dialog «Revisionspaket erstellen» wählen Sie mit einem Klick nur die Unterlagen für den Kunden – Bedienungsanleitung, Zusammenfassung, Raumbuch, Szenen, Zeitsteuerung, Abnahmeprotokoll, Datenblätter und Offerte. Das Inhaltsverzeichnis des vollen Pakets zeigt je Dokument, ob es für den Bauherrn oder die Inbetriebnahme ist."
+      ],
+      "verbessert": [
+        "Bedienungsanleitung: Tasten heissen nach dem, was sie bedienen, z.B. «Storen Balkon Bibliothek» oder «Storen Fenster gross + Fenster klein – Seite Berg» statt bloss «Storen».",
+        "Funktionen in den Berichten: Die Zusammenfassung listet sie nach Ort mit den bedienten Elementen und dem Stand in der ETS; Bedienelemente und Aktoren nennen die Funktion an Taste und Kanal.",
+        "Aktoren und Gateways: Jeder Kanal zeigt, in welchem Raum er schaltet.",
+        "Verknüpfungsmatrix: Querformat, je Taster ein Block mit Gerätenummer, die GAs einer Taste in einer Zeile.",
+        "Stockwerke stehen in den Berichten von unten nach oben (UG, EG, OG, DG), sofern ihre Lage aus dem Kürzel ersichtlich ist."
+      ],
+      "behoben": [
+        "GA-Übersicht: Die Spalte «Raum» zeigte teils den Klartext der Bezeichnung («Seite Berg») statt des Raums.",
+        "Bedienungsanleitung: Storentasten mit einer zentralen Wind- oder Sicherheits-GA erschienen fälschlich unter «Zentrale Funktionen».",
+        "Raumbuch: Am Anfang jedes Stockwerks stand eine leere Seite."
+      ]
+    },
+    {
       "version": "1.4.36",
       "date": "2026-11-03",
       "verbessert": [
