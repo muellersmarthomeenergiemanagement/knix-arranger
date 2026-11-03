@@ -3,7 +3,7 @@ KNiX Arranger - KNX-Projektplanungstool
 (c) Michael Müller SmartHome&EnergieManagement. Alle Rechte vorbehalten.
 """
 
-__version__ = "1.4.38"
+__version__ = "1.4.39"
 __author__ = "Michael Müller"
 __copyright__ = "(c) Michael Müller SmartHome&EnergieManagement"
 APP_NAME = "KNiX Arranger"

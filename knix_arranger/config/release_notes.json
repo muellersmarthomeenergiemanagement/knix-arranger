@@ -2,6 +2,16 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.39",
+      "date": "2026-11-03",
+      "neu": [
+        "Szenenreport: Der neue Abschnitt «Weitere Adressen zu Szenen» zeigt Adressen ohne Szenennummer – 1-Bit-Auslöser (z.B. Anwesend/Abwesend), Rückmeldungen für die Tasten-LED und Szene dimmen – mit den verknüpften Geräten und Objekten."
+      ],
+      "behoben": [
+        "Szenen-Adressen mit 1 Bit (z.B. «Status Anwesend») fehlten im Szenenreport."
+      ]
+    },
+    {
       "version": "1.4.38",
       "date": "2026-11-03",
       "neu": [
