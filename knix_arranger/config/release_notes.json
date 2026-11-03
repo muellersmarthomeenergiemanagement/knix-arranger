@@ -2,6 +2,16 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.36",
+      "date": "2026-11-03",
+      "verbessert": [
+        "ETS-Funktionen: Die Ansicht öffnet zugeklappt – Sie sehen Raum und Funktion, Hinweise stehen direkt in der Funktionszeile. Neu gibt es ein Suchfeld (Funktion, Raum, Adresse, GA-Name, Gerät, Taste), den Filter «Nur mit Hinweis» bzw. «Nur offene» und «Alle auf-/zuklappen». Geöffnete Funktionen bleiben nach dem Speichern offen."
+      ],
+      "behoben": [
+        "ETS-Funktionen: Ein Aktorkanal erschien unter «Bediente Elemente» doppelt, wenn mehrere GAs der Funktion auf verschiedenen KOs desselben Kanals liegen (z.B. Bewegen und Beschattung), einmal davon mit einer fremden GA ohne Raum."
+      ]
+    },
+    {
       "version": "1.4.35",
       "date": "2026-11-03",
       "verbessert": [
