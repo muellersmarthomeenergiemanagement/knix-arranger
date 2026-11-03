@@ -2,6 +2,20 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.41",
+      "date": "2026-11-03",
+      "neu": [
+        "Bestand & Umbau: Bei importierten Projekten führt die Übersicht durch den Arbeitsweg einer bestehenden Anlage – einlesen, prüfen, messen, beurteilen, Umbau planen, dokumentieren. Die Seitenleiste zeigt die neue Gruppe «Bestand & Umbau» gleich nach «Projekt».",
+        "Busanalyse: Mitschnitte aus dem Bus- oder Gruppenmonitor der ETS einlesen. KNiX zeigt, wer sendet, welche Absender in der ETS fehlen, auf welche GAs externe Geräte senden (Dummy-Liste), Wiederholungen, Lastspitzen und häufig sendende Geräte – mit Bericht.",
+        "Anlagen-Check: Zustand der Anlage auf einen Blick mit Bewertung und Empfehlung – Teilnehmer und Busstrom je Linie, Reserven, Gruppenadressen, Geräte, Validierung, KNX Secure, Dokumentation und Busanalyse. Als Bericht für Bauherr und Service.",
+        "Erweiterung im Bestand: neue Elemente in einer bestehenden Anlage planen. KNiX schlägt Adressen in der passenden Mittelgruppe vor, Namen nach dem Schema der Anlage (oder KNX Swiss) und freie Aktorkanäle – mit GA-Liste (CSV) für den ETS-Import und Bericht.",
+        "Umbau-Varianten: Linienumbauten, Erweiterungen und Geräte ausserhalb des ETS-Projekts an einem Ort."
+      ],
+      "verbessert": [
+        "Linienumbau: Mit einem Busmonitor-Mitschnitt zeigt die Prüfung externer Geräte, welche gesperrten GAs das Gerät nachweislich sendet."
+      ]
+    },
+    {
       "version": "1.4.40",
       "date": "2026-11-03",
       "neu": [
