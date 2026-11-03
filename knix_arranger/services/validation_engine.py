@@ -71,6 +71,29 @@ def _melder_has_ga(project, room, be, device=None) -> bool:
     return any(number >= 0 for number in sensor_co_map(device).values())
 
 
+def _actor_dpts(project) -> dict[str, set[str]]:
+    """GA -> DPTs (Untertyp, "DPST-1-22") der Aktor- und Gateway-KOs, die
+    sie empfangen; ohne Rückmeldungen und ohne KOs ohne Untertyp."""
+    if project is None:
+        return {}
+    from .ko_links import WRITE, parse_flags
+    result: dict[str, set[str]] = {}
+    for area in project.topology.areas:
+        for line in area.lines:
+            for device in line.devices:
+                if device.device_type not in ("actor", "gateway"):
+                    continue
+                for co in device.communication_objects:
+                    dpt = ets_dpt_id(co.data_type or "")
+                    flags = parse_flags(co.flags)
+                    if (not co.connected_gas or not dpt.upper().startswith("DPST-")
+                            or (flags and WRITE not in flags)):
+                        continue
+                    for address in co.connected_gas:
+                        result.setdefault(address, set()).add(dpt)
+    return result
+
+
 class ValidationEngine:
     """Prüft GA-Strukturen auf Konformitaet."""
 
@@ -90,7 +113,7 @@ class ValidationEngine:
 
         issues.extend(self._check_valid_addresses(all_gas))
         issues.extend(self._check_duplicates(all_gas))
-        issues.extend(self._check_dpt(all_gas))
+        issues.extend(self._check_dpt(all_gas, _actor_dpts(project)))
         issues.extend(self._check_naming(all_gas, self._planned_room_numbers(project)))
         issues.extend(self._check_middle_group_assignment(all_gas))
         issues.extend(self._check_block_integrity(structure))
@@ -996,8 +1019,13 @@ class ValidationEngine:
                 seen[key] = ga
         return issues
 
-    def _check_dpt(self, addresses: list[GroupAddress]) -> list[ValidationIssue]:
-        """FA-603, FA-604: Prüft Datenpunkttypen."""
+    def _check_dpt(self, addresses: list[GroupAddress],
+                   actor_dpts: dict[str, set[str]] | None = None) -> list[ValidationIssue]:
+        """FA-603, FA-604: Prüft Datenpunkttypen. actor_dpts (siehe
+        _actor_dpts): DPT der Aktor-KOs je GA; passt die GA dazu, gilt sie
+        als richtig (FA-531a: das Gerät entscheidet, z.B. Griesser
+        «Auf / Beschattung» 1.022 statt 1.008)."""
+        actor_dpts = actor_dpts or {}
         issues = []
         expected_dpts = {
             "E/A": "DPST-1-1", "RM": "DPST-1-1",
@@ -1037,6 +1065,8 @@ class ValidationEngine:
                     # übrige Funktionen der Liste (FA-1003c): nur der Haupttyp
                     expected = expected or ga_functions.suggested_dpt(ga.function_name)
                     wrong = bool(expected) and _dpt_main(actual) != _dpt_main(expected)
+                if wrong and actual in actor_dpts.get(ga.address, ()):
+                    wrong = False
                 if wrong:
                     issues.append(ValidationIssue(
                         "warning", "FA-603",

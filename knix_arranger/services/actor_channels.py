@@ -265,14 +265,29 @@ def co_function(co, candidates: dict[str, str]) -> str:
     """Gegenrichtung zu suggest_co: welche Befehls-Funktion (Funktion -> DPT
     für die Grösse) ein Aktor-KO erfüllt, nach denselben Stichworten im
     Herstellertext ("Bedienung Storen (M1), Winkel" -> POSITION LAMELLEN).
-    "" bei Rückmeldungen, ohne Treffer oder bei Gleichstand."""
+    "" bei Rückmeldungen, ohne Treffer oder bei Gleichstand. Zwischen-
+    gespeichert: hängt nur an Texten, Flags und Grösse, und gleiche Aktoren
+    wiederholen dieselben KOs (Validierung Chalet: 94 000 Aufrufe)."""
+    key = (co.name, co.object_function, co.flags, getattr(co, "object_size", ""),
+           getattr(co, "data_type", ""), tuple(candidates.items()))
+    found = _CO_FUNCTION_CACHE.get(key)
+    if found is not None:
+        return found
     if _is_feedback(co):
-        return ""
-    scores = {function: _keyword_score(co, _keywords(function))
-              for function, dpt in candidates.items() if sizes_compatible(co, dpt)}
-    best = max(scores.values(), default=0)
-    top = [f for f, s in scores.items() if s == best]
-    return top[0] if best and len(top) == 1 else ""
+        found = ""
+    else:
+        scores = {function: _keyword_score(co, _keywords(function))
+                  for function, dpt in candidates.items() if sizes_compatible(co, dpt)}
+        best = max(scores.values(), default=0)
+        top = [f for f, s in scores.items() if s == best]
+        found = top[0] if best and len(top) == 1 else ""
+    if len(_CO_FUNCTION_CACHE) > 50_000:
+        _CO_FUNCTION_CACHE.clear()
+    _CO_FUNCTION_CACHE[key] = found
+    return found
+
+
+_CO_FUNCTION_CACHE: dict[tuple, str] = {}
 
 
 def suggested_co_map(channel: DeviceChannel | None, circuit: Circuit) -> dict[str, int]:

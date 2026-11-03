@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 3.91
+**Version:** 3.92
 **Datum:** 03.11.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -87,6 +87,7 @@
 | 3.89 | 02.11.2026 | M. Mueller / Claude AI | Warnung bei gleicher GA in mehreren ETS-Funktionen, ausser Wind-/Regenalarm (FA-636b); eingelesene Funktionen zeigen ihre bedienten Elemente mit Gewerk, Raum und Aktorkanal aus den KO-Verknuepfungen (FA-529b) |
 | 3.90 | 03.11.2026 | M. Mueller / Claude AI | Bedeutung importierter GAs kommt vom Geraet, nicht vom Namen (FA-531a): Funktionspunkt zuerst aus den Aktor-KOs, dann Endung, Klartext, DPT; Gruppenerkennung erkennt Lamellen und Beschattung (Chalet "J.Studio Lamellenstellung"); uebernommene Funktionen planen keine weiteren GAs, auch nach Speichern und Laden (FA-531); neue Pruefung FA-639 Name passt nicht zum KO |
 | 3.91 | 03.11.2026 | M. Mueller / Claude AI | ETS-Funktionen zeigen neben den bedienten auch die bedienenden Elemente (FA-529c); Rolle der ETS-Funktion gegen das Aktor-KO (FA-636c, Chalet "J.Bibliothek Berg": Beschattung auf dem Platz Windalarm) |
+| 3.92 | 03.11.2026 | M. Mueller / Claude AI | FA-603: DPT passend zum Aktor-KO gilt als richtig (Chalet Beschattung 1.022); Validierung schneller (Funktion je Aktor-KO zwischengespeichert) |
 | 3.79 | 29.10.2026 | M. Mueller / Claude AI | Datenpunkttyp je KO: .knxproj (aktive Variante, Aenderung am KO) und Topologie-Report (Anzeigenamen ueber die DPT-Tabelle des KNX-Stamms, auch "Haupttyp, Untertyp", mehrdeutige Namen nach Groesse) liefern die DPT-Kennung, aeltere Projekte werden beim Laden uebersetzt (FA-522a); Anzeige "1.008 Auf/Ab"; neue Pruefung FA-638 Untertyp mit anderer Bedeutung des Werts; KO-Vorschlag bevorzugt den gleichen Untertyp |
 | 3.78 | 29.10.2026 | M. Mueller / Claude AI | .knxproj-Import wertet die Parameter der Geraete aus (FA-522b): sichtbare Parameterseiten und Werte wie unter "Geraeteparameter" im Report, aktive KOs auch ohne Verknuepfung, je KO-Nummer die aktive Variante; Tastenbelegung, Szenenwerte und Szenenausloeser kommen damit aus der .knxproj, der fruehere Report gilt nur noch fuer Geraete ohne Werte (FA-528a). Geprueft mit Chalet Franziska (2553 KOs, 31 Tastenbelegungen, Szenenwerte und -ausloeser gleich wie im Report) und P19 (361 KOs) |
 | 3.77 | 29.10.2026 | M. Mueller / Claude AI | .knxproj-Import: Kommunikationsobjekte wie im ETS-Topologie-Report (FA-522a): Name aus Text statt interner Kennung, deutsche Uebersetzung, Textparameter mit dem Wert im Projekt, Aenderungen am einzelnen KO (Text, Objektfunktion, Flags, Prioritaet), KOs in Modulen mit Nummer und Texten der Instanz, je KO-Nummer nur die aktive Variante; Flags in der Schreibweise des Reports, Lesen-Flag frueherer Importe richtig gedeutet |
@@ -703,7 +704,7 @@ Nach einem Import (KNXPROJ oder XLSX-Reports) soll das Projekt im Wizard weiterg
 |----|-------------|
 | FA-601 | Das System muss pruefen, ob jede Gruppenadresse eine gueltige Adresse im Format H/M/S besitzt (H: 0-31, M: 0-7, S: 0-255). |
 | FA-602 | Das System muss doppelte Gruppenadressen erkennen und als Fehler melden. |
-| FA-603 | Das System muss pruefen, ob der zugewiesene Datenpunkttyp (DPT) zur Funktion passt (z.B. E/A erwartet DPST-1-x, WERT erwartet DPST-5-1). Fuer die Grundfunktionen (E/A, RM, DIM, WERT, AUF/AB, STOPP, IST, BASIS-SOLL ...) gilt der genaue DPT, fuer die uebrigen Funktionen der Funktionsliste (FA-1003c) der Haupttyp. |
+| FA-603 | Das System muss pruefen, ob der zugewiesene Datenpunkttyp (DPT) zur Funktion passt (z.B. E/A erwartet DPST-1-x, WERT erwartet DPST-5-1). Fuer die Grundfunktionen (E/A, RM, DIM, WERT, AUF/AB, STOPP, IST, BASIS-SOLL ...) gilt der genaue DPT, fuer die uebrigen Funktionen der Funktionsliste (FA-1003c) der Haupttyp. Passt der DPT der GA zum DPT eines Aktor- oder Gateway-KOs, das sie empfaengt (Schreiben-Flag, Untertyp bekannt), gilt er als richtig (FA-531a: das Geraet entscheidet; Griesser JAX-9 "Auf / Beschattung" 1.022 statt 1.008). |
 | FA-604 | Das System muss fehlende Datenpunkttypen erkennen und Vorschlaege basierend auf der Funktion machen. Ohne Funktion wird der DPT aus typischen Bestandteilen der Bezeichnung abgeleitet (_ea, _status, Temp, Helligkeit, Szene, Ventil ...); ist nichts eindeutig erkennbar, bleibt der Vorschlag leer. |
 | FA-605 | Das System muss Luecken in der Adressierung erkennen (z.B. unvollstaendige 5er-/10er-Bloecke). Luecken werden als Hinweis gemeldet, da sie in importierten Projekten meist gewollte Reserven sind. |
 | FA-606 | Das System muss die Konsistenz der Namensgebung pruefen: Geraete gleichen Typs muessen gleiche Bezeichnungsmuster verwenden. |
