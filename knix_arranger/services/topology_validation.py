@@ -3,6 +3,8 @@ Topologie-Prüfungen der Validierung (FA-609, FA-611 bis FA-613).
 
 - FA-609: Geräteanzahl je Linie (Warnung > 85, Fehler > 100 bzw. über dem
   Maximum des Topologie-Modus TP-64/TP-256).
+- FA-609b: 64 Teilnehmer je Segment, mehr nur mit Linienverstärkern (Warnung
+  über 80 %), externe Geräte zählen mit, siehe services.line_segments.
 - FA-611: An Kommunikationsobjekten verknüpfte GAs, die es in der
   GA-Struktur nicht gibt; bei importierten Projekten umgekehrt GAs, die mit
   keinem Kommunikationsobjekt verknüpft sind (Hinweis).
@@ -41,6 +43,7 @@ def check_topology(project) -> list[ValidationIssue]:
         return []
     issues: list[ValidationIssue] = []
     issues += _check_line_load(topology)
+    issues += _check_segments(topology)
     issues += _check_physical_addresses(topology)
     issues += _check_power_supplies(topology)
     issues += _check_bus_current(topology)
@@ -106,6 +109,39 @@ def _check_line_load(topology) -> list[ValidationIssue]:
                     f"(empfohlen max. {topology.RECOMMENDED_DEVICES})",
                     where, "Reserve für Erweiterungen einplanen",
                     details={"count": count, "limit": topology.RECOMMENDED_DEVICES}))
+    return issues
+
+
+def _check_segments(topology) -> list[ValidationIssue]:
+    """FA-609b: 64 Busteilnehmer je Segment; mehr nur mit Linienverstärkern.
+    Was FA-609 schon als Überlast meldet, nicht noch einmal."""
+    from .bus_current import RESERVE_LIMIT
+    from .line_segments import segment_load
+    issues = []
+    limit = min(topology.MAX_REALIZED_DEVICES, topology.max_devices_per_line)
+    for area in topology.areas:
+        for line in area.lines:
+            load = segment_load(line)
+            if not (load.overloaded or load.low_reserve) or len(_bus_devices(line)) > limit:
+                continue
+            text = f"{_line_label(area, line)}: {load.summary()}"
+            if load.external:
+                text += f", davon {load.external} nicht im ETS-Projekt"
+            where = f"{area.area_number}.{line.line_number}"
+            details = {"count": load.count, "capacity": load.capacity}
+            if load.overloaded:
+                issues.append(ValidationIssue(
+                    "error", "FA-609b", text, where,
+                    "Ein Segment trägt höchstens 64 Teilnehmer: Linienverstärker "
+                    "(neues Segment mit eigener Spannungsversorgung) oder "
+                    "Linienkoppler mit neuer Linie vorsehen",
+                    details=details))
+            else:
+                issues.append(ValidationIssue(
+                    "warning", "FA-609b", text, where,
+                    f"Über {RESERVE_LIMIT * 100:.0f} % belegt: Reserve für Erweiterungen "
+                    "fehlt – Linienverstärker oder neue Linie einplanen",
+                    details=details))
     return issues
 
 

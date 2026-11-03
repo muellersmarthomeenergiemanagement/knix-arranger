@@ -48,7 +48,8 @@ class TestTopologyChecks:
 
     def test_line_load(self):
         warn = _project(*(_actor(f"1.1.{i}") for i in range(1, 86)))
-        assert _rules(check_topology(warn)) == [("FA-609", "warning")]   # 86 inkl. Koppler
+        # 86 inkl. Koppler; ohne Linienverstärker sind es zu viele für ein Segment
+        assert _rules(check_topology(warn)) == [("FA-609", "warning"), ("FA-609b", "error")]
         err = _project(*(_actor(f"1.1.{i}") for i in range(1, 101)))
         assert _rules(check_topology(err)) == [("FA-609", "error")]
 

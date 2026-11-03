@@ -2129,6 +2129,9 @@ class MainWindow(QMainWindow):
         if self._rebuild_id_source is not None:
             from ..services.rebuild_service import adopt_device_ids, adopt_report_params
             adopt_device_ids(self._rebuild_id_source, project)
+            # Geräte am Bus ausserhalb des ETS-Projekts liefert die ETS nie
+            from ..services.project_reconcile_service import keep_external_devices
+            keep_external_devices(self._rebuild_id_source, project)
             rebuild_params_kept = adopt_report_params(self._rebuild_id_source, project)
 
         # Gemeinsamer Import-Ablauf (ImportPipeline): Ableiten auf dem frisch

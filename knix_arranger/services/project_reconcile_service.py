@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from ..models.project import KnxProject
 from ..models.group_address import GroupAddress, MainGroup, MiddleGroup
 from ..models.building import Room
+from ..models.topology import Area, Line
 from ..utils.manufacturers import product_key
 
 
@@ -124,6 +125,37 @@ def _room_label(floor_code: str, number: str) -> str:
     return f"{floor_code}/{number}" if floor_code else number
 
 
+def keep_external_devices(old_project: KnxProject, new_project: KnxProject) -> set[str]:
+    """Geräte am Bus, die nicht im ETS-Projekt stehen (Device.external, z.B.
+    Z-Server der Visualisierung), in die frisch importierte Topologie
+    übernehmen -- die ETS liefert sie nie. Steht die Adresse inzwischen im
+    ETS-Projekt, gilt das ETS-Gerät. Gibt die Adressen der übernommenen
+    Geräte zurück."""
+    taken = {d.physical_address for a in new_project.topology.areas
+             for l in a.lines for d in l.devices}
+    kept = set()
+    for old_area in old_project.topology.areas:
+        for old_line in old_area.lines:
+            for device in old_line.devices:
+                if not device.external or device.physical_address in taken:
+                    continue
+                area = next((a for a in new_project.topology.areas
+                             if a.area_number == old_area.area_number), None)
+                if area is None:
+                    area = Area(area_number=old_area.area_number, name=old_area.name)
+                    new_project.topology.areas.append(area)
+                line = next((l for l in area.lines
+                             if l.line_number == old_line.line_number), None)
+                if line is None:
+                    line = Line(line_number=old_line.line_number, name=old_line.name,
+                                coupler_address=old_line.coupler_address)
+                    area.lines.append(line)
+                line.devices.append(device)
+                line.update_device_count()
+                kept.add(device.physical_address)
+    return kept
+
+
 def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> ReimportDiff:
     """Gleicht einen frisch importierten/neu abgeleiteten Projektstand mit dem
     bisherigen ab (.knxproj-Re-Import ODER erneuter XLSX-Import).
@@ -207,8 +239,9 @@ def reconcile_reimport(old_project: KnxProject, new_project: KnxProject) -> Reim
                     new_dev.application_program = old_dev.application_program
                 if keep_report_params(old_dev, new_dev):
                     report_params_kept += 1
+    kept_external = keep_external_devices(old_project, new_project)
     devices_new = sorted(new_addrs - old_devices_by_addr.keys())
-    devices_removed = sorted(old_devices_by_addr.keys() - new_addrs)
+    devices_removed = sorted(old_devices_by_addr.keys() - new_addrs - kept_external)
 
     old_rooms_by_floor_nr = _rooms_by_floor_and_number(old_project)
     # Räume ohne Nummer (z.B. per XLSX aus dem Einbauort abgeleitete

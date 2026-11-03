@@ -67,7 +67,7 @@ def test_bericht_abschnitte(tmp_path):
     assert "Geräte nach Einbauort" in text
     assert "UV1 (Steigzone)  (1 Gerät)" in text
     assert "ABB · SN 0001:0002" in text
-    assert "2 / 256 Geräte" in text
+    assert "2 / 64 Geräte" in text
     assert "Leer" not in text                       # Linien ohne Geraete entfallen
     assert "Topologie-Diagramm" in text
     assert "Bereichslinie (" not in text            # nur bei mehreren Bereichen

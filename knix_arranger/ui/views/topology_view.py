@@ -76,6 +76,7 @@ _COLOR_POWER       = QColor("#2E7D32")  # Dunkelgrün: Speisegerät
 _COLOR_PROGRAMMED  = QColor("#4527A0")  # Violett: physikalisch programmiert (Adresse fixiert)
 _COLOR_SECURE_MISSING = QColor("#C62828")  # Rot: Gerät unterstützt kein KNX Secure (FA-2704)
 _COLOR_ROOM_HINT   = QColor("#9E9E9E")  # Grau: Raum statt fehlendem Einbauort
+_COLOR_EXTERNAL    = QColor("#00838F")  # Petrol: am Bus, nicht im ETS-Projekt
 
 # Rollen-Label für FunctionAssignment.role, siehe step09_functions.py.
 _ROLE_LABELS = {
@@ -313,6 +314,7 @@ class TopologyView(QWidget):
             f"<span style='color:{_COLOR_COUPLER.name()};'>&#9679;</span> Koppler (BK/LK)",
             f"<span style='color:{_COLOR_POWER.name()};'>&#9679;</span> Speisegerät (SV)",
             f"<span style='color:{_COLOR_PROGRAMMED.name()};'>&#9679;</span> [P] physikalisch programmiert (Adresse gesperrt)",
+            f"<span style='color:{_COLOR_EXTERNAL.name()};'>&#9679;</span> nicht im ETS-Projekt",
         ]
         if self._knx_secure and self._knx_secure.enabled:
             parts.append(
@@ -427,6 +429,7 @@ class TopologyView(QWidget):
         )
 
         from ...services.bus_current import line_current, shared_catalog_or_none
+        from ...services.line_segments import segment_load
         catalog = shared_catalog_or_none()
 
         # Speisegerät der Bereichslinie 0.0 (mehrere Bereiche, TP-Backbone)
@@ -495,11 +498,13 @@ class TopologyView(QWidget):
                 elif line.device_count > 85:
                     status = " [Warnung]"
 
-                # Busstrom gegen die Spannungsversorgung (FA-613b)
+                # Teilnehmer je Segment (FA-609b), Busstrom gegen die
+                # Spannungsversorgung (FA-613b)
+                segments = segment_load(line)
                 lc = line_current(line, catalog)
                 current_text = ""
                 if lc.consumer_count:
-                    current_text = f"Busstrom {lc.summary()}"
+                    current_text = f"{segments.summary()} · Busstrom {lc.summary()}"
                     if lc.estimated_count:
                         current_text += f", {lc.estimate_note()}"
                 line_item = QTreeWidgetItem(area_item, [
@@ -511,9 +516,10 @@ class TopologyView(QWidget):
                     line.uv_location or "",
                     current_text,
                 ])
-                if lc.overloaded or lc.low_reserve:
-                    line_item.setForeground(
-                        4, QColor("#C62828" if lc.overloaded else "#E65100"))
+                if lc.overloaded or segments.overloaded:
+                    line_item.setForeground(4, QColor("#C62828"))
+                elif lc.low_reserve or segments.low_reserve:
+                    line_item.setForeground(4, QColor("#E65100"))
                 line_item.setData(0, _ROLE_DATA, ("line", area, line))
                 # Expand-Zustand wird in _restore_tree_state gesetzt
 
@@ -567,6 +573,8 @@ class TopologyView(QWidget):
 
                     name = device.product or device.device_type
                     status = " | ".join(detail_parts)
+                    if device.external:
+                        status = " | ".join(p for p in ("Nicht im ETS-Projekt", status) if p)
                     if device.is_programmed:
                         name = f"[P] {name}"
                         if not status:
@@ -601,6 +609,11 @@ class TopologyView(QWidget):
                         )
                     elif device.is_programmed:
                         self._colorize(dev_item, _COLOR_PROGRAMMED)
+                    if device.external:
+                        self._colorize(dev_item, _COLOR_EXTERNAL)
+                        dev_item.setToolTip(
+                            0, "Am Bus, aber nicht im ETS-Projekt – zählt bei Teilnehmern "
+                               "und Busstrom der Linie")
 
                     # FA-1007: Kanäle unter Aktoren anzeigen -- gruppiert nach
                     # physischem Kanal (nicht nach Befehlstyp, siehe
@@ -899,6 +912,7 @@ class TopologyView(QWidget):
             _, area, line = data
             rename_act  = menu.addAction("Linie umbenennen…")
             uv_act      = menu.addAction("UV-Einbauort bearbeiten…")
+            external_act = menu.addAction("Externes Gerät erfassen…")
             self._add_line_area_menu(menu, line)
             self._add_line_merge_menu(menu, line)
             self._add_line_jumps(menu, line)
@@ -914,6 +928,18 @@ class TopologyView(QWidget):
                 self._rename_line(line)
             elif action == uv_act:
                 self._edit_line_uv(line)
+            elif action == external_act:
+                self._edit_external_device(area, line)
+
+        elif kind == "device" and data[3].external:
+            _, area, line, device = data
+            edit_act = menu.addAction("Externes Gerät bearbeiten…")
+            remove_act = menu.addAction("Externes Gerät entfernen…")
+            action = menu.exec(global_pos)
+            if action == edit_act:
+                self._edit_external_device(area, line, device)
+            elif action == remove_act:
+                self._remove_external_device(line, device)
 
         elif kind == "device":
             _, area, line, device = data
@@ -1417,6 +1443,39 @@ class TopologyView(QWidget):
         device.physical_address = new_addr
         device.is_programmed = True
         device.manually_added = True   # Präfix-Update bei Linienwechsel aktivieren
+        self._refresh()
+        self._emit_changed()
+
+    def _edit_external_device(self, area: Area, line: Line, device: Device | None = None):
+        """Gerät am Bus, das nicht im ETS-Projekt steht, erfassen oder
+        bearbeiten (FA-609b, z.B. Z-Server der Visualisierung)."""
+        from ..dialogs.external_device_dialog import ExternalDeviceDialog
+        dlg = ExternalDeviceDialog(area.area_number, line, device, self)
+        if not dlg.exec():
+            return
+        if self._bus:
+            self._bus.begin_change(
+                f"Externes Gerät {dlg.physical_address} "
+                + ("bearbeitet" if device else "erfasst"))
+        if device is None:
+            line.devices.append(dlg.apply())
+            line.update_device_count()
+        else:
+            dlg.apply(device)
+        self._refresh()
+        self._emit_changed()
+
+    def _remove_external_device(self, line: Line, device: Device):
+        answer = QMessageBox.question(
+            self, "Externes Gerät entfernen",
+            f"»{device.product}« ({device.physical_address}) aus der Topologie entfernen?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            return
+        if self._bus:
+            self._bus.begin_change(f"Externes Gerät {device.physical_address} entfernt")
+        line.devices.remove(device)
+        line.update_device_count()
         self._refresh()
         self._emit_changed()
 

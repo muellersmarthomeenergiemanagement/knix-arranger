@@ -10,6 +10,7 @@ from datetime import datetime
 
 from .building_service import BuildingService
 from .riser_diagram import build_riser_diagram
+from .line_segments import segment_load
 from .bus_current import (
     DEFAULT_DEVICE_MA, DEFAULT_SUPPLY_MA, RESERVE_LIMIT, device_current, line_current,
     shared_catalog_or_none,
@@ -176,6 +177,15 @@ VALIDATION_RULES = {
         "Empfohlen sind höchstens 85 Geräte je Linie, realisiert höchstens 100 "
         "(KNX Swiss), im Modus TP-64 höchstens 64.",
         "Linie aufteilen oder Reserve einplanen.",
+    ),
+    "FA-609b": (
+        "Teilnehmer je Segment",
+        "Ein TP-Segment trägt höchstens 64 Busteilnehmer, mehr nur mit "
+        "Linienverstärkern (je ein weiteres Segment mit eigener "
+        "Spannungsversorgung). Geräte am Bus, die nicht im ETS-Projekt stehen "
+        "(z.B. die Schnittstelle einer Visualisierung), zählen mit. Warnung "
+        "über 80 %, Fehler über 64 je Segment.",
+        "Linienverstärker oder Linienkoppler mit neuer Linie vorsehen.",
     ),
     "FA-610": (
         "Bezeichnung nicht KNX-Swiss-konform",
@@ -452,6 +462,7 @@ def _line_coupler(area, line) -> str:
 def _device_cell(device) -> tuple[str, str]:
     """(Produkt, 'Hersteller · Best.-Nr. · SN …') für eine Tabellenzelle."""
     details = [p for p in (
+        "nicht im ETS-Projekt" if device.external else "",
         device.manufacturer,
         device.order_number,
         f"SN {device.serial_number}" if device.serial_number else "",
@@ -1532,7 +1543,6 @@ class ReportService:
             logger.info(f"Topologie-Bericht erstellt: {filepath}")
             return
 
-        max_devices = topo.max_devices_per_line
         multi_area = len(areas) > 1
 
         # ── Topologie-Diagramm (dieselben Knoten wie die Ansicht) ───────────
@@ -1552,7 +1562,7 @@ class ReportService:
         schema = []
         kpi_rows = []
         catalog = shared_catalog_or_none()
-        any_estimated = any_supply_assumed = False
+        any_estimated = any_supply_assumed = any_external = False
         for area, lines in areas:
             info = " · ".join(p for p in (
                 f"Backbone {area.backbone_type}" if area.backbone_type else "",
@@ -1567,11 +1577,13 @@ class ReportService:
                 lc = line_current(line, catalog)
                 any_estimated |= bool(lc.estimated_count)
                 any_supply_assumed |= lc.supply_assumed
+                segments = segment_load(line)
+                any_external |= bool(segments.external)
                 schema_lines.append({
                     "title": line_title(area, line),
                     "coupler": _line_coupler(area, line),
                     "count": bus_devices,
-                    "max": max_devices,
+                    "max": segments.capacity,
                     "stats": stats,
                     "current": {
                         "ratio": lc.load,
@@ -1587,7 +1599,7 @@ class ReportService:
                 kpi_rows.append([
                     line_title(area, line),
                     _line_coupler(area, line) or "–",
-                    f"{bus_devices} / {max_devices}",
+                    f"{bus_devices} / {segments.capacity}",
                     (lc.summary(), current_note),
                     str(counts.get("Aktor", 0)),
                     str(counts.get("Sensor", 0)),
@@ -1613,8 +1625,10 @@ class ReportService:
         pdf.add_note(
             "Weitere:",
             "Koppler, Spannungsversorgungen und sonstige Geräte. Geräte und "
-            f"Auslastung zählen Busteilnehmer (ohne Spannungsversorgungen), bezogen "
-            f"auf {max_devices} je Linie ({topo.topology_mode}).")
+            "Auslastung zählen Busteilnehmer (ohne Spannungsversorgungen), bezogen "
+            "auf 64 je Segment; jeder Linienverstärker bildet ein weiteres Segment."
+            + (" Geräte, die nicht im ETS-Projekt stehen, zählen mit." if any_external
+               else ""))
         pdf.add_note(
             "Busstrom:",
             "Prognose der Stromaufnahme gegen die Spannungsversorgung der Linie. "

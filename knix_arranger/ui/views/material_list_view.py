@@ -372,6 +372,8 @@ class MaterialListView(QWidget):
             for line in area.lines:
                 line_label = f"{line.coupler_address}  {line.name}".strip()
                 for device in line.devices:
+                    if device.external:
+                        continue    # nicht im ETS-Projekt, kein KNX-Material der Planung
                     category = self._device_category(device)
                     if device.order_number:
                         key = (category, device.product,
