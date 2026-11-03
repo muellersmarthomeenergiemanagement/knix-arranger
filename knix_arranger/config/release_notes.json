@@ -2,6 +2,18 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.40",
+      "date": "2026-11-03",
+      "neu": [
+        "Topologie: Linie aufteilen / Umbau planen (Rechtsklick auf die Linie). Je Gerät wählen, ob es bleibt, in eine neue Linie bzw. ein neues Segment oder auf die Hauptlinie kommt – KNiX zeigt Teilnehmer und Busstrom vorher und nachher, die neue Hardware, die Umadressierung, die Filtertabellen und ob eine Visualisierung hinter einem Koppler Gruppenadressen verpasst. Dazu der Bericht «Linienumbau» mit Arbeitsschritten.",
+        "Topologie: Externe Geräte erfassen – Geräte am Bus, die nicht im ETS-Projekt stehen (z.B. die Schnittstelle eines Visualisierungsservers). Sie zählen bei Teilnehmern und Busstrom und bleiben beim Re-Import erhalten.",
+        "Validierung: Teilnehmer je Segment – höchstens 64 Busteilnehmer, mehr nur mit Linienverstärker; Warnung über 80 %."
+      ],
+      "verbessert": [
+        "Topologie-Ansicht und -Bericht zeigen die Teilnehmer je Linie gegen 64 je Segment statt gegen den Topologie-Modus (z.B. 63 / 64 statt 63 / 256)."
+      ]
+    },
+    {
       "version": "1.4.39",
       "date": "2026-11-03",
       "neu": [
