@@ -2,6 +2,16 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.35",
+      "date": "2026-11-03",
+      "verbessert": [
+        "Die Validierung ist bei importierten Projekten wieder deutlich schneller (Chalet: rund viermal)."
+      ],
+      "behoben": [
+        "Die Validierung meldete einen falschen DPT, obwohl die GA genau den DPT des Aktor-KOs hat, z.B. Beschattung 1.022 am Griesser-Jalousieaktor statt der Standard-Erwartung 1.008. Passt der DPT zum Aktor-KO, gilt er jetzt als richtig."
+      ]
+    },
+    {
       "version": "1.4.34",
       "date": "2026-11-03",
       "neu": [
