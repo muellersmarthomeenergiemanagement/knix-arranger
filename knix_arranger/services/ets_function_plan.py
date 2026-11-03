@@ -270,6 +270,7 @@ _IMPORTED_SUFFIXES = {
     "POSITION HOEHE": ("hoehe", "höhe", "position", "pos"),
     "POSITION LAMELLEN": ("winkel", "lamellen", "lamelle", "slat"),
     "SPERREN": ("sperren", "sperre", "lock"),
+    "BESCHATTUNG": ("beschattung", "shading"),
     "E/A": ("ea", "schalten", "switch"),
     "DIM": ("dim", "dimmen"),
     "WERT": ("wert", "value"),
@@ -277,14 +278,71 @@ _IMPORTED_SUFFIXES = {
 }
 _SUFFIX_FUNCTION = {s: f for f, suffixes in _IMPORTED_SUFFIXES.items() for s in suffixes}
 
+#: Befehls-Funktionen, die ko_functions an Aktor-KOs erkennt (DPT nur für
+#: die Grösse). STOERUNG nur zur Abgrenzung: «Sicherheit, Alarm | Ein / Aus»
+#: ist sonst E/A.
+_KO_CANDIDATES = {
+    "AUF/AB": "DPST-1-8", "STOPP": "DPST-1-7", "POSITION HOEHE": "DPST-5-1",
+    "POSITION LAMELLEN": "DPST-5-1", "SPERREN": "DPST-1-1", "BESCHATTUNG": "DPST-1-1",
+    "E/A": "DPST-1-1", "DIM": "DPST-3-7", "WERT": "DPST-5-1",
+    "UMSCHALTEN BETRIEBSART": "DPST-20-102", "STOERUNG": "DPST-1-5",
+}
 
-def _element_function(ga) -> str:
-    """Funktion einer Element-GA: geplant aus dem Feld, importiert aus der
-    Endung der Bezeichnung."""
-    if ga.planned_function:
+
+def ko_functions(project) -> dict[str, str]:
+    """GA -> Funktion nach den Aktor-KOs, an denen sie hängt (FA-531a):
+    die Bedeutung kommt vom Gerät, nicht vom Namen, den der Integrator
+    vergeben hat ("J.Studio Lamellenstellung" auf «Bedienung Storen (M1),
+    Winkel» = POSITION LAMELLEN). Mehrheit der KOs; ohne eindeutige
+    Mehrheit fehlt die GA (dann Endung bzw. DPT)."""
+    from collections import Counter
+    result = {}
+    for address, links in ko_function_links(project).items():
+        ranked = Counter(function for _d, _c, function in links).most_common(2)
+        if len(ranked) == 1 or ranked[0][1] > ranked[1][1]:
+            result[address] = ranked[0][0]
+    return result
+
+
+def ko_function_links(project) -> dict[str, list[tuple]]:
+    """GA -> [(Gerät, KO, Funktion)] der Aktor- und Gateway-KOs, deren
+    Herstellertext eine Befehls-Funktion erkennen lässt (co_function)."""
+    from .actor_channels import co_function
+    result: dict[str, list[tuple]] = {}
+    for area in project.topology.areas:
+        for line in area.lines:
+            for device in line.devices:
+                if device.device_type not in ("actor", "gateway"):
+                    continue
+                for co in device.communication_objects:
+                    if not co.connected_gas:
+                        continue
+                    function = co_function(co, _KO_CANDIDATES)
+                    if function:
+                        for address in co.connected_gas:
+                            result.setdefault(address, []).append((device, co, function))
+    return result
+
+
+def name_function(ga, imported: bool) -> str:
+    """Funktion, die der Name einer GA behauptet (FA-639): geplant die von
+    KNiX geplante, importiert nur die Endung nach Richtlinie ("_hoehe") --
+    ein Phantasiename ohne Endung behauptet nichts."""
+    if not imported:
         return ga.planned_function
     label = (ga.designation or "").split("(", 1)[0].strip()
     return _SUFFIX_FUNCTION.get(label.rsplit("_", 1)[-1].lower(), "") if "_" in label else ""
+
+
+def _element_function(ga, by_ko: dict[str, str] | None = None) -> str:
+    """Funktion einer Element-GA: geplant aus dem Feld, importiert zuerst
+    aus den Aktor-KOs (by_ko, siehe ko_functions), sonst aus der Endung
+    der Bezeichnung."""
+    if ga.planned_function:
+        return ga.planned_function
+    if by_ko and by_ko.get(ga.address):
+        return by_ko[ga.address]
+    return name_function(ga, imported=True)
 
 
 def _element_gas(project, structure=None) -> dict[tuple[str, int], dict[str, GroupAddress]]:
@@ -293,6 +351,7 @@ def _element_gas(project, structure=None) -> dict[tuple[str, int], dict[str, Gro
     importierten Projekten dieselbe Bezeichnung wie der Befehl."""
     imported = project.topology.is_imported
     renumber = room_wide_renumbering(project) if imported else None
+    by_ko = ko_functions(project) if imported else None
     structure = structure if structure is not None else project.group_addresses
     result: dict[tuple[str, int], dict[str, GroupAddress]] = {}
     for ga in structure.all_addresses():
@@ -301,7 +360,7 @@ def _element_gas(project, structure=None) -> dict[tuple[str, int], dict[str, Gro
         if imported and ga.middle_group in (6, 7):
             continue
         number = _element_number(ga, renumber)
-        function = _element_function(ga)
+        function = _element_function(ga, by_ko)
         if number and function:
             key = (ga.assignment_id.removesuffix(":fb"), number)
             result.setdefault(key, {}).setdefault(function, ga)

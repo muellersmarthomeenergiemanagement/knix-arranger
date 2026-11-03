@@ -127,7 +127,10 @@ class KnixFunction:
             "room_id": self.room_id, "zone_id": self.zone_id, "number": self.number,
             "members": [m.to_dict() for m in self.members],
             **({"ets_gas": dict(self.ets_gas)} if self.ets_gas else {}),
-            **({"omitted": list(self.omitted)} if self.omitted else {}),
+            # Übernahme mit leerer Liste: speichern, sonst gälte sie beim
+            # Laden als alte Übernahme (None, keine Punkte)
+            **({"omitted": list(self.omitted)}
+               if self.omitted or (self.ets_gas and self.omitted is not None) else {}),
             **({"custom_points": [p.to_dict() for p in self.custom_points]}
                if self.custom_points else {}),
             **({"linked_gas": dict(self.linked_gas)} if self.linked_gas else {}),

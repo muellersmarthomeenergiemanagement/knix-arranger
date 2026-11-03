@@ -221,9 +221,7 @@ def suggest_co(channel_cos: list, function: str, used=frozenset(), dpt: str = ""
     (MDT «F4 – Stopp / Lamellen Auf/Zu», K Ü)."""
     from .ko_plausibility import is_feedback_function
     is_feedback = is_feedback or _is_feedback
-    keywords = _FUNCTION_KEYWORDS.get(function, ()) + _EXTRA_KEYWORDS.get(function, ())
-    if not keywords:
-        keywords = (function.lower(),)
+    keywords = _keywords(function)
     feedback = is_feedback_function(function)
     ga_main, ga_sub = _dpt_key(dpt)
     best, best_score = None, 0
@@ -236,12 +234,7 @@ def suggest_co(channel_cos: list, function: str, used=frozenset(), dpt: str = ""
         # Grösse muss passen: «Dimmwert» (1 Byte) nie auf «Soft schalten» (1 Bit)
         if not sizes_compatible(co, dpt):
             continue
-        text = _norm(f"{co.object_function} {co.name}")
-        compact = _compact(text)
-        # Allgemeine Wörter zählen halb: "Height" schlägt "Position";
-        # zusammengeschrieben zählt auch ("TravelUpDown" ~ "up/down")
-        score = sum(0.5 if kw in _WEAK_KEYWORDS else 1 for kw in keywords
-                    if kw in text or (len(_compact(kw)) >= 4 and _compact(kw) in compact))
+        score = _keyword_score(co, keywords)
         # Bei gleichen Stichworten gewinnt der gleiche Untertyp (Status 1.011
         # vor Schalten 1.001 für eine Rückmeldung 1.011)
         if score and ga_sub and co_sub == ga_sub:
@@ -249,6 +242,37 @@ def suggest_co(channel_cos: list, function: str, used=frozenset(), dpt: str = ""
         if score > best_score:
             best, best_score = co, score
     return best
+
+
+def _keywords(function: str) -> tuple[str, ...]:
+    keywords = _FUNCTION_KEYWORDS.get(function, ()) + _EXTRA_KEYWORDS.get(function, ())
+    return keywords or (function.lower(),)
+
+
+def _keyword_score(co, keywords) -> float:
+    """Treffer der Stichworte im Herstellertext des KOs. Allgemeine Wörter
+    zählen halb: "Height" schlägt "Position"; zusammengeschrieben zählt
+    auch ("TravelUpDown" ~ "up/down"). Schreibweisen desselben Worts
+    ("ein/aus", "ein / aus") zählen einmal."""
+    text = _norm(f"{co.object_function} {co.name}")
+    compact = _compact(text)
+    hits = {_compact(kw) or kw: 0.5 if kw in _WEAK_KEYWORDS else 1 for kw in keywords
+            if kw in text or (len(_compact(kw)) >= 4 and _compact(kw) in compact)}
+    return sum(hits.values())
+
+
+def co_function(co, candidates: dict[str, str]) -> str:
+    """Gegenrichtung zu suggest_co: welche Befehls-Funktion (Funktion -> DPT
+    für die Grösse) ein Aktor-KO erfüllt, nach denselben Stichworten im
+    Herstellertext ("Bedienung Storen (M1), Winkel" -> POSITION LAMELLEN).
+    "" bei Rückmeldungen, ohne Treffer oder bei Gleichstand."""
+    if _is_feedback(co):
+        return ""
+    scores = {function: _keyword_score(co, _keywords(function))
+              for function, dpt in candidates.items() if sizes_compatible(co, dpt)}
+    best = max(scores.values(), default=0)
+    top = [f for f, s in scores.items() if s == best]
+    return top[0] if best and len(top) == 1 else ""
 
 
 def suggested_co_map(channel: DeviceChannel | None, circuit: Circuit) -> dict[str, int]:

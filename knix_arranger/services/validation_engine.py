@@ -124,6 +124,7 @@ class ValidationEngine:
             issues.extend(self._check_ko_flags(project))
             issues.extend(self._check_ko_plausibility(project))
             issues.extend(self._check_dpt_subtypes(project))
+            issues.extend(self._check_name_vs_ko(project))
             issues.extend(self._check_flag_recommendations(project))
             issues.extend(self._check_product_capabilities(project))
             issues.extend(self._check_bedienelement_leftovers(project))
@@ -359,6 +360,45 @@ class ValidationEngine:
                         "der GA) oder prüfen, ob Sender und Empfänger den Wert gleich deuten",
                         designation=ga.designation,
                         details={"devices": [link.device.physical_address]}))
+        return issues
+
+    @staticmethod
+    def _check_name_vs_ko(project) -> list[ValidationIssue]:
+        """FA-639: Der Name einer GA behauptet eine andere Funktion als die
+        Aktor-KOs, an denen sie hängt ("J.EG.06.3_hoehe" am Winkel-KO).
+        Entweder ist der Name falsch oder die Verknüpfung (FA-531a: was am
+        Bus passiert, zeigt das KO). Nur eindeutige Mehrheit der KOs;
+        importiert Hinweis, geplant Fehler."""
+        from collections import Counter
+        from .ets_function_plan import _KO_CANDIDATES, ko_function_links, name_function
+        imported = project.topology.is_imported
+        links = ko_function_links(project)
+        if not links:
+            return []
+        issues = []
+        for ga in project.group_addresses.all_addresses():
+            found = links.get(ga.address)
+            claimed = name_function(ga, imported) if found else ""
+            if claimed not in _KO_CANDIDATES:
+                continue
+            ranked = Counter(f for _d, _c, f in found).most_common(2)
+            actual = ranked[0][0]
+            if actual == claimed or (len(ranked) > 1 and ranked[0][1] == ranked[1][1]):
+                continue
+            device, co, _f = next(link for link in found if link[2] == actual)
+            ko = (f"{device.physical_address} KO {co.object_number}"
+                  + (f" «{co.name or co.object_function}»" if co.name or co.object_function
+                     else ""))
+            issues.append(ValidationIssue(
+                "info" if imported else "error", "FA-639",
+                f"GA {ga.address}: Name sagt {claimed}, KO sagt {actual} ({ko})",
+                ga.address,
+                "Name oder Verknüpfung prüfen: GA umbenennen oder mit dem richtigen KO "
+                "verknüpfen (in der ETS)" if imported else
+                "KO-Zuordnung prüfen (Materialliste › «Kanäle und KOs zuordnen…»)",
+                designation=ga.designation,
+                details={"devices": [device.physical_address],
+                         "name": claimed, "ko": actual}))
         return issues
 
     @staticmethod

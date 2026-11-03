@@ -140,3 +140,114 @@ def test_adopted_function_ga_once_per_channel_in_belegungsplan():
             BelegungsplanService().generate(project).actor_rows if r.ga_address == "3/4/89"]
     assert sorted(rows) == sorted(set(rows))
     assert len(rows) == 2       # Kanal A und Kanal B
+
+
+def test_jalousie_group_recognizes_slat_position_by_name():
+    """Chalet Studio: «J.Studio Position» und «J.Studio Lamellenstellung»
+    haben beide 5.001 -- die zweite ist die Lamellenposition, nicht verloren."""
+    from knix_arranger.services.group_function_detection import _point
+    height = GroupAddress(designation="J.Studio Position", datapoint_type="DPST-5-1")
+    slat = GroupAddress(designation="J.Studio Lamellenstellung", datapoint_type="DPST-5-1")
+    assert _point(height, "FT-7") == "POSITION HOEHE"
+    assert _point(slat, "FT-7") == "POSITION LAMELLEN"
+
+
+def test_adopted_jalousie_plans_no_further_points():
+    """FA-531: keine eigenen GAs (Chalet: 2/1/248 Lamellen, 2/1/249 Sperren
+    neben den bestehenden) -- auch nicht nach Speichern und Laden."""
+    from knix_arranger.models.ets_function import KnixFunction
+    from knix_arranger.services.ets_function_plan import planned_points
+    from knix_arranger.services.group_function_detection import GroupSuggestion
+    project, room, lights = _project()
+    gas = {"AUF/AB": GroupAddress(main_group=2, middle_group=1, sub_group=250,
+                                  designation="J.Studio Bewegen")}
+    function = adopt(project, GroupSuggestion(
+        name="Balkon", function_type="FT-7", room=room,
+        members=[(room, lights, 1), (room, lights, 2)], gas=gas))
+    assert planned_points(function) == []
+    assert planned_points(KnixFunction.from_dict(function.to_dict())) == []
+    # Im Dialog alle Punkte wieder gewählt: bleibt nach dem Laden so
+    function.omitted = []
+    again = KnixFunction.from_dict(function.to_dict())
+    assert again.omitted == [] and len(planned_points(again)) == 4
+
+
+def test_adopted_jalousie_keeps_shading_ga_as_own_point():
+    """Chalet 2/1/254 «J.Studio Beschattung» (1.023, Elemente «_beschattung»
+    1.022): eigener Punkt mit der GA aus der ETS, keine neue GA, und über
+    die Element-GAs auf den Aktorkanälen erkannt."""
+    from knix_arranger.models.ets_function import KnixFunction
+    from knix_arranger.services.ets_function_plan import function_points, planned_points
+    from knix_arranger.services.group_function_detection import GroupSuggestion, _point
+    shading = GroupAddress(main_group=3, middle_group=1, sub_group=254,
+                           designation="J.Studio Beschattung", datapoint_type="DPST-1-23")
+    assert _point(shading, "FT-7") == "BESCHATTUNG"
+    assert _point(shading, "FT-1") == ""
+    project, room, lights = _project()
+    function = adopt(project, GroupSuggestion(
+        name="Balkon", function_type="FT-7", room=room,
+        members=[(room, lights, 1), (room, lights, 2)], gas={"BESCHATTUNG": shading}))
+    assert [(c.function, c.dpt) for c in function.custom_points] == [
+        ("BESCHATTUNG", "DPST-1-23")]
+    assert [p.function for p in function_points(function)] == ["BESCHATTUNG"]
+    assert planned_points(function) == []
+    assert planned_points(KnixFunction.from_dict(function.to_dict())) == []
+    assert (shading.function_id, shading.function_name) == (function.id, "BESCHATTUNG")
+
+
+def test_imported_shading_suffix_is_element_function():
+    from knix_arranger.services.ets_function_plan import _element_function
+    ga = GroupAddress(designation="J.EG.06.3_beschattung", datapoint_type="DPST-1-22")
+    assert _element_function(ga) == "BESCHATTUNG"
+
+
+def _griesser_co(n, name, function, dpt, connected, flags="K-S---"):
+    return CommunicationObject(object_number=n, name=name, object_function=function,
+                               flags=flags, data_type=dpt, connected_gas=connected)
+
+
+def test_co_function_reads_manufacturer_text():
+    """FA-531a: die Bedeutung kommt vom KO (Griesser JAX-9, Chalet 1.1.11)."""
+    from knix_arranger.services.actor_channels import co_function
+    from knix_arranger.services.ets_function_plan import _KO_CANDIDATES
+    cases = [
+        ("Bedienung Storen (M1), Endlage", "Auf / Ab", "DPST-1-8", "AUF/AB"),
+        ("Bedienung Storen (M1), Wippen", "Schritt / Stopp", "DPST-1-7", "STOPP"),
+        ("Bedienung Storen (M1), Höhe", "Höhe 0…255", "DPST-5-1", "POSITION HOEHE"),
+        ("Bedienung Storen (M1), Winkel", "Winkel 0…255", "DPST-5-1", "POSITION LAMELLEN"),
+        ("Bedienung Storen (M1), Beschattung", "Auf / Beschattung", "DPST-1-22",
+         "BESCHATTUNG"),
+        # «Ein / Aus» und «Alarm» gleich stark: unklar, aber nie E/A
+        ("Sicherheit 1 (M1), Alarm", "Ein / Aus", "DPST-1-5", ""),
+    ]
+    for name, function, dpt, expected in cases:
+        assert co_function(_griesser_co(0, name, function, dpt, []),
+                           _KO_CANDIDATES) == expected, name
+    feedback = _griesser_co(10, "Sonnenschutz (M1), Rückmeldung Winkel", "Winkel 0…255",
+                            "DPST-5-1", [], flags="KL-Ü--")
+    assert co_function(feedback, _KO_CANDIDATES) == ""
+
+
+def test_ko_wins_over_fantasy_name_and_suffix():
+    """Der Integrator nennt die Winkel-GA «Stellung» bzw. «_hoehe»: das KO
+    des Aktors entscheidet, Endung und DPT nur ohne KO."""
+    from knix_arranger.services.ets_function_plan import _element_function, ko_functions
+    from knix_arranger.services.group_function_detection import _point
+    project, _room, _lights = _project()
+    project.topology.areas[0].lines[0].devices.append(Device(
+        device_type="actor", physical_address="1.1.11", communication_objects=[
+            _griesser_co(6, "Bedienung Storen (M1), Winkel", "Winkel 0…255", "DPST-5-1",
+                         ["2/1/13", "2/1/253"]),
+            _griesser_co(28, "Bedienung Storen (M2), Winkel", "Winkel 0…255", "DPST-5-1",
+                         ["2/1/253"])]))
+    by_ko = ko_functions(project)
+    assert by_ko["2/1/253"] == by_ko["2/1/13"] == "POSITION LAMELLEN"
+    assert by_ko["3/0/70"] == "E/A"
+    fantasy = GroupAddress(main_group=2, middle_group=1, sub_group=253,
+                           designation="J.Studio Stellung", datapoint_type="DPST-5-1")
+    assert _point(fantasy, "FT-7") == "POSITION HOEHE"            # ohne KO: DPT
+    assert _point(fantasy, "FT-7", by_ko) == "POSITION LAMELLEN"
+    wrong_suffix = GroupAddress(main_group=2, middle_group=1, sub_group=13,
+                                designation="J.EG.06.3_hoehe")
+    assert _element_function(wrong_suffix) == "POSITION HOEHE"
+    assert _element_function(wrong_suffix, by_ko) == "POSITION LAMELLEN"

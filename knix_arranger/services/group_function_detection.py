@@ -17,10 +17,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ..models.ets_function import FunctionMember, KnixFunction
+from ..models.ets_function import CustomPoint, FunctionMember, KnixFunction
 from .ets_function_plan import (
     PLAN_POINTS, TYPE_GEWERKE, _assignments_by_id, _element_function, _element_number,
-    next_number, room_wide_renumbering,
+    ko_functions, next_number, room_wide_renumbering,
 )
 
 _PIR_RE = re.compile(r"\b(pir|bwm|präsenz|praesenz|bewegung)", re.IGNORECASE)
@@ -36,6 +36,13 @@ _POINT_BY_DPT = (
     (("prozent", "dpst-5-1"), "WERT"),
     (("schalten", "1 bit", "dpst-1-1"), "E/A"),
 )
+#: Lamellen-GA am Klartext ("J.Studio Lamellenstellung"): gleicher DPT wie
+#: die Höhe, ohne Endung fiele sie sonst als zweite Position weg
+_SLAT_RE = re.compile(r"(lamelle|winkel|slat)", re.IGNORECASE)
+#: Punkte über die Standardpunkte hinaus, am Klartext erkannt ("J.Studio
+#: Beschattung": DPT je nach Projekt 1.022, 1.023 oder 1.005). Bei der
+#: Übernahme eigene Punkte der Funktion (CustomPoint) mit der bestehenden GA
+_EXTRA_POINTS = {"FT-7": (("BESCHATTUNG", re.compile(r"beschatt|shading", re.IGNORECASE)),)}
 
 
 @dataclass
@@ -58,17 +65,24 @@ class GroupSuggestion:
         return f"Zone {self.zone.name}" if self.zone is not None else ""
 
 
-def _point(ga, function_type: str) -> str:
-    """Funktionspunkt einer Gruppen-GA: Endung der Bezeichnung, sonst DPT."""
-    allowed = {p.function for p in PLAN_POINTS.get(function_type, ())}
-    function = _element_function(ga)
+def _point(ga, function_type: str, by_ko: dict[str, str] | None = None) -> str:
+    """Funktionspunkt einer Gruppen-GA: zuerst die Aktor-KOs, an denen sie
+    hängt (by_ko, siehe ko_functions), dann Endung der Bezeichnung,
+    Klartext, DPT."""
+    extra = _EXTRA_POINTS.get(function_type, ())
+    allowed = {p.function for p in PLAN_POINTS.get(function_type, ())} | {e for e, _r in extra}
+    function = _element_function(ga, by_ko)
     if function in allowed:
         return function
+    for point, pattern in extra:
+        if pattern.search(ga.designation or ""):
+            return point
     text = (ga.datapoint_type or "").lower()
     for keys, point in _POINT_BY_DPT:
         if any(k in text for k in keys):
             if point == "WERT" and function_type == "FT-7":
-                point = "POSITION HOEHE"
+                point = ("POSITION LAMELLEN" if _SLAT_RE.search(ga.designation or "")
+                         else "POSITION HOEHE")
             if point == "STOPP" and function_type != "FT-7":
                 continue
             if point in allowed:
@@ -76,7 +90,7 @@ def _point(ga, function_type: str) -> str:
     return ""
 
 
-def _function_type(codes: set[str], gas: list) -> str:
+def _function_type(codes: set[str], gas: list, by_ko: dict[str, str] | None = None) -> str:
     """Typ aus den Gewerken der Mitglieder (wie TYPE_GEWERKE der Planung):
     Steckdosen allein = Steckdose schalten, mit Licht gemischt = Licht
     ("Licht Zentral" mit einer Stehlampe an der Steckdose); dimmen nur, wenn
@@ -87,7 +101,7 @@ def _function_type(codes: set[str], gas: list) -> str:
         return "FT-10"
     if codes <= set(TYPE_GEWERKE["FT-1"]):
         if codes <= set(TYPE_GEWERKE["FT-6"]) and any(
-                _point(g, "FT-6") in ("DIM", "WERT") for g in gas):
+                _point(g, "FT-6", by_ko) in ("DIM", "WERT") for g in gas):
             return "FT-6"
         return "FT-1"
     return ""
@@ -122,6 +136,7 @@ def suggest_group_functions(project) -> list[GroupSuggestion]:
 
     # Kanal -> Element, das ihn belegt (häufigstes über seine Element-GAs)
     renumber = room_wide_renumbering(project)
+    by_ko = ko_functions(project)
     votes: dict[tuple[str, str], dict[tuple[str, int], int]] = {}
     for r in rows:
         ga = gas.get(r.ga_address)
@@ -178,12 +193,12 @@ def suggest_group_functions(project) -> list[GroupSuggestion]:
         members = [(by_id[a][0], by_id[a][1], n) for a, n in elements]
         codes = {assignment.gewerk_code for _r, assignment, _n in members}
         group_gas.sort(key=lambda g: (g.main_group, g.middle_group, g.sub_group))
-        function_type = _function_type(codes, group_gas)
+        function_type = _function_type(codes, group_gas, by_ko)
         if not function_type:
             continue
         points = {}
         for ga in group_gas:
-            point = _point(ga, function_type)
+            point = _point(ga, function_type, by_ko)
             if point and point not in points:
                 points[point] = ga
         if not points:
@@ -223,14 +238,22 @@ def check_groups(project) -> list:
 
 def adopt(project, suggestion: GroupSuggestion, name: str = "") -> KnixFunction:
     """Vorschlag als Funktion übernehmen: ihre GAs sind die bestehenden der
-    ETS -- sie behalten Adresse und Bezeichnung, KNiX plant keine weiteren."""
+    ETS -- sie behalten Adresse und Bezeichnung, KNiX plant keine weiteren
+    (die übrigen Standardpunkte sind weggelassen; im Dialog wieder wählbar).
+    Erkannte Punkte ausserhalb der Standardpunkte (Beschattung) werden
+    eigene Punkte mit dem DPT der GA."""
+    standard = {p.function for p in PLAN_POINTS.get(suggestion.function_type, ())}
     function = KnixFunction(
         name=name or suggestion.name, function_type=suggestion.function_type,
         room_id=suggestion.room.id if suggestion.room is not None else "",
         zone_id=suggestion.zone.id if suggestion.room is None else "",
         members=[FunctionMember(a.id, n) for _r, a, n in suggestion.members],
         ets_gas={point: f"{ga.address}  {ga.designation}"
-                 for point, ga in suggestion.gas.items()})
+                 for point, ga in suggestion.gas.items()},
+        omitted=[p.function for p in PLAN_POINTS.get(suggestion.function_type, ())
+                 if p.function not in suggestion.gas],
+        custom_points=[CustomPoint(point, ga.datapoint_type or "")
+                       for point, ga in suggestion.gas.items() if point not in standard])
     function.number = next_number(project, function)
     for point, ga in suggestion.gas.items():
         ga.function_id = function.id

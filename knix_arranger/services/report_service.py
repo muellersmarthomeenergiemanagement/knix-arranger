@@ -337,6 +337,13 @@ VALIDATION_RULES = {
         "Datenpunkttyp von KO und GA angleichen bzw. den Wert am Sender so "
         "parametrieren, wie der Empfänger ihn erwartet.",
     ),
+    "FA-639": (
+        "Name passt nicht zum KO",
+        "Der Name der GA behauptet eine andere Funktion als die KOs der Aktoren, "
+        "an denen sie hängt: z.B. heisst sie «…_hoehe», verstellt aber am "
+        "Winkel-KO die Lamellen. Am Bus gilt das KO.",
+        "Entweder die GA umbenennen oder sie mit dem richtigen KO verknüpfen.",
+    ),
     "FA-635": (
         "L-Flag an einem Empfänger",
         "Das KO empfängt an allen seinen GAs nur (Befehl, Rückmeldung oder Messwert "
