@@ -1513,6 +1513,104 @@ class ReportService:
         pdf.save(filepath)
         logger.info(f"Steigschema erstellt: {filepath}")
 
+    def generate_plant_check_report(self, filepath: str, validation_counts=None) -> None:
+        """Bericht Anlagen-Check (FA-641): Zustand der Anlage mit Bewertung je
+        Prüfpunkt, für Bauherr und Integrator (services/plant_check)."""
+        from .plant_check import ATTENTION, CRITICAL, OK, rating_counts, run_check
+        items = run_check(self.project, validation_counts)
+        title = "Anlagen-Check"
+        pdf = self._make_pdf(title)
+        pdf.add_heading(title, level=1)
+        pdf.add_paragraph(
+            f"Projekt: {self.project.name} | "
+            f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        pdf.add_separator()
+        counts = rating_counts(items)
+        pdf.add_heading("Zusammenfassung", level=2)
+        pdf.add_paragraph(
+            f"{counts.get(CRITICAL, 0)} Prüfpunkt(e) kritisch, {counts.get(ATTENTION, 0)} zu "
+            f"beachten, {counts.get(OK, 0)} in Ordnung.")
+        urgent = [i for i in items if i.rating in (CRITICAL, ATTENTION)]
+        if urgent:
+            pdf.add_table(["Prüfpunkt", "Ergebnis", "Empfehlung"],
+                          [[f"{i.area}: {i.title}", i.value, i.hint or "–"]
+                           for i in sorted(urgent, key=lambda i: i.rating != CRITICAL)],
+                          col_widths=[0.26, 0.32, 0.42])
+        areas = list(dict.fromkeys(i.area for i in items))
+        for area in areas:
+            pdf.add_conditional_break(min_height=120)
+            pdf.add_heading(area, level=2)
+            pdf.add_table(["Prüfpunkt", "Ergebnis", "Bewertung", "Empfehlung"],
+                          [[i.title, i.value, i.rating, i.hint or "–"]
+                           for i in items if i.area == area],
+                          col_widths=[0.24, 0.32, 0.12, 0.32])
+        pdf.add_note("Bewertung:", "kritisch = Grenze überschritten, beachten = Reserve knapp "
+                                   "oder Abweichung, ok = in Ordnung, info = zur Kenntnis. "
+                                   "Busstrom ist eine Prognose aus Herstellerdaten.")
+        pdf.save(filepath)
+        logger.info(f"Bericht Anlagen-Check erstellt: {filepath}")
+
+    def generate_bus_analysis_report(self, filepath: str, summary: dict) -> None:
+        """Bericht Busanalyse (FA-640): Mitschnitt, Befunde, Absender, Telegramme
+        mit Wiederholungen (services/bus_monitor)."""
+        from .bus_monitor import analyze
+        a = analyze(self.project, summary)
+        title = "Busanalyse"
+        pdf = self._make_pdf(title)
+        pdf.add_heading(title, level=1)
+        pdf.add_paragraph(
+            f"Projekt: {self.project.name} | "
+            f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        pdf.add_separator()
+
+        pdf.add_heading("Mitschnitt", level=2)
+        pdf.add_table(["", ""], [
+            ["Datei", summary["file"]],
+            ["Art / Verbindung", f"{summary.get('mode') or '–'} über "
+                                 f"{summary.get('connection') or '–'}"],
+            ["Zeitraum", f"{summary['start'][:19].replace('T', ' ')} bis "
+                         f"{summary['stop'][11:19]} ({a.duration_s / 60:.0f} min)"],
+            ["Telegramme", f"{summary['telegrams']} ({a.per_minute:.0f} pro Minute), "
+                           f"{summary['repeats']} Wiederholungen, {summary['acks']} Quittungen"],
+            ["Spitze", f"{summary['peak_per_second']} Rahmen pro Sekunde um "
+                       f"{summary.get('peak_time', '')[11:19]}"],
+        ], col_widths=[0.25, 0.75])
+        pdf.add_note("Messpunkt:", "Der Mitschnitt zeigt, was an der Linie der Schnittstelle "
+                                   "ankommt, und nur, was im Zeitraum gesendet wurde. Was ein "
+                                   "Gerät nur liest, ist nicht zu sehen.")
+
+        pdf.add_heading("Befunde", level=2)
+        levels = {"error": "Fehler", "warning": "Warnung", "info": "Hinweis"}
+        for finding in a.findings:
+            pdf.add_conditional_break(min_height=90)
+            pdf.add_heading(f"{levels[finding.level]}: {finding.title}", level=3)
+            pdf.add_paragraph(finding.detail)
+            if finding.items:
+                pdf.add_table(["Einzelheiten"], [[i] for i in finding.items], col_widths=[1.0])
+
+        pdf.add_page_break()
+        pdf.add_heading("Absender", level=2)
+        pdf.add_table(
+            ["Adresse", "Gerät", "Telegramme", "Wiederholungen", "Ziele"],
+            [[s.address,
+              (_device_cell(s.device) if s.device else ("nicht im Projekt", "")),
+              str(s.telegrams), str(s.repeats), str(s.targets)] for s in a.senders],
+            col_widths=[0.10, 0.54, 0.12, 0.14, 0.10],
+            align=["left", "left", "right", "right", "right"])
+
+        pdf.add_page_break()
+        pdf.add_heading("Telegramme je Absender und Ziel", level=2)
+        pdf.add_table(
+            ["Absender", "Ziel", "Bezeichnung", "Anzahl", "Wdh.", "Wert", "Empfänger in der ETS"],
+            [[p.src, p.dst, p.designation or "–", str(p.count), str(p.repeats),
+              p.sample or "–", ", ".join(p.receivers) or "–"] for p in a.pairs],
+            col_widths=[0.08, 0.09, 0.33, 0.07, 0.06, 0.13, 0.24],
+            align=["left", "left", "left", "right", "right", "left", "left"])
+        pdf.add_note("Wert:", "Daten des letzten Telegramms als Hexadezimalzahl (1-Bit-Werte "
+                              "als 0/1).")
+        pdf.save(filepath)
+        logger.info(f"Bericht Busanalyse erstellt: {filepath}")
+
     def generate_line_plan_report(self, filepath: str, plan) -> None:
         """Bericht zur Umbau-Variante einer Linie (FA-609c): Teile vorher und
         nachher, neue Hardware, Umadressierung, Filtertabellen, externe
@@ -1617,6 +1715,10 @@ class ReportService:
                 if not check.blocked:
                     continue
                 pdf.add_heading(f"Dummy-Verknüpfungen für {check.device.product}", level=3)
+                if check.confirmed:
+                    pdf.add_note("Gemessen:", f"Laut Busmonitor sendet das Gerät auf "
+                                              f"{len(check.confirmed)} dieser GAs: "
+                                              + ", ".join(check.confirmed))
                 pdf.add_paragraph(
                     f"Bleibt das Gerät in {check.where}, muss ein Dummy in dieser Linie mit "
                     f"diesen {len(check.blocked)} GAs verknüpft werden – oder das Gerät kommt "

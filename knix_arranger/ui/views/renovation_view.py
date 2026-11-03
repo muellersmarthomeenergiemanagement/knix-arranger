@@ -1,0 +1,221 @@
+"""
+Umbau-Varianten (Bestand & Umbau).
+
+Alle geplanten Änderungen an einer bestehenden Anlage an einem Ort: je Linie
+Teilnehmer, Busstrom und die gespeicherte Umbau-Variante (FA-609c), dazu die
+Geräte am Bus, die nicht im ETS-Projekt stehen (FA-609b). Bearbeitet wird in
+den bekannten Dialogen; die Topologie bleibt der Ist-Stand.
+"""
+from __future__ import annotations
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QGroupBox, QHBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget,
+)
+
+from ...services.bus_current import line_current, shared_catalog_or_none
+from ...services.line_plan_service import evaluate, plan_for
+from ...services.line_segments import segment_load
+from ...services.report_sorting import physical_address_key
+from ..column_utils import fit_columns
+from ..styles import TEXT_MUTED
+
+_RED, _ORANGE, _GREEN = "#C62828", "#E65100", "#2E7D32"
+
+
+class RenovationView(QWidget):
+    changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._project = None
+        self._bus = None
+        layout = QVBoxLayout(self)
+        title = QLabel("Umbau-Varianten")
+        title.setObjectName("title")
+        layout.addWidget(title)
+        intro = QLabel(
+            "Geplante Änderungen an der bestehenden Anlage. Eine Variante verändert die "
+            "Topologie nicht: sie wird in der ETS umgesetzt und danach neu eingelesen.")
+        intro.setWordWrap(True)
+        intro.setStyleSheet(f"color: {TEXT_MUTED};")
+        layout.addWidget(intro)
+
+        lines_box = QGroupBox("Linien")
+        lines_layout = QVBoxLayout(lines_box)
+        self._lines = QTableWidget(0, 5)
+        self._lines.setHorizontalHeaderLabels(
+            ["Linie", "Teilnehmer", "Busstrom", "Umbau-Variante", "Nach dem Umbau"])
+        self._lines.verticalHeader().setVisible(False)
+        self._lines.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._lines.setSelectionBehavior(QTableWidget.SelectRows)
+        self._lines.setSelectionMode(QTableWidget.SingleSelection)
+        self._lines.cellDoubleClicked.connect(lambda *_: self._plan())
+        self._lines.itemSelectionChanged.connect(self._update_buttons)
+        lines_layout.addWidget(self._lines)
+        row = QHBoxLayout()
+        self._plan_btn = QPushButton("Linie aufteilen / Umbau planen…")
+        self._plan_btn.clicked.connect(self._plan)
+        self._report_btn = QPushButton("Bericht Linienumbau…")
+        self._report_btn.setObjectName("secondary")
+        self._report_btn.clicked.connect(self._report)
+        row.addWidget(self._plan_btn)
+        row.addWidget(self._report_btn)
+        row.addStretch()
+        lines_layout.addLayout(row)
+        layout.addWidget(lines_box, 2)
+
+        ext_box = QGroupBox("Geräte am Bus, nicht im ETS-Projekt")
+        ext_layout = QVBoxLayout(ext_box)
+        self._external = QTableWidget(0, 4)
+        self._external.setHorizontalHeaderLabels(["Adresse", "Bezeichnung", "Art", "Einbauort"])
+        self._external.verticalHeader().setVisible(False)
+        self._external.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._external.setSelectionBehavior(QTableWidget.SelectRows)
+        self._external.cellDoubleClicked.connect(self._edit_external)
+        ext_layout.addWidget(self._external)
+        hint = QLabel("Erfassen: in der Topologie Rechtsklick auf die Linie → «Externes Gerät "
+                      "erfassen…». Doppelklick bearbeitet.")
+        hint.setStyleSheet(f"color: {TEXT_MUTED};")
+        ext_layout.addWidget(hint)
+        layout.addWidget(ext_box, 1)
+
+    def set_bus(self, bus) -> None:
+        self._bus = bus
+
+    def set_project(self, project) -> None:
+        self._project = project
+        self._refresh()
+
+    # ── Anzeige ──────────────────────────────────────────────────────────
+
+    def _line_rows(self) -> list[tuple]:
+        if self._project is None:
+            return []
+        rows = []
+        for area in sorted(self._project.topology.areas, key=lambda a: a.area_number):
+            for line in sorted(area.lines, key=lambda l: l.line_number):
+                if line.devices:
+                    rows.append((area, line))
+        return rows
+
+    def _refresh(self) -> None:
+        catalog = shared_catalog_or_none()
+        rows = self._line_rows()
+        self._lines.setRowCount(len(rows))
+        for r, (area, line) in enumerate(rows):
+            key = f"{area.area_number}.{line.line_number}"
+            load = segment_load(line)
+            current = line_current(line, catalog)
+            plan = plan_for(self._project, key)
+            result = evaluate(self._project, plan, catalog) if plan else None
+            cells = [
+                (f"Linie {key}" + (f" {line.name}" if line.name and not
+                                   line.name.lower().startswith("linie") else ""), None),
+                (load.summary(), _RED if load.overloaded else _ORANGE if load.low_reserve
+                 else None),
+                (current.summary() if current.consumer_count else "–",
+                 _RED if current.overloaded else _ORANGE if current.low_reserve else None),
+                (self._plan_text(result) if result else "–", None),
+                (self._after_text(result) if result else "",
+                 None if not result else _GREEN if result.ok else _RED),
+            ]
+            for c, (text, color) in enumerate(cells):
+                item = QTableWidgetItem(text)
+                if color:
+                    item.setForeground(QColor(color))
+                if c == 0:
+                    item.setData(Qt.UserRole, key)
+                self._lines.setItem(r, c, item)
+        fit_columns(self._lines)
+
+        external = sorted((d for a in (self._project.topology.areas if self._project else [])
+                           for l in a.lines for d in l.devices if d.external),
+                          key=lambda d: physical_address_key(d.physical_address))
+        self._external.setRowCount(len(external))
+        for r, device in enumerate(external):
+            for c, text in enumerate((device.physical_address, device.product,
+                                      device.application_program or "–",
+                                      device.installation_location or "–")):
+                item = QTableWidgetItem(text)
+                if c == 0:
+                    item.setData(Qt.UserRole, device)
+                self._external.setItem(r, c, item)
+        fit_columns(self._external)
+        self._update_buttons()
+
+    @staticmethod
+    def _plan_text(result) -> str:
+        new = next((p for p in result.parts if p.key == "new"), None)
+        parts = []
+        if new is not None:
+            parts.append(f"{new.label.replace(' (neu)', '')}: {len(new.devices)} Geräte")
+        main = next((p for p in result.parts if p.key == "main"), None)
+        if main is not None:
+            parts.append(f"Hauptlinie: {len(main.devices)}")
+        if result.plan.main_line:
+            parts.append(f"Linienkoppler {result.plan.source}.0")
+        return " · ".join(parts) or "ohne Änderung"
+
+    @staticmethod
+    def _after_text(result) -> str:
+        worst = max(result.parts, key=lambda p: p.worst)
+        blocked = sum(1 for c in result.externals if c.blocked)
+        text = f"höchstens {worst.worst * 100:.0f} % ({worst.label})"
+        if blocked:
+            text += f", {blocked} externe(s) Gerät(e) hinter Koppler"
+        return text
+
+    def _selected_key(self) -> str:
+        row = self._lines.currentRow()
+        item = self._lines.item(row, 0) if row >= 0 else None
+        return item.data(Qt.UserRole) if item else ""
+
+    def _update_buttons(self) -> None:
+        key = self._selected_key()
+        has_plan = bool(key and self._project and plan_for(self._project, key))
+        self._plan_btn.setEnabled(bool(key))
+        self._plan_btn.setText("Umbau-Variante bearbeiten…" if has_plan
+                               else "Linie aufteilen / Umbau planen…")
+        self._report_btn.setEnabled(has_plan)
+
+    # ── Aktionen ─────────────────────────────────────────────────────────
+
+    def _company(self):
+        from ...services.project_service import ProjectService
+        return ProjectService().load_company_profile()
+
+    def _plan(self) -> None:
+        key = self._selected_key()
+        if not key:
+            return
+        from ..dialogs.line_plan_dialog import LinePlanDialog
+        LinePlanDialog(self._project, key, self._bus, self._company(), self).exec()
+        self._refresh()
+        self.changed.emit()
+
+    def _report(self) -> None:
+        plan = plan_for(self._project, self._selected_key())
+        if plan is None:
+            return
+        from ..dialogs.line_plan_dialog import save_line_plan_report
+        save_line_plan_report(self, self._project, plan, self._company())
+
+    def _edit_external(self, row: int, _column: int) -> None:
+        device = self._external.item(row, 0).data(Qt.UserRole)
+        area, line = next(((a, l) for a in self._project.topology.areas for l in a.lines
+                           if device in l.devices), (None, None))
+        if line is None:
+            return
+        from ..dialogs.external_device_dialog import ExternalDeviceDialog
+        dlg = ExternalDeviceDialog(area.area_number, line, device, self)
+        if not dlg.exec():
+            return
+        if self._bus:
+            self._bus.begin_change(f"Externes Gerät {dlg.physical_address} bearbeitet")
+        dlg.apply(device)
+        if self._bus:
+            self._bus.emit_topology_changed()
+        self._refresh()

@@ -115,6 +115,8 @@ class ExternalCheck:
     behind_coupler: bool
     blocked: list[str]            # GAs, die das Gerät nicht erreichen
     blocked_now: list[str]        # dasselbe im Ist-Stand
+    observed: list[str] = field(default_factory=list)   # laut Busmonitor gesendet
+    confirmed: list[str] = field(default_factory=list)  # davon gesperrt: sicher betroffen
 
 
 @dataclass
@@ -365,6 +367,7 @@ def _external_checks(project, plan, area, line, by_target, new_prefix, new_coupl
     after = _lines_after(project, area, line, by_target, new_prefix)
     couplers_now = _couplers_after(project, area, line, "", False)
     couplers = _couplers_after(project, area, line, new_prefix, new_coupler_source)
+    observed = _observed_sends(project)
     checks = []
     for key_after, devices in sorted(after.items()):
         for device in devices:
@@ -372,12 +375,26 @@ def _external_checks(project, plan, area, line, by_target, new_prefix, new_coupl
                 continue
             key_now = next(k for k, ds in now_lines.items() if device in ds)
             main = key_after.endswith(".0")
+            blocked = _blocked(all_gas, _gas(devices), key_after in couplers)
+            sent = observed.get(device.physical_address, [])
             checks.append(ExternalCheck(
                 device, f"Hauptlinie {key_after}" if main else f"Linie {key_after}",
                 behind_coupler=key_after in couplers,
-                blocked=_blocked(all_gas, _gas(devices), key_after in couplers),
-                blocked_now=_blocked(all_gas, _gas(now_lines[key_now]), key_now in couplers_now)))
+                blocked=blocked,
+                blocked_now=_blocked(all_gas, _gas(now_lines[key_now]), key_now in couplers_now),
+                observed=sent, confirmed=[ga for ga in sent if ga in set(blocked)]))
     return checks
+
+
+def _observed_sends(project) -> dict[str, list[str]]:
+    """Absender -> GAs, auf die er laut Busmonitor-Mitschnitten gesendet hat."""
+    from .report_sorting import group_address_key
+    sends: dict[str, set[str]] = {}
+    for rec in project.bus_recordings:
+        for src, dst, service, *_rest in rec.get("pairs", []):
+            if "/" in dst and service in ("Write", "Response"):
+                sends.setdefault(src, set()).add(dst)
+    return {src: sorted(gas, key=group_address_key) for src, gas in sends.items()}
 
 
 # ── Gruppierung für die Auswahl ──────────────────────────────────────────

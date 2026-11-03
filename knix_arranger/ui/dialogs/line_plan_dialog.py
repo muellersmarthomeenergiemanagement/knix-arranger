@@ -263,11 +263,13 @@ class LinePlanDialog(QDialog):
         for check in result.externals:
             name = check.device.product or check.device.physical_address
             if check.blocked:
+                measured = (f" Laut Busmonitor sendet es auf {len(check.confirmed)} davon."
+                            if check.confirmed else "")
                 lines.append(
                     f"<span style='color:#C62828'><b>{name}:</b> in {check.where} hinter dem "
                     f"Koppler – erreicht {len(check.blocked)} GA(s) nicht, die nur in anderen "
-                    "Linien verknüpft sind. Auf die Hauptlinie setzen oder einen Dummy mit "
-                    "diesen GAs verknüpfen.</span>")
+                    f"Linien verknüpft sind.{measured} Auf die Hauptlinie setzen oder einen "
+                    "Dummy mit diesen GAs verknüpfen.</span>")
             else:
                 lines.append(f"<span style='color:#2E7D32'><b>{name}:</b> in {check.where} – "
                              "erreicht alle verknüpften GAs, kein Dummy nötig.</span>")
@@ -299,20 +301,29 @@ class LinePlanDialog(QDialog):
         self.reject()
 
     def _report(self) -> None:
-        import os
-        from .. import license_gate
-        from .reports_dialog import open_report
-        folder = self._project.folder_path
-        name = f"{self._project.name}_Linienumbau_{self._plan.source.replace('.', '_')}.pdf"
-        default = os.path.join(folder, "Berichte", name) if folder else name
-        if folder:
-            os.makedirs(os.path.join(folder, "Berichte"), exist_ok=True)
-        path, _ = license_gate.get_save_file_name(
-            self, "Bericht Linienumbau speichern", default, "PDF-Dateien (*.pdf)")
-        if not path:
-            return
-        self._store()
-        from ...services.report_service import ReportService
-        ReportService(self._project, company_profile=self._company).generate_line_plan_report(
-            path, self._plan)
-        open_report(path)
+        save_line_plan_report(self, self._project, self._plan, self._company,
+                              before_write=self._store)
+
+
+def save_line_plan_report(parent, project, plan, company_profile=None,
+                          before_write=None) -> str:
+    """Bericht Linienumbau speichern und öffnen; gibt den Pfad zurück
+    ("" = abgebrochen). Vorschlag im Ordner Berichte des Projekts."""
+    import os
+    from .. import license_gate
+    from .reports_dialog import open_report
+    folder = project.folder_path
+    name = f"{project.name}_Linienumbau_{plan.source.replace('.', '_')}.pdf"
+    default = os.path.join(folder, "Berichte", name) if folder else name
+    if folder:
+        os.makedirs(os.path.join(folder, "Berichte"), exist_ok=True)
+    path, _ = license_gate.get_save_file_name(
+        parent, "Bericht Linienumbau speichern", default, "PDF-Dateien (*.pdf)")
+    if not path:
+        return ""
+    if before_write is not None:
+        before_write()
+    from ...services.report_service import ReportService
+    ReportService(project, company_profile=company_profile).generate_line_plan_report(path, plan)
+    open_report(path)
+    return path

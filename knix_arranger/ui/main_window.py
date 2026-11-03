@@ -453,6 +453,16 @@ class MainWindow(QMainWindow):
         # TypeError bei jeder Änderung, Prüfergebnisse galten nicht als ungespeichert)
         self._commissioning_view.checklist_changed.connect(lambda: self._set_dirty(True))
         self._changelog_view = ChangelogView()
+        from .views.renovation_view import RenovationView
+        self._renovation_view = RenovationView()
+        self._renovation_view.changed.connect(lambda: self._mark_stale("topology", "overview"))
+        from .views.bus_analysis_view import BusAnalysisView
+        from .views.plant_check_view import PlantCheckView
+        self._bus_analysis_view = BusAnalysisView()
+        self._bus_analysis_view.changed.connect(
+            lambda: self._mark_stale("plant_check", "renovation", "overview"))
+        self._plant_check_view = PlantCheckView()
+        self._plant_check_view.navigate_requested.connect(self._navigate_from_overview)
         self._changelog_view.changed.connect(
             lambda: self._bus.any_change.emit("changelog")
         )
@@ -486,6 +496,9 @@ class MainWindow(QMainWindow):
             "bauherr_form": self._bauherr_form_view,
             "commissioning": self._commissioning_view,
             "changelog": self._changelog_view,
+            "renovation": self._renovation_view,
+            "bus_analysis": self._bus_analysis_view,
+            "plant_check": self._plant_check_view,
             "help": self._help_view,
             "wizard": self._wizard_widget,
         }
@@ -521,6 +534,8 @@ class MainWindow(QMainWindow):
         self._ets_functions_view.set_bus(self._bus)
         self._bauherr_form_view.set_bus(self._bus)
         self._customer_quote_view.set_bus(self._bus)
+        self._renovation_view.set_bus(self._bus)
+        self._bus_analysis_view.set_bus(self._bus)
         # Matrix = Übersicht, bearbeitet wird in der Bauherrenberatung
         self._linking_matrix_view.open_in_bauherr.connect(self._open_in_bauherr)
 
@@ -546,7 +561,7 @@ class MainWindow(QMainWindow):
     def _navigate_from_overview(self, key: str) -> None:
         """Arbeitsablauf der Übersicht: Ansicht öffnen und in der Seitenleiste
         markieren; Wizard, Export und Berichte sind Aktionen."""
-        if key not in ("wizard", "export", "reports"):
+        if key not in ("wizard", "export", "reports", "import_csv"):
             self._sidebar.select(key)
         self._navigate(key)
 
@@ -675,6 +690,9 @@ class MainWindow(QMainWindow):
             "time_programs": self._time_program_view,
             "commissioning": self._commissioning_view,
             "changelog": self._changelog_view,
+            "renovation": self._renovation_view,
+            "bus_analysis": self._bus_analysis_view,
+            "plant_check": self._plant_check_view,
         }
         refreshers = {key: (lambda v=view: v.set_project(p)) for key, view in views.items()}
         refreshers.update({
@@ -720,6 +738,7 @@ class MainWindow(QMainWindow):
         # 7 s je Klick)
         self._stale_views = set(self._view_refreshers())
         self._refresh_view(self._current_view_key())
+        self._sidebar.set_imported(self._project.topology.is_imported)
 
         ga_count = len(self._project.group_addresses.all_addresses())
         self._status_bar.set_project_name(self._project.name)
@@ -900,7 +919,7 @@ class MainWindow(QMainWindow):
             return
         # Neue/aufgeteilte Geräte brauchen ihre Bedienelemente
         self._refresh_bedienelemente()
-        self._mark_stale("topology", "topology_report")
+        self._mark_stale("topology", "topology_report", "renovation", "plant_check")
         self._overview.update_from_project(self._project)
         self._building_view.set_topology(self._project.topology)
         self._building_view.set_group_addresses(self._project.group_addresses)
@@ -1085,6 +1104,7 @@ class MainWindow(QMainWindow):
             logger.exception("Prüfung auf neue Probleme fehlgeschlagen")
             return
         self._overview.set_problem_counts(self._problems.counts())
+        self._plant_check_view.set_problem_counts(self._problems.counts())
         if not new:
             return
         errors = sum(1 for i in new if i.level == "error")
@@ -1136,6 +1156,7 @@ class MainWindow(QMainWindow):
         # Frisch geladenes Projekt: vorhandene Probleme nicht als neu melden
         self._problems.adopt(self._project)
         self._overview.set_problem_counts(self._problems.counts())
+        self._plant_check_view.set_problem_counts(self._problems.counts())
 
     def _has_unsaved_changes(self) -> bool:
         """Dirty-Flag ODER geänderter Inhalt -- nicht jede Ansicht meldet ihre

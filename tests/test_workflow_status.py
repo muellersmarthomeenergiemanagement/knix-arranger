@@ -64,7 +64,8 @@ def test_uebersicht_zeigt_ablauf_und_navigiert(project):  # noqa: F811
     assert len(buttons) == 8
     buttons[1].click()
     assert keys == ["bauherr_form"]
-    # Importierte Projekte: kein Planungsablauf
+    # Importierte Projekte: Arbeitsweg Bestand und Umbau statt Planungsablauf
     project.topology.is_imported = True
     view.update_from_project(project)
-    assert not view._workflow_group.isVisibleTo(view)
+    assert view._workflow_group.title() == "Arbeitsweg Bestand und Umbau"
+    assert len(view._workflow_group.findChildren(QPushButton)) == 6

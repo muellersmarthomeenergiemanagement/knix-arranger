@@ -162,6 +162,55 @@ def workflow_steps(project, errors: int | None = None,
     return steps
 
 
+def bestand_steps(project, errors: int | None = None,
+                  warnings: int | None = None) -> list[WorkflowStep]:
+    """Arbeitsweg einer bestehenden Anlage (importiertes Projekt): einlesen,
+    prüfen, messen, beurteilen, Umbau planen, dokumentieren."""
+    devices = [d for d in _devices(project) if not d.external]
+    gas = project.group_addresses.all_addresses()
+    steps: list[WorkflowStep] = []
+    steps.append(WorkflowStep(
+        1, "ETS-Projekt einlesen", "import_csv",
+        "Die .knxproj ist die Grundlage; nach Änderungen in der ETS neu einlesen.",
+        DONE if devices else OPEN,
+        f"{len(devices)} Geräte, {len(gas)} GAs" if devices else "noch nichts eingelesen",
+        {DONE: "eingelesen"}))
+    if errors is None or warnings is None:
+        state, detail, labels = OPEN, "noch nicht geprüft", {}
+    else:
+        state = DONE if errors == 0 and warnings == 0 else PARTIAL if errors == 0 else OPEN
+        detail = f"{errors} Fehler, {warnings} Warnungen"
+        labels = {DONE: "ohne Meldungen", PARTIAL: "", OPEN: ""}
+    steps.append(WorkflowStep(
+        2, "Validierung und ETS-Arbeitsliste", "validation",
+        "Abweichungen prüfen; was in der ETS zu korrigieren ist, steht in der Arbeitsliste.",
+        state, detail, labels))
+    recordings = project.bus_recordings
+    steps.append(WorkflowStep(
+        3, "Busanalyse", "bus_analysis",
+        "Busmonitor-Mitschnitt einlesen: Buslast, Wiederholungen, Geräte ausserhalb der ETS.",
+        DONE if recordings else INFO,
+        f"{len(recordings)} Mitschnitt(e), zuletzt {recordings[-1]['start'][:10]}"
+        if recordings else "kein Mitschnitt (freiwillig)",
+        {DONE: "gemessen"}))
+    steps.append(WorkflowStep(
+        4, "Anlagen-Check", "plant_check",
+        "Zustand der Anlage mit Bewertung, als Bericht für Bauherr und Service.",
+        INFO, ""))
+    plans = project.line_plans
+    steps.append(WorkflowStep(
+        5, "Umbau-Varianten", "renovation",
+        "Linien aufteilen, Hauptlinie einführen, externe Geräte – geplant neben dem Ist-Stand.",
+        DONE if plans else INFO,
+        ", ".join(f"Linie {p.source}" for p in plans) if plans else "",
+        {DONE: "geplant"}))
+    steps.append(WorkflowStep(
+        6, "Berichte und Unterlagen", "reports",
+        "Raumbuch, Aktoren und Gateways, Bedienungsanleitung, Bauherren- und Revisionspaket.",
+        INFO, ""))
+    return steps
+
+
 def next_step(steps: list[WorkflowStep]) -> WorkflowStep | None:
     """Erster Schritt, der noch offen oder begonnen ist."""
     return next((s for s in steps if s.state in (OPEN, PARTIAL)), None)

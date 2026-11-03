@@ -90,6 +90,13 @@ NAV_GROUPS: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("ets_functions",   "ETS-Funktionen",      "puzzle"),
         ("validation",      "Validierung",         "circle-check"),
     ]),
+    # Bestehende Anlagen: messen, beurteilen, Umbau planen. Bei importierten
+    # Projekten direkt nach "Projekt" (Sidebar.set_imported)
+    ("Bestand & Umbau", [
+        ("plant_check",    "Anlagen-Check",       "stethoscope"),
+        ("bus_analysis",   "Busanalyse",          "activity"),
+        ("renovation",     "Umbau-Varianten",     "hammer"),
+    ]),
     ("Angebot", [
         ("quotations",       "Offertanfragen",  "mail-forward"),
         ("customer_quotes",  "Kundenofferte",   "file-invoice"),
@@ -293,6 +300,23 @@ class Sidebar(QWidget):
         wanted = set(titles)
         for g in self._groups:
             g.set_expanded(g.title in wanted)
+
+    BESTAND_GROUP = "Bestand & Umbau"
+
+    def set_imported(self, imported: bool) -> None:
+        """Importierte Projekte dokumentieren und verändern eine bestehende
+        Anlage: die Gruppe "Bestand & Umbau" steht dann direkt nach "Projekt",
+        sonst nach der Planung bei Angebot und Abschluss."""
+        if getattr(self, "_imported", None) == imported:
+            return
+        self._imported = imported
+        group = next(g for g in self._groups if g.title == self.BESTAND_GROUP)
+        self._nav_layout.removeWidget(group)
+        anchor = next(g for g in self._groups
+                      if g.title == ("Projekt" if imported else "Adressen & Logik"))
+        self._nav_layout.insertWidget(self._nav_layout.indexOf(anchor) + 1, group)
+        if imported and not group.expanded:
+            group.set_expanded(True)
 
     def _emit_groups_changed(self) -> None:
         self.groups_changed.emit(self.expanded_groups())

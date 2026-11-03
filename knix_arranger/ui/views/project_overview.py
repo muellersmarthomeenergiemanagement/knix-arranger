@@ -176,9 +176,10 @@ class ProjectOverview(QWidget):
     _STATE_COLORS = {"erledigt": COLOR_OK, "begonnen": COLOR_WARNING, "offen": TEXT_MUTED}
 
     def _show_workflow(self) -> None:
-        """Arbeitsablauf neu aufbauen (nur geplante Projekte; importierte
-        Projekte dokumentieren den ETS-Stand)."""
-        from ...services.workflow_status import next_step, workflow_steps
+        """Arbeitsablauf neu aufbauen: geplante Projekte vom Wizard bis zu den
+        Unterlagen, importierte vom Einlesen über Busanalyse und Anlagen-Check
+        bis zum Umbau (services/workflow_status)."""
+        from ...services.workflow_status import bestand_steps, next_step, workflow_steps
         layout = self._workflow_layout
         while layout.count():
             item = layout.takeAt(0)
@@ -188,11 +189,15 @@ class ProjectOverview(QWidget):
                 widget.setParent(None)
                 widget.deleteLater()
         project = self._project
-        if project is None or project.topology.is_imported:
+        if project is None:
             self._workflow_group.setVisible(False)
             return
         errors, warnings = self._problem_counts or (None, None)
-        steps = workflow_steps(project, errors, warnings)
+        # Bestehende Anlage (importiert): eigener Arbeitsweg bis zum Umbau
+        imported = project.topology.is_imported
+        self._workflow_group.setTitle("Arbeitsweg Bestand und Umbau" if imported
+                                      else "Arbeitsablauf")
+        steps = (bestand_steps if imported else workflow_steps)(project, errors, warnings)
         upcoming = next_step(steps)
         for row, step in enumerate(steps):
             is_next = step is upcoming

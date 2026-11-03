@@ -144,6 +144,8 @@ class KnxProject:
     functions: list[KnixFunction] = field(default_factory=list)
     # Umbau-Varianten je Linie (FA-609c), neben dem Ist-Stand der Topologie
     line_plans: list[LinePlan] = field(default_factory=list)
+    # Busmonitor-Mitschnitte als Zusammenfassung (FA-640, services/bus_monitor)
+    bus_recordings: list[dict] = field(default_factory=list)
     # Projektstatus: Datum (ISO), an dem die Gruppenadressen eines geplanten
     # Projekts in die ETS übertragen wurden; leer = in Planung. Ab dann
     # verschiebt KNiX keine Adressen mehr (kein "Adressen neu ordnen").
@@ -279,6 +281,7 @@ class KnxProject:
             "ets_worklist": copy.deepcopy(self.ets_worklist),
             "functions": [f.to_dict() for f in self.functions],
             "line_plans": [p.to_dict() for p in self.line_plans],
+            "bus_recordings": copy.deepcopy(self.bus_recordings),
             "ets_transferred": self.ets_transferred,
             "areal": self.areal.to_dict(),
             "topology": self.topology.to_dict(),
@@ -338,6 +341,7 @@ class KnxProject:
         project.ets_corrections = EtsCorrections.from_dict(data.get("ets_corrections"))
         project.ets_worklist = copy.deepcopy(data.get("ets_worklist") or {})
         project.line_plans = [LinePlan.from_dict(p) for p in data.get("line_plans", [])]
+        project.bus_recordings = copy.deepcopy(data.get("bus_recordings") or [])
         project.functions = [KnixFunction.from_dict(f) for f in data.get("functions", [])]
         project.ets_transferred = data.get("ets_transferred", "")
         project.revisions = [RevisionRecord.from_dict(r) for r in data.get("revisions", [])]
