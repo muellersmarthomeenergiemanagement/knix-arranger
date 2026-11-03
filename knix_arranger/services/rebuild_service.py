@@ -55,6 +55,10 @@ REBUILD_OPTIONS: tuple[RebuildOption, ...] = (
         "changelog", "Änderungsprotokoll", "Bisherige Einträge des Protokolls",
         True, ("changelog",)),
     RebuildOption(
+        "line_plans", "Umbau-Varianten der Linien",
+        "Geplante Aufteilung von Linien (Geräte über die physikalische Adresse wiedererkannt)",
+        True, ("line_plans",)),
+    RebuildOption(
         "verteiler_rooms", "Zuordnung Verteiler → Raum",
         "In Schritt 3b gewählte Zielräume der Verteiler",
         False, ("verteiler_room_overrides",)),

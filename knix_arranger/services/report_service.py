@@ -1513,6 +1513,147 @@ class ReportService:
         pdf.save(filepath)
         logger.info(f"Steigschema erstellt: {filepath}")
 
+    def generate_line_plan_report(self, filepath: str, plan) -> None:
+        """Bericht zur Umbau-Variante einer Linie (FA-609c): Teile vorher und
+        nachher, neue Hardware, Umadressierung, Filtertabellen, externe
+        Geräte und Arbeitsschritte (services/line_plan_service)."""
+        from .line_plan_service import evaluate
+        result = evaluate(self.project, plan, shared_catalog_or_none())
+        title = f"Linienumbau Linie {plan.source}"
+        pdf = self._make_pdf(title)
+        pdf.add_heading(title, level=1)
+        pdf.add_paragraph(
+            f"Projekt: {self.project.name} | "
+            f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        pdf.add_separator()
+        if result is None:
+            pdf.add_paragraph(f"Linie {plan.source} gibt es im Projekt nicht mehr.")
+            pdf.save(filepath)
+            return
+        a = result.area.area_number
+
+        pdf.add_heading("Übersicht", level=2)
+        pdf.add_paragraph(
+            ("Neue Linie mit Linienkoppler" if plan.mode == "line"
+             else "Neues Segment mit Linienverstärker (Adressen bleiben)")
+            + (f", Linienkoppler {plan.source}.0 mit eigener Hauptlinie {a}.0"
+               if plan.main_line else "") + ".")
+
+        def part_row(part, label):
+            current = (f"{part.current_ma:.0f} / {part.supply_ma} mA ({part.load * 100:.0f} %)"
+                       if part.load is not None else f"{part.current_ma:.0f} mA")
+            new = ", ".join(part.added + (["Spannungsversorgung"] if part.new_supply else []))
+            return [label, f"{part.count} / {part.capacity}", current, new or "–", part.status]
+        pdf.add_table(
+            ["Teil", "Teilnehmer", "Busstrom", "Neu", "Beurteilung"],
+            [part_row(result.before, f"Heute: {result.before.label}")]
+            + [part_row(p, p.label) for p in result.parts],
+            col_widths=[0.26, 0.12, 0.22, 0.28, 0.12],
+            align=["left", "right", "right", "left", "left"])
+        if any(p.estimated_ma for p in [result.before] + result.parts):
+            pdf.add_note("Busstrom:", f"Prognose; Geräte ohne Herstellerangabe mit "
+                                      f"{DEFAULT_DEVICE_MA:.0f} mA geschätzt, neue Spannungs"
+                                      f"versorgungen mit {DEFAULT_SUPPLY_MA} mA angenommen.")
+
+        if result.hardware:
+            pdf.add_heading("Neue Hardware", level=2)
+            pdf.add_table(["Gerät"], [[h] for h in result.hardware], col_widths=[1.0])
+
+        for part in result.parts:
+            if part.key == "source" or not part.devices:
+                continue
+            pdf.add_conditional_break(min_height=160)
+            pdf.add_heading(f"Geräte: {part.label}", level=2)
+            pdf.add_table(
+                ["Adresse", "Gerät", "Einbauort"],
+                [[d.physical_address, _device_cell(d), self._device_location(d) or "–"]
+                 for d in sorted(part.devices,
+                                 key=lambda d: physical_address_key(d.physical_address))],
+                col_widths=[0.11, 0.55, 0.34])
+
+        if result.readdress:
+            pdf.add_page_break()
+            pdf.add_heading("Umadressierung", level=2)
+            pdf.add_table(
+                ["Alt", "Neu", "Gerät", "Einbauort"],
+                [[r.old, r.new, _device_cell(r.device),
+                  self._device_location(r.device) or "–"] for r in result.readdress],
+                col_widths=[0.10, 0.10, 0.50, 0.30])
+
+        pdf.add_conditional_break(min_height=180)
+        pdf.add_heading("Filtertabellen", level=2)
+        pdf.add_table(
+            ["Koppler", "Linie", "GAs", "Stand"],
+            [[f.coupler, f.line, str(f.ga_count),
+              "neu" if f.new else "ändert sich" if f.changed else "unverändert"]
+             for f in result.filters],
+            col_widths=[0.15, 0.45, 0.15, 0.25], align=["left", "left", "right", "left"])
+        pdf.add_note(
+            "Hinweis:",
+            "Ein Linienkoppler lässt eine Gruppenadresse durch, wenn sie mit einem Gerät "
+            "seiner Linie verknüpft ist. Für verknüpfte Geräte entstehen die Tabellen in "
+            "der ETS damit von selbst; neue und geänderte Tabellen müssen in die Koppler "
+            "geladen werden."
+            + (f" {result.crossing} GA(s) sind in beiden Linien verknüpft und laufen "
+               "künftig über die Koppler." if result.crossing else ""))
+
+        if result.externals:
+            pdf.add_conditional_break(min_height=180)
+            pdf.add_heading("Geräte ausserhalb des ETS-Projekts", level=2)
+            pdf.add_table(
+                ["Gerät", "Nach dem Umbau", "Erreicht nicht", "Heute"],
+                [[_device_cell(c.device), c.where,
+                  f"{len(c.blocked)} GA(s)" if c.blocked else "alle erreicht",
+                  f"{len(c.blocked_now)} GA(s) nicht" if c.blocked_now else "alle erreicht"]
+                 for c in result.externals],
+                col_widths=[0.36, 0.22, 0.20, 0.22])
+            pdf.add_note(
+                "Hinweis:",
+                "Diese Geräte haben im ETS-Projekt keine Verknüpfungen. Eine Visualisierung "
+                "bedient trotzdem fast alle GAs: hinter einem filternden Koppler erreicht sie "
+                "nur, was in ihrer Linie verknüpft ist. Auf der Hauptlinie bzw. in einer "
+                "Linie ohne Koppler erreicht sie alle verknüpften GAs.")
+            for check in result.externals:
+                if not check.blocked:
+                    continue
+                pdf.add_heading(f"Dummy-Verknüpfungen für {check.device.product}", level=3)
+                pdf.add_paragraph(
+                    f"Bleibt das Gerät in {check.where}, muss ein Dummy in dieser Linie mit "
+                    f"diesen {len(check.blocked)} GAs verknüpft werden – oder das Gerät kommt "
+                    "auf die Hauptlinie: " + ", ".join(check.blocked))
+
+        pdf.add_conditional_break(min_height=200)
+        pdf.add_heading("Arbeitsschritte", level=2)
+        steps = []
+        new_parts = [p for p in result.parts if p.key == "new"]
+        if new_parts and plan.mode == "line":
+            steps.append(f"ETS: {new_parts[0].label.replace(' (neu)', '')} mit Linienkoppler "
+                         "anlegen und die Geräte laut «Umadressierung» verschieben.")
+        elif new_parts:
+            steps.append(f"ETS: Linienverstärker in Linie {plan.source} einfügen "
+                         "(physikalische Adresse siehe «Neue Hardware»).")
+        if plan.main_line:
+            steps.append(f"ETS: Linienkoppler {plan.source}.0 einfügen; Geräte für die "
+                         f"Hauptlinie {a}.0 laut «Umadressierung» verschieben.")
+        steps.append("Vor Ort: Bus nach Teilen trennen, Spannungsversorgungen mit Drossel und "
+                     "Koppler einbauen. Vorher je Strang prüfen (abklemmen, Linie scannen), "
+                     "welche Geräte daran hängen.")
+        steps.append("Programmieren: zuerst die Koppler (physikalische Adresse und Applikation "
+                     "mit Filtertabelle), dann die verschobenen Geräte (physikalische Adresse "
+                     "und Applikation), danach alle Koppler mit geänderter Filtertabelle.")
+        if any(r.device.external for r in result.readdress):
+            steps.append("Externe Geräte: neue physikalische Adresse in der eigenen "
+                         "Konfiguration einstellen.")
+        steps.append("Die .knxproj neu in KNiX einlesen und kontrollieren; danach die "
+                     "Variante verwerfen.")
+        for n, step in enumerate(steps, 1):
+            pdf.add_paragraph(f"{n}. {step}")
+        for hint in result.hints:
+            pdf.add_note("Hinweis:", hint)
+
+        pdf.save(filepath)
+        logger.info(f"Bericht Linienumbau erstellt: {filepath}")
+
     def generate_topology_report(self, filepath: str):
         """Erzeugt den Topologie-Bericht als PDF/Text.
 

@@ -521,6 +521,12 @@ class TopologyView(QWidget):
                 elif lc.low_reserve or segments.low_reserve:
                     line_item.setForeground(4, QColor("#E65100"))
                 line_item.setData(0, _ROLE_DATA, ("line", area, line))
+                if self._project is not None and any(
+                        p.source == f"{area.area_number}.{line.line_number}"
+                        for p in self._project.line_plans):
+                    line_item.setToolTip(0, "Umbau-Variante gespeichert – Rechtsklick "
+                                            "«Umbau-Variante bearbeiten…»")
+                    line_item.setText(0, line_item.text(0) + "  [Umbau geplant]")
                 # Expand-Zustand wird in _restore_tree_state gesetzt
 
                 # FA-1007: Linienkoppler und Speisegeräte – nur wenn als
@@ -913,6 +919,12 @@ class TopologyView(QWidget):
             rename_act  = menu.addAction("Linie umbenennen…")
             uv_act      = menu.addAction("UV-Einbauort bearbeiten…")
             external_act = menu.addAction("Externes Gerät erfassen…")
+            plan_act = None
+            if self._project is not None and line.devices:
+                has_plan = any(p.source == f"{area.area_number}.{line.line_number}"
+                               for p in self._project.line_plans)
+                plan_act = menu.addAction("Umbau-Variante bearbeiten…" if has_plan
+                                          else "Linie aufteilen / Umbau planen…")
             self._add_line_area_menu(menu, line)
             self._add_line_merge_menu(menu, line)
             self._add_line_jumps(menu, line)
@@ -930,6 +942,8 @@ class TopologyView(QWidget):
                 self._edit_line_uv(line)
             elif action == external_act:
                 self._edit_external_device(area, line)
+            elif plan_act is not None and action == plan_act:
+                self._plan_line(area, line)
 
         elif kind == "device" and data[3].external:
             _, area, line, device = data
@@ -1464,6 +1478,15 @@ class TopologyView(QWidget):
             dlg.apply(device)
         self._refresh()
         self._emit_changed()
+
+    def _plan_line(self, area: Area, line: Line):
+        """Linie aufteilen bzw. Umbau planen (FA-609c); verändert die
+        Topologie nicht."""
+        from ..dialogs.line_plan_dialog import LinePlanDialog
+        from ...services.project_service import ProjectService
+        LinePlanDialog(self._project, f"{area.area_number}.{line.line_number}", self._bus,
+                       ProjectService().load_company_profile(), self).exec()
+        self._refresh()
 
     def _remove_external_device(self, line: Line, device: Device):
         answer = QMessageBox.question(
