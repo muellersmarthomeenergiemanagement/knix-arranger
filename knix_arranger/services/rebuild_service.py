@@ -59,6 +59,10 @@ REBUILD_OPTIONS: tuple[RebuildOption, ...] = (
         "Geplante Aufteilung von Linien (Geräte über die physikalische Adresse wiedererkannt)",
         True, ("line_plans",)),
     RebuildOption(
+        "extension_plans", "Erweiterungen im Bestand",
+        "Geplante Erweiterungen (Räume über die Raumnummer wiedererkannt)",
+        True, ("extension_plans",)),
+    RebuildOption(
         "bus_recordings", "Busmonitor-Mitschnitte",
         "Eingelesene Mitschnitte der Busanalyse (Zusammenfassung)",
         True, ("bus_recordings",)),

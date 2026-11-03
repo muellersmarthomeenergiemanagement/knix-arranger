@@ -1513,6 +1513,87 @@ class ReportService:
         pdf.save(filepath)
         logger.info(f"Steigschema erstellt: {filepath}")
 
+    def generate_extension_report(self, filepath: str, plan) -> None:
+        """Bericht Erweiterung im Bestand (FA-642): Positionen, neue GAs,
+        Aktorkanäle, fehlende Aktoren und Arbeitsschritte."""
+        from .extension_service import evaluate
+        result = evaluate(self.project, plan)
+        title = f"Erweiterung {plan.name}".strip()
+        pdf = self._make_pdf(title)
+        pdf.add_heading(title, level=1)
+        pdf.add_paragraph(
+            f"Projekt: {self.project.name} | "
+            f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        pdf.add_separator()
+
+        pdf.add_heading("Positionen", level=2)
+        rows = []
+        for r in result.items:
+            room = (f"{r.floor.short_code or r.floor.name} · {r.room.number} {r.room.name}".strip()
+                    if r.room else "–")
+            actors = ", ".join(f"{a.device.physical_address} ({a.channels})" for a in r.actors)
+            if r.missing_channels:
+                actors = ", ".join(p for p in (actors, f"{r.missing_channels} Kanal/Kanäle "
+                                                       "auf neuem Aktor") if p)
+            rows.append([room, r.gewerk.name if r.gewerk else r.item.gewerk_code,
+                         str(r.item.count), r.item.label or "–", r.item.operation or "–",
+                         actors or "–"])
+        pdf.add_table(["Raum", "Gewerk", "Anzahl", "Bezeichnung", "Bedienung", "Aktorkanäle"],
+                      rows, col_widths=[0.22, 0.16, 0.08, 0.18, 0.14, 0.22],
+                      align=["left", "left", "right", "left", "left", "left"])
+        naming = {g.naming for g in result.gas}
+        pdf.add_note("Namen:", "Schema der Anlage (vom letzten Element des Gewerks in der "
+                               "Mittelgruppe abgeleitet)" if naming == {"Anlage"}
+                     else "KNX Swiss" if naming == {"KNX Swiss"}
+                     else "teils Schema der Anlage, teils KNX Swiss (ohne erkennbare Vorlage)")
+        pdf.add_note("Kennzeichnung:", f"Die neuen GAs tragen die Beschreibung "
+                                       f"«{plan.comment}».")
+
+        pdf.add_heading("Neue Gruppenadressen", level=2)
+        pdf.add_table(
+            ["Adresse", "Bezeichnung", "DPT", "Funktion"],
+            [[ga.address, ga.designation, dpt_number(ga.dpt) or "–", ga.function]
+             for ga in result.gas],
+            col_widths=[0.10, 0.56, 0.10, 0.24])
+
+        actors = [(r, a) for r in result.items for a in r.actors]
+        if actors or result.new_actors():
+            pdf.add_conditional_break(min_height=140)
+            pdf.add_heading("Aktoren", level=2)
+            if actors:
+                pdf.add_table(
+                    ["Aktor", "Einbauort", "Kanäle", "Für"],
+                    [[_device_cell(a.device), self._device_location(a.device) or "–",
+                      str(a.channels),
+                      f"{r.room.name if r.room else '–'} – {r.item.label or r.gewerk.name}"]
+                     for r, a in actors],
+                    col_widths=[0.40, 0.20, 0.10, 0.30])
+                pdf.add_note("Freie Kanäle:", "laut Kanalzahl der Produktbezeichnung; welcher "
+                                              "Kanal frei ist, zeigt der Bericht Aktoren und "
+                                              "Gateways.")
+            for gewerk_name, channels in result.new_actors().items():
+                pdf.add_note("Neuer Aktor:", f"{gewerk_name}: {channels} Kanal/Kanäle ohne "
+                                             "freien Kanal auf vorhandenen Aktoren.")
+
+        if result.problems:
+            pdf.add_heading("Hinweise", level=2, accent=ACCENT_WARNING)
+            for problem in result.problems:
+                pdf.add_paragraph(f"• {problem}")
+
+        pdf.add_conditional_break(min_height=160)
+        pdf.add_heading("Arbeitsschritte", level=2)
+        for n, step in enumerate((
+                "GA-Liste der Erweiterung (CSV) in die ETS importieren.",
+                "Neue Geräte einfügen; die GAs mit den Kanal-KOs der Aktoren und den "
+                "Tasten bzw. der Visualisierung verknüpfen.",
+                "Applikationen der geänderten Geräte laden, Filtertabellen der Koppler "
+                "aktualisieren.",
+                "Die .knxproj neu in KNiX einlesen und kontrollieren; danach die "
+                "Erweiterung löschen."), 1):
+            pdf.add_paragraph(f"{n}. {step}")
+        pdf.save(filepath)
+        logger.info(f"Bericht Erweiterung erstellt: {filepath}")
+
     def generate_plant_check_report(self, filepath: str, validation_counts=None) -> None:
         """Bericht Anlagen-Check (FA-641): Zustand der Anlage mit Bewertung je
         Prüfpunkt, für Bauherr und Integrator (services/plant_check)."""

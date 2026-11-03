@@ -197,13 +197,13 @@ def bestand_steps(project, errors: int | None = None,
         4, "Anlagen-Check", "plant_check",
         "Zustand der Anlage mit Bewertung, als Bericht für Bauherr und Service.",
         INFO, ""))
-    plans = project.line_plans
+    plans = [f"Linie {p.source}" for p in project.line_plans]
+    plans += [f"Erweiterung {p.name}" for p in project.extension_plans]
     steps.append(WorkflowStep(
-        5, "Umbau-Varianten", "renovation",
-        "Linien aufteilen, Hauptlinie einführen, externe Geräte – geplant neben dem Ist-Stand.",
-        DONE if plans else INFO,
-        ", ".join(f"Linie {p.source}" for p in plans) if plans else "",
-        {DONE: "geplant"}))
+        5, "Umbau und Erweiterung", "renovation",
+        "Linien aufteilen, Hauptlinie einführen, Elemente ergänzen, externe Geräte – "
+        "geplant neben dem Ist-Stand.",
+        DONE if plans else INFO, ", ".join(plans), {DONE: "geplant"}))
     steps.append(WorkflowStep(
         6, "Berichte und Unterlagen", "reports",
         "Raumbuch, Aktoren und Gateways, Bedienungsanleitung, Bauherren- und Revisionspaket.",

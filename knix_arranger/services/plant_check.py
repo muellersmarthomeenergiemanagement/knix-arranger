@@ -29,23 +29,22 @@ def _devices(project) -> list:
     return [d for a in project.topology.areas for l in a.lines for d in l.devices]
 
 
-def actor_channel_reserve(project) -> tuple[int, int, int]:
-    """(frei, belegt, Geräte ohne erkennbare Kanalzahl) über alle Aktoren --
-    wie der Abschnitt «Freie Kanäle» im Bericht Aktoren und Gateways:
-    Kanalzahl aus der Produktbezeichnung, belegt ist ein Kanal mit GA."""
+def actor_channels(project) -> dict[str, tuple[int, int]]:
+    """Physikalische Adresse -> (belegt, Kanalzahl) je Aktor mit erkennbarer
+    Kanalzahl -- wie der Abschnitt «Freie Kanäle» im Bericht Aktoren und
+    Gateways: Kanalzahl aus der Produktbezeichnung, belegt ist ein Kanal mit GA."""
     from .belegungsplan_service import BelegungsplanService, group_actor_rows_by_channel
     from .report_service import _channel_total, _report_channel_label
     rows_by_addr = defaultdict(list)
     if not project.topology.is_imported:
         for r in BelegungsplanService().generate(project).actor_rows:
             rows_by_addr[r.physical_address].append(r)
-    free = used_total = unknown = 0
+    result = {}
     for device in _devices(project):
         if device.device_type != "actor":
             continue
         total = _channel_total(device.product)
         if not total:
-            unknown += 1
             continue
         rows = rows_by_addr.get(device.physical_address, [])
         if rows and any(r.gewerk_code for r in rows):
@@ -53,9 +52,17 @@ def actor_channel_reserve(project) -> tuple[int, int, int]:
         else:
             used = len({_report_channel_label(co.name) for co in device.communication_objects
                         if co.connected_gas and _report_channel_label(co.name)})
-        used_total += min(used, total)
-        free += max(total - used, 0)
-    return free, used_total, unknown
+        result[device.physical_address] = (min(used, total), total)
+    return result
+
+
+def actor_channel_reserve(project) -> tuple[int, int, int]:
+    """(frei, belegt, Aktoren ohne erkennbare Kanalzahl) über alle Aktoren."""
+    channels = actor_channels(project)
+    actors = sum(1 for d in _devices(project) if d.device_type == "actor")
+    return (sum(total - used for used, total in channels.values()),
+            sum(used for used, _total in channels.values()),
+            actors - len(channels))
 
 
 def run_check(project, validation_counts: tuple[int, int] | None = None) -> list[CheckItem]:
@@ -209,10 +216,11 @@ def run_check(project, validation_counts: tuple[int, int] | None = None) -> list
                                "bus_analysis"))
 
     # ── Umbau ────────────────────────────────────────────────────────────
-    if project.line_plans:
-        items.append(CheckItem("Umbau", "Umbau-Varianten",
-                               ", ".join(f"Linie {p.source}" for p in project.line_plans),
-                               INFO, "", "renovation"))
+    plans = [f"Linie {p.source}" for p in project.line_plans]
+    plans += [f"Erweiterung {p.name}" for p in project.extension_plans]
+    if plans:
+        items.append(CheckItem("Umbau", "Geplante Änderungen", ", ".join(plans), INFO, "",
+                               "renovation"))
     return items
 
 

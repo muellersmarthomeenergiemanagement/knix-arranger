@@ -2,8 +2,9 @@
 Umbau-Varianten (Bestand & Umbau).
 
 Alle geplanten Änderungen an einer bestehenden Anlage an einem Ort: je Linie
-Teilnehmer, Busstrom und die gespeicherte Umbau-Variante (FA-609c), dazu die
-Geräte am Bus, die nicht im ETS-Projekt stehen (FA-609b). Bearbeitet wird in
+Teilnehmer, Busstrom und die gespeicherte Umbau-Variante (FA-609c), die
+Erweiterungen im Bestand (FA-642) und die Geräte am Bus, die nicht im
+ETS-Projekt stehen (FA-609b). Bearbeitet wird in
 den bekannten Dialogen; die Topologie bleibt der Ist-Stand.
 """
 from __future__ import annotations
@@ -66,6 +67,40 @@ class RenovationView(QWidget):
         row.addStretch()
         lines_layout.addLayout(row)
         layout.addWidget(lines_box, 2)
+
+        ext_plans_box = QGroupBox("Erweiterungen")
+        ext_plans_layout = QVBoxLayout(ext_plans_box)
+        self._extensions = QTableWidget(0, 5)
+        self._extensions.setHorizontalHeaderLabels(
+            ["Erweiterung", "Erstellt", "Positionen", "Neue GAs", "Aktorkanäle"])
+        self._extensions.verticalHeader().setVisible(False)
+        self._extensions.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._extensions.setSelectionBehavior(QTableWidget.SelectRows)
+        self._extensions.setSelectionMode(QTableWidget.SingleSelection)
+        self._extensions.cellDoubleClicked.connect(lambda *_: self._edit_extension())
+        self._extensions.itemSelectionChanged.connect(self._update_buttons)
+        ext_plans_layout.addWidget(self._extensions)
+        row = QHBoxLayout()
+        new_btn = QPushButton("Erweiterung planen…")
+        new_btn.clicked.connect(lambda: self._edit_extension(new=True))
+        self._ext_edit_btn = QPushButton("Bearbeiten…")
+        self._ext_edit_btn.setObjectName("secondary")
+        self._ext_edit_btn.clicked.connect(lambda: self._edit_extension())
+        self._ext_csv_btn = QPushButton("GA-Liste für die ETS…")
+        self._ext_csv_btn.setObjectName("secondary")
+        self._ext_csv_btn.clicked.connect(self._extension_csv)
+        self._ext_report_btn = QPushButton("Bericht…")
+        self._ext_report_btn.setObjectName("secondary")
+        self._ext_report_btn.clicked.connect(self._extension_report)
+        self._ext_delete_btn = QPushButton("Löschen")
+        self._ext_delete_btn.setObjectName("secondary")
+        self._ext_delete_btn.clicked.connect(self._delete_extension)
+        for button in (new_btn, self._ext_edit_btn, self._ext_csv_btn, self._ext_report_btn,
+                       self._ext_delete_btn):
+            row.addWidget(button)
+        row.addStretch()
+        ext_plans_layout.addLayout(row)
+        layout.addWidget(ext_plans_box, 2)
 
         ext_box = QGroupBox("Geräte am Bus, nicht im ETS-Projekt")
         ext_layout = QVBoxLayout(ext_box)
@@ -144,6 +179,25 @@ class RenovationView(QWidget):
                     item.setData(Qt.UserRole, device)
                 self._external.setItem(r, c, item)
         fit_columns(self._external)
+
+        from ...services.extension_service import evaluate as evaluate_extension
+        plans = self._project.extension_plans if self._project else []
+        self._extensions.setRowCount(len(plans))
+        for r, plan in enumerate(plans):
+            result = evaluate_extension(self._project, plan)
+            missing = sum(result.new_actors().values())
+            used = sum(a.channels for i in result.items for a in i.actors)
+            cells = [plan.name, plan.created, str(len(plan.items)), str(len(result.gas)),
+                     f"{used} auf vorhandenen Aktoren"
+                     + (f", {missing} auf neuem Aktor" if missing else "")]
+            for c, text in enumerate(cells):
+                item = QTableWidgetItem(text)
+                if c == 0:
+                    item.setData(Qt.UserRole, plan.id)
+                if c == 4 and missing:
+                    item.setForeground(QColor(_ORANGE))
+                self._extensions.setItem(r, c, item)
+        fit_columns(self._extensions)
         self._update_buttons()
 
     @staticmethod
@@ -180,6 +234,10 @@ class RenovationView(QWidget):
         self._plan_btn.setText("Umbau-Variante bearbeiten…" if has_plan
                                else "Linie aufteilen / Umbau planen…")
         self._report_btn.setEnabled(has_plan)
+        has_extension = self._selected_extension() is not None
+        for button in (self._ext_edit_btn, self._ext_csv_btn, self._ext_report_btn,
+                       self._ext_delete_btn):
+            button.setEnabled(has_extension)
 
     # ── Aktionen ─────────────────────────────────────────────────────────
 
@@ -202,6 +260,96 @@ class RenovationView(QWidget):
             return
         from ..dialogs.line_plan_dialog import save_line_plan_report
         save_line_plan_report(self, self._project, plan, self._company())
+
+    # ── Erweiterungen ────────────────────────────────────────────────────
+
+    def _selected_extension(self):
+        row = self._extensions.currentRow()
+        item = self._extensions.item(row, 0) if row >= 0 else None
+        if item is None or self._project is None:
+            return None
+        return next((p for p in self._project.extension_plans
+                     if p.id == item.data(Qt.UserRole)), None)
+
+    def _store_extensions(self, description: str, plans: list) -> None:
+        if self._bus:
+            self._bus.begin_change(description)
+        self._project.extension_plans = plans
+        if self._bus:
+            self._bus.any_change.emit("extension_plans")
+        self._refresh()
+        self.changed.emit()
+
+    def _edit_extension(self, new: bool = False) -> None:
+        if self._project is None:
+            return
+        plan = None if new else self._selected_extension()
+        if not new and plan is None:
+            return
+        from ..dialogs.extension_dialog import ExtensionDialog
+        dlg = ExtensionDialog(self._project, plan, self)
+        if not dlg.exec():
+            return
+        old = self._project.extension_plans
+        index = next((i for i, p in enumerate(old) if p.id == dlg.plan.id), len(old))
+        plans = [p for p in old if p.id != dlg.plan.id]
+        plans.insert(index, dlg.plan)
+        self._store_extensions(f"Erweiterung {dlg.plan.name}", plans)
+
+    def _delete_extension(self) -> None:
+        plan = self._selected_extension()
+        if plan is None:
+            return
+        from PySide6.QtWidgets import QMessageBox
+        if QMessageBox.question(self, "Erweiterung löschen",
+                                f"Erweiterung «{plan.name}» löschen?",
+                                QMessageBox.Yes | QMessageBox.No,
+                                QMessageBox.No) != QMessageBox.Yes:
+            return
+        self._store_extensions(f"Erweiterung {plan.name} gelöscht",
+                               [p for p in self._project.extension_plans if p is not plan])
+
+    def _save_path(self, title: str, name: str, filter_text: str) -> str:
+        import os
+        from .. import license_gate
+        folder = self._project.folder_path
+        default = os.path.join(folder, "Berichte", name) if folder else name
+        if folder:
+            os.makedirs(os.path.join(folder, "Berichte"), exist_ok=True)
+        path, _ = license_gate.get_save_file_name(self, title, default, filter_text)
+        return path
+
+    def _extension_csv(self) -> None:
+        """Nur die neuen GAs als CSV zum Import in die ETS."""
+        plan = self._selected_extension()
+        if plan is None:
+            return
+        path = self._save_path("GA-Liste der Erweiterung speichern",
+                               f"{self._project.name}_Erweiterung_{plan.name}.csv",
+                               "CSV-Dateien (*.csv)")
+        if not path:
+            return
+        from ...services.csv_export_service import CsvExportService
+        from ...services.extension_service import evaluate as evaluate_extension
+        from ...services.extension_service import new_ga_structure
+        CsvExportService().export_csv(
+            new_ga_structure(self._project, evaluate_extension(self._project, plan)), path,
+            overwrite=True)
+
+    def _extension_report(self) -> None:
+        plan = self._selected_extension()
+        if plan is None:
+            return
+        path = self._save_path("Bericht Erweiterung speichern",
+                               f"{self._project.name}_Erweiterung_{plan.name}.pdf",
+                               "PDF-Dateien (*.pdf)")
+        if not path:
+            return
+        from ..dialogs.reports_dialog import open_report
+        from ...services.report_service import ReportService
+        ReportService(self._project, company_profile=self._company()).generate_extension_report(
+            path, plan)
+        open_report(path)
 
     def _edit_external(self, row: int, _column: int) -> None:
         device = self._external.item(row, 0).data(Qt.UserRole)
