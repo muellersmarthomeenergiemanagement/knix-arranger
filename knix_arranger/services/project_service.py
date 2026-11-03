@@ -3,6 +3,7 @@ Projekt speichern/laden (.knxarr = SQLite) (NFA-044)
 """
 from __future__ import annotations
 import os
+import re
 import shutil
 import logging
 from datetime import datetime
@@ -23,6 +24,39 @@ _RESERVED_WINDOWS_NAMES = {
     "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
     "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 }
+
+# Gateway am Produktnamen: "Gateway", "IP-Interface" … oder zusammengesetzt
+# auf "-gate" ("Vitogate"), wie knxproj_import_service._infer_device_type
+_GATEWAY_NAME_RE = re.compile(
+    r"gateway|ip interface|usb interface|knxnet|remote access|\b\w+gate\b")
+
+
+def correct_gateway_types(project) -> list[str]:
+    """Vor 1.4.38 als Sensor eingelesene Gateways (Chalet: «Vitogate 200,
+    type KNX», die Schnittstelle zur Wärmepumpe) zum Gateway machen und
+    das dafür angelegte Bedienelement im Raum («Wassermelder») entfernen. Nur
+    importierte Projekte; Geräte mit Tasten bleiben Sensoren. Gibt die
+    Adressen der korrigierten Geräte zurück."""
+    if not project.topology.is_imported:
+        return []
+    fixed = []
+    for area in project.topology.areas:
+        for line in area.lines:
+            for device in line.devices:
+                name = re.sub(r"[-_/\s]+", " ", (device.product or device.product_name or "")
+                              .lower())
+                if (device.device_type != "sensor" or not _GATEWAY_NAME_RE.search(name)
+                        or any((co.name or "").lower().startswith("taste")
+                               for co in device.communication_objects)):
+                    continue
+                device.device_type = "gateway"
+                fixed.append(device.physical_address)
+    if fixed:
+        for room in project.all_rooms:
+            # ein Gateway ist kein Bedienelement im Raum
+            room.bedienelemente = [be for be in room.bedienelemente
+                                   if be.participant_number not in fixed]
+    return fixed
 
 
 class ProjectService:
@@ -58,6 +92,9 @@ class ProjectService:
     def load_project(self, filepath: str) -> KnxProject:
         """Lädt ein Projekt aus einer .knxarr-Datei."""
         project = KnxProject.load(filepath)
+        fixed = correct_gateway_types(project)
+        if fixed:
+            logger.info(f"Als Gateway eingeordnet: {', '.join(fixed)}")
         logger.info(f"Projekt geladen: {filepath}")
         return project
 

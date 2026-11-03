@@ -774,7 +774,8 @@ class XlsxImportService:
             return "coupler"
 
         name_norm = _normalize_product_name(product)
-        if any(kw in name_norm for kw in _GATEWAY_KEYWORDS):
+        # "Vitogate" wie knxproj_import_service._infer_device_type
+        if any(kw in name_norm for kw in _GATEWAY_KEYWORDS) or re.search(r"\b\w+gate\b", name_norm):
             return "gateway"
         if any(kw in name_norm for kw in _INFRA_KEYWORDS):
             return "other"

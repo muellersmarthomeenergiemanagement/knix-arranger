@@ -1036,7 +1036,9 @@ class KnxprojImportService:
             "jalousie", "shutter", "blind", "hvac", "heating ctrl",
             "dali", "rgb led", "led driver",
         )
-        if any(kw in name_lower for kw in gateway_kw):
+        # zusammengesetzt auf "-gate": Viessmann "Vitogate 200, type KNX" ist
+        # die Schnittstelle zur Wärmepumpe, kein Sensor (sendet zwar meist)
+        if any(kw in name_lower for kw in gateway_kw) or re.search(r"\b\w+gate\b", name_lower):
             return "gateway"
         if any(kw in name_lower for kw in infra_kw):
             return "other"
@@ -1440,7 +1442,9 @@ class KnxprojImportService:
     # "Rauchm.:Alarm", "Leckage Alarm") und sind daher das zuverlässigere
     # Signal, siehe `_infer_element_type`.
     _RAUCHMELDER_KO_HINTS = ("rauch", "smoke")
-    _WASSERMELDER_KO_HINTS = ("leck", "leak", "wasser", "water")
+    # nicht bloss "wasser": "Warmwassertemperatur" (Vitogate) ist kein Melder
+    _WASSERMELDER_KO_HINTS = ("leck", "leak", "wassermeld", "wasseralarm", "water alarm",
+                              "flood", "überflut")
 
     @staticmethod
     def _has_ko_hint(communication_objects, hints: tuple[str, ...]) -> bool:

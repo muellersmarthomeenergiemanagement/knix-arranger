@@ -60,3 +60,17 @@ def test_owner_package_parts():
     assert not is_owner_package({"anleitung", "ga_uebersicht"})
     assert part_audience("anleitung") == "Bauherr"
     assert part_audience("topologie") == "Inbetriebnahme"
+
+
+def test_room_book_shortens_many_data_points():
+    """Vitogate im Raumbuch: Kurzfassung ohne technischen Vorsatz statt
+    60 Objektnamen, die über den Seitenrand laufen."""
+    from knix_arranger.models.topology import Device
+    from knix_arranger.services.room_sheet import _device_row
+    names = [f"1_1_CU401B_G__ / ({n}) Wert {n}" for n in range(10)]
+    usage = _device_row(Device(physical_address="1.1.32"), names).usage
+    assert usage.startswith("10 Datenpunkte belegt: (0) Wert 0, (1) Wert 1")
+    assert "1_1_CU401B" not in usage and "(9) Wert 9" not in usage
+    assert usage.endswith("vollständig im Bericht «Bedienelemente und Sensoren»")
+    # wenige Objekte: wie bisher einzeln
+    assert _device_row(Device(), ["Sollwert", "Betriebsart"]).usage == "Sollwert, Betriebsart"

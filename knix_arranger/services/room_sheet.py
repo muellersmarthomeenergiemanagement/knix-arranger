@@ -377,6 +377,21 @@ def build_room_sheets(project, groups: dict, catalog, plan) -> list[RoomSheet]:
     return sheets
 
 
+#: Objekte eines Geräts, die das Raumbuch einzeln nennt
+_MAX_OBJECTS = 6
+
+
+#: Technischer Vorsatz eines Objektnamens: Kürzel mit Unterstrich oder
+#: Ziffer vor " / " ("1_1_CU401B_G__ / …"), nicht "Auf / Ab", "ON/OFF_1"
+TECH_PREFIX_RE = re.compile(r"^(?=[^\s/]*[_\d])[^\s/]+\s+/\s+")
+
+
+def _strip_common_prefix(names: list[str]) -> list[str]:
+    """Technischen Vorsatz weglassen:
+    "1_1_CU401B_G__ / (2000) Raumtemperatur Soll" -> "(2000) Raumtemperatur Soll"."""
+    return [TECH_PREFIX_RE.sub("", n) or n for n in names]
+
+
 def _device_row(device, usage: list[str], channels: int = 0,
                 foreign: dict[str, int] | None = None) -> DeviceRow:
     """foreign: Raum -> Anzahl Tasten, die Elemente eines anderen Raums
@@ -397,6 +412,13 @@ def _device_row(device, usage: list[str], channels: int = 0,
         parts.append(text)
     if channels:
         parts.append(f"{channels} {'Kanal' if channels == 1 else 'Kanäle'} belegt")
+    if len(others) > _MAX_OBJECTS:
+        # Gateways mit vielen Datenpunkten (Vitogate: rund 40): Kurzfassung,
+        # die volle Liste steht im Bericht «Bedienelemente und Sensoren»
+        names = _strip_common_prefix(others)
+        others = [f"{len(others)} Datenpunkte belegt: "
+                  + ", ".join(names[:_MAX_OBJECTS]) + " … – vollständig im Bericht "
+                  "«Bedienelemente und Sensoren»"]
     text = ", ".join(parts + others)
     return DeviceRow(
         physical_address=device.physical_address or "–",

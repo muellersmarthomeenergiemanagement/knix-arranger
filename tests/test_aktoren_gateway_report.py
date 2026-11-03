@@ -87,13 +87,14 @@ def test_bericht_nach_einbauort_und_kanal(tmp_path):
     assert "1.1.2  ·  Aktor" in text
     assert "ABB · Schaltaktor 8-fach · SA/S8" in text
     assert "2 / 8" in text                               # belegte / vorhandene Kanaele
+    assert "Freie Kanäle" in text and "1 Gerät(e) ohne" in text   # Reserven, Gateway ohne Zahl
     assert "Keine Gruppenadressen verknüpft." in text    # Gateway ohne Objekte
     # Kanaele sortiert, Objekte ohne Kanal zuletzt
     assert text.index("Ausgang A") < text.index("Ausgang B") < text.index("Weitere")
     assert "20  Status" in text
     # Verteiler vor Raum, Geraetekarten eine Ebene unter dem Einbauort
     assert [(lvl, title) for lvl, title, _p in toc if lvl >= 2] == [
-        (2, "Übersicht"),
+        (2, "Übersicht"), (2, "Freie Kanäle"),
         (2, "UV1 (Steigzone)  (1 Gerät)"), (3, "1.1.2  Schaltaktor 8-fach"),
         (2, "02 Garage  (1 Gerät)"), (3, "1.1.9  Wetterstation-Gateway"),
     ]

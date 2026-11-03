@@ -535,7 +535,9 @@ def _natural_key(text: str) -> list:
 def _co_object_text(co, channel: str) -> str:
     """Objektbezeichnung ohne Kanalanteil: 'Stellgrösse, Kanal 1' -> 'Stellgrösse';
     reine Kanal- oder Nummernnamen ('Ausgang A', 'GO0002') -> ETS-Funktion."""
-    name = " ".join((co.name or "").split())
+    from .room_sheet import TECH_PREFIX_RE
+    # "1_1_CU401B_G__ / Verdichter" (Vitogate) -> "Verdichter"
+    name = TECH_PREFIX_RE.sub("", " ".join((co.name or "").split())) or co.name or ""
     if _CHANNEL_UNDERSCORE_RE.match(name):
         name = name.rsplit("_", 1)[0]
     elif channel and channel.lower() in name.lower():
@@ -2186,6 +2188,38 @@ class ReportService:
             "des Geräts keinen Kanal erkennen lassen.")
         pdf.add_note("Hinweis:", "Das PDF enthält Lesezeichen nach Einbauort und "
                                  "Gerät. Jeder Einbauort beginnt auf einer neuen Seite.")
+
+        # ── Freie Kanäle: Reserven je Einbauort für Erweiterungen ───────────
+        free_rows, free_groups, unknown = [], [], 0
+        for group, location in enumerate(locations):
+            subtotal = 0
+            for _area, _line, dev in by_location[location]:
+                table, planned, _groups = details[id(dev)]
+                total = _channel_total(dev.product)
+                if not total:
+                    unknown += 1
+                    continue
+                used = sum(1 for r in table if r[0] and r[0] not in ("Weitere", "Zentral"))
+                free = max(total - used, 0)
+                subtotal += free
+                free_rows.append([location or "–", dev.physical_address, _device_cell(dev),
+                                  f"{used} / {total}", str(free)])
+                free_groups.append(group)
+            if subtotal and len([g for g in free_groups if g == group]) > 1:
+                free_rows.append(["", "", "Total frei", "", str(subtotal)])
+                free_groups.append(group)
+        if free_rows:
+            pdf.add_conditional_break(min_height=min(90 + 17 * len(free_rows), 500))
+            pdf.add_heading("Freie Kanäle", level=2)
+            pdf.add_table(["Einbauort", "Adresse", "Gerät", "Belegt", "Frei"], free_rows,
+                          col_widths=[0.20, 0.09, 0.51, 0.10, 0.10],
+                          align=["left", "left", "left", "right", "right"],
+                          groups=free_groups)
+            pdf.add_note(
+                "Reserven:",
+                "freie Kanäle laut Kanalzahl der Produktbezeichnung, z.B. für "
+                "Erweiterungen." + (f" {unknown} Gerät(e) ohne erkennbare Kanalzahl "
+                                    "(z.B. Gateways) sind nicht aufgeführt." if unknown else ""))
 
         # ── Einbauort → Gerät ────────────────────────────────────────────────
         for location in locations:
