@@ -622,6 +622,22 @@ def _validation_table_layout(rule_id: str):
 
 
 
+def _function_names(project) -> dict[str, str]:
+    """GA -> Name der Funktion, zu der sie gehört: in KNiX geplant (FA-530)
+    oder in der ETS angelegt (FA-529)."""
+    from .ets_function_plan import function_ga_map
+    from .ets_function_service import iter_functions
+    result: dict[str, str] = {}
+    for function in getattr(project, "functions", []):
+        for ga in function_ga_map(project, function).values():
+            result.setdefault(ga.address, function.name)
+    for _floor, _room, function in iter_functions(project):
+        for ref in function.refs:
+            if ref.address:
+                result.setdefault(ref.address, function.name)
+    return result
+
+
 class ReportService:
     """Erzeugt verschiedene Berichte für ein KNX-Projekt."""
 
@@ -817,6 +833,8 @@ class ReportService:
         def lines(items: list[str]) -> str:
             return "\n".join(items) or "-"
 
+        room_of = self._ga_rooms()
+
         for hg in main_groups:
             hg_gas = sum(len(mg.group_addresses) for mg in hg.middle_groups)
             if not hg_gas:
@@ -860,7 +878,7 @@ class ReportService:
                     rows.append([
                         ga.address, designation, dpt(ga),
                         ", ".join(link.gewerke) if link and link.gewerke else "-",
-                        (link.room[0] if link else "") or "-",
+                        room_of.get(ga.address, "-"),
                         lines(link.outputs if link else []),
                         lines(link.operators if link else []),
                     ])
@@ -873,10 +891,100 @@ class ReportService:
                     pdf.add_table(
                         ["Adresse", "Bezeichnung", "DPT", "Gewerk", "Raum",
                          "Aktor / Gerät", "Bedient von"],
-                        rows, col_widths=[0.06, 0.34, 0.055, 0.06, 0.065, 0.26, 0.16])
+                        rows, col_widths=[0.06, 0.29, 0.055, 0.055, 0.12, 0.26, 0.16])
 
         pdf.save(filepath)
         logger.info(f"GA-Bericht erstellt: {filepath}")
+
+    def _summary_functions(self, pdf) -> None:
+        """Funktionen (FA-530) der Zusammenfassung: nach Ort, mit den
+        bedienten Elementen (Raum dazu, wenn er nicht der Ort ist), den GAs
+        (eigene oder aus der ETS übernommene) und dem Stand in der ETS."""
+        from .ets_function_plan import (
+            compare_plan, function_ga_map, plan_type_label, resolve_members,
+        )
+        p = self.project
+        from .report_sorting import floors_bottom_up
+        floor_order = {f.id: i for i, f in enumerate(floors_bottom_up(p.all_floors))}
+        ets_read = any(r.ets_functions for r in p.all_rooms)
+        rows = []
+        for status in compare_plan(p):
+            function, location = status.function, status.location
+            home = location.rooms[0].id if location is not None and len(location.rooms) == 1 else ""
+            by_place: dict[str, list[str]] = {}
+            for member in resolve_members(p, function):
+                if member is None:
+                    continue
+                code = member.assignment.gewerk_code
+                place = "" if member.room.id == home else member.room.name
+                by_place.setdefault(place, []).append(f"{code} {member.element_number:02d}")
+            elements = "; ".join(
+                ", ".join(dict.fromkeys(items)) + (f" ({place})" if place else "")
+                for place, items in by_place.items())
+            n_gas = max(len(function_ga_map(p, function)), len(function.ets_gas))
+            floor = location.floor if location is not None else None
+            if not ets_read:
+                state = ""
+            elif function.ets_gas and status.ets is None:
+                state = "übernommen"
+            else:
+                state = {"anlegen": "anlegen", "ergänzen": "ergänzen",
+                         "ok": "vorhanden"}.get(status.state, status.state)
+            rows.append(((floor_order.get(floor.id, 99) if floor else 99,
+                          location.label if location else "", function.name.lower()), [
+                " · ".join(x for x in ((floor.short_code or floor.name) if floor else "",
+                                       location.label if location else "Ort fehlt") if x),
+                function.name,
+                plan_type_label(function.function_type),
+                elements or "–",
+                str(n_gas),
+            ] + ([state] if ets_read else [])))
+        rows.sort(key=lambda r: r[0])
+        pdf.add_heading("Funktionen", level=2)
+        pdf.add_paragraph(
+            f"{len(rows)} Funktionen: Gruppenbedienungen mehrerer Elemente mit eigenen "
+            f"GAs, z.B. alle Storen einer Fensterfront auf einer Taste.")
+        headers = ["Ort", "Funktion", "Typ", "Bediente Elemente", "GAs"]
+        widths = [0.20, 0.24, 0.16, 0.33, 0.07]
+        if ets_read:
+            headers.append("In der ETS")
+            widths = [0.17, 0.20, 0.13, 0.27, 0.07, 0.16]
+        pdf.add_table(headers, [r for _k, r in rows], col_widths=widths,
+                      align=["left"] * 4 + ["right"] + (["left"] if ets_read else []))
+        if ets_read:
+            n_ets = sum(len(room.ets_functions) for room in p.all_rooms)
+            pdf.add_note("In der ETS:", f"{n_ets} Funktion(en) angelegt. «übernommen» = aus "
+                         "den GAs der ETS erkannt, «anlegen»/«ergänzen» = in der ETS noch "
+                         "zu tun; Einzelheiten in der Ansicht «ETS-Funktionen».")
+
+    def _ga_rooms(self) -> dict[str, str]:
+        """GA -> Raum wie im Raumbuch ("05 Küche"); GAs einer Funktion
+        (in KNiX geplant oder in der ETS angelegt) mit dem Raum der Funktion:
+        "02 Bibliothek · Funktion" -- nicht der Klartext aus der Bezeichnung
+        ("Seite Berg")."""
+        from .ets_function_plan import function_elements
+        from .ets_function_service import iter_functions
+        rooms = {r.id: r for r in self.project.all_rooms}
+
+        def label(room) -> str:
+            return " ".join(p for p in (room.number, room.name) if p)
+        result: dict[str, str] = {}
+        for address, entries in self.gewerk_index().items():
+            names = list(dict.fromkeys(label(rooms[r]) for r, _c, _e in entries if r in rooms))
+            if names:
+                result[address] = ", ".join(names)
+        homes = function_elements(self.project)
+        by_id = {f.id: f for f in self.project.functions}
+        for ga in self.project.group_addresses.all_addresses():
+            function = by_id.get(ga.function_id)
+            if function is not None:
+                room = rooms.get(homes.get(function.id, ("", []))[0])
+                result[ga.address] = f"{label(room)} · Funktion" if room else "Funktion"
+        for _floor, room, function in iter_functions(self.project):
+            for ref in function.refs:
+                if ref.address:
+                    result[ref.address] = f"{label(room)} · Funktion"
+        return result
 
     def _ga_gewerk_overview(self, pdf, main_groups: list, gas: list) -> None:
         """Übersicht der GA-Übersicht: belegte GAs je Gewerk und Hauptgruppe."""
@@ -1170,9 +1278,12 @@ class ReportService:
                 pdf.add_page_break()
                 pdf.add_heading(floor, level=2)
                 current_floor = floor
-            n_lines = sum(max(len(e.operated_by), len(e.outputs), 1) for e in sheet.elements)
-            pdf.add_conditional_break(
-                min_height=min(90 + n_lines * 13 + len(sheet.devices) * 14, 400))
+            else:
+                # nicht auf der frischen Seite: sonst stünde das Stockwerk allein
+                n_lines = sum(max(len(e.operated_by), len(e.outputs), 1)
+                              for e in sheet.elements)
+                pdf.add_conditional_break(
+                    min_height=min(90 + n_lines * 13 + len(sheet.devices) * 14, 400))
             pdf.add_anchor(f"room-{room.id}")
             pdf.add_heading(room_label(room), level=3)
             n_dev = len(sheet.devices)
@@ -1266,21 +1377,26 @@ class ReportService:
         pdf.add_paragraph(f"Räume: {len(rooms)}")
 
         if floors:
+            # importiert: HG des Stockwerks aus seinen GAs (wie ETS-Funktionen)
+            from .ets_function_plan import floor_main_groups
+            floor_hg = floor_main_groups(p)
             # Je Gebäude ein Zeilenblock (gemeinsame Schattierung), Zonen je
             # Stockwerk -- bei Nebengebäuden sonst nicht unterscheidbar
             multi = len(buildings) > 1
             headers = (["Gebäude"] if multi else []) + [
                 "Stockwerk", "HG", "Zonen", "Räume", "Geräte"]
             rows, groups = [], []
+            from .report_sorting import floors_bottom_up
             for b_idx, building in enumerate(buildings):
-                for floor in building.all_floors:
+                for floor in floors_bottom_up(building.all_floors):
                     zones = ", ".join(a.name for a in floor.apartments if a.name)
                     label = (f"{floor.short_code} – {floor.name}"
                              if floor.short_code and floor.name != floor.short_code
                              else floor.name or floor.short_code)
                     rows.append(([building.name] if multi else []) + [
                         label,
-                        str(floor.main_group_number) if floor.main_group_number > 0 else "–",
+                        str(floor.main_group_number) if floor.main_group_number > 0
+                        else str(floor_hg[floor.id]) if floor.id in floor_hg else "–",
                         zones or "–",
                         str(len(floor.all_rooms)),
                         str(floor.total_devices()),
@@ -1338,30 +1454,10 @@ class ReportService:
         # Funktionen (FA-530): Gruppenbedienungen mehrerer Elemente
         functions = list(getattr(p, "functions", []))
         if functions:
-            from .ets_function_plan import (
-                function_elements, function_ga_map, locate, members_text, plan_type_label,
-            )
-            pdf.add_heading("Funktionen", level=2)
-            pdf.add_paragraph(f"Funktionen: {len(functions)}")
-            elements = function_elements(p)
-            rows = []
-            for function in sorted(functions, key=lambda f: f.name.lower()):
-                location = locate(p, function)
-                gas = list(function_ga_map(p, function).values())
-                rows.append([
-                    function.name,
-                    plan_type_label(function.function_type),
-                    location.label if location is not None else "–",
-                    members_text(elements.get(function.id, ("", []))[1]) or "–",
-                    str(len(gas)),
-                ])
-            pdf.add_table(["Funktion", "Typ", "Ort", "Elemente", "GAs"], rows,
-                          col_widths=[0.24, 0.22, 0.24, 0.20, 0.10],
-                          align=["left", "left", "left", "left", "right"])
+            self._summary_functions(pdf)
             pdf.add_separator()
 
         # Gewerke
-        pdf.add_heading("Gewerke-Übersicht", level=2)
         gewerk_counts: dict[str, int] = {}
         for room in rooms:
             for ga in room.gewerk_assignments:
@@ -1373,6 +1469,9 @@ class ReportService:
         controlled = count_controlled_elements(p)
         if controlled:
             gewerk_counts.update(controlled.totals())
+        # Überschrift mit der Tabelle, nicht allein am Seitenende
+        pdf.add_conditional_break(min_height=min(90 + 17 * len(gewerk_counts), 500))
+        pdf.add_heading("Gewerke-Übersicht", level=2)
 
         if gewerk_counts:
             headers = ["Code", "Bezeichnung", "Anzahl Elemente"]
@@ -1658,6 +1757,7 @@ class ReportService:
         # ohne dass der Bericht das Projekt selbst verändert.
         project = project_for_export(self.project)
         catalog = project.gewerk_catalog
+        function_names = _function_names(project)
         title = "Bedienelemente und Sensoren"
         pdf = self._make_pdf(title)
 
@@ -1806,7 +1906,7 @@ class ReportService:
                 device, product, mfr, ordernr, location = device_info(be)
                 rows = (group_assignments(be.function_assignments, resolve)
                         if be.function_assignments else [])
-                plan = button_plan(rows, catalog, room.name)
+                plan = button_plan(rows, catalog, room.name, function_names)
                 own = _own_button_labels(project, be, rows)
                 for entry in plan:   # eigene Bezeichnungen (Bauherrenberatung)
                     sides = [""] if len(entry["cells"]) == 1 else ["links", "rechts"]
@@ -1847,7 +1947,8 @@ class ReportService:
                         elif not row.key.variant and (row.key.number, row.key.side) in own:
                             function = own[(row.key.number, row.key.side)]
                         else:
-                            t, d = row_function_label(row, catalog, room.name)
+                            t, d = row_function_label(row, catalog, room.name,
+                                                      function_names)
                             function = " · ".join(p for p in (t, d) if p) or "–"
                         table.append([
                             row.key.label() if row.key else "Weitere",
@@ -1963,6 +2064,15 @@ class ReportService:
         for location in locations:
             by_location[location].sort(key=lambda e: physical_address_key(e[2].physical_address))
 
+        # Raum und Funktion je GA: zeigt beim Kanal, was er schaltet
+        room_of = self._ga_rooms()
+        function_names = _function_names(self.project)
+
+        def functions_of(addresses) -> str:
+            names = list(dict.fromkeys(function_names[a] for a in addresses
+                                       if a in function_names))
+            return ", ".join(f"Funktion {n}" for n in names)
+
         def planned_channels(dev) -> list[list]:
             """Kanalzeilen aus dem Belegungsplan (nur mit Gewerk-Zuordnung)."""
             rows = actor_rows_by_addr.get(dev.physical_address, [])
@@ -1982,7 +2092,9 @@ class ReportService:
                              if first.dali_group is not None or first.channel_name
                              else f"Kanal {channel}")
                     function = (self._gewerk_label(first.gewerk_code) or "–",
-                                _clean_location(room))
+                                " · ".join(p for p in (
+                                    _clean_location(room),
+                                    functions_of(r.ga_address for r in ch_rows)) if p))
                 gas = dict.fromkeys(ga_text(r.ga_address) for r in ch_rows)
                 table.append([label, function, "\n".join(gas) or "–"])
             return table
@@ -2003,9 +2115,17 @@ class ReportService:
             blocks += [("Weitere" if i == 0 else "", [("", co)]) for i, co in enumerate(loose)]
             table, groups = [], []
             for group, (label, cos) in enumerate(blocks):
+                addresses = [a for _ch, co in cos for a in co.connected_gas]
+                # Raum des Elements (nicht Zentral, nicht Funktion) und Funktionen
+                rooms = list(dict.fromkeys(
+                    room_of[a] for a in addresses
+                    if a in room_of and "Funktion" not in room_of[a]
+                    and not a.startswith("0/")))
+                where = " · ".join(p for p in (", ".join(rooms), functions_of(addresses)) if p)
                 for i, (channel, co) in enumerate(cos):
                     table.append([
-                        label if i == 0 else "",
+                        ((label, where) if where and label != "Weitere" else label)
+                        if i == 0 else "",
                         f"{co.object_number}  {_co_object_text(co, channel)}",
                         "\n".join(ga_text(a) for a in co.connected_gas),
                     ])
@@ -2095,7 +2215,7 @@ class ReportService:
                     pdf.add_table(
                         ["Kanal", "Funktion" if planned else "Objekt", "Gruppenadressen"],
                         table,
-                        col_widths=[0.12, 0.30, 0.58] if planned else [0.12, 0.26, 0.62],
+                        col_widths=[0.16, 0.28, 0.56] if planned else [0.18, 0.24, 0.58],
                         groups=groups)
                 else:
                     pdf.add_paragraph("Keine Gruppenadressen verknüpft.")

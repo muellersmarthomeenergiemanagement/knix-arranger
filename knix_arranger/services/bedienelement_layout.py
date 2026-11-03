@@ -131,22 +131,30 @@ def ga_function_label(ga, catalog, room_name: str = "") -> tuple[str, str]:
     return base, detail
 
 
-def row_function_label(row: ButtonRow, catalog, room_name: str = "") -> tuple[str, str]:
-    """Beschriftung einer Tastenzeile aus ihrer ersten Nicht-LED-GA."""
-    for ga in row.gas:
+def row_function_label(row: ButtonRow, catalog, room_name: str = "",
+                       function_names: dict[str, str] | None = None) -> tuple[str, str]:
+    """Beschriftung einer Tastenzeile aus ihrer ersten Nicht-LED-GA;
+    Alarm-/Sperrobjekte zuletzt (siehe user_manual.operating_ga). Gehört
+    die GA zu einer Funktion (function_names: Adresse -> Name), steht deren
+    Name als Zusatz."""
+    from .user_manual import operating_ga
+    first = operating_ga(row.gas)
+    for ga in [first] + [g for g in row.gas if g is not first] if row.gas else []:
         title, detail = ga_function_label(ga, catalog, room_name)
         if title:
-            return title, detail
+            name = (function_names or {}).get(getattr(ga, "address", ""))
+            return title, f"Funktion {name}" if name else detail
     return "", ""
 
 
-def button_plan(rows: list[ButtonRow], catalog, room_name: str = "") -> list[dict]:
+def button_plan(rows: list[ButtonRow], catalog, room_name: str = "",
+                function_names: dict[str, str] | None = None) -> list[dict]:
     """Rasterzeilen für PdfGenerator.add_button_plan (nur Kurzdruck)."""
     by_number: dict[int, dict[str, tuple[str, str]]] = {}
     for row in rows:
         if row.key is None or row.key.variant:
             continue
-        label = row_function_label(row, catalog, room_name)
+        label = row_function_label(row, catalog, room_name, function_names)
         by_number.setdefault(row.key.number, {})[row.key.side] = label
     plan = []
     for number in sorted(by_number):

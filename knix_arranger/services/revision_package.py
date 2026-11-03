@@ -34,6 +34,22 @@ REVISION_PARTS: list[tuple[str, str]] = [
 ALL_PARTS = frozenset(key for key, _ in REVISION_PARTS)
 PART_LABELS = dict(REVISION_PARTS)
 
+# Bauherrenpaket: was der Kunde zum Bedienen und Verstehen seiner Anlage
+# braucht; der Rest dient der Inbetriebnahme (Integrator, Elektriker)
+OWNER_PARTS = frozenset({
+    "zusammenfassung", "raeume", "anleitung", "szenen", "zeitprogramme",
+    "abnahme", "datenblaetter", "offerte",
+})
+
+
+def is_owner_package(parts) -> bool:
+    """Nur Bestandteile für den Bauherrn gewählt."""
+    return bool(parts) and frozenset(parts) <= OWNER_PARTS
+
+
+def part_audience(key: str) -> str:
+    return "Bauherr" if key in OWNER_PARTS else "Inbetriebnahme"
+
 DATASHEET_FOLDER = "Datenblaetter"
 
 

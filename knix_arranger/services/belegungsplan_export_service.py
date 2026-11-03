@@ -329,36 +329,63 @@ class BelegungsplanExportService:
             company_profile=company_profile,
             project_info=project_info,
         )
+        # Querformat: Bezeichnungen und Tasten ohne Umbruch
+        pdf.landscape = True
 
         # ── Sensoren / Taster ──────────────────────────────────────────────────
         pdf.add_heading(f"Belegungsplan (Verknüpfungsmatrix): {data.project_name}", level=1)
         pdf.add_heading("Taster & Sensoren", level=2)
 
-        # Hochformat (495 pt): zusammengefasste Spalten statt Wortumbrüchen
-        # ("GA-A|dress|e") -- Raum mit Nummer, Taste mit Kanal, Adresse mit
-        # Bezeichnung. Leere Vorschläge ohne GA (z.B. Verteiler-Räume) entfallen.
         def ga_cell(address, designation):
             designation = " ".join((designation or "").split())
             if address and designation.startswith(address):
                 return designation
             return f"{address}  {designation}".strip() or "–"
 
-        s_headers = ["Raum", "Typ", "Taste", "Funktion", "Gruppenadresse", "DPT"]
-        s_widths = [76.0, 74.0, 58.0, 86.0, 156.0, 45.0]
-        s_rows = []
+        from .ets_function_service import _dpt_text
+
+        def dpt_cell(dpt: str) -> str:
+            # "DPST-1-11" -> "1.011"
+            return _dpt_text(dpt) or dpt or ""
+
+        def key_cell(row):
+            """Taste und Funktion in einer Spalte: importiert steht die Taste
+            schon in der Funktion ("Taste 3, rechts, Signal-LED")."""
+            taste, kanal = _split_button_channel(row.taste_label)
+            taste = " ".join(p for p in (taste, kanal) if p and p != "-")
+            function = row.function or ""
+            if not taste or function.startswith(taste):
+                return function or "–"
+            return (taste, function) if function and function != taste else taste
+
+        # Je Gerät ein Block (gleiche Schattierung), Raum und Gerät nur in
+        # der ersten Zeile -- zwei Taster im selben Raum bleiben getrennt
+        blocks: dict[tuple, list] = {}
         for row in data.sensor_rows:
             if not row.ga_address and not row.ga_designation:
                 continue
-            taste, kanal = _split_button_channel(row.taste_label)
-            taste = " ".join(p for p in (taste, kanal) if p and p != "-") or "–"
-            if taste == row.function:   # Sensor-Objekt: Name steht schon unter Funktion
-                taste = "–"
-            s_rows.append([
-                f"{row.room_number} {row.room_name}".strip(), row.sensor_type,
-                taste, row.function, ga_cell(row.ga_address, row.ga_designation), row.dpt,
-            ])
+            key = (f"{row.room_number} {row.room_name}".strip(),
+                   row.physical_address or "", row.sensor_type)
+            blocks.setdefault(key, []).append(row)
+        s_rows, s_groups = [], []
+        for group, ((room, address, kind), rows) in enumerate(blocks.items()):
+            # GAs derselben Taste untereinander in einer Zeile
+            keys: dict = {}
+            for row in rows:
+                keys.setdefault(key_cell(row), []).append(row)
+            for i, (key, key_rows) in enumerate(keys.items()):
+                s_rows.append([
+                    room if i == 0 else "",
+                    ((address, kind) if address else kind) if i == 0 else "",
+                    key,
+                    "\n".join(ga_cell(r.ga_address, r.ga_designation) for r in key_rows),
+                    "\n".join(dpt_cell(r.dpt) for r in key_rows),
+                ])
+                s_groups.append(group)
         if s_rows:
-            pdf.add_table(s_headers, s_rows, col_widths=s_widths)
+            pdf.add_table(["Raum", "Gerät", "Taste / Funktion", "Gruppenadresse", "DPT"],
+                          s_rows, col_widths=[0.12, 0.10, 0.33, 0.39, 0.06],
+                          groups=s_groups)
         else:
             pdf.add_paragraph("(Keine Sensor/Taster-Zeilen vorhanden)")
 
@@ -366,16 +393,24 @@ class BelegungsplanExportService:
         if data.actor_rows:
             pdf.add_page_break()
             pdf.add_heading("Aktoren", level=2)
-            a_headers = ["Aktor", "Kanal", "Raum", "Funktion", "Gruppenadresse", "DPT"]
-            a_widths = [112.0, 32.0, 50.0, 50.0, 206.0, 45.0]
-            a_rows = []
+            a_rows, a_groups = [], []
+            last, group = None, -1
             for row in data.actor_rows:
+                actor = f"{row.physical_address}  {row.actor_type}".strip()
+                if actor != last:
+                    group, last, first = group + 1, actor, True
+                else:
+                    first = False
                 a_rows.append([
-                    f"{row.physical_address}  {row.actor_type}".strip(),
-                    row.channel_label, row.room_number, row.function_name,
-                    ga_cell(row.ga_address, row.ga_designation), row.dpt,
+                    actor if first else "",
+                    row.channel_label, f"{row.room_number} {row.room_name}".strip(),
+                    row.function_name,
+                    ga_cell(row.ga_address, row.ga_designation), dpt_cell(row.dpt),
                 ])
-            pdf.add_table(a_headers, a_rows, col_widths=a_widths)
+                a_groups.append(group)
+            pdf.add_table(["Aktor", "Kanal", "Raum", "Funktion", "Gruppenadresse", "DPT"],
+                          a_rows, col_widths=[0.20, 0.08, 0.14, 0.10, 0.42, 0.06],
+                          groups=a_groups)
 
         pdf.save(filepath)
         logger.info(

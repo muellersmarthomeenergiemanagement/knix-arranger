@@ -411,6 +411,62 @@ def object_label(ga, catalog, room_name: str) -> str:
     return _clean(base) or "Funktion"
 
 
+def operating_ga(gas: list):
+    """Die GA, die eine Taste bedient. Alarm- und Sperrobjekte (DPT 1.005,
+    im Chalet J.Sicherheit_ea 0/5/5 an jeder Storentaste) nur, wenn es keine
+    andere gibt -- sonst hiesse jede Storentaste bloss «Storen» und gälte
+    als zentral."""
+    from ..utils.ets_dpt_names import ets_dpt_id
+    for ga in gas:
+        dpt = ets_dpt_id(getattr(ga, "datapoint_type", "") or "")
+        if dpt.upper() not in ("DPST-1-5",):
+            return ga
+    return gas[0] if gas else None
+
+
+def function_labels(project, catalog) -> dict[str, str]:
+    """Adresse -> Beschriftung für die GAs einer Funktion (FA-530): die
+    bedienten Elemente statt des Funktionsnamens, z.B. «Storen Fenster gross
+    + Fenster klein». Leer, wenn die Elemente keinen Klartext haben."""
+    from .ets_function_plan import function_ga_map, member_links, resolve_members
+    result: dict[str, str] = {}
+    for function in getattr(project, "functions", []):
+        members = [m for m in resolve_members(project, function) if m is not None]
+        # importiert: Klartext aus der Klammer der Element-GA
+        # ("J.OG.02.02_move ( Fenster gross - Seite Berg )")
+        own_text: dict[tuple, str] = {}
+        for member, _fga, own in member_links(project, function):
+            paren = _PAREN_RE.search(own.designation or "") if own is not None else None
+            if paren:
+                own_text.setdefault((member.assignment.id, member.element_number),
+                                    _clean(paren.group(1)))
+        labels = list(dict.fromkeys(
+            label for m in members
+            if (label := m.assignment.element_label(m.element_number)
+                or own_text.get((m.assignment.id, m.element_number), ""))))
+        if not labels:
+            continue
+        gewerk = catalog.get(members[0].assignment.gewerk_code) if catalog else None
+        word = _CATEGORY_WORD.get(gewerk.category, gewerk.name) if gewerk else ""
+        # gemeinsamer Zusatz einmal: "Fenster gross + Fenster klein – Seite Berg"
+        if len(labels) > 3:
+            # viele Elemente: der Name sagt mehr ("Licht Zentral")
+            for ga in function_ga_map(project, function).values():
+                result.setdefault(ga.address, function.name)
+            continue
+        tails = {label.rsplit(" - ", 1)[1] if " - " in label else "" for label in labels}
+        tail = tails.pop() if len(tails) == 1 and len(labels) > 1 else ""
+        if tail:
+            labels = [label.rsplit(" - ", 1)[0] for label in labels]
+        text = " + ".join(labels)
+        if tail:
+            text += f" – {tail}"
+        text = f"{word} {text}".strip()
+        for ga in function_ga_map(project, function).values():
+            result.setdefault(ga.address, text)
+    return result
+
+
 def button_label_key(be, key) -> str:
     """Schlüssel der Bauherr-Bezeichnung einer Taste: Gerät (physikalische
     Adresse, übersteht Re-Import und Neuaufbau) bzw. Bedienelement bei
@@ -564,6 +620,7 @@ class UserManualBuilder:
             for area in self.project.topology.areas for line in area.lines
             for d in line.devices if d.physical_address
         }
+        self.function_labels = function_labels(self.project, self.catalog)
 
     def _resolve(self, function_ga: str):
         m = _ADDR_RE.match(function_ga or "")
@@ -632,7 +689,9 @@ class UserManualBuilder:
         for row in rows:
             if row.key is None or not row.gas:
                 continue
-            label = object_label(row.gas[0], self.catalog, room_name)
+            target = operating_ga(row.gas)
+            label = (self.function_labels.get(getattr(target, "address", ""))
+                     or object_label(target, self.catalog, room_name))
             scene_name, scene_id = scenes.get((row.key.number, row.key.side, row.key.variant),
                                               ("", ""))
             scene_text = ""
@@ -674,6 +733,10 @@ class UserManualBuilder:
             if line is None or len(base) == 2 and base[1] == "label":
                 continue
             for text in more:
+                target = text.split(": ", 1)[-1]
+                # "Storen" ist dasselbe Ziel wie "Storen Balkon Bibliothek"
+                if line.label.startswith(target + " "):
+                    text = text[:-len(target)] + line.label
                 if text.endswith(f": {line.label}"):
                     kind = text.split(":")[0]
                     if any(h.startswith(kind) for h in line.how):
@@ -928,13 +991,15 @@ class UserManualBuilder:
         return be.product_name or (device.product_name if device else "")
 
     def _first_ga(self, be, key: ButtonKey):
+        """Die bedienende GA der Taste (siehe operating_ga)."""
+        gas: list = []
         for fa in be.function_assignments:
             parsed = group_assignments([fa], self._resolve)
             if parsed and parsed[0].key and (parsed[0].key.number, parsed[0].key.side,
                                              parsed[0].key.variant) == (key.number, key.side, ""):
-                ga = parsed[0].gas[0] if parsed[0].gas else None
-                return ga if hasattr(ga, "main_group") else None
-        return None
+                gas.extend(parsed[0].gas)
+        ga = operating_ga(gas)
+        return ga if hasattr(ga, "main_group") else None
 
     @staticmethod
     def _room_label(room, zone_by_room) -> str:

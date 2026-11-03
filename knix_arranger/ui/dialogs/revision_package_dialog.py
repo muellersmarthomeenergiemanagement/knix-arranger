@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...services.revision_package import (
-    REVISION_PARTS, accepted_quotes, next_revision_number,
+    OWNER_PARTS, REVISION_PARTS, accepted_quotes, next_revision_number,
 )
 
 
@@ -57,6 +57,22 @@ class RevisionPackageDialog(QDialog):
                 check.setToolTip("Keine akzeptierte Kundenofferte im Projekt")
             grid.addWidget(check, i % rows, i // rows)
             self._checks[key] = check
+        presets = QHBoxLayout()
+        presets.addWidget(QLabel("Auswahl:"))
+        for text, tip, keys in (
+                ("Alle", "Alle Bestandteile", None),
+                ("Bauherrenpaket", "Unterlagen für den Kunden: Zusammenfassung, Raumbuch, "
+                 "Bedienungsanleitung, Szenen, Zeitsteuerung, Abnahmeprotokoll, "
+                 "Datenblätter, Offerte", OWNER_PARTS),
+                ("Inbetriebnahme", "Unterlagen für Integrator und Elektriker",
+                 frozenset(self._checks) - OWNER_PARTS)):
+            btn = QPushButton(text)
+            btn.setObjectName("secondary")
+            btn.setToolTip(tip)
+            btn.clicked.connect(lambda _c=False, k=keys: self._select(k))
+            presets.addWidget(btn)
+        presets.addStretch()
+        layout.addLayout(presets)
         layout.addWidget(parts_group)
 
         info = QLabel("Bestandteile ohne Daten (z.B. keine Szenen) entfallen "
@@ -76,6 +92,12 @@ class RevisionPackageDialog(QDialog):
         self._btn_ok.clicked.connect(self.accept)
         buttons.addWidget(self._btn_ok)
         layout.addLayout(buttons)
+
+    def _select(self, keys) -> None:
+        """Vorwahl der Bestandteile; None = alle."""
+        for key, check in self._checks.items():
+            if check.isEnabled():
+                check.setChecked(keys is None or key in keys)
 
     def _update_ok(self) -> None:
         self._btn_ok.setEnabled(bool(self.revision))

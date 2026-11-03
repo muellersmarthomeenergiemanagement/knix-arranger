@@ -921,7 +921,7 @@ class DocumentationService:
             im Inhaltsverzeichnis.
         Mit `revision` wird der Stand in project.revisions festgehalten."""
         from .revision_package import (
-            ALL_PARTS, accepted_quotes, collect_datasheets, copy_datasheets,
+            ALL_PARTS, accepted_quotes, collect_datasheets, copy_datasheets, is_owner_package,
         )
         os.makedirs(output_dir, exist_ok=True)
         wanted = ALL_PARTS if parts is None else frozenset(parts)
@@ -1087,12 +1087,16 @@ class DocumentationService:
                 datasheet_rows.append([", ".join(ds.products),
                                        f"nicht gefunden: {ds.path}"])
 
-        # 11. Inhaltsverzeichnis (FA-2103) mit offenen Punkten (FA-2104)
+        # 11. Inhaltsverzeichnis (FA-2103) mit offenen Punkten (FA-2104);
+        # das Bauherrenpaket ohne die internen offenen Punkte
         from .revision_check import check_revision_completeness
+        owner = is_owner_package(wanted)
         self.create_revision_index(
             output_dir, revision, generated_files,
-            findings=check_revision_completeness(self.project, self._company_profile),
+            findings=None if owner else check_revision_completeness(
+                self.project, self._company_profile),
             revision_date=revision_date, note=note, datasheet_rows=datasheet_rows,
+            owner=owner,
         )
 
         # Revisionsstand festhalten (FA-2106); dieselbe Bezeichnung ersetzt
@@ -1378,8 +1382,13 @@ class DocumentationService:
                               generated_files: list[tuple[str, str]],
                               findings: list | None = None,
                               revision_date: str = "", note: str = "",
-                              datasheet_rows: list | None = None) -> str:
-        """Erzeugt ein Inhaltsverzeichnis für das Revisionspaket (FA-2103)."""
+                              datasheet_rows: list | None = None,
+                              owner: bool = False) -> str:
+        """Erzeugt ein Inhaltsverzeichnis für das Revisionspaket (FA-2103);
+        owner: Bauherrenpaket (nur Unterlagen für den Kunden), sonst mit der
+        Spalte «Für» (Bauherr / Inbetriebnahme)."""
+        from .revision_package import PART_LABELS, part_audience
+        key_of = {label: key for key, label in PART_LABELS.items()}
         project_name = self.project.name or "Projekt"
         prefix = project_name.replace(" ", "_")
         if revision:
@@ -1387,9 +1396,11 @@ class DocumentationService:
 
         index_path = os.path.join(output_dir, f"{prefix}_Inhaltsverzeichnis.pdf")
 
-        pdf = self._make_pdf("Revisionspaket - Inhaltsverzeichnis")
+        title = ("Bauherrenpaket – Inhaltsverzeichnis" if owner
+                 else "Revisionspaket – Inhaltsverzeichnis")
+        pdf = self._make_pdf(title)
 
-        pdf.add_heading("Revisionspaket - Inhaltsverzeichnis", level=1)
+        pdf.add_heading(title, level=1)
         pdf.add_paragraph(f"Projekt: {self.project.name}")
         if revision:
             date = revision_date or datetime.now().strftime("%d.%m.%Y")
@@ -1399,7 +1410,11 @@ class DocumentationService:
         pdf.add_paragraph(f"Erstellt: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
         pdf.add_separator()
 
-        headers = ["Nr.", "Dokument", "Seiten", "Datei"]
+        headers = ["Nr.", "Dokument"] + ([] if owner else ["Für"]) + ["Seiten", "Datei"]
+        if owner:
+            # für den Kunden zuerst die Bedienungsanleitung
+            generated_files = sorted(
+                generated_files, key=lambda f: key_of.get(f[0], "") != "anleitung")
         rows = []
         for i, (doc_name, filepath) in enumerate(generated_files, 1):
             pages = ""
@@ -1413,10 +1428,18 @@ class DocumentationService:
             # Projektpräfix weglassen: der Dateiname bricht sonst mitten im Wort um
             name = os.path.basename(filepath)
             short = name[len(prefix) + 1:] if name.startswith(prefix + "_") else name
-            rows.append([str(i), doc_name, pages, short])
-        pdf.add_table(headers, rows, col_widths=[0.07, 0.43, 0.10, 0.40],
-                      align=["right", "left", "right", "left"])
-        pdf.add_paragraph(f"Alle Dateinamen beginnen mit «{prefix}_».")
+            audience = [] if owner else [part_audience(key_of.get(doc_name, ""))]
+            rows.append([str(i), doc_name] + audience + [pages, short])
+        if owner:
+            pdf.add_table(headers, rows, col_widths=[0.07, 0.43, 0.10, 0.40],
+                          align=["right", "left", "right", "left"])
+        else:
+            pdf.add_table(headers, rows, col_widths=[0.06, 0.36, 0.15, 0.08, 0.35],
+                          align=["right", "left", "left", "right", "left"])
+            pdf.add_note("Für:", "Bauherr = Unterlagen für den Kunden (auch einzeln als "
+                         "Bauherrenpaket), Inbetriebnahme = für Integrator und Elektriker.")
+        # als Hinweis: mit Abstand zur Tabelle wie die übrigen Fussnoten
+        pdf.add_note("Dateinamen:", f"Alle beginnen mit «{prefix}_».")
 
         # Produktdatenblätter (FA-1204)
         if datasheet_rows:
@@ -1432,7 +1455,11 @@ class DocumentationService:
                           [[r.number, r.date, r.note] for r in earlier],
                           col_widths=[0.15, 0.20, 0.65])
 
-        # Vollständigkeit (FA-2104)
+        # Vollständigkeit (FA-2104) -- intern, nicht im Bauherrenpaket
+        if owner:
+            pdf.save(index_path)
+            logger.info(f"Inhaltsverzeichnis erstellt: {index_path}")
+            return index_path
         pdf.add_heading("Offene Punkte", level=2)
         if findings:
             pdf.add_table(["Bestandteil", "Offen"],

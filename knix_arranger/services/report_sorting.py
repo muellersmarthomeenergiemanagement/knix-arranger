@@ -30,13 +30,27 @@ def group_address_key(address: str) -> tuple:
         return (1, ())
 
 
+def floors_bottom_up(floors) -> list:
+    """Stockwerke von unten nach oben (UG, EG, OG, DG), wenn die Lage aus
+    jedem Kürzel bzw. Namen ersichtlich ist; sonst wie angelegt (Chalet:
+    importiert in der Reihenfolge OG, UG, EG, DG)."""
+    from .riser_diagram import floor_rank
+    floors = list(floors)
+    ranks = [floor_rank(f.short_code) if floor_rank(f.short_code) is not None
+             else floor_rank(f.name) for f in floors]
+    if any(r is None for r in ranks):
+        return floors
+    order = sorted(range(len(floors)), key=lambda i: (ranks[i], i))
+    return [floors[i] for i in order]
+
+
 def room_order(areal) -> dict[str, int]:
     """Room.id -> Position in Gebaeude-Reihenfolge."""
     keyed = []
     floor_position = 0
     for building in areal.buildings:
         for wing in building.wings:
-            for floor in wing.floors:
+            for floor in floors_bottom_up(wing.floors):
                 for apartment in floor.apartments:
                     for room in apartment.rooms:
                         m = _NUMBER_RE.search(room.number or "")
