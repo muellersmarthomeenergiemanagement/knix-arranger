@@ -2,6 +2,21 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.38",
+      "date": "2026-11-03",
+      "neu": [
+        "Aktoren und Gateways: Der neue Abschnitt «Freie Kanäle» zeigt je Verteiler, wie viele Aktorkanäle noch frei sind – die Reserven für Erweiterungen."
+      ],
+      "verbessert": [
+        "Raumbuch: Geräte mit vielen Datenpunkten erscheinen als Kurzfassung mit Verweis auf den vollständigen Bericht, statt über den Seitenrand zu laufen.",
+        "Technische Vorsätze in Objektnamen (z.B. «1_1_CU401B_G__ /») stehen nicht mehr in den Berichten."
+      ],
+      "behoben": [
+        "Viessmann Vitogate und ähnliche Gateways wurden beim Import als Sensor (teils als «Wassermelder») eingelesen. Sie werden jetzt als Gateway erkannt; bereits importierte Projekte werden beim Öffnen korrigiert.",
+        "Objekte wie «Warmwassertemperatur» machten ein Gerät nicht mehr zum Wassermelder."
+      ]
+    },
+    {
       "version": "1.4.37",
       "date": "2026-11-03",
       "neu": [
