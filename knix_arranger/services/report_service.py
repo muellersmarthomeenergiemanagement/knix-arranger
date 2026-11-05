@@ -1631,10 +1631,13 @@ class ReportService:
         pdf.save(filepath)
         logger.info(f"Bericht Anlagen-Check erstellt: {filepath}")
 
-    def generate_bus_analysis_report(self, filepath: str, summary: dict) -> None:
-        """Bericht Busanalyse (FA-640): Mitschnitt, Befunde, Absender, Telegramme
-        mit Wiederholungen (services/bus_monitor)."""
-        from .bus_monitor import analyze
+    def generate_bus_analysis_report(self, filepath: str, summary: dict,
+                                     compare_to: dict | None = None) -> None:
+        """Bericht Busanalyse (FA-640): Mitschnitt, Befunde, Buslast, Absender,
+        Telegramme; mit compare_to zusätzlich der Vergleich (FA-640h)
+        (services/bus_monitor, services/bus_checks)."""
+        from .bus_monitor import ack_summary, analyze
+        from .bus_checks import LOAD_HINT, LOAD_WARN, compare, load_buckets
         a = analyze(self.project, summary)
         title = "Busanalyse"
         pdf = self._make_pdf(title)
@@ -1652,9 +1655,11 @@ class ReportService:
             ["Zeitraum", f"{summary['start'][:19].replace('T', ' ')} bis "
                          f"{summary['stop'][11:19]} ({a.duration_s / 60:.0f} min)"],
             ["Telegramme", f"{summary['telegrams']} ({a.per_minute:.0f} pro Minute), "
-                           f"{summary['repeats']} Wiederholungen, {summary['acks']} Quittungen"],
+                           f"{summary['repeats']} Wiederholungen, {ack_summary(summary)}"],
             ["Spitze", f"{summary['peak_per_second']} Rahmen pro Sekunde um "
                        f"{summary.get('peak_time', '')[11:19]}"],
+            ["Messpunkt", f"Linie {a.measuring_line} (aus dem Routing-Zähler)"
+                          if a.measuring_line else "nicht erkennbar"],
         ], col_widths=[0.25, 0.75])
         pdf.add_note("Messpunkt:", "Der Mitschnitt zeigt, was an der Linie der Schnittstelle "
                                    "ankommt, und nur, was im Zeitraum gesendet wurde. Was ein "
@@ -1669,6 +1674,39 @@ class ReportService:
             if finding.items:
                 pdf.add_table(["Einzelheiten"], [[i] for i in finding.items], col_widths=[1.0])
 
+        if a.load:
+            points = load_buckets(a.load, 120)
+            top = max(a.load, key=lambda p: p.percent)
+            average = sum(p.percent for p in a.load) / len(a.load)
+            pdf.add_conditional_break(min_height=220)
+            pdf.add_heading("Buslast", level=2)
+            pdf.add_paragraph(
+                f"Busbelegung je {'Minute' if len(points) == len(a.load) else 'Abschnitt (Höchstwert)'}"
+                f", geschätzt aus der Rahmenlänge bei 9600 bit/s: Mittel {average:.1f} %, "
+                f"höchste Minute {top.percent:.1f} % um {top.minute[11:16]}. Richtwert dauerhaft "
+                f"unter {LOAD_HINT} %, kurzzeitig unter {LOAD_WARN} %.")
+            pdf.add_bar_chart([p.percent for p in points], [p.minute[11:16] for p in points],
+                              "%", ((LOAD_HINT, "warning"), (LOAD_WARN, "error")))
+
+        if compare_to is not None:
+            c = compare(self.project, summary, compare_to)
+            pdf.add_page_break()
+            pdf.add_heading("Vergleich mit früherem Mitschnitt", level=2)
+            pdf.add_table(["Kennzahl", "Vergleichs-Mitschnitt", "Dieser Mitschnitt"],
+                          [list(m) for m in c.metrics], col_widths=[0.34, 0.33, 0.33])
+            for title, lines in (
+                    ("Neue Befunde", c.new_findings),
+                    ("Behobene Befunde", c.resolved_findings),
+                    ("Neue Absender", c.new_senders),
+                    ("Absender nicht mehr gesehen", c.gone_senders),
+                    ("Neue Ziel-GAs", c.new_targets),
+                    ("Ziel-GAs nicht mehr gesehen", c.gone_targets),
+                    ("Häufigkeit verändert (Telegramme je Stunde)",
+                     [f"{k}: {b:.0f} → {n:.0f}" for k, b, n in c.changed])):
+                if lines:
+                    pdf.add_heading(f"{title} ({len(lines)})", level=3)
+                    pdf.add_paragraph(", ".join(lines[:150]))
+
         pdf.add_page_break()
         pdf.add_heading("Absender", level=2)
         pdf.add_table(
@@ -1682,13 +1720,17 @@ class ReportService:
         pdf.add_page_break()
         pdf.add_heading("Telegramme je Absender und Ziel", level=2)
         pdf.add_table(
-            ["Absender", "Ziel", "Bezeichnung", "Anzahl", "Wdh.", "Wert", "Empfänger in der ETS"],
-            [[p.src, p.dst, p.designation or "–", str(p.count), str(p.repeats),
-              p.sample or "–", ", ".join(p.receivers) or "–"] for p in a.pairs],
-            col_widths=[0.08, 0.09, 0.33, 0.07, 0.06, 0.13, 0.24],
-            align=["left", "left", "left", "right", "right", "left", "left"])
-        pdf.add_note("Wert:", "Daten des letzten Telegramms als Hexadezimalzahl (1-Bit-Werte "
-                              "als 0/1).")
+            ["Absender", "Ziel", "Bezeichnung", "Anzahl", "Wdh.", "Quittung", "Wert",
+             "Empfänger in der ETS"],
+            [[p.src, p.dst, p.designation or "–", str(p.count), str(p.repeats), p.ack_text,
+              p.value or "–", ", ".join(p.receivers) or "–"] for p in a.pairs],
+            col_widths=[0.08, 0.09, 0.27, 0.07, 0.06, 0.09, 0.12, 0.22],
+            align=["left", "left", "left", "right", "right", "left", "left", "left"])
+        pdf.add_note("Wert:", "Wert des letzten Telegramms nach dem DPT der GA; ohne DPT oder "
+                              "bei unpassender Länge als Hexadezimalzahl.")
+        pdf.add_note("Quittung:", "Quittierte Rahmen (Erstsendung und Wiederholungen) am "
+                                  "Messpunkt; die Quittung gehört zum Rahmen davor. «–»: "
+                                  "Gruppenmonitor oder Schnittstelle ohne Quittungen.")
         pdf.save(filepath)
         logger.info(f"Bericht Busanalyse erstellt: {filepath}")
 

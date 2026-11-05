@@ -201,13 +201,23 @@ def run_check(project, validation_counts: tuple[int, int] | None = None) -> list
         rec = project.bus_recordings[-1]
         a = analyze(project, rec)
         share = rec["repeats"] / rec["frames"] * 100 if rec.get("frames") else 0
+        disturbed = rec.get("naks", 0) + rec.get("busys", 0)
+        deaf = [p for p in a.unacked if p.receivers]
+        wiring = (len(a.size_issues) + len(a.unanswered) + len(a.multi_response)
+                  + sum(m.critical for m in a.multi_senders))
         items.append(CheckItem(
             "Busanalyse", f"Mitschnitt {rec['start'][:10]}",
             f"{a.per_minute:.0f} Telegramme/min, Spitze {rec['peak_per_second']}/s, "
-            f"{share:.0f} % Wiederholungen",
-            ATTENTION if share >= 10 or rec["peak_per_second"] >= 35 or a.unknown else OK,
-            (f"{len(a.unknown)} unbekannte(r) Absender. " if a.unknown else "")
-            + ("Wiederholungen: Empfänger bzw. Quittierung prüfen." if share >= 10 else ""),
+            f"{share:.0f} % Wiederholungen"
+            + (f", NAK/BUSY {disturbed}" if disturbed else ""),
+            ATTENTION if (share >= 10 or rec["peak_per_second"] >= 35 or a.unknown
+                          or disturbed or deaf or wiring) else OK,
+            ((f"{len(a.unknown)} unbekannte(r) Absender. " if a.unknown else "")
+             + ("Wiederholungen: Empfänger bzw. Quittierung prüfen. " if share >= 10 else "")
+             + (f"{len(deaf)} Ziel(e) mit Empfänger ohne Quittung. " if deaf else "")
+             + ("NAK/BUSY: Linie auf Störungen und Überlast prüfen. " if disturbed else "")
+             + (f"{wiring} Befund(e) zu DPT, Lesen/Antworten oder mehreren Sendern."
+                if wiring else "")).strip(),
             "bus_analysis"))
     else:
         items.append(CheckItem("Busanalyse", "Mitschnitt", "keiner eingelesen", INFO,

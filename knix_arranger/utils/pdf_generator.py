@@ -253,6 +253,15 @@ class PdfGenerator:
         self._blocks.append({"type": "topology_diagram", "areas": areas,
                              "backbone": backbone, "backbone_power": backbone_power})
 
+    def add_bar_chart(self, values: list[float], labels: list[str], unit: str = "",
+                      thresholds: tuple = (), height: float = 140.0) -> None:
+        """Balkendiagramm über die Inhaltsbreite: values je Balken, labels
+        Beschriftung (erste, mittlere, letzte werden gezeigt), thresholds
+        ((Wert, "warning"|"error"), ...) als gestrichelte Linien und Farbe
+        der Balken ab diesem Wert."""
+        self._blocks.append({"type": "bar_chart", "values": values, "labels": labels,
+                             "unit": unit, "thresholds": thresholds, "height": height})
+
     def add_link(self, text: str, url: str):
         """Fügt einen klickbaren Hyperlink ein (blau, unterstrichen)."""
         self._blocks.append({"type": "link", "text": text, "url": url})
@@ -315,6 +324,12 @@ class PdfGenerator:
             elif btype == "riser_diagram":
                 lines += [f"## {block['title']}"]
                 lines += [f"  {e.title}: {e.detail}" for e in block["diagram"].legend] + [""]
+            elif btype == "bar_chart":
+                values = block["values"]
+                if values:
+                    top = max(range(len(values)), key=lambda i: values[i])
+                    lines += [f"  Diagramm: {len(values)} Werte, höchster "
+                              f"{values[top]:.1f} {block['unit']} ({block['labels'][top]})", ""]
             elif btype == "topology_schema":
                 for area in block["areas"]:
                     lines.append(f"[{area['title']}]  {area['info']}")
@@ -480,6 +495,9 @@ class PdfGenerator:
                 })
                 y += fs + 6
 
+            elif btype == "bar_chart":
+                page, y = self._draw_bar_chart(doc, page, y, block)
+
             elif btype == "topology_schema":
                 page, y = self._draw_topology_schema(doc, page, y, block["areas"])
 
@@ -582,6 +600,53 @@ class PdfGenerator:
         return page, y + 2
 
     # ── Tabellen ──────────────────────────────────────────────────────────────
+
+    def _draw_bar_chart(self, doc, page, y: float, block: dict) -> tuple:
+        """Zeichnet ein Balkendiagramm (siehe add_bar_chart)."""
+        values, labels = block["values"], block["labels"]
+        if not values:
+            return page, y
+        height = block["height"]
+        bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
+        if y + height + 30 > bottom:
+            page, y = self._new_page(doc)
+        fs = 7.5
+        grey = (0.45, 0.45, 0.45)
+        left = self.MARGIN + 30.0
+        width = self.content_width - 30.0
+        y0, y1 = y + 6, y + 6 + height
+        thresholds = sorted(block["thresholds"])
+        top = max(max(values), max((t for t, _k in thresholds), default=0) + 10)
+        scale = -(-top // 10) * 10
+        colors = {"warning": ACCENT_WARNING, "error": ACCENT_ERROR}
+
+        def ypos(v):
+            return y1 - height * min(v, scale) / scale
+
+        step = 10 if scale <= 60 else 20
+        for v in range(0, int(scale) + 1, step):
+            page.draw_line(fitz.Point(left, ypos(v)), fitz.Point(left + width, ypos(v)),
+                           color=(0.88, 0.88, 0.88), width=0.4)
+            label = f"{v} {block['unit']}".strip()
+            self._txt(page, fitz.Point(left - 4 - self._tw(label, fs), ypos(v) + 2.5), label,
+                      fs, color=grey)
+        bar_w = width / len(values)
+        for i, v in enumerate(values):
+            color = ACCENT_DEFAULT
+            for t, kind in thresholds:
+                if v >= t:
+                    color = colors.get(kind, ACCENT_WARNING)
+            x = left + i * bar_w
+            page.draw_rect(fitz.Rect(x + bar_w * 0.1, ypos(v), x + bar_w * 0.9, y1),
+                           color=None, fill=color)
+        for t, kind in thresholds:
+            page.draw_line(fitz.Point(left, ypos(t)), fitz.Point(left + width, ypos(t)),
+                           color=colors.get(kind, ACCENT_WARNING), width=0.6, dashes="[3 2] 0")
+        for i in sorted({0, len(values) // 2, len(values) - 1}):
+            label = labels[i] if i < len(labels) else ""
+            x = left + (i + 0.5) * bar_w - self._tw(label, fs) / 2
+            self._txt(page, fitz.Point(x, y1 + 10), label, fs, color=grey)
+        return page, y1 + 20
 
     def _draw_topology_schema(self, doc, page, y: float, areas: list[dict]) -> tuple:
         """Zeichnet das Prinzipschema (siehe add_topology_schema)."""
