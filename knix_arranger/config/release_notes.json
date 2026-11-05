@@ -2,6 +2,17 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.44",
+      "date": "2026-11-05",
+      "neu": [
+        "Ordner «Import» je Projekt: Eingelesene Dateien (.knxproj, ETS-Reports, GA-Export, Busmonitor-Mitschnitte, ausgefüllte Checklisten) werden als Kopie dort abgelegt, die Dateiauswahl beim Einlesen startet dort. Ein neuer Stand gleichen Namens ersetzt den alten nicht, dieser wird mit Datum umbenannt. Bestehende Projekte erhalten den Ordner beim Öffnen."
+      ],
+      "verbessert": [
+        "ETS6 Import einer .knxproj in ein bestehendes Projekt: Aus der ETS importierte Projekte werden neu aufgebaut, damit alte Fehler nicht mitgenommen werden – im Dialog wählen Sie, was bleibt (z.B. Secure-Archiv, Offerten, Mitschnitte), «Nur abgleichen» ist weiterhin möglich. Mit KNiX geplante Projekte werden wie bisher abgeglichen, «Neu aufbauen…» ist wählbar.",
+        "Neuaufbau: Der Dialog zeigt, welche Busmonitor-Mitschnitte behalten würden, damit veraltete abgewählt werden können."
+      ]
+    },
+    {
       "version": "1.4.43",
       "date": "2026-11-05",
       "neu": [
