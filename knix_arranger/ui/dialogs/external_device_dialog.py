@@ -88,7 +88,7 @@ class ExternalDeviceDialog(QDialog):
         return 0
 
     def _used(self) -> set[str]:
-        return {d.physical_address for d in self._line.devices if d is not self._device}
+        return self._line.used_addresses(exclude=self._device)
 
     def _free_participant(self) -> int:
         used = self._used()

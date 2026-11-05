@@ -1006,6 +1006,7 @@ class TopologyEngine:
                                    f"{line.device_count} Geräte "
                                    f"(empfohlen: max. {RECOMMENDED_DEVICES})",
                     })
+                issues.extend(_address_conflicts(line))
 
         return issues
 
@@ -1189,3 +1190,21 @@ def apply_line_power_supplies(topology) -> None:
         else:
             area.backbone_power_supply = None
 
+
+
+def _address_conflicts(line) -> list[dict]:
+    """T-12: Eine physikalische Adresse ist zweimal belegt -- als Gerät und
+    als Zusatzadresse (Tunneling) eines anderen Geräts, oder zweimal als
+    Zusatzadresse. Geräte ohne Busadresse ("1.1.-") zählen nicht."""
+    owners: dict[str, list[str]] = {}
+    for d in line.devices:
+        if d.physical_address and not d.physical_address.endswith("-"):
+            owners.setdefault(d.physical_address, []).append(d.product or "Gerät")
+        for extra in d.additional_addresses:
+            owners.setdefault(extra, []).append(
+                f"{d.additional_label(extra)} von {d.physical_address}")
+    return [{
+        "rule": "T-12",
+        "level": "error",
+        "message": f"Adresse {address} doppelt belegt: {' und '.join(names)}",
+    } for address, names in sorted(owners.items()) if len(names) > 1]

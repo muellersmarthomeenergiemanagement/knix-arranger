@@ -298,6 +298,19 @@ def findings(a, Finding) -> list:
             "weitergeleitet. Parametrierung des Senders bzw. Topologie prüfen.",
             [f"{p.src} → {p.dst} {p.designation}: Zähler {', '.join(map(str, p.hops))}"
              for p in a.hop_issues[:30]]))
+    found.extend(_management_findings(a, Finding))
+    invalid = a.summary.get("invalid", 0)
+    if invalid:
+        frames = a.summary.get("frames", 0)
+        share = invalid / (frames + invalid) * 100 if frames + invalid else 0
+        found.append(Finding(
+            "warning" if share >= 1 else "info",
+            f"{invalid} fehlerhafte(r) Rahmen (Prüfsumme oder Länge)",
+            "Nicht als Telegramm gewertet. Einzelne Rahmen: Übertragungsfehler oder "
+            "Artefakte der Schnittstelle -- über einen Fernzugang erscheinen z.B. Teile der "
+            "KNXnet/IP-Verbindung (06 10 04 20 ...) als Rahmen mit Quelle 0.6.16. Ab 1 % der "
+            "Rahmen: Linie auf Störungen prüfen (Leitung, Spannungsversorgung, Fremdspannung).",
+            [f"{t[11:19]}: {raw}" for t, raw in a.summary.get("invalid_samples", [])]))
     if a.load:
         top = max(a.load, key=lambda p: p.percent)
         if top.percent >= LOAD_HINT:
@@ -310,6 +323,83 @@ def findings(a, Finding) -> list:
                 [f"{p.minute[11:16]}: {p.percent:.0f} % ({p.frames} Rahmen)"
                  for p in sorted(a.load, key=lambda p: -p.percent)[:5]]))
     return found
+
+
+# ── Zusatzadressen ──────────────────────────────────────────────────────
+
+def assign_additional_address(device, address: str) -> None:
+    """Adresse als Zusatzadresse (Tunneling) des Geräts erfassen; die
+    Reihenfolge nach der Teilnehmernummer ergibt «Tunneling 1, 2, ...»
+    wie in der ETS (Schnittstelle 1.1.70: 71, 72, 73)."""
+    if address in device.additional_addresses:
+        return
+    device.additional_addresses = sorted(
+        device.additional_addresses + [address], key=_addr_key)
+
+
+# ── Gerätezugriff (Einzeladressen) ──────────────────────────────────────
+
+_PROGRAMMING = ("schreiben", "Neustart", "Autorisieren")
+
+
+def management_sessions(a) -> list[tuple[str, str, int, Counter]]:
+    """Gerätezugriffe je Gerätepaar: (Client, Gerät, Rahmen, Dienste).
+    Client ist die Seite ohne eigene Geräteadresse im Projekt (Tunneling,
+    unbekannt) bzw. die, die die Verbindung aufbaut."""
+    from .bus_monitor import is_management
+    sessions: dict[frozenset, list] = {}
+    openers: dict[frozenset, str] = {}
+    sent: Counter = Counter()
+    for p in a.pairs:
+        if "/" in p.dst or not is_management(p.service):
+            continue
+        key = frozenset((p.src, p.dst))
+        entry = sessions.setdefault(key, [0, Counter()])
+        entry[0] += p.frames
+        entry[1][p.service] += p.frames
+        sent[(key, p.src)] += p.frames
+        if p.service == "Verbindung aufbauen" or p.service.endswith(" lesen"):
+            openers.setdefault(key, p.src)
+    plain = {s.address for s in a.senders if s.device is not None and not s.via}
+    out = []
+    for key, (frames, services) in sessions.items():
+        x, y = sorted(key, key=_addr_key) if len(key) == 2 else (next(iter(key)),) * 2
+        if key in openers:
+            client = openers[key]
+        elif (x in plain) != (y in plain):          # nur eine Seite ist ein Gerät
+            client = y if x in plain else x
+        else:                                       # sonst: wer mehr sendet
+            client = x if sent[(key, x)] >= sent[(key, y)] else y
+        device = y if client == x else x
+        out.append((client, device, frames, services))
+    return sorted(out, key=lambda s: -s[2])
+
+
+def _management_findings(a, Finding) -> list:
+    sessions = management_sessions(a)
+    if not sessions:
+        return []
+    names = {s.address: s.name for s in a.senders}
+
+    def label(address: str) -> str:
+        name = names.get(address, "")
+        if not name:
+            return address
+        return f"{address} (nicht im Projekt)" if name == "nicht im Projekt" \
+            else f"{address} {name}"
+
+    items = []
+    for client, device, frames, services in sessions[:30]:
+        kind = ("programmiert" if any(k in s for s in services for k in _PROGRAMMING)
+                else "ausgelesen")
+        top = ", ".join(s for s, _n in services.most_common(4))
+        items.append(f"{label(client)} → {label(device)}: {frames} Rahmen, {kind} ({top})")
+    return [Finding(
+        "info", f"Gerätezugriff über Einzeladressen: {len(sessions)} Verbindung(en)",
+        "Zugriffe auf einzelne Geräte, typisch für die ETS beim Auslesen, Programmieren "
+        "oder in der Diagnose (über eine Tunneling-Adresse der Schnittstelle). Sie zählen "
+        "zur Buslast, sind aber keine Gruppenkommunikation. «programmiert»: Speicher oder "
+        "Eigenschaften geschrieben bzw. Neustart.", items)]
 
 
 # ── Vergleich zweier Mitschnitte ────────────────────────────────────────

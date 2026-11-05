@@ -1707,6 +1707,11 @@ class KnxprojImportService:
                     or prod_ref in self._secure_product_ids
                 ),
                 bus_current=self._bus_current.get(prod_ref, 0.0),
+                # Zusatzadressen (Tunneling-Adressen von IP-Schnittstellen)
+                additional_addresses=[
+                    f"{area_num}.{line_num}.{a.get('Address')}"
+                    for a in di.findall("k:AdditionalAddresses/k:Address", _NSM)
+                    if (a.get("Address") or "").isdigit()],
             )
 
             # Kommunikationsobjekte (ComObjectInstanceRefs)

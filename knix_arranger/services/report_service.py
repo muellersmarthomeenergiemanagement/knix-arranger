@@ -1712,7 +1712,9 @@ class ReportService:
         pdf.add_table(
             ["Adresse", "Gerät", "Telegramme", "Wiederholungen", "Ziele"],
             [[s.address,
-              (_device_cell(s.device) if s.device else ("nicht im Projekt", "")),
+              ((f"{s.via} von {s.device.physical_address}", _device_cell(s.device)[0])
+               if s.via else _device_cell(s.device) if s.device
+               else ("nicht im Projekt", "")),
               str(s.telegrams), str(s.repeats), str(s.targets)] for s in a.senders],
             col_widths=[0.10, 0.54, 0.12, 0.14, 0.10],
             align=["left", "left", "right", "right", "right"])

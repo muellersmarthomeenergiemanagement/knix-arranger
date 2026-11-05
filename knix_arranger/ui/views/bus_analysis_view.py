@@ -19,7 +19,7 @@ from ...services.bus_monitor import (
     PAIR_FILTERS, BusLogError, ack_summary, analyze, line_of, pair_flags, pair_matches,
     parse_log, summarize, text_matches,
 )
-from ...services.bus_checks import compare
+from ...services.bus_checks import assign_additional_address, compare
 from ..column_utils import fit_columns
 from ..styles import TEXT_MUTED
 from ..widgets.load_chart import LoadChart
@@ -62,11 +62,17 @@ class BusAnalysisView(QWidget):
         self._external_btn = QPushButton("Als externes Gerät erfassen…")
         self._external_btn.setObjectName("secondary")
         self._external_btn.clicked.connect(self._add_external)
+        self._tunnel_btn = QPushButton("Als Tunneling-Adresse zuordnen…")
+        self._tunnel_btn.setObjectName("secondary")
+        self._tunnel_btn.setToolTip(
+            "Unbekannten Absender als Zusatzadresse (Tunneling) einer Schnittstelle "
+            "erfassen, z.B. 1.1.72 = Tunneling 2 von 1.1.70")
+        self._tunnel_btn.clicked.connect(self._add_tunnel)
         self._report_btn = QPushButton("Bericht Busanalyse…")
         self._report_btn.setObjectName("secondary")
         self._report_btn.clicked.connect(self._report)
         for widget in (self._import_btn, self._recordings, self._remove_btn,
-                       self._external_btn, self._report_btn):
+                       self._external_btn, self._tunnel_btn, self._report_btn):
             row.addWidget(widget)
         row.addStretch()
         layout.addLayout(row)
@@ -221,8 +227,7 @@ class BusAnalysisView(QWidget):
         self._senders.setSortingEnabled(False)
         self._senders.setRowCount(len(a.senders))
         for r, s in enumerate(a.senders):
-            name = (s.device.product + (" (nicht im ETS-Projekt)" if s.device.external else "")
-                    if s.device else "nicht im Projekt")
+            name = s.name
             cells = [s.address, name, s.telegrams, s.repeats, s.targets]
             for c, value in enumerate(cells):
                 item = QTableWidgetItem()
@@ -436,6 +441,7 @@ class BusAnalysisView(QWidget):
         self._report_btn.setEnabled(has)
         self._recordings.setVisible(self._recordings.count() > 0)
         self._external_btn.setEnabled(bool(self._selected_unknown()))
+        self._tunnel_btn.setEnabled(bool(self._selected_unknown()))
 
     # ── Aktionen ─────────────────────────────────────────────────────────
 
@@ -472,6 +478,45 @@ class BusAnalysisView(QWidget):
         if self._bus:
             self._bus.any_change.emit("bus_recordings")
         self.changed.emit()
+
+    def _line_of(self, address: str):
+        a, l, _t = (int(x) for x in address.split("."))
+        area = next((x for x in self._project.topology.areas if x.area_number == a), None)
+        return next((y for y in (area.lines if area else []) if y.line_number == l), None)
+
+    def _add_tunnel(self) -> None:
+        """Unbekannten Absender als Zusatzadresse (Tunneling) eines Geräts der
+        gleichen Linie erfassen; Schnittstellen und Gateways zuerst."""
+        address = self._selected_unknown()
+        if not address:
+            return
+        line = self._line_of(address)
+        candidates = sorted(
+            (d for d in (line.devices if line else []) if not d.physical_address.endswith("-")),
+            key=lambda d: (d.device_type != "gateway", d.external,
+                           [int(x) for x in d.physical_address.split(".")]))
+        if not candidates:
+            QMessageBox.information(
+                self, "Tunneling-Adresse",
+                f"Auf der Linie von {address} gibt es im Projekt kein Gerät.")
+            return
+        from PySide6.QtWidgets import QInputDialog
+        labels = [f"{d.physical_address} {d.product}"
+                  + (f" (bisher {', '.join(d.additional_addresses)})"
+                     if d.additional_addresses else "") for d in candidates]
+        choice, ok = QInputDialog.getItem(
+            self, "Tunneling-Adresse zuordnen",
+            f"{address} ist eine Zusatzadresse (Tunneling) von:", labels, 0, False)
+        if not ok:
+            return
+        device = candidates[labels.index(choice)]
+        if self._bus:
+            self._bus.begin_change(f"{address} als Tunneling-Adresse von "
+                                   f"{device.physical_address} erfasst")
+        assign_additional_address(device, address)
+        if self._bus:
+            self._bus.emit_topology_changed()
+        self._show()
 
     def _add_external(self) -> None:
         """Unbekannten Absender als externes Gerät in seiner Linie erfassen."""

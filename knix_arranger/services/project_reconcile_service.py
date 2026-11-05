@@ -125,12 +125,35 @@ def _room_label(floor_code: str, number: str) -> str:
     return f"{floor_code}/{number}" if floor_code else number
 
 
+def keep_additional_addresses(old_project: KnxProject, new_project: KnxProject) -> None:
+    """Zusatzadressen alter Geräte auf das Gerät gleicher Adresse übertragen,
+    soweit der neue Stand keine eigenen hat und die Adresse frei ist."""
+    new_devices = {d.physical_address: d for a in new_project.topology.areas
+                   for l in a.lines for d in l.devices}
+    taken = set(new_devices) | {x for d in new_devices.values()
+                                for x in d.additional_addresses}
+    for a in old_project.topology.areas:
+        for l in a.lines:
+            for old in l.devices:
+                new = new_devices.get(old.physical_address)
+                if new is None or new.additional_addresses or not old.additional_addresses:
+                    continue
+                new.additional_addresses = [x for x in old.additional_addresses
+                                            if x not in taken]
+                taken.update(new.additional_addresses)
+
+
 def keep_external_devices(old_project: KnxProject, new_project: KnxProject) -> set[str]:
     """Geräte am Bus, die nicht im ETS-Projekt stehen (Device.external, z.B.
     Z-Server der Visualisierung), in die frisch importierte Topologie
     übernehmen -- die ETS liefert sie nie. Steht die Adresse inzwischen im
     ETS-Projekt, gilt das ETS-Gerät. Gibt die Adressen der übernommenen
-    Geräte zurück."""
+    Geräte zurück.
+
+    Ebenso Zusatzadressen (Tunneling), die im alten Stand von Hand zugeordnet
+    wurden (Busanalyse) und im neuen Import fehlen, z.B. weil die .knxproj
+    sie nicht enthielt."""
+    keep_additional_addresses(old_project, new_project)
     taken = {d.physical_address for a in new_project.topology.areas
              for l in a.lines for d in l.devices}
     kept = set()

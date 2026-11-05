@@ -212,7 +212,7 @@ def evaluate(project, plan: LinePlan, catalog=None) -> PlanResult | None:
 
     hardware: list[str] = []
     hints: list[str] = []
-    taken = {d.physical_address for x in area.lines for d in x.devices}
+    taken = {a for x in area.lines for a in x.used_addresses()}
 
     source = PlanPart(SOURCE, f"Linie {a}.{l}", devices=by_target[SOURCE], supply_ma=sv_now,
                       segments=1 + sum(1 for d in by_target[SOURCE] if is_line_repeater(d)))

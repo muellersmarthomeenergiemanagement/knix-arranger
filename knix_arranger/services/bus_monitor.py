@@ -31,6 +31,51 @@ from datetime import datetime
 
 _NS = "{http://knx.org/xml/telegrams/01}"
 _SERVICES = {0x000: "Read", 0x040: "Response", 0x080: "Write"}
+# Dienste an Einzeladressen (Gerätezugriff, meist ETS) -- 4-Bit-APCI bzw.
+# bei 0x2C0/0x3C0 die vollen 10 Bit
+MANAGEMENT_SERVICES = {
+    0x0C0: "Adresse schreiben", 0x100: "Adresse lesen", 0x140: "Adresse Antwort",
+    0x180: "ADC lesen", 0x1C0: "ADC Antwort",
+    0x200: "Speicher lesen", 0x240: "Speicher Antwort", 0x280: "Speicher schreiben",
+    0x2C0: "Benutzerspeicher lesen", 0x2C1: "Benutzerspeicher Antwort",
+    0x2C2: "Benutzerspeicher schreiben", 0x2C5: "Herstellerinfo lesen",
+    0x2C6: "Herstellerinfo Antwort", 0x2C7: "Funktionseigenschaft",
+    0x300: "Gerätebeschreibung lesen", 0x340: "Gerätebeschreibung Antwort", 0x380: "Neustart",
+    0x3C0: "Erweiterter Dienst",
+    0x3D1: "Autorisieren", 0x3D2: "Autorisieren Antwort", 0x3D3: "Schlüssel schreiben",
+    0x3D4: "Schlüssel Antwort", 0x3D5: "Eigenschaft lesen", 0x3D6: "Eigenschaft Antwort",
+    0x3D7: "Eigenschaft schreiben", 0x3D8: "Eigenschaftsbeschreibung lesen",
+    0x3D9: "Eigenschaftsbeschreibung Antwort", 0x3DC: "Adresse über Seriennummer lesen",
+    0x3DD: "Adresse über Seriennummer Antwort", 0x3DE: "Adresse über Seriennummer schreiben",
+}
+_CONTROL = {0x80: "Verbindung aufbauen", 0x81: "Verbindung trennen"}
+INVALID = "invalid"         # decode(): Rahmen mit falscher Prüfsumme oder Länge
+
+
+def _checksum(data: bytes) -> int:
+    value = 0
+    for b in data:
+        value ^= b
+    return ~value & 0xFF
+
+
+def service_label(service: str) -> str:
+    """Gespeicherte Dienstbezeichnung lesbar ("APCI 200" älterer Mitschnitte
+    -> "Speicher lesen", "Steuerung" -> "Verbindung")."""
+    if service.startswith("APCI "):
+        try:
+            code = int(service[5:], 16)
+        except ValueError:
+            return service
+        return MANAGEMENT_SERVICES.get(code, service)
+    if service == "Steuerung":
+        return "Verbindung"
+    return service
+
+
+def is_management(service: str) -> bool:
+    """Dienst eines Gerätezugriffs (nicht Gruppenkommunikation)."""
+    return service not in ("Read", "Response", "Write")
 _MSG_BUSMON, _MSG_DATA_IND = 0x2B, 0x29
 _ACKS = {0xCC: "ack", 0x0C: "nak", 0xC0: "busy", 0x00: "nak_busy"}
 
@@ -71,9 +116,18 @@ def _tpdu(tpdu: bytes) -> tuple[str, str, int]:
     """(Dienst, Daten, Datenlänge) aus TPCI/APCI und Daten; Länge 0 = Wert
     im APCI-Byte (bis 6 Bit), -1 = ohne Daten."""
     if len(tpdu) < 2:
-        return "Steuerung", "", -1
-    apci = ((tpdu[0] & 0x03) << 8 | tpdu[1]) & 0x3C0
-    service = _SERVICES.get(apci, f"APCI {apci:03X}")
+        control = tpdu[0] if tpdu else 0
+        if control in _CONTROL:
+            return _CONTROL[control], "", -1
+        if control & 0xC3 == 0xC2:
+            return "Verbindung bestätigen", "", -1
+        if control & 0xC3 == 0xC3:
+            return "Verbindung ablehnen", "", -1
+        return "Verbindung", "", -1
+    full = (tpdu[0] & 0x03) << 8 | tpdu[1]
+    apci = full & 0x3C0
+    service = (_SERVICES.get(apci) or MANAGEMENT_SERVICES.get(full)
+               or MANAGEMENT_SERVICES.get(apci) or f"APCI {full:03X}")
     if len(tpdu) == 2:
         if service == "Read":
             return service, "", -1
@@ -82,7 +136,8 @@ def _tpdu(tpdu: bytes) -> tuple[str, str, int]:
 
 
 def decode(raw: str, time: datetime) -> Telegram | None | str:
-    """Telegramm, Quittung ("ack", "nak", "busy", "nak_busy") oder None
+    """Telegramm, Quittung ("ack", "nak", "busy", "nak_busy"), INVALID
+    (Busmonitor-Rahmen mit falscher Prüfsumme oder Länge) oder None
     (nicht auswertbar)."""
     try:
         data = bytes.fromhex(raw)
@@ -101,10 +156,18 @@ def decode(raw: str, time: datetime) -> Telegram | None | str:
         if ctrl & 0x80:                       # Standardrahmen
             src_hi, src_lo, dst_hi, dst_lo, npci = body[1:6]
             length, tpdu = npci & 0x0F, body[6:]
+            expected = length + 8             # Kopf 6, TPDU length+1, Prüfsumme 1
         else:                                 # erweiterter Rahmen
             npci = body[1]
             src_hi, src_lo, dst_hi, dst_lo, length = body[2:7]
             tpdu = body[7:]
+            expected = length + 9
+        # Der TP-Rahmen endet mit der Prüfsumme (bitweise invertiertes XOR aller
+        # Bytes). Falsche Prüfsumme oder Länge: gestörter Rahmen bzw. Artefakt
+        # der Schnittstelle (Chalet über ise-Fernzugang: KNXnet/IP-Kopf
+        # 06 10 04 20 ... als «Quelle 0.6.16, Ziel 0.4.32»)
+        if len(body) != expected or _checksum(body[:-1]) != body[-1]:
+            return INVALID
         group = bool(npci & 0x80)
         hops = (npci >> 4) & 0x07
         repeat = not (ctrl & 0x20)
@@ -153,6 +216,8 @@ class Recording:
     naks: int = 0
     busys: int = 0
     busmon: bool = False    # Busmonitor: Quittungen sind im Mitschnitt enthalten
+    invalid: int = 0        # Rahmen mit falscher Prüfsumme oder Länge
+    invalid_samples: list = field(default_factory=list)   # [Zeit, RawData] der ersten
     # je Minute: [Rahmen, belegte Bit] (Busbelegung)
     load: dict = field(default_factory=lambda: defaultdict(lambda: [0, 0]))
 
@@ -179,6 +244,13 @@ def parse_log(path: str) -> Recording:
         when = _time(el.get("Timestamp", ""))
         result = decode(raw, when)
         minute = when.replace(second=0, microsecond=0) if when else None
+        if result == INVALID:
+            rec.invalid += 1
+            if len(rec.invalid_samples) < 10:
+                rec.invalid_samples.append([when.isoformat(timespec="seconds") if when else "",
+                                            raw])
+            waiting = None
+            continue
         if isinstance(result, str):
             rec.acks += result == "ack"
             rec.naks += result in ("nak", "nak_busy")
@@ -240,6 +312,8 @@ def summarize(rec: Recording) -> dict:
         "naks": rec.naks,
         "busys": rec.busys,
         "ack_known": rec.busmon,
+        "invalid": rec.invalid,
+        "invalid_samples": rec.invalid_samples,
         "unacked": sum(1 for t in rec.telegrams if not t.ack) if rec.busmon else 0,
         "peak_per_second": peak,
         "peak_time": peak_time.isoformat() if peak_time else "",
@@ -287,6 +361,17 @@ class SenderRow:
     telegrams: int
     repeats: int
     targets: int
+    via: str = ""           # Zusatzadresse des Geräts, z.B. "Tunneling 2"
+
+    @property
+    def name(self) -> str:
+        """Anzeige: Produkt, bei Zusatzadressen «Tunneling 2 von 1.1.70 Produkt»."""
+        if self.device is None:
+            return "nicht im Projekt"
+        name = self.device.product or "Gerät"
+        if self.via:
+            name = f"{self.via} von {self.device.physical_address} {name}"
+        return name + (" (nicht im ETS-Projekt)" if self.device.external else "")
 
     @property
     def known(self) -> bool:
@@ -399,6 +484,9 @@ def analyze(project, summary: dict) -> BusAnalysis:
     from .bus_current import is_consumer
     devices = {d.physical_address: d for a in project.topology.areas
                for l in a.lines for d in l.devices}
+    # Zusatzadressen (Tunneling) -> Gerät; eine echte Geräteadresse geht vor
+    owners = {x: d for d in devices.values() for x in d.additional_addresses
+              if x not in devices}
     gas = {g.address: g for g in project.group_addresses.all_addresses()}
     linked: dict[str, set[str]] = defaultdict(set)
     for d in devices.values():
@@ -412,6 +500,7 @@ def analyze(project, summary: dict) -> BusAnalysis:
     ack_known = bool(summary.get("ack_known")) and summary.get("acks", 0) > 0
     from .dpt_values import decode_value
     for src, dst, service, count, repeats, sample, *rest in summary["pairs"]:
+        service = service_label(service)
         group = "/" in dst
         ga = gas.get(dst) if group else None
         extra = rest[1] if len(rest) > 1 and isinstance(rest[1], dict) else {}
@@ -431,8 +520,9 @@ def analyze(project, summary: dict) -> BusAnalysis:
     for p in pairs:
         by_sender[p.src].append(p)
     senders = sorted(
-        (SenderRow(src, devices.get(src), sum(p.count for p in rows),
-                   sum(p.repeats for p in rows), len({p.dst for p in rows}))
+        (SenderRow(src, devices.get(src) or owners.get(src), sum(p.count for p in rows),
+                   sum(p.repeats for p in rows), len({p.dst for p in rows}),
+                   owners[src].additional_label(src) if src in owners else "")
          for src, rows in by_sender.items()),
         key=lambda s: (-s.telegrams, physical_address_key(s.address)))
     unknown = [s for s in senders if not s.known]
@@ -441,7 +531,7 @@ def analyze(project, summary: dict) -> BusAnalysis:
     external_gas = {
         s.address: sorted({p.dst for p in by_sender[s.address] if "/" in p.dst},
                           key=group_address_key)
-        for s in senders if s.device is not None and s.device.external}
+        for s in senders if s.device is not None and s.device.external and not s.via}
     unlinked = [p for p in group_pairs if p.src in devices and not p.sender_linked
                 and p.dst in gas]
     repeated = sorted((p for p in pairs if p.repeats), key=lambda p: -p.repeats)
@@ -453,11 +543,12 @@ def analyze(project, summary: dict) -> BusAnalysis:
                       key=lambda p: -p.count)
     missing = [p for p in group_pairs if p.dst not in gas]
     silent = []
+    active = set(by_sender) | {owners[x].physical_address for x in by_sender if x in owners}
     if duration >= MIN_SILENT_HOURS * 3600:
         silent = sorted((d for d in devices.values()
                          if is_consumer(d) and not d.external
                          and d.device_type not in ("coupler",)
-                         and d.physical_address not in by_sender),
+                         and d.physical_address not in active),
                         key=lambda d: physical_address_key(d.physical_address))
 
     findings = _findings(summary, duration, senders, unknown, external_gas, unlinked,
@@ -621,6 +712,7 @@ PAIR_FILTERS = [
     ("multi", "Mehrere Sender auf eine GA"),
     ("forwarded", "Weitergeleitet ohne Empfänger"),
     ("hops", "Routing-Zähler 7 oder 0"),
+    ("management", "Gerätezugriff (ETS, Einzeladressen)"),
 ]
 
 
@@ -638,6 +730,9 @@ def pair_flags(a: BusAnalysis) -> dict[int, set[str]]:
             flags[id(p)].add("unknown")
     for issue in a.size_issues:
         flags[id(issue.pair)].add("size")
+    for p in a.pairs:
+        if "/" not in p.dst and is_management(p.service):
+            flags[id(p)].add("management")
     for key, rows in (("forwarded", a.forwarded), ("hops", a.hop_issues)):
         for p in rows:
             flags[id(p)].add(key)

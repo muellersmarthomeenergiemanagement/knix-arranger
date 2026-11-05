@@ -202,7 +202,7 @@ def test_ack_findings(tmp_path):
     log = _LOG.replace(
         '<RecordStop', '<Telegram Timestamp="2026-11-03T20:17:00.5Z" Service="L_Busmon.ind" '
         'RawData="2B0903010206044BB90EFB0C" />\n  <Telegram Timestamp="2026-11-03T20:17:00.6Z" '
-        'Service="L_Busmon.ind" RawData="2B0903010106045DB67A1E9C1119010AE300800C97B8" />\n'
+        'Service="L_Busmon.ind" RawData="2B0903010106045DB67A1E9C1119010AE300800C9798" />\n'
         '  <Telegram Timestamp="2026-11-03T20:17:00.7Z" Service="L_Busmon.ind" '
         'RawData="2B0903010206044BB90EFBC0" />\n  <RecordStop')
     path = tmp_path / "Quittungen.xml"
@@ -308,6 +308,14 @@ def test_view_filter_and_jumps(tmp_path):
 
 # ── Weitere Auswertungen (FA-640c–h) ─────────────────────────────────────
 
+def _with_checksum(frame: bytes) -> bytes:
+    """TP-Rahmen mit Prüfsumme (invertiertes XOR aller Bytes)."""
+    value = 0
+    for b in frame:
+        value ^= b
+    return frame + bytes([~value & 0xFF])
+
+
 def _raw(src: str, dst: str, service: str = "Write", data: bytes | None = b"\x01",
          hops: int = 6, repeat: bool = False) -> str:
     """Busmonitor-Rahmen (L_Busmon.ind) bauen; data=None: Read, Länge 1 Byte
@@ -323,7 +331,7 @@ def _raw(src: str, dst: str, service: str = "Write", data: bytes | None = b"\x01
         tpdu = bytes([0x00, apci]) + data
     ctrl = 0xBC if not repeat else 0x9C
     npci = 0x80 | (hops << 4) | (len(tpdu) - 1)
-    body = bytes([ctrl, a << 4 | l, d, h << 3 | m, s, npci]) + tpdu + b"\x00"
+    body = _with_checksum(bytes([ctrl, a << 4 | l, d, h << 3 | m, s, npci]) + tpdu)
     return "2B00" + body.hex().upper()
 
 
@@ -499,3 +507,184 @@ def test_view_load_compare_and_report(tmp_path):
     text = "".join(p.get_text() for p in fitz.open(str(pdf_path)))
     assert "Buslast" in text and "Vergleich mit früherem Mitschnitt" in text
     assert "Messpunkt" in text
+
+
+# ── Zusatzadressen (Tunneling) und Gerätezugriff ─────────────────────────
+
+def _tunnel_project():
+    project = _project()
+    line1 = project.topology.areas[0].lines[0]
+    line1.devices.append(Device(physical_address="1.1.70", device_type="gateway",
+                                product="ise KNX Remote Access",
+                                additional_addresses=["1.1.71", "1.1.72", "1.1.73"]))
+    line1.devices.append(Device(physical_address="1.1.39", device_type="sensor",
+                                product="Taster EDIZIOdue"))
+    return project
+
+
+def _mgmt(src: str, dst: str, tpdu: bytes, hops: int = 6) -> str:
+    """Rahmen an eine Einzeladresse (Gerätezugriff)."""
+    a, l, d = (int(x) for x in src.split("."))
+    ta, tl, td = (int(x) for x in dst.split("."))
+    npci = (hops << 4) | (len(tpdu) - 1)
+    body = _with_checksum(bytes([0xB0, a << 4 | l, d, ta << 4 | tl, td, npci]) + tpdu)
+    return "2B00" + body.hex().upper()
+
+
+def test_management_services_decoded():
+    t = decode(_mgmt("1.1.72", "1.1.39", bytes([0x80])), None)
+    assert (t.src, t.dst, t.group, t.service) == ("1.1.72", "1.1.39", False, "Verbindung aufbauen")
+    assert decode(_mgmt("1.1.72", "1.1.39", bytes([0x42, 0x02, 0x0C, 0x40, 0x00])),
+                  None).service == "Speicher lesen"
+    assert decode(_mgmt("1.1.72", "1.1.39", bytes([0x46, 0x82, 0x0C, 0x40, 0x00, 0x01])),
+                  None).service == "Speicher schreiben"
+    assert decode(_mgmt("1.1.72", "1.1.39", bytes([0x43, 0xD5, 0x00, 0x0B, 0x10, 0x01])),
+                  None).service == "Eigenschaft lesen"
+    assert decode(_mgmt("1.1.72", "1.1.39", bytes([0x43, 0x80])), None).service == "Neustart"
+    assert decode(_mgmt("1.1.39", "1.1.72", bytes([0xC6])), None).service == "Verbindung bestätigen"
+    from knix_arranger.services.bus_monitor import service_label
+    assert service_label("APCI 200") == "Speicher lesen"          # ältere Mitschnitte
+    assert service_label("APCI 280") == "Speicher schreiben"
+    assert service_label("Steuerung") == "Verbindung" and service_label("Write") == "Write"
+
+
+def test_tunnel_sender_belongs_to_interface(tmp_path):
+    from knix_arranger.services.bus_checks import management_sessions
+    path = _write_log(tmp_path, [
+        ("10:00:01", _mgmt("1.1.72", "1.1.39", bytes([0x80]))), ("10:00:01", _ACK_RAW),
+        ("10:00:01", _mgmt("1.1.72", "1.1.39", bytes([0x42, 0x02, 0x0C, 0x40, 0x00]))),
+        ("10:00:01", _ACK_RAW),
+        ("10:00:01", _mgmt("1.1.39", "1.1.72", bytes([0x42, 0x42, 0x0C, 0x40, 0x00, 0x00]))),
+        ("10:00:01", _ACK_RAW),
+        ("10:00:02", _mgmt("1.1.72", "1.1.39", bytes([0x46, 0x82, 0x0C, 0x40, 0x00, 0x01]))),
+        ("10:00:02", _ACK_RAW),
+        ("10:00:03", _raw("1.1.72", "0/5/13", data=b"\x01")), ("10:00:03", _ACK_RAW),
+    ])
+    a = analyze(_tunnel_project(), summarize(parse_log(path)))
+    sender = next(s for s in a.senders if s.address == "1.1.72")
+    assert sender.known and sender.via == "Tunneling 2"
+    assert sender.name == "Tunneling 2 von 1.1.70 ise KNX Remote Access"
+    assert not a.unknown
+    assert not any(p.src == "1.1.72" for p in a.unlinked)       # Tunnel ist kein KO-Sender
+    ((client, device, frames, services),) = management_sessions(a)
+    assert (client, device, frames) == ("1.1.72", "1.1.39", 4)
+    assert services["Speicher schreiben"] == 1
+    finding = next(f for f in a.findings if f.title.startswith("Gerätezugriff"))
+    assert finding.items[0].startswith(
+        "1.1.72 Tunneling 2 von 1.1.70 ise KNX Remote Access → 1.1.39 Taster EDIZIOdue: "
+        "4 Rahmen, programmiert")
+    from knix_arranger.services.bus_monitor import pair_flags
+    flags = pair_flags(a)
+    assert {p.dst for p in a.pairs if "management" in flags[id(p)]} == {"1.1.39", "1.1.72"}
+
+
+def test_assign_tunnel_and_occupied_addresses():
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.services.bus_checks import assign_additional_address
+    from knix_arranger.services.topology_engine import TopologyEngine
+    project = _tunnel_project()
+    line = project.topology.areas[0].lines[0]
+    gateway = next(d for d in line.devices if d.physical_address == "1.1.70")
+    gateway.additional_addresses = []
+    assign_additional_address(gateway, "1.1.72")
+    assign_additional_address(gateway, "1.1.71")
+    assign_additional_address(gateway, "1.1.72")
+    assert gateway.additional_addresses == ["1.1.71", "1.1.72"]
+    assert gateway.additional_label("1.1.72") == "Tunneling 2"
+    assert {"1.1.70", "1.1.71", "1.1.72"} <= line.used_addresses()
+    assert "1.1.70" not in line.used_addresses(exclude=gateway)
+    loaded = KnxProject.from_dict(project.to_dict())
+    assert any(d.additional_addresses == ["1.1.71", "1.1.72"]
+               for d in loaded.topology.areas[0].lines[0].devices)
+    # T-12: Gerät auf einer Tunneling-Adresse
+    line.devices.append(Device(physical_address="1.1.71", product="Präsenzmelder"))
+    issues = [i for i in TopologyEngine().validate_topology(project.topology)
+              if i["rule"] == "T-12"]
+    assert issues == [{"rule": "T-12", "level": "error", "message":
+                       "Adresse 1.1.71 doppelt belegt: Tunneling 1 von 1.1.70 und Präsenzmelder"}]
+
+
+def test_reimport_keeps_assigned_tunnel_addresses():
+    from knix_arranger.services.project_reconcile_service import keep_external_devices
+    old, new = _tunnel_project(), _tunnel_project()
+    new_gateway = next(d for a in new.topology.areas for l in a.lines for d in l.devices
+                       if d.physical_address == "1.1.70")
+    new_gateway.additional_addresses = []
+    keep_external_devices(old, new)
+    assert new_gateway.additional_addresses == ["1.1.71", "1.1.72", "1.1.73"]
+    # die ETS liefert eigene: die gelten
+    new_gateway.additional_addresses = ["1.1.75"]
+    keep_external_devices(old, new)
+    assert new_gateway.additional_addresses == ["1.1.75"]
+
+
+def test_knxproj_import_reads_additional_addresses(tmp_path):
+    import zipfile
+    from knix_arranger.services.knxproj_import_service import KnxprojImportService
+    ns = "http://knx.org/xml/project/23"
+    main = f"""<?xml version="1.0" encoding="utf-8"?>
+<KNX xmlns="{ns}"><Project Id="P-TEST"><Installations><Installation Name="">
+  <Topology><Area Id="P-TEST-0_A-1" Address="1"><Line Id="P-TEST-0_L-1" Address="1">
+    <Segment Id="P-TEST-0_S-1">
+      <DeviceInstance Id="P-TEST-0_DI-1" Address="70" ProductRefId="M-007C_H-ISE_P-ISE">
+        <AdditionalAddresses>
+          <Address Address="71" Name="" /><Address Address="72" Name="" /><Address Address="73" Name="" />
+        </AdditionalAddresses>
+      </DeviceInstance>
+    </Segment>
+  </Line></Area></Topology>
+</Installation></Installations></Project></KNX>"""
+    path = tmp_path / "t.knxproj"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("P-TEST/project.xml", f'<?xml version="1.0" encoding="utf-8"?>\n'
+                    f'<KNX xmlns="{ns}"><Project Id="P-TEST"><ProjectInformation Name="T"/>'
+                    f'</Project></KNX>')
+        zf.writestr("P-TEST/0.xml", main)
+    project = KnxprojImportService().import_knxproj(str(path))
+    (device,) = project.topology.areas[0].lines[0].devices
+    assert device.additional_addresses == ["1.1.71", "1.1.72", "1.1.73"]
+
+
+def test_view_assign_tunnel(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication, QInputDialog
+    from knix_arranger.ui.views.bus_analysis_view import BusAnalysisView
+    QApplication.instance() or QApplication([])
+    project = _tunnel_project()
+    gateway = next(d for d in project.topology.areas[0].lines[0].devices
+                   if d.physical_address == "1.1.70")
+    gateway.additional_addresses = []
+    project.bus_recordings.append(summarize(parse_log(_write_log(tmp_path, [
+        ("10:00:01", _mgmt("1.1.72", "1.1.39", bytes([0x80])))]))))
+    view = BusAnalysisView()
+    view.set_project(project)
+    row = next(r for r in range(view._senders.rowCount())
+               if view._senders.item(r, 0).text() == "1.1.72")
+    view._senders.selectRow(row)
+    assert view._tunnel_btn.isEnabled()
+    monkeypatch.setattr(QInputDialog, "getItem",
+                        staticmethod(lambda _p, _t, _l, items, *_a: (items[0], True)))
+    view._add_tunnel()
+    assert gateway.additional_addresses == ["1.1.72"]
+    names = {view._senders.item(r, 0).text(): view._senders.item(r, 1).text()
+             for r in range(view._senders.rowCount())}
+    assert names["1.1.72"] == "Tunneling 1 von 1.1.70 ise KNX Remote Access"
+
+
+def test_invalid_frames_are_not_telegrams(tmp_path):
+    # Chalet über ise-Fernzugang: KNXnet/IP-Kopf 06 10 04 20 00 16 als Busmonitor-Rahmen
+    from knix_arranger.services.bus_monitor import INVALID
+    artefact = "2B090301020604F5A1BA73BC06100420001604010B00"
+    assert decode(artefact, None) == INVALID
+    good = _raw("1.1.200", "0/5/13", data=b"\x01")
+    assert decode(good[:-2] + "00", None) == INVALID                      # Prüfsumme falsch
+    path = _write_log(tmp_path, [("10:00:01", good), ("10:00:01", _ACK_RAW),
+                                 ("10:00:02", artefact), ("10:00:02", _ACK_RAW)])
+    rec = parse_log(path)
+    assert len(rec.telegrams) == 1 and rec.invalid == 1 and rec.acks == 2
+    assert rec.telegrams[0].ack == "ack"
+    a = analyze(_project(), summarize(rec))
+    assert not any(s.address == "0.6.16" for s in a.senders)
+    finding = next(f for f in a.findings if "fehlerhafte" in f.title)
+    assert finding.title == "1 fehlerhafte(r) Rahmen (Prüfsumme oder Länge)"
+    assert finding.level == "warning"                                     # 1 von 2 Rahmen
+    assert finding.items == ["10:00:02: " + artefact]

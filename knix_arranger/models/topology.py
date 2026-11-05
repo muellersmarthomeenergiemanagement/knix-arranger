@@ -198,6 +198,16 @@ class Device:
     # mit eigener TP-Schnittstelle): zählt bei Teilnehmern und Busstrom,
     # bleibt beim Re-Import erhalten, geht nicht in den ETS-Export
     external: bool = False
+    # Zusatzadressen des Geräts, z.B. Tunneling-Adressen einer IP-Schnittstelle
+    # (ETS: AdditionalAddresses; ise 1.1.70 -> 1.1.71, 1.1.72, 1.1.73).
+    # Belegen Adressen der Linie, senden im Mitschnitt als eigene Absender.
+    additional_addresses: list[str] = field(default_factory=list)
+
+    def additional_label(self, address: str) -> str:
+        """«Tunneling 2» für die zweite Zusatzadresse; "" wenn nicht vom Gerät."""
+        if address not in self.additional_addresses:
+            return ""
+        return f"Tunneling {self.additional_addresses.index(address) + 1}"
 
     def __post_init__(self) -> None:
         # Hersteller als rohe ID ("M-0002", ETS-Import/aeltere Projekte) oder
@@ -250,6 +260,7 @@ class Device:
             "co_map": self.co_map,
             "taster_index": self.taster_index,
             "external": self.external,
+            "additional_addresses": self.additional_addresses,
         }
 
     @classmethod
@@ -286,6 +297,7 @@ class Device:
                     for k, v in (data.get("co_map") or {}).items()},
             taster_index=int(data.get("taster_index", 0) or 0),
             external=bool(data.get("external", False)),
+            additional_addresses=list(data.get("additional_addresses") or []),
         )
         d.communication_objects = [
             CommunicationObject.from_dict(co)
@@ -325,6 +337,17 @@ class Line:
 
     def update_device_count(self):
         self.device_count = len(self.devices)
+
+    def used_addresses(self, exclude=None) -> set[str]:
+        """Belegte physikalische Adressen: Geräte und ihre Zusatzadressen
+        (Tunneling); exclude = Gerät, das nicht zählt (beim Bearbeiten)."""
+        used = set()
+        for d in self.devices:
+            if d is exclude:
+                continue
+            used.add(d.physical_address)
+            used.update(d.additional_addresses)
+        return used
 
     def to_dict(self) -> dict:
         return {
