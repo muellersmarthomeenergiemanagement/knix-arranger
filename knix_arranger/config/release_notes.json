@@ -2,6 +2,23 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.42",
+      "date": "2026-11-05",
+      "neu": [
+        "Busanalyse – Quittungen: KNiX wertet ACK, NAK und BUSY je Telegramm aus. Warnung bei NAK (Störung auf der Linie), BUSY (Empfänger oder Koppler ausgelastet) und bei GAs, die trotz Empfänger in der ETS niemand quittiert. Fehlende Quittungen ohne Wiederholung (z.B. über Fernzugang) gelten nicht als Fehler.",
+        "Busanalyse – Datenpunkttyp: Werte erscheinen lesbar nach dem DPT der GA (z.B. 23.5 °C, Ein, 0 %). Sendet ein Gerät eine andere Datenlänge, als die GA trägt, meldet KNiX einen Fehler.",
+        "Busanalyse – Lesen und Antworten: Leseanfragen ohne Antwort und GAs mit mehreren Antwortenden, abgeglichen mit den L-Flags in der ETS.",
+        "Busanalyse – mehrere Sender: Warnung, wenn mehrere Geräte dieselbe Rückmelde- oder Messwert-GA schreiben.",
+        "Busanalyse – Koppler: KNiX erkennt die Linie des Messpunkts aus dem Routing-Zähler und zeigt GAs, die ein Koppler ohne Empfänger in diese Linie weiterleitet (Filtertabelle). Routing-Zähler 7 oder 0 wird gemeldet.",
+        "Busanalyse – Buslast: Busbelegung je Minute als Diagramm mit Richtwerten, auch im Bericht.",
+        "Busanalyse – Vergleich: zwei Mitschnitte gegenüberstellen, z.B. vor und nach einem Umbau – Kennzahlen, neue und behobene Befunde, neue oder verschwundene Absender und GAs."
+      ],
+      "verbessert": [
+        "Busanalyse filterbar: Suchfeld für Adressen, GAs und Bezeichnungen, Auswahl nach Auffälligkeit und nach Linie. Doppelklick auf einen Befund oder Absender zeigt die zugehörigen Telegramme.",
+        "Für die neuen Auswertungen bestehende Mitschnitte neu einlesen."
+      ]
+    },
+    {
       "version": "1.4.41",
       "date": "2026-11-03",
       "neu": [
