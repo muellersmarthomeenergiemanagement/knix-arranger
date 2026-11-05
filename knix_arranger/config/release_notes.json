@@ -2,6 +2,19 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.43",
+      "date": "2026-11-05",
+      "neu": [
+        "Tunneling-Adressen: KNiX liest die Zusatzadressen von IP-Schnittstellen aus der .knxproj (z.B. 1.1.71–1.1.73 der Schnittstelle 1.1.70). In der Busanalyse erscheint ein Absender darauf als «Tunneling 2 von 1.1.70» statt als unbekanntes Gerät. Fehlen sie im Projekt, lassen sie sich in der Busanalyse mit «Als Tunneling-Adresse zuordnen…» erfassen.",
+        "Busanalyse – Gerätezugriff: Zugriffe auf einzelne Geräte (ETS beim Auslesen oder Programmieren) erscheinen lesbar (Speicher lesen, Neustart …) und je Gerät zusammengefasst, mit Filter.",
+        "Topologie-Prüfung T-12: Meldet Adressen, die doppelt belegt sind, z.B. ein Gerät auf der Tunneling-Adresse einer Schnittstelle."
+      ],
+      "verbessert": [
+        "Busanalyse: Rahmen mit falscher Prüfsumme oder Länge zählen nicht mehr als Telegramm, sondern erscheinen als eigener Befund. Damit verschwinden Scheinabsender wie 0.6.16, die ein Fernzugang aus seiner IP-Verbindung in den Mitschnitt mischen kann. Bestehende Mitschnitte dafür neu einlesen.",
+        "Tunneling-Adressen gelten bei der Adressvergabe (externes Gerät, Linienumbau) als belegt."
+      ]
+    },
+    {
       "version": "1.4.42",
       "date": "2026-11-05",
       "neu": [
