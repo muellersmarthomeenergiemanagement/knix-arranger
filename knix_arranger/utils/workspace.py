@@ -2,7 +2,7 @@
 Ordnerstruktur von KNiX Arranger.
 
     Arbeitsverzeichnis/
-    ├── Projekte/<Projekt>/            Projektdatei, Berichte, Revisionen, Sicherungen
+    ├── Projekte/<Projekt>/            Projektdatei, Berichte, Revisionen, Sicherungen, Import
     └── Bibliothek/
         ├── Produkte KNX/              Herstellerdateien (.knxprod, product_folder)
         ├── Datenblätter/              herstellerweit, statt je Projekt kopiert

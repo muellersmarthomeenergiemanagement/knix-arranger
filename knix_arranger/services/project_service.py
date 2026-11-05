@@ -137,7 +137,7 @@ class ProjectService:
         return filename
 
     def prepare_workspace_project_folder(self, workspace_root: str, project_name: str) -> str:
-        """Erstellt {workspace}/{Name}/ mit Unterordnern Revisionen/ und Berichte/.
+        """Erstellt {workspace}/{Name}/ mit Unterordnern Revisionen/, Berichte/ und Import/.
 
         Gibt den künftigen .knxarr-Pfad zurück. Löst FileExistsError aus,
         wenn im Workspace bereits ein Projekt mit diesem Namen existiert
@@ -150,6 +150,8 @@ class ProjectService:
             raise FileExistsError(project_dir)
         os.makedirs(os.path.join(project_dir, "Revisionen"), exist_ok=True)
         os.makedirs(os.path.join(project_dir, "Berichte"), exist_ok=True)
+        # Eingelesene Dateien (ETS-Projekt, Reports, Mitschnitte), FA-3402a
+        os.makedirs(os.path.join(project_dir, "Import"), exist_ok=True)
         # Mit Bibliothek liegen die Datenblätter dort (utils/workspace)
         from ..utils.workspace import datasheets_folder
         if not datasheets_folder():

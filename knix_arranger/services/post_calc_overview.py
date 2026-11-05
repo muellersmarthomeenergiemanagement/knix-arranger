@@ -30,7 +30,7 @@ CATEGORIES = (
 # Ab dieser Abweichung zählt eine Kategorie als "abweichend"
 DEVIATION_THRESHOLD = 10.0
 
-_SKIP_FOLDERS = ("Sicherungen", "Revisionen", "Berichte")
+_SKIP_FOLDERS = ("Sicherungen", "Revisionen", "Berichte", "Import")
 
 
 @dataclass

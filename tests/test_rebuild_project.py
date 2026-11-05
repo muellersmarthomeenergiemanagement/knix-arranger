@@ -100,3 +100,69 @@ def test_keine_sicherung_ohne_gespeicherte_datei(tmp_path, monkeypatch):
     monkeypatch.setattr(ps, "APPDATA_DIR", str(tmp_path / "appdata"))
     assert ps.ProjectService().create_backup("") == ""
     assert ps.ProjectService().create_backup(str(tmp_path / "fehlt.knxarr")) == ""
+
+
+# ── ETS6 Import in ein bestehendes Projekt (FA-527a) ──────────────────────
+
+def _decide(project, rebuild_result=True):
+    """MainWindow._knxproj_rebuilds ohne Hauptfenster."""
+    from types import SimpleNamespace
+    from knix_arranger.ui.main_window import MainWindow
+    calls = []
+
+    def rebuild(path, **kw):
+        calls.append((path, kw))
+        return rebuild_result
+
+    fake = SimpleNamespace(_project=project, _rebuild_project=rebuild)
+    return MainWindow._knxproj_rebuilds(fake, "neu.knxproj"), calls
+
+
+def _imported_project() -> KnxProject:
+    from knix_arranger.models.topology import Area
+    project = _old_project()
+    project.topology.is_imported = True
+    project.topology.areas = [Area(area_number=1, name="Bereich 1")]
+    return project
+
+
+def test_import_in_importiertes_projekt_baut_neu_auf():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    done, calls = _decide(_imported_project())
+    assert done is True and calls == [("neu.knxproj", {})]
+    # «Nur abgleichen» im Dialog: normaler Import geht weiter
+    done, _ = _decide(_imported_project(), rebuild_result=False)
+    assert done is False
+
+
+def test_import_ohne_bestehenden_stand_gleicht_wie_bisher_ab():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    empty = _old_project()
+    empty.topology.is_imported = True          # gespeichert, aber ohne Topologie/GAs
+    assert _decide(empty) == (False, [])
+    unsaved = _imported_project()
+    unsaved._file_path = ""
+    assert _decide(unsaved) == (False, [])
+    assert _decide(None) == (False, [])
+
+
+def test_dialog_aus_dem_import():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from knix_arranger.ui.dialogs.rebuild_dialog import RebuildDialog, RECONCILE, REBUILD
+    project = _imported_project()
+    project.bus_recordings = [{"file": "Chalet.xml"}, {"file": "Chalet2.xml"}]
+    dialog = RebuildDialog(project.name, filepath="neu.knxproj", project=project,
+                           offer_reconcile=True)
+    assert dialog.filepath == "neu.knxproj" and dialog._btn_ok.isEnabled()
+    assert "2: Chalet.xml, Chalet2.xml" in dialog._checks["bus_recordings"].text()
+    dialog._checks["bus_recordings"].setChecked(False)
+    assert "bus_recordings" not in dialog.keep
+    assert dialog.choice == REBUILD
+    dialog._reconcile()
+    assert dialog.choice == RECONCILE
+    # Menü «Projekt neu aus ETS aufbauen»: Datei wählen, kein Abgleich
+    plain = RebuildDialog(project.name)
+    assert not plain._btn_ok.isEnabled() and not hasattr(plain, "_btn_reconcile")

@@ -448,11 +448,13 @@ class BusAnalysisView(QWidget):
     def _import(self) -> None:
         if self._project is None:
             return
-        folder = self._project.folder_path or ""
+        from ...services import import_folder
         path, _ = QFileDialog.getOpenFileName(
-            self, "Busmonitor-Mitschnitt einlesen", folder, "ETS-Mitschnitt (*.xml)")
+            self, "Busmonitor-Mitschnitt einlesen", import_folder.start_dir(self._project),
+            "ETS-Mitschnitt (*.xml)")
         if not path:
             return
+        path = import_folder.store(self._project, path)
         try:
             summary = summarize(parse_log(path))
         except BusLogError as exc:

@@ -207,7 +207,7 @@ class MainWindow(QMainWindow):
         rebuild_action.setToolTip(
             "Gebäude, Topologie, Gruppenadressen usw. frisch aus der .knxproj-Datei "
             "aufbauen, ohne Planungsdaten des bisherigen Stands")
-        rebuild_action.triggered.connect(self._rebuild_project)
+        rebuild_action.triggered.connect(lambda: self._rebuild_project())
         file_menu.addAction(rebuild_action)
 
         knxprod_action = QAction("Produkt&katalog KNXPROD importieren...", self)
@@ -1262,6 +1262,8 @@ class MainWindow(QMainWindow):
         """Öffnet eine .knxarr-Datei direkt (z.B. per Doppelklick im Explorer)."""
         try:
             self._project = KnxProject.load(path)
+            from ..services import import_folder
+            import_folder.import_dir(self._project)   # Ordnerstruktur ergänzen
             from ..services.project_service import ProjectService
             ProjectService().add_to_recent(path)
             self._undo_manager.clear()
@@ -1451,19 +1453,28 @@ class MainWindow(QMainWindow):
             )
             return False
         self._mark_saved()
+        # Beim ersten Speichern eingelesene Dateien nach «Import» (FA-3402a)
+        from ..services import import_folder
+        import_folder.collect_pending(self._project)
         return True
 
     def _import_file(self):
         """Importiert ETS6-Dateien: KNXPROJ, XLSX (Topologie/GA-Report) oder CSV."""
-        dialog = ImportDialog(self)
+        from ..services import import_folder
+        dialog = ImportDialog(self, start_dir=import_folder.start_dir(self._project))
         if not dialog.exec():
             return
 
-        filepath = dialog.filepath
         file_type = dialog.file_type
+        # Kopie im Ordner «Import» des Projekts (FA-3402a)
+        filepath = import_folder.store(self._project, dialog.filepath)
+
+        if file_type == "knxproj" and self._knxproj_rebuilds(filepath):
+            return
 
         if not self._project:
             self._project = KnxProject(name="Importiertes Projekt")
+            import_folder.store(self._project, filepath)   # beim ersten Speichern
         else:
             self._backup_project("vor_Import")
 
@@ -1499,23 +1510,70 @@ class MainWindow(QMainWindow):
             logger.warning("Sicherung fehlgeschlagen: %s", exc)
             return ""
 
-    def _rebuild_project(self):
+    def _knxproj_rebuilds(self, filepath: str) -> bool:
+        """ETS6 Import einer .knxproj in ein bestehendes Projekt (FA-527a):
+        Ist das Projekt aus der ETS importiert, ist die ETS massgebend – dann
+        wird standardmässig neu aufgebaut, statt alte (evtl. fehlerhafte)
+        Planungsdaten abzugleichen. Bei mit KNiX geplanten Projekten bleibt
+        der Abgleich Standard, Neuaufbau ist wählbar.
+        True: erledigt (neu aufgebaut oder abgebrochen), False: weiter mit
+        dem normalen Import (Abgleich)."""
+        project = self._project
+        if (project is None or not project._file_path
+                or not (project.topology.areas or project.group_addresses.all_addresses())):
+            return False
+        if project.topology.is_imported:
+            return self._rebuild_project(filepath)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle("ETS-Projekt einlesen")
+        box.setText(
+            f"«{project.name}» ist mit KNiX geplant. Beim Abgleich bleiben Gewerke, "
+            "Produkte, Bedienelemente und von Hand angelegte Gruppenadressen erhalten; "
+            "Gebäude, Topologie und Gruppenadressen kommen aus der ETS.\n\n"
+            "Neu aufbauen übernimmt nur, was Sie auswählen.")
+        reconcile = box.addButton("Abgleichen", QMessageBox.AcceptRole)
+        rebuild = box.addButton("Neu aufbauen…", QMessageBox.ActionRole)
+        box.addButton("Abbrechen", QMessageBox.RejectRole)
+        box.setDefaultButton(reconcile)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is reconcile:
+            return False
+        if clicked is rebuild:
+            self._rebuild_project(filepath, offer_reconcile=False)
+        return True
+
+    def _rebuild_project(self, filepath: str = "", *, offer_reconcile: bool = True) -> bool:
         """Baut das Projekt frisch aus einer .knxproj-Datei auf (FA-527):
         ohne Re-Import-Abgleich, nur die im Dialog gewählten Teile des
         bisherigen Projekts bleiben erhalten. Vorher wird gespeichert und
-        gesichert; bricht der Import ab, bleibt der bisherige Stand."""
-        from .dialogs.rebuild_dialog import RebuildDialog
-        from ..services.rebuild_service import build_fresh_project
+        gesichert; bricht der Import ab, bleibt der bisherige Stand.
+
+        Mit ``filepath`` (aus dem ETS6 Import, FA-527a) ist die Datei
+        vorgegeben. Rückgabe False: Anwender wählte «Nur abgleichen»."""
+        from .dialogs.rebuild_dialog import RebuildDialog, RECONCILE
 
         if not self._project or not self._project._file_path:
             QMessageBox.information(
                 self, "Projekt neu aufbauen",
                 "Bitte zuerst ein gespeichertes Projekt öffnen. Für ein neues "
                 "Projekt: Datei → Neues Projekt, danach ETS6 Import.")
-            return
-        dialog = RebuildDialog(self._project.name, self)
+            return True
+        from ..services import import_folder
+        dialog = RebuildDialog(self._project.name, self, filepath=filepath,
+                               project=self._project,
+                               offer_reconcile=bool(filepath) and offer_reconcile,
+                               start_dir=import_folder.start_dir(self._project))
         if not dialog.exec():
-            return
+            return True
+        if dialog.choice == RECONCILE:
+            return False
+        self._run_rebuild(import_folder.store(self._project, dialog.filepath), dialog.keep)
+        return True
+
+    def _run_rebuild(self, filepath: str, keep: set[str]) -> None:
+        from ..services.rebuild_service import build_fresh_project
 
         if self._dirty:
             self._save_project()
@@ -1529,11 +1587,11 @@ class MainWindow(QMainWindow):
                 return
 
         old_project = self._project
-        self._project = build_fresh_project(old_project, dialog.keep)
-        if "knx_secure" in dialog.keep:
+        self._project = build_fresh_project(old_project, keep)
+        if "knx_secure" in keep:
             self._rebuild_id_source = old_project
         try:
-            self._import_knxproj(dialog.filepath)
+            self._import_knxproj(filepath)
         except Exception as e:
             logger.exception("Neuaufbau fehlgeschlagen: %s", e)
             self._project = old_project
@@ -1551,13 +1609,13 @@ class MainWindow(QMainWindow):
             self._update_views()
             self._status_bar.set_status("Neuaufbau abgebrochen – Projekt unverändert.")
             return
-        if "project_info" in dialog.keep:
+        if "project_info" in keep:
             # Der Import setzt den Namen aus der ETS – behaltene Projekt-
             # eigenschaften haben Vorrang
             self._project.name = old_project.name
 
         self._project.add_changelog_entry(
-            "Import", f"Projekt neu aus {os.path.basename(dialog.filepath)} aufgebaut"
+            "Import", f"Projekt neu aus {os.path.basename(filepath)} aufgebaut"
             + (f" (Sicherung: {os.path.basename(backup_path)})" if backup_path else ""))
         self._undo_manager.clear()
         self._set_dirty(True)
@@ -2077,11 +2135,8 @@ class MainWindow(QMainWindow):
 
         if not license_gate.export_allowed(self):  # NFA-066
             return
-        start_dir = ""
-        if self._project and self._project._file_path:
-            project_dir = os.path.dirname(self._project._file_path)
-            imports = os.path.join(project_dir, "Importdateien")
-            start_dir = imports if os.path.isdir(imports) else project_dir
+        from ..services import import_folder
+        start_dir = import_folder.start_dir(self._project)
         source, _ = QFileDialog.getOpenFileName(
             self, "ETS-Projekt wählen", start_dir, "ETS-Projekte (*.knxproj)",
         )

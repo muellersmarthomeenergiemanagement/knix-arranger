@@ -12,9 +12,10 @@ from PySide6.QtCore import Qt
 class ImportDialog(QDialog):
     """Dialog für CSV/XLSX Import."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, start_dir: str = ""):
         super().__init__(parent)
         self.setWindowTitle("CSV/XLSX Import")
+        self._start_dir = start_dir
         self.setMinimumSize(600, 380)
         self._filepath = ""
         self._file_type = ""  # "csv" oder "xlsx"
@@ -69,7 +70,7 @@ class ImportDialog(QDialog):
 
     def _browse(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "ETS6-Datei öffnen", "",
+            self, "ETS6-Datei öffnen", self._start_dir,
             "Alle unterstützten Formate (*.csv *.xlsx *.knxproj);;"
             "ETS6-Projekt (*.knxproj);;"
             "CSV-Dateien (*.csv);;"

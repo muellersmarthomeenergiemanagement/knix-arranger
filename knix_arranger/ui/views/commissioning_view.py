@@ -693,6 +693,8 @@ class CommissioningView(QWidget):
             "Excel-Dateien (*.xlsx)")
         if not path:
             return
+        from ...services import import_folder
+        path = import_folder.store(self._project, path)
         try:
             stats = DocumentationService(self._project).import_checklists_excel(
                 path, visum=self._visum())
