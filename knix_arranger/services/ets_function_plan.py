@@ -1053,13 +1053,17 @@ def _co_text(device, co) -> str:
 
 
 def _link_issues(project, function, where, linked) -> list:
-    """Funktions-GA am KO des Mitglieds, das dessen eigene GA trägt."""
+    """Funktions-GA am KO des Mitglieds, das dessen eigene GA trägt -- nur an
+    Aktor- bzw. Gatewaykanälen: ein Taster sendet die GA des Elements, die
+    Funktions-GA gehört nicht an sein KO."""
     from .validation_engine import ValidationIssue
     issues = []
     for member, fga, own in member_links(project, function):
         if own is None:
             continue
         for device, co in linked.get(own.address, []):
+            if device.device_type == "sensor":
+                continue
             if fga.address not in co.connected_gas:
                 issues.append(ValidationIssue(
                     "warning", "FA-637",

@@ -164,6 +164,25 @@ def test_link_checks(project):
     assert must[0].task == "2/1/250 verknüpfen (Funktion «Fensterfront»)."
 
 
+def test_link_checks_skip_sensor_kos(project):
+    """Ein Taster-KO mit der GA des Elements braucht die Funktions-GA nicht --
+    ein zweiter, parallel geschalteter Aktorkanal dagegen schon."""
+    from knix_arranger.models.topology import CommunicationObject, Device
+    _channel_kos(project)
+    member, fga, own = next(member_links(project, project.functions[0]))
+    line = project.topology.areas[0].lines[0]
+    taster = Device(physical_address="1.1.200", device_type="sensor")
+    taster.communication_objects.append(
+        CommunicationObject(object_number=0, name="Taste 1", connected_gas=[own.address]))
+    aktor = Device(physical_address="1.1.201", device_type="actor")
+    aktor.communication_objects.append(
+        CommunicationObject(object_number=0, name="Ausgang A", connected_gas=[own.address]))
+    line.devices += [taster, aktor]
+    messages = [i.message for i in check_plan(project) if i.rule_id == "FA-637"]
+    assert not any(m.startswith("1.1.200 ") for m in messages)
+    assert any(m.startswith("1.1.201 KO 0") and fga.address in m for m in messages)
+
+
 def test_compare_with_ets(project):
     wohnen = _room(project, "Wohnen")
     assert not check_plan(project)                   # nichts eingelesen: keine Aufgabe
