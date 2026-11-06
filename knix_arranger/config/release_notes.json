@@ -2,6 +2,13 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.45",
+      "date": "2026-11-06",
+      "behoben": [
+        "Validierung FA-637: Die Warnung «Funktions-GA fehlt» erscheint nicht mehr bei Tastern. Die Funktions-GA (z.B. Licht Zentral) wird nur noch an den Kanälen von Aktoren und Gateways verlangt."
+      ]
+    },
+    {
       "version": "1.4.44",
       "date": "2026-11-05",
       "neu": [
