@@ -2,6 +2,18 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.46",
+      "date": "2026-11-09",
+      "neu": [
+        "Filtertabellen der Koppler: KNiX rechnet nach, welche GAs ein Koppler durchlässt. Die ETS trägt eine GA nur ein, wenn sie in der Linie des Kopplers und ausserhalb verknüpft ist. Ein Gerät, das nicht in der ETS steht (z.B. Visualisierungsserver), erreicht GAs, die nur hinter einem Koppler verknüpft sind, deshalb nicht – auch aus einer Linie ohne Koppler. Die Busanalyse meldet solche GAs mit dem sperrenden Koppler, die ETS-Arbeitsliste nennt den nötigen Dummy (Adresse, GAs, Koppler programmieren), der Anlagen-Check weist darauf hin."
+      ],
+      "verbessert": [
+        "Busanalyse: Bei Leseanfragen ohne Antwort steht, welcher Koppler die GA sperrt.",
+        "Umbau-Varianten: Die Prüfung externer Geräte folgt derselben Regel. Auch auf der Hauptlinie braucht eine Visualisierung einen Dummy für GAs, die nur hinter einem Koppler verknüpft sind.",
+        "Busanalyse: Lange Erklärungen in den Befunden werden umgebrochen statt abgeschnitten, die Spalte Einstufung ist nur so breit wie nötig."
+      ]
+    },
+    {
       "version": "1.4.45",
       "date": "2026-11-06",
       "behoben": [
