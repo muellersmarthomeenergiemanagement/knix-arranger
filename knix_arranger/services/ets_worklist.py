@@ -180,6 +180,14 @@ def current_items(project) -> list[WorkItem]:
             continue
         for item in _items_from_issue(issue, project):
             items.setdefault(item.key, item)
+    # Externe Geräte, denen ein Koppler GAs sperrt (FA-643, aus den Mitschnitten)
+    from .filter_tables import dummy_needs
+    for need in dummy_needs(project):
+        address = need.device.physical_address
+        item = WorkItem(f"FA-643|{address}", PRIO_MUST, "FA-643", f"Linie {need.line}",
+                        need.task, f"{need.device.product} (nicht in der ETS)".strip(),
+                        sort=(PRIO_MUST, 1, _addr_sort(address)))
+        items.setdefault(item.key, item)
     return sorted(items.values(), key=lambda i: i.sort)
 
 

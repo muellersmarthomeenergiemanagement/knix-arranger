@@ -102,11 +102,17 @@ def run_check(project, validation_counts: tuple[int, int] | None = None) -> list
                                "für den Busstrom 640 mA angenommen.", "topology"))
     external = [d for d in consumers if d.external]
     if external:
+        from .filter_tables import dummy_needs
+        needs = dummy_needs(project)
+        hint = "Mit einem Dummy in der ETS dokumentieren (Filtertabellen)."
+        if needs:
+            hint = " ".join(
+                f"{n.device.physical_address}: {len(n.gas)} GA(s) laut Busmonitor durch "
+                f"Koppler {', '.join(n.couplers)} gesperrt." for n in needs
+            ) + " Dummy mit diesen GAs anlegen (ETS-Arbeitsliste)."
         items.append(CheckItem("Topologie", "Geräte ausserhalb des ETS-Projekts",
                                ", ".join(f"{d.physical_address} {d.product}" for d in external),
-                               ATTENTION,
-                               "Mit einem Dummy in der ETS dokumentieren (Filtertabellen).",
-                               "renovation"))
+                               CRITICAL if needs else ATTENTION, hint, "renovation"))
 
     # ── Reserven ─────────────────────────────────────────────────────────
     free, used, unknown = actor_channel_reserve(project)

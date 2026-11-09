@@ -3,7 +3,9 @@ Weitere Auswertungen der Busanalyse (FA-640c ff.), ergänzend zu
 services/bus_monitor.analyze:
 
 - Datenlänge gegen den DPT der GA (FA-640c), Wert lesbar (dpt_values)
-- Leseanfragen ohne Antwort, mehrere Antwortende gegen die L-Flags (FA-640d)
+- Leseanfragen ohne Antwort, mehrere Antwortende gegen die L-Flags (FA-640d),
+  sperrender Koppler aus der nachgerechneten Filtertabelle (FA-643)
+- externe Geräte, denen ein Koppler GAs sperrt: Dummy-Liste (FA-643)
 - mehrere Sender auf eine GA (FA-640e)
 - Messpunkt aus dem Routing-Zähler, Koppler leitet ohne Empfänger auf der
   Linie weiter, Routing-Zähler 7 bzw. 0 (FA-640f)
@@ -84,6 +86,7 @@ class ReadIssue:
     readers: list[str]          # wer gelesen hat
     responders: list[str]       # wer geantwortet hat (im Mitschnitt)
     read_flags: list[str]       # Geräte mit L-Flag an einem KO dieser GA (ETS)
+    blocked_by: list[str] = field(default_factory=list)   # Koppler sperrt (FA-643)
 
     @property
     def text(self) -> str:
@@ -91,8 +94,10 @@ class ReadIssue:
         if self.responders:
             return (f"{self.ga} {self.designation}: Antwort von {', '.join(self.responders)}"
                     f"; L-Flag in der ETS: {flags}")
+        blocked = (f"; Koppler {', '.join(self.blocked_by)} sperrt (Filtertabelle)"
+                   if self.blocked_by else "")
         return (f"{self.ga} {self.designation}: gelesen von {', '.join(self.readers)}, "
-                f"keine Antwort; L-Flag in der ETS: {flags}")
+                f"keine Antwort; L-Flag in der ETS: {flags}{blocked}")
 
 
 def read_issues(pairs, gas, devices) -> tuple[list[ReadIssue], list[ReadIssue]]:
@@ -124,6 +129,25 @@ def read_issues(pairs, gas, devices) -> tuple[list[ReadIssue], list[ReadIssue]]:
     unanswered = [issue(ga) for ga in sorted(readers, key=_addr_key) if not responders[ga]]
     multiple = [issue(ga) for ga in sorted(readers, key=_addr_key) if len(responders[ga]) > 1]
     return unanswered, multiple
+
+
+def coupler_checks(a, project) -> None:
+    """Filtertabellen nachrechnen (FA-643): sperrende Koppler zu Leseanfragen
+    ohne Antwort und je externem Gerät die gesperrten GAs aus diesem Mitschnitt."""
+    from .filter_tables import CouplerFilters, dummy_needs, line_of
+    filters = CouplerFilters.from_project(project)
+    for issue in a.unanswered:
+        found: list[str] = []
+        for reader in issue.readers:
+            for coupler in filters.blocking(line_of(reader), issue.ga):
+                if coupler not in found:
+                    found.append(coupler)
+        issue.blocked_by = found
+    targets: dict[str, set[str]] = defaultdict(set)
+    for p in a.pairs:
+        if "/" in p.dst:
+            targets[p.src].add(p.dst)
+    a.dummy_needs = dummy_needs(project, filters, targets)
 
 
 # ── Mehrere Sender ──────────────────────────────────────────────────────
@@ -252,6 +276,18 @@ def findings(a, Finding) -> list:
             "Empfänger mit dem richtigen Typ verwerfen das Telegramm oder lesen einen "
             "falschen Wert. KO des Senders und DPT der GA prüfen.",
             [i.text for i in a.size_issues[:30]]))
+    names = {p.dst: p.designation for p in a.pairs if p.designation}
+    for need in a.dummy_needs:
+        name = need.device.product or "Externes Gerät"
+        found.append(Finding(
+            "warning", f"{name} {need.device.physical_address}: {len(need.gas)} GA(s) "
+                       f"durch Koppler {', '.join(need.couplers)} gesperrt",
+            f"Das Gerät steht nicht in der ETS. Die ETS trägt eine GA nur in die "
+            f"Filtertabelle ein, wenn sie auch ausserhalb der Linie des Kopplers verknüpft "
+            f"ist; diese GAs sind nur hinter dem Koppler verknüpft und erreichen das Gerät "
+            f"nicht (Schreiben, Lesen und Antworten). Abhilfe: {need.task}",
+            [f"{ga} {names.get(ga, '')}".rstrip() + f" – Koppler {', '.join(need.by_ga[ga])}"
+             for ga in need.gas]))
     if a.unanswered:
         found.append(Finding(
             "warning", f"{len(a.unanswered)} Leseanfrage(n) ohne Antwort",

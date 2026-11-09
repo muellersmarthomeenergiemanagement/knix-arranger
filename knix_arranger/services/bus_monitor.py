@@ -456,6 +456,7 @@ class BusAnalysis:
     forwarded: list = field(default_factory=list)
     hop_issues: list = field(default_factory=list)
     load: list = field(default_factory=list)
+    dummy_needs: list = field(default_factory=list)  # filter_tables.DummyNeed (FA-643)
 
     @property
     def per_minute(self) -> float:
@@ -556,15 +557,17 @@ def analyze(project, summary: dict) -> BusAnalysis:
                          sum(p.missed for p in pairs))
     result = BusAnalysis(summary, duration, senders, pairs, unknown, external_gas, unlinked,
                          repeated, unacked, disturbed, frequent, missing, silent, findings)
-    _extend(result, gas, devices)
+    _extend(result, gas, devices, project)
     return result
 
 
-def _extend(a: BusAnalysis, gas: dict, devices: dict) -> None:
+def _extend(a: BusAnalysis, gas: dict, devices: dict, project=None) -> None:
     """Weitere Auswertungen (services/bus_checks) und ihre Befunde."""
     from . import bus_checks as bc
     a.size_issues = bc.size_issues(a.pairs, gas)
     a.unanswered, a.multi_response = bc.read_issues(a.pairs, gas, devices)
+    if project is not None:
+        bc.coupler_checks(a, project)
     a.multi_senders = bc.multi_senders(a.pairs, gas)
     a.measuring_line = bc.measuring_line(a.pairs)
     a.forwarded = bc.forwarded_without_receiver(a.pairs, gas, devices, a.measuring_line)

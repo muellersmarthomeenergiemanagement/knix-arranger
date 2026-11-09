@@ -265,11 +265,13 @@ class LinePlanDialog(QDialog):
             if check.blocked:
                 measured = (f" Laut Busmonitor sendet es auf {len(check.confirmed)} davon."
                             if check.confirmed else "")
+                where = (f"in {check.where} hinter dem Koppler" if check.behind_coupler
+                         else f"in {check.where}")
                 lines.append(
-                    f"<span style='color:#C62828'><b>{name}:</b> in {check.where} hinter dem "
-                    f"Koppler – erreicht {len(check.blocked)} GA(s) nicht, die nur in anderen "
-                    f"Linien verknüpft sind.{measured} Auf die Hauptlinie setzen oder einen "
-                    "Dummy mit diesen GAs verknüpfen.</span>")
+                    f"<span style='color:#C62828'><b>{name}:</b> {where} – erreicht "
+                    f"{len(check.blocked)} GA(s) nicht, die ein Koppler sperrt (nur hinter "
+                    f"einem Koppler verknüpft).{measured} Einen Dummy mit diesen GAs in "
+                    "seiner Linie verknüpfen.</span>")
             else:
                 lines.append(f"<span style='color:#2E7D32'><b>{name}:</b> in {check.where} – "
                              "erreicht alle verknüpften GAs, kein Dummy nötig.</span>")

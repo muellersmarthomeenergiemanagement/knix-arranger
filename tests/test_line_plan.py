@@ -71,7 +71,12 @@ def test_split_into_new_line_with_main_line():
     assert not tables["1.2.0"].changed
     assert result.crossing == 1                                      # 1/0/1
     (check,) = result.externals
-    assert check.where == "Hauptlinie 1.0" and not check.blocked
+    # Auch auf der Hauptlinie: GAs nur hinter einem Koppler trägt die ETS in
+    # keine Filtertabelle ein (FA-643) -- nur 1/0/1 läuft über die Koppler
+    assert check.where == "Hauptlinie 1.0" and not check.behind_coupler
+    assert "1/0/1" not in check.blocked
+    assert {"1/0/2", "2/0/31", "3/0/1"} <= set(check.blocked)
+    assert check.blocked_now == ["3/0/1"]                            # heute: nur Revox
 
 
 def test_visualisation_behind_new_coupler_misses_gas():
@@ -84,7 +89,8 @@ def test_visualisation_behind_new_coupler_misses_gas():
     assert check.where == "Linie 1.1" and check.behind_coupler
     assert "2/0/31" in check.blocked and "3/0/1" in check.blocked
     assert "1/0/2" not in check.blocked
-    assert check.blocked_now == []           # heute ohne Koppler: alles erreichbar
+    # heute ohne eigenen Koppler, aber 3/0/1 ist nur hinter 1.2.0 verknüpft
+    assert check.blocked_now == ["3/0/1"]
 
 
 def test_segment_keeps_addresses():

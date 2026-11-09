@@ -9,12 +9,12 @@ einen eigenen Linienkoppler und Geräte wie die Schnittstelle einer
 Visualisierung kommen auf die Hauptlinie.
 
 Ausgewertet werden je Teil Teilnehmer und Busstrom, die neue Hardware, die
-Umadressierung (alt -> neu) und die Filtertabellen der Koppler danach. Ein
-Koppler lässt eine GA durch, wenn sie mit einem Gerät seiner Linie verknüpft
-ist -- für verknüpfte Geräte stimmen die Tabellen damit von selbst. Geräte
-ohne Verknüpfungen im Projekt (externe Geräte, z.B. ein Visualisierungs-
-server) erreichen hinter einem filternden Koppler nur die GAs, die in ihrer
-eigenen Linie verknüpft sind; das prüft external_checks.
+Umadressierung (alt -> neu) und die Filtertabellen der Koppler danach. Die
+ETS trägt eine GA ein, wenn sie in der Linie des Kopplers verknüpft ist und
+ausserhalb gebraucht wird -- für verknüpfte Geräte stimmen die Tabellen damit
+von selbst. Geräte ohne Verknüpfungen im Projekt (externe Geräte, z.B. ein
+Visualisierungsserver) erreichen eine GA nur, wenn kein Koppler auf dem Weg
+sie sperrt (services/filter_tables, FA-643); das prüft _external_checks.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -350,23 +350,19 @@ def _filters(project, plan, area, line, by_target, new_prefix, new_coupler_sourc
 
 # ── Externe Geräte ───────────────────────────────────────────────────────
 
-def _blocked(all_gas: set[str], own_gas: set[str], behind: bool) -> list[str]:
-    from .report_sorting import group_address_key
-    if not behind:
-        return []
-    return sorted(all_gas - own_gas, key=group_address_key)
-
-
 def _external_checks(project, plan, area, line, by_target, new_prefix, new_coupler_source):
     """Externe Geräte haben im Projekt keine Verknüpfungen. Ein Visualisierungs-
-    server bedient aber fast alle GAs: hinter einem filternden Koppler erreicht
-    er nur die GAs, die in seiner Linie verknüpft sind."""
+    server bedient aber fast alle GAs: er erreicht nur die GAs, die kein Koppler
+    auf dem Weg sperrt -- vor und nach dem Umbau."""
     all_gas = _gas(d for x in project.topology.areas for y in x.lines for d in y.devices)
     now_lines = {f"{x.area_number}.{y.line_number}": [d for d in y.devices if is_consumer(d)]
                  for x in project.topology.areas for y in x.lines}
     after = _lines_after(project, area, line, by_target, new_prefix)
-    couplers_now = _couplers_after(project, area, line, "", False)
     couplers = _couplers_after(project, area, line, new_prefix, new_coupler_source)
+    from .filter_tables import CouplerFilters
+    from .report_sorting import group_address_key
+    now = CouplerFilters.from_project(project)
+    planned = CouplerFilters(after, couplers, now.area_couplers, now.unfiltered)
     observed = _observed_sends(project)
     checks = []
     for key_after, devices in sorted(after.items()):
@@ -375,13 +371,13 @@ def _external_checks(project, plan, area, line, by_target, new_prefix, new_coupl
                 continue
             key_now = next(k for k, ds in now_lines.items() if device in ds)
             main = key_after.endswith(".0")
-            blocked = _blocked(all_gas, _gas(devices), key_after in couplers)
+            blocked = sorted(planned.blocked(key_after, all_gas), key=group_address_key)
             sent = observed.get(device.physical_address, [])
             checks.append(ExternalCheck(
                 device, f"Hauptlinie {key_after}" if main else f"Linie {key_after}",
                 behind_coupler=key_after in couplers,
                 blocked=blocked,
-                blocked_now=_blocked(all_gas, _gas(now_lines[key_now]), key_now in couplers_now),
+                blocked_now=sorted(now.blocked(key_now, all_gas), key=group_address_key),
                 observed=sent, confirmed=[ga for ga in sent if ga in set(blocked)]))
     return checks
 

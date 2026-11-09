@@ -1813,8 +1813,8 @@ class ReportService:
             col_widths=[0.15, 0.45, 0.15, 0.25], align=["left", "left", "right", "left"])
         pdf.add_note(
             "Hinweis:",
-            "Ein Linienkoppler lässt eine Gruppenadresse durch, wenn sie mit einem Gerät "
-            "seiner Linie verknüpft ist. Für verknüpfte Geräte entstehen die Tabellen in "
+            "Ein Linienkoppler lässt eine Gruppenadresse durch, wenn sie in seiner Linie "
+            "verknüpft ist und ausserhalb gebraucht wird. Für verknüpfte Geräte entstehen die Tabellen in "
             "der ETS damit von selbst; neue und geänderte Tabellen müssen in die Koppler "
             "geladen werden."
             + (f" {result.crossing} GA(s) sind in beiden Linien verknüpft und laufen "
@@ -1833,9 +1833,10 @@ class ReportService:
             pdf.add_note(
                 "Hinweis:",
                 "Diese Geräte haben im ETS-Projekt keine Verknüpfungen. Eine Visualisierung "
-                "bedient trotzdem fast alle GAs: hinter einem filternden Koppler erreicht sie "
-                "nur, was in ihrer Linie verknüpft ist. Auf der Hauptlinie bzw. in einer "
-                "Linie ohne Koppler erreicht sie alle verknüpften GAs.")
+                "bedient trotzdem fast alle GAs, die ETS trägt sie für sie aber in keine "
+                "Filtertabelle ein: Eine GA, die nur hinter einem Koppler verknüpft ist, "
+                "erreicht sie nicht -- auch nicht von der Hauptlinie oder einer Linie ohne "
+                "Koppler aus. Abhilfe: Dummy mit den GAs in der Linie des Geräts.")
             for check in result.externals:
                 if not check.blocked:
                     continue
@@ -1845,9 +1846,8 @@ class ReportService:
                                               f"{len(check.confirmed)} dieser GAs: "
                                               + ", ".join(check.confirmed))
                 pdf.add_paragraph(
-                    f"Bleibt das Gerät in {check.where}, muss ein Dummy in dieser Linie mit "
-                    f"diesen {len(check.blocked)} GAs verknüpft werden – oder das Gerät kommt "
-                    "auf die Hauptlinie: " + ", ".join(check.blocked))
+                    f"Ein Dummy in {check.where} muss mit diesen {len(check.blocked)} GAs "
+                    "verknüpft werden: " + ", ".join(check.blocked))
 
         pdf.add_conditional_break(min_height=200)
         pdf.add_heading("Arbeitsschritte", level=2)

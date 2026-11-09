@@ -10,7 +10,7 @@ import os
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QComboBox, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
     QTabWidget, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
     QWidget,
 )
@@ -21,6 +21,7 @@ from ...services.bus_monitor import (
 )
 from ...services.bus_checks import assign_additional_address, compare
 from ..column_utils import fit_columns
+from ..wrap_tree import enable_word_wrap
 from ..styles import TEXT_MUTED
 from ..widgets.load_chart import LoadChart
 
@@ -109,7 +110,13 @@ class BusAnalysisView(QWidget):
         tabs = self._tabs = QTabWidget()
         self._findings = QTreeWidget()
         self._findings.setHeaderLabels(["Befund", "Einstufung"])
-        self._findings.setColumnWidth(0, 760)
+        # Befund nimmt die Breite, Einstufung so breit wie ihr Text; lange
+        # Erklärungen umbrechen statt abschneiden
+        header = self._findings.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        enable_word_wrap(self._findings)
         self._findings.itemDoubleClicked.connect(self._finding_jump)
         self._findings.setToolTip("Doppelklick auf eine Zeile «Absender → Ziel»: "
                                   "zugehörige Telegramme zeigen")
@@ -147,6 +154,7 @@ class BusAnalysisView(QWidget):
         compare_layout.addWidget(self._metrics, 1)
         self._differences = QTreeWidget()
         self._differences.setHeaderLabels(["Unterschied"])
+        enable_word_wrap(self._differences)
         compare_layout.addWidget(self._differences, 2)
         tabs.addTab(compare_tab, "Vergleich")
         layout.addWidget(tabs, 1)
