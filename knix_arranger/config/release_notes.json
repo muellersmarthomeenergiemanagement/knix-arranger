@@ -2,6 +2,14 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.47",
+      "date": "2026-11-10",
+      "verbessert": [
+        "Busanalyse: Ein Dummy in der ETS (z.B. für den Z-Server einer Visualisierung) wird erkannt – am Wort «Dummy» im Gerätenamen, in der Beschreibung, im Produkt oder in der Applikation, oder weil er beim ETS6 Import die Adresse eines bisher externen Geräts übernimmt. Sendet das Gerät auf GAs, die am Dummy nicht verknüpft sind, erscheint ein Hinweis mit diesen GAs zum Nachtragen statt der Warnung «Gerät sendet auf eine GA, mit der es in der ETS nicht verknüpft ist».",
+        "Filtertabellen: Die ETS-Arbeitsliste und die Busanalyse berücksichtigen bestehende Dummies und nennen nur noch die GAs, die am Dummy fehlen und ein Koppler sperrt."
+      ]
+    },
+    {
       "version": "1.4.46",
       "date": "2026-11-09",
       "neu": [
