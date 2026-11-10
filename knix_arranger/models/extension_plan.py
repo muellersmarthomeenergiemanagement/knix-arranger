@@ -6,6 +6,7 @@ Ist-Stand: KNiX schlägt Adressen, Namen und Aktorkanäle vor, die ETS setzt
 sie um, ein Re-Import übernimmt sie. Auswertung in services/extension_service.
 """
 from __future__ import annotations
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -23,6 +24,15 @@ class ExtensionItem:
     count: int = 1
     label: str = ""             # Klartext, z.B. "Fenster West"
     operation: str = ""         # Bedienung, z.B. "neuer Taster", "Visualisierung"
+
+    def labels(self, default: str = "") -> list[str]:
+        """Klartext je Element: «Rotten, Berg» bei Anzahl 2 -> ["Rotten", "Berg"];
+        passt die Zahl der Namen nicht zur Anzahl, gilt der ganze Text für alle."""
+        count = max(self.count, 1)
+        parts = [p.strip() for p in re.split(r"[,;]", self.label or "")]
+        if count > 1 and len(parts) == count and all(parts):
+            return parts
+        return [self.label.strip() or default] * count
 
     def to_dict(self) -> dict:
         return {"room_id": self.room_id, "gewerk_code": self.gewerk_code,

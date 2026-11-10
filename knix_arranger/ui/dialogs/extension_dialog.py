@@ -184,7 +184,7 @@ class ExtensionDialog(QDialog):
         for r, ga in enumerate(gas):
             item = result.items[ga.item]
             position = (f"{item.room.name if item.room else '–'} – "
-                        f"{item.item.label or (item.gewerk.name if item.gewerk else '')}")
+                        f"{ga.label or item.item.label or (item.gewerk.name if item.gewerk else '')}")
             for c, text in enumerate((ga.address, ga.designation, ga.dpt, ga.naming, position)):
                 cell = QTableWidgetItem(text)
                 if c == 3 and ga.naming != "Anlage":

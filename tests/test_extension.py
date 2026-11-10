@@ -112,3 +112,31 @@ def test_round_trip_dialog_and_report(tmp_path):
     text = "".join(p.get_text() for p in fitz.open(str(path)))
     assert "Erweiterung Storen OG" in text and "3/1/15" in text
     assert "Neuer Aktor" not in text                     # ein Kanal ist frei
+
+
+def test_one_label_per_element():
+    """Zwei Wetterstationen «Rotten, Berg»: je Element ein eigener Klartext,
+    ein Systemsensor braucht keine Aktorkanäle."""
+    project, bibliothek, wohnen = _project()
+    plan = ExtensionPlan(name="Wetter", naming=NAMING_SWISS, items=[
+        ExtensionItem(room_id=bibliothek.id, gewerk_code="W", count=2, label="Rotten, Berg")])
+    (item,) = evaluate(project, plan).items
+    labels = {ga.element: ga.label for ga in item.gas}
+    assert labels == {1: "Rotten", 2: "Berg"}
+    first = [ga.designation for ga in item.gas if ga.element == 1]
+    second = [ga.designation for ga in item.gas if ga.element == 2]
+    assert first and all("(Rotten)" in d for d in first)
+    assert second and all("(Berg)" in d for d in second)
+    assert item.actors == [] and item.missing_channels == 0
+    # Zahl der Namen passt nicht zur Anzahl: ganzer Text für alle
+    plan.items = [ExtensionItem(room_id=wohnen.id, gewerk_code="J", count=3,
+                                label="Fenster West, Ost")]
+    (item,) = evaluate(project, plan).items
+    assert {ga.label for ga in item.gas} == {"Fenster West, Ost"}
+
+
+def test_labels_split():
+    assert ExtensionItem(count=2, label="Rotten; Berg").labels() == ["Rotten", "Berg"]
+    assert ExtensionItem(count=1, label="Rotten, Berg").labels() == ["Rotten, Berg"]
+    assert ExtensionItem(count=2, label="").labels("Balkon") == ["Balkon", "Balkon"]
+    assert ExtensionItem(count=2, label="Rotten,").labels() == ["Rotten,", "Rotten,"]

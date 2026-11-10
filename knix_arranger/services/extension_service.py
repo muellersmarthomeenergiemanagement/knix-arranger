@@ -43,6 +43,7 @@ class NewGA:
     item: int                 # Index der Position in plan.items
     element: int
     naming: str               # "Anlage" oder "KNX Swiss"
+    label: str = ""           # Klartext des Elements, z.B. "Rotten"
 
     @property
     def parts(self) -> tuple[int, int, int]:
@@ -265,14 +266,13 @@ def evaluate(project, plan: ExtensionPlan) -> ExtensionResult:
                      if (split_designation(g.designation) or ("",))[0]
                      in {c for c, _n in room_codes}]
         after = (max(room_subs) + 1) if room_subs else (max(used[key]) + 1 if used[key] else 0)
-        for _n in range(max(item.count, 1)):
+        for label in item.labels(room.name):
             element += 1
             start = _free_block(used[key], span, after)
             if start is None:
                 result.problems.append(f"Mittelgruppe {key[0]}/{key[1]} ist voll.")
                 break
             after = start + span
-            label = item.label or room.name
             for offset, sep, rest, dpt in entries:
                 sub = start + offset
                 used[key].add(sub)
@@ -288,12 +288,13 @@ def evaluate(project, plan: ExtensionPlan) -> ExtensionResult:
                     naming = "KNX Swiss"
                     function = rest
                 result.gas.append(NewGA(f"{key[0]}/{key[1]}/{sub}", designation, dpt,
-                                        function, index, element, naming))
+                                        function, index, element, naming, label))
             all_codes.add(split_designation(result.gas[-1].designation)[0]
                           if split_designation(result.gas[-1].designation) else "")
 
-        # Aktorkanäle: Aktoren, die das Gewerk schalten, zuerst auf dem Stockwerk
-        need = max(item.count, 1)
+        # Aktorkanäle: Aktoren, die das Gewerk schalten, zuerst auf dem Stockwerk.
+        # Ein Systemsensor (Wetterstation) braucht keine.
+        need = 0 if gewerk.interface_type == "system_sensor" else max(item.count, 1)
         serving = []
         for pa, free in free_channels.items():
             device = devices.get(pa)
