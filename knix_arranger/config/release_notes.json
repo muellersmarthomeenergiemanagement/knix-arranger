@@ -2,6 +2,13 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.50",
+      "date": "2026-11-10",
+      "neu": [
+        "ETS-Funktionen: Schalten, Steckdose und Dimmen zeigen ihren Status über den Leitkanal. KNiX legt dafür keine eigene Status-GA an, sondern nimmt die Rückmeldung (RM, bei Dimmen auch RM WERT) des ersten Elements der Funktion – ein Status-KO sendet nur auf seine erste GA, eine zusätzliche Funktions-GA bekäme nie ein Telegramm. Die Taste der Funktion erhält diese Rückmeldung für die LED, der ETS-Abgleich verlangt sie in der ETS-Funktion. Im Dialog «Funktion» steht sie mit «(Leitkanal)» und lässt sich weglassen. Jalousie und Heizung bleiben ohne Status."
+      ]
+    },
+    {
       "version": "1.4.49",
       "date": "2026-11-10",
       "neu": [
