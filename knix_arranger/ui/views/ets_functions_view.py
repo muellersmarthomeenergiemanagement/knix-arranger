@@ -369,6 +369,19 @@ class EtsFunctionsView(QWidget):
                 if ga_state == "fehlt":
                     item.setForeground(5, warn)
                 gas_node.addChild(item)
+            # Status über den Leitkanal: Rückmeldung des ersten Elements
+            for point, ga in plan.status_gas(project, function).items():
+                ga_state = "" if not ets_read or status.ets is None else (
+                    "fehlt" if ga.address in missing else "zugeordnet")
+                ga_state = ", ".join(p for p in ("Leitkanal", ga_state) if p)
+                item = QTreeWidgetItem(["", "", plan._point_label(function.function_type, point),
+                                        ga.address, ga.designation, ga_state])
+                item.setToolTip(5, "Status der Funktion: Rückmeldung ihres ersten Elements, "
+                                   "keine eigene GA")
+                item.setData(0, Qt.UserRole, function.id)
+                if "fehlt" in ga_state:
+                    item.setForeground(5, warn)
+                gas_node.addChild(item)
             # Aktorkanal je Element: über seine eigene GA im Belegungsplan
             own_gas = {}
             for member, _fga, own in plan.member_links(project, function):

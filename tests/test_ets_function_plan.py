@@ -708,3 +708,67 @@ def test_shared_ga_on_mixed_gewerke_is_reported(project):
     sync_function_gas(project)
     issues = [i for i in check_plan(project) if "verschiedene Gewerke" in i.message]
     assert len(issues) == 1 and "(J, H)" in issues[0].message
+
+
+# ── Status über den Leitkanal (User 2026-11-10) ──────────────────────────
+
+def _dim_function(project):
+    """Funktion «Alles dimmen» über beide Dimmlichter im Wohnen."""
+    wohnen = _room(project, "Wohnen")
+    lights = next(a for a in wohnen.gewerk_assignments if a.gewerk_code == "LD")
+    function = KnixFunction(name="Alles dimmen", function_type="FT-6", room_id=wohnen.id,
+                            members=[FunctionMember(lights.id, n) for n in (2, 1)])
+    project.functions.append(function)
+    sync_function_gas(project)
+    return function, lights
+
+
+def test_status_from_lead_channel_without_own_ga(project):
+    from knix_arranger.services.ets_function_plan import status_gas, status_leader
+    function, lights = _dim_function(project)
+    found = status_gas(project, function)
+    # Leitkanal = erstes Element der Funktion (hier Element 2), keine eigene GA
+    assert set(found) == {"RM", "RM WERT"}
+    assert all(ga.function_id == "" and ga.element_number == 2 for ga in found.values())
+    assert {ga.function_name for ga in _gas(project, function).values()} == {"E/A", "DIM", "WERT"}
+    assert status_leader(project, function).element_number == 2
+    # Jalousie: kein Status
+    assert status_gas(project, project.functions[0]) == {}
+    # weglassen
+    function.omitted = ["RM WERT"]
+    assert set(status_gas(project, function)) == {"RM"}
+
+
+def test_status_on_button_and_in_ets_comparison(project):
+    from knix_arranger.services.ets_function_plan import status_gas
+    function, _lights = _dim_function(project)
+    status = status_gas(project, function)
+    wohnen = _room(project, "Wohnen")
+    sf = SensorFunktion(function_id=function.id)
+    wohnen.bedienelemente.append(Bedienelement(
+        element_type="Tastereinheit", channels=4, funktionen=[sf], is_auto=False))
+    apply_function_buttons(project)
+    feedback = [e.ga_designation.split()[0] for e in sf.extra_gas if e.role == "rueckmeldung"]
+    assert feedback == [status["RM"].address, status["RM WERT"].address]
+    # ETS: die Status-GA gehört in die ETS-Funktion
+    wohnen.ets_functions.append(EtsFunction("Andere", "FT-1", []))
+    task = next(i.details["task"] for i in check_plan(project)
+                if i.details.get("kind") == "anlegen" and "Alles dimmen" in i.message)
+    assert f"Status {status['RM'].address}" in task and "Dimmwert" in task
+    # keine Aufforderung, die Status-GA von Hand zu verknüpfen
+    assert not any(i.details.get("kind") == "verknüpfen-hand" and "RM" in i.details["key"]
+                   for i in check_plan(project))
+
+
+def test_dialog_shows_lead_channel_and_can_omit(project):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from knix_arranger.ui.dialogs.function_edit_dialog import FunctionEditDialog
+    function, _lights = _dim_function(project)
+    dialog = FunctionEditDialog(project, function)
+    rows = {dialog._gas.item(r, 0).data(256): r for r in range(dialog._gas.rowCount())}
+    assert {"RM", "RM WERT"} <= set(rows)
+    assert "(Leitkanal)" in dialog._gas.item(rows["RM"], 0).text()
+    assert dialog._gas.item(rows["RM"], 1).text().split()[0].count("/") == 2
+    dialog._gas.cellWidget(rows["RM WERT"], 2).setCurrentIndex(1)     # Weglassen
+    assert "RM WERT" in dialog._omit

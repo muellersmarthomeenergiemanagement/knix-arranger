@@ -822,12 +822,14 @@ def build_document() -> Document:
              "Im Reiter «Geplant» legen Sie Funktionen an, die "
              "mehrere Elemente gemeinsam bedienen (z. B. «Fensterfront» für drei "
              "Jalousien mit Bewegen, Stopp, Position, Lamellen und Sperren, oder "
-             "«Wohnzone Abwesend» für die Betriebsart der Heizung): eigene GAs ab "
-             "UG 200 in der HG des Stockwerks, verknüpft auf "
-             "die Aktorkanäle der Elemente (reine Befehle, keine Rückmeldung). In der "
-             "Bauherrenberatung lässt sich eine Funktion auf eine Taste legen. "
-             "Was in der ETS fehlt, steht in der ETS-Arbeitsliste. HG 12 bleibt frei, "
-             "weil die ETS dort die GAs neuer Funktionen anlegt."),
+             "«Wohnzone Abwesend» für die Betriebsart der Heizung): eigene Befehls-GAs "
+             "ab UG 250 rückwärts in der HG des Stockwerks, verknüpft auf "
+             "die Aktorkanäle der Elemente. Den Status einer Licht- oder "
+             "Steckdosenfunktion zeigt der Leitkanal: KNiX nimmt die Rückmeldung des "
+             "ersten Elements, ohne eigene GA – so sendet genau ein Status-KO. In der "
+             "Bauherrenberatung lässt sich eine Funktion auf eine Taste legen, die LED "
+             "zeigt dann den Status. Was in der ETS fehlt, steht in der ETS-Arbeitsliste. "
+             "HG 13 bleibt frei, weil die ETS dort die GAs neuer Funktionen anlegt."),
             ("DALI-Konfiguration",
              "DALI-Gruppen und EVGs. Geplante Projekte: je LDA-Element eine Gruppe "
              "mit allen ihren GAs, Name aus der Bezeichnung (z. B. «Wohnen Decke»); "

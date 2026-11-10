@@ -1,6 +1,6 @@
 """
 Dialog "Funktion" (FA-530): Name, Typ, Raum oder Zone, Elemente und GAs einer
-geplanten Funktion (reine Befehls-GAs, keine Rückmeldung).
+geplanten Funktion (Befehls-GAs; Status über den Leitkanal, das erste Element).
 
 GAs je Funktionspunkt: KNiX legt sie an (Standard), eine bestehende GA wird
 mitbenutzt, oder der Punkt fällt weg; eigene Punkte mit Name und DPT kommen
@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (
 
 from ...models.ets_function import CustomPoint, KnixFunction, FunctionMember
 from ...services.ets_function_plan import (
-    CUSTOM_DPTS, PLAN_POINTS, PLAN_TYPES, Location, _gewerk_middle_group, _omitted,
+    CUSTOM_DPTS, PLAN_POINTS, PLAN_TYPES, STATUS_POINTS, Location, _gewerk_middle_group,
+    _omitted, status_gas,
     _point_label, function_ga_map, member_candidates, plan_type_label, point_of,
 )
 from ...services.function_gewerke import gewerk_label
@@ -50,7 +51,8 @@ class FunctionEditDialog(QDialog):
                       "einer Taste aus. Ihre Befehls-GAs liegen in der HG des Stockwerks "
                       "am Ende der Mittelgruppe (ab UG 250 rückwärts) und werden "
                       "zusätzlich auf die Aktorkanäle der Elemente "
-                      "verknüpft. Eine Rückmeldung hat die Funktion nicht.")
+                      "verknüpft. Den Status zeigt der Leitkanal: die Rückmeldung des "
+                      "ersten Elements, ohne eigene GA.")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #666;")
         layout.addWidget(hint)
@@ -98,6 +100,8 @@ class FunctionEditDialog(QDialog):
         self._mixed_hint.setVisible(False)
         layout.addWidget(self._mixed_hint)
         self._members.itemChanged.connect(lambda _item: self._update_mixed_hint())
+        # Leitkanal = erstes gewähltes Element mit Rückmeldung
+        self._members.itemChanged.connect(lambda _item: self._fill_gas())
 
         layout.addWidget(QLabel("GAs der Funktion:"))
         self._gas = QTableWidget(0, 3)
@@ -178,7 +182,8 @@ class FunctionEditDialog(QDialog):
 
     def _on_type_changed(self) -> None:
         # Standardpunkte des alten Typs gelten nicht mehr
-        names = {p.function for p in PLAN_POINTS.get(self._type.currentData(), ())}
+        names = {p.function for p in PLAN_POINTS.get(self._type.currentData(), ())
+                 + STATUS_POINTS.get(self._type.currentData(), ())}
         custom = {c.function for c in self._custom}
         self._omit &= names
         self._linked = {k: v for k, v in self._linked.items() if k in names | custom}
@@ -218,7 +223,52 @@ class FunctionEditDialog(QDialog):
             combo.currentIndexChanged.connect(
                 lambda _i, c=combo, pt=point, cu=custom: self._on_kind(pt, cu, c.currentData()))
             self._gas.setCellWidget(row, 2, combo)
+        self._fill_status_rows(function_type)
         self._gas.resizeColumnsToContents()
+
+    def _fill_status_rows(self, function_type: str) -> None:
+        """Status über den Leitkanal: Rückmeldung des ersten gewählten
+        Elements, ohne eigene GA; weglassen möglich."""
+        points = STATUS_POINTS.get(function_type, ())
+        if not points:
+            return
+        draft = KnixFunction(function_type=function_type,
+                             members=[FunctionMember(a, n) for a, n in self._checked()])
+        found = status_gas(self._project, draft)
+        for point in points:
+            row = self._gas.rowCount()
+            self._gas.insertRow(row)
+            item = QTableWidgetItem(_point_label(function_type, point.function) + "  (Leitkanal)")
+            item.setFlags(Qt.ItemIsEnabled)
+            item.setData(Qt.UserRole, point.function)
+            self._gas.setItem(row, 0, item)
+            ga = found.get(point.function)
+            if point.function in self._omit:
+                text = "– weggelassen"
+            elif ga is not None:
+                text = f"{ga.address}  {ga.designation}"
+            else:
+                text = "– kein Element mit Rückmeldung"
+            ga_item = QTableWidgetItem(text)
+            ga_item.setFlags(Qt.ItemIsEnabled)
+            ga_item.setToolTip("Die Funktion zeigt die Rückmeldung ihres ersten Elements. "
+                               "Genau ein Status-KO sendet – eine eigene Status-GA bekäme "
+                               "kein Telegramm.")
+            self._gas.setItem(row, 1, ga_item)
+            combo = QComboBox()
+            combo.addItem("Leitkanal (automatisch)", _AUTO)
+            combo.addItem("Weglassen", _OMIT)
+            combo.setCurrentIndex(1 if point.function in self._omit else 0)
+            combo.currentIndexChanged.connect(
+                lambda _i, c=combo, pt=point.function: self._on_status_kind(pt, c.currentData()))
+            self._gas.setCellWidget(row, 2, combo)
+
+    def _on_status_kind(self, point: str, kind: str) -> None:
+        if kind == _OMIT:
+            self._omit.add(point)
+        else:
+            self._omit.discard(point)
+        self._fill_gas()
 
     def _on_kind(self, point: str, custom: bool, kind: str) -> None:
         if kind == _LINKED:

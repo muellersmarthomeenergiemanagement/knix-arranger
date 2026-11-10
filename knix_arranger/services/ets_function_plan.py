@@ -6,9 +6,10 @@ drei Jalousien eines Raums: Sie hat eigene GAs, die zusätzlich zu den GAs
 der Elemente auf deren Aktorkanäle verknüpft werden. Ein Taster auf der
 Funktions-GA bedient den ganzen Bezirk, die Einzelbedienung bleibt.
 
-Funktionen sind reine Befehlsadressen, ohne Rückmeldung (User
-2026-10-21) -- welcher Zustand sollte bei drei Kanälen auch gelten. Ihre
-Elemente werden zuerst bestimmt (Gewerke); erst daraus ergibt sich, auf
+Funktionen haben eigene Befehlsadressen (User 2026-10-21). Ihren Status
+zeigt der Leitkanal: die Funktion benutzt die Rückmeldung ihres ersten
+Elements mit, ohne eigene GA (STATUS_POINTS, status_gas; User 2026-11-10).
+Ihre Elemente werden zuerst bestimmt (Gewerke); erst daraus ergibt sich, auf
 welchem Aktorkanal die Funktions-GAs verknüpft werden.
 
 Adressen: HG des Stockwerks, MG des Gewerks, je Funktion ein 5er-Block von
@@ -73,6 +74,19 @@ PLAN_POINTS: dict[str, tuple[PlanPoint, ...]] = {
 #: Bezeichnung im Dialog, wo sie von der ETS abweicht
 PLAN_TYPE_LABELS = {"FT-9": "Heizung (Betriebsart)"}
 
+#: Status der Funktion über den Leitkanal (User 2026-11-10): KNiX legt keine
+#: eigene GA an, die Funktion benutzt die Rückmeldung des ersten Elements mit
+#: (Element-GA "RM" bzw. "RM WERT"). Ein Status-KO sendet nur auf seine erste
+#: GA -- eine eigene Funktions-GA als zweite GA bekäme nie ein Telegramm, als
+#: erste nähme sie dem Element seine Rückmeldung. So sendet genau ein KO.
+#: Jalousie ohne Status (Position ist dort Befehl), Heizung ohne.
+STATUS_POINTS: dict[str, tuple[PlanPoint, ...]] = {
+    "FT-1": (PlanPoint("RM", "InfoOnOff", "DPST-1-1", 0),),
+    "FT-10": (PlanPoint("RM", "InfoOnOff", "DPST-1-1", 0),),
+    "FT-6": (PlanPoint("RM", "InfoOnOff", "DPST-1-1", 0),
+             PlanPoint("RM WERT", "InfoDimmingValue", "DPST-5-1", 1)),
+}
+
 
 def in_ets_function(function_type: str, function_name: str) -> bool:
     """Funktionspunkt, den die ETS-Funktion kennt (dort zuzuordnen).
@@ -80,7 +94,7 @@ def in_ets_function(function_type: str, function_name: str) -> bool:
     if function_type == "FT-0":
         return True
     return any(p.function == function_name and p.role
-               for p in PLAN_POINTS.get(function_type, ()))
+               for p in PLAN_POINTS.get(function_type, ()) + STATUS_POINTS.get(function_type, ()))
 #: Planbare Typen in der Reihenfolge der Auswahl
 PLAN_TYPES = ("FT-7", "FT-1", "FT-6", "FT-10", "FT-9", "FT-0")
 #: MG der Funktions-GAs; Benutzerdefiniert: MG des ersten Mitglieds, sonst
@@ -521,6 +535,47 @@ def function_ga_map(project, function: KnixFunction,
     return dict(sorted(found.items(), key=lambda item: order.get(point_of(item[0]), 99)))
 
 
+def status_points(function: KnixFunction) -> tuple[PlanPoint, ...]:
+    """Status-Punkte des Typs ohne die weggelassenen."""
+    omitted = set(function.omitted or ())
+    return tuple(p for p in STATUS_POINTS.get(function.function_type, ())
+                 if p.function not in omitted)
+
+
+def status_gas(project, function: KnixFunction, members=None,
+               structure=None) -> dict[str, GroupAddress]:
+    """Status-Punkt -> Rückmeldungs-GA des Leitkanals: das erste Element der
+    Funktion, das diese Rückmeldung hat (automatisch, User 2026-11-10)."""
+    points = status_points(function)
+    if not points:
+        return {}
+    if members is None:
+        members = [m for m in resolve_members(project, function) if m is not None]
+    element_gas = _element_gas(project, structure)
+    result = {}
+    for point in points:
+        for member in members:
+            ga = element_gas.get((member.assignment.id, member.element_number), {}).get(
+                point.function)
+            if ga is not None:
+                result[point.function] = ga
+                break
+    return result
+
+
+def status_leader(project, function: KnixFunction, members=None):
+    """Mitglied, dessen Rückmeldung die Funktion zeigt (Leitkanal), oder None."""
+    if members is None:
+        members = [m for m in resolve_members(project, function) if m is not None]
+    found = status_gas(project, function, members)
+    if not found:
+        return None
+    element_gas = _element_gas(project)
+    first = next(iter(found.values()))
+    return next((m for m in members if any(g is first for g in element_gas.get(
+        (m.assignment.id, m.element_number), {}).values())), None)
+
+
 def split_key(point: str, code: str) -> str:
     """Schlüssel eines Punkts mit einer GA je Gewerk: "E/A [MM]"."""
     return f"{point} [{code}]"
@@ -867,6 +922,7 @@ def compare_plan(project) -> list[PlanStatus]:
     # Funktionspunkt -> GA (bei mitbenutzten GAs ist ga.function_name die
     # Funktion des Elements, nicht der Punkt)
     gas_by_function = {f.id: list(function_ga_map(project, f).items())
+                       + list(status_gas(project, f).items())
                        for f in project.functions}
     statuses = []
     candidates = []
@@ -897,6 +953,7 @@ def compare_plan(project) -> list[PlanStatus]:
 
 def _point_label(function_type: str, function_name: str) -> str:
     point = next((p for p in PLAN_POINTS.get(function_type, ())
+                  + STATUS_POINTS.get(function_type, ())
                   if p.function == function_name), None)
     if point is None:
         return function_name
@@ -942,9 +999,10 @@ def check_plan(project) -> list:
         # stehen schon in der ETS, eine ETS-Funktion dazu ist freiwillig
         if ets_read and not (function.ets_gas and status.ets is None):
             missing = {id(ga) for ga in status.missing}
+            with_status = list(ga_map.items()) + list(status_gas(project, function).items())
             point_text = ", ".join(
                 f"{_point_label(function.function_type, point)} {ga.address}"
-                for point, ga in ga_map.items()
+                for point, ga in with_status
                 if (status.ets is None or id(ga) in missing)
                 and in_ets_function(function.function_type, point))
             if status.ets is None:
@@ -1100,6 +1158,11 @@ def apply_function_buttons(project) -> int:
                 primary = texts[0] if texts else ""
                 extra = [SensorFunktionGa(t, "befehl", f"{function.name} {point}")
                          for t, (point, _ga) in zip(texts[1:], points[1:])]
+                # Status über den Leitkanal: Rückmeldung (LED) der Taste
+                if function is not None and primary:
+                    extra += [SensorFunktionGa(f"{ga.address}  {ga.designation}", "rueckmeldung",
+                                               f"{function.name} Status")
+                              for ga in status_gas(project, function).values()]
                 before = (sf.ga_designation, [e.to_dict() for e in sf.extra_gas], sf.label)
                 sf.ga_designation, sf.extra_gas = primary, extra
                 sf.gewerk_code, sf.scene_id, sf.primary_role = "", "", "befehl"
