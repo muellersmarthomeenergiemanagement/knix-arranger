@@ -645,6 +645,7 @@ def build_document() -> Document:
         berechnet=[
             "Bedienelemente pro Raum aus den Gewerk-Zuweisungen (Schritt 5)",
             "Systemsensoren (z. B. Wetterstation): je Element ein Gerät auf der Linie seines Raums, die GAs liegen zentral in HG 0",
+            "Wetteralarme: Wind, Regen und Frost der Wetterstation liegen im Belegungsplan auf jedem Kanal von Jalousie, Rollladen und Markise (Sicherheits-KO); je Kanal abwählbar unter «Kanäle und KOs zuordnen…»",
         ],
         tipp="Welche Gruppenadresse welche Taste steuert, legen Sie erst in Schritt 11 fest – "
              "hier geht es nur um die physischen Geräte.")
@@ -831,7 +832,8 @@ def build_document() -> Document:
              "Aktorkanals sendet. Automatisch ist es das erste Element mit allen "
              "Rückmeldungen, im Dialog «Funktion» wählen Sie ein anderes. Eine "
              "Sonnenschutz-Funktion benutzt Wind- und Regenalarm der Wetterstation "
-             "mit, ebenfalls ohne eigene GA. In der "
+             "mit, ebenfalls ohne eigene GA; die Heizungsfunktion eines Raums ebenso "
+             "Ist- und Solltemperatur, Stellgrösse und den Fensterkontakt. In der "
              "Bauherrenberatung lässt sich eine Funktion auf eine Taste legen, die LED "
              "zeigt dann den Status. Was in der ETS fehlt, steht in der ETS-Arbeitsliste. "
              "HG 13 bleibt frei, weil die ETS dort die GAs neuer Funktionen anlegt."),

@@ -39,8 +39,9 @@ logger = logging.getLogger("knix_arranger.knxprod_catalog")
 # aus dem Dynamic-Abschnitt (ETS-Parametrier-Anleitung); 4: Module je Instanz
 # (MDT, Theben MIX), Bedingungen als Alternativen; 5: unsichtbare Parameter
 # (Access="None") mit ihrem festen Wert, nie aktive Zweige entfallen;
-# 6: Busstrom (Hardware BusCurrent)
-READER_VERSION = 6
+# 6: Busstrom (Hardware BusCurrent); 7: Gerätename als Wortfolge im
+# Auswahltext legt den Parameter fest (Theben MiX V1.8)
+READER_VERSION = 7
 
 # Objektfunktion, die nur die Grösse nennt ("1 bit", "4 Byte")
 _SIZE_ONLY = re.compile(r"\s*\d+\s*(bit|bits|byte|bytes)\s*", re.IGNORECASE)
@@ -300,6 +301,10 @@ def product_fixed_values(parameters: dict, product_name: str, order_number: str 
     beim HMG 6 T). {Parameter-Id: Wert}."""
     names = {_NOT_ALNUM.sub("", t.lower()) for t in (product_name, order_number) if t}
     names = {n for n in names if len(n) >= 4}
+    # Der Name als Wortfolge im Wert (Theben MiX V1.8: «GM ist ein DMG 2 S
+    # oder ein SMG 2 S» beim DMG 2 S; «RMG4 S» = «RMG 4 S»)
+    sequences = [s for s in (_name_tokens(t) for t in (product_name, order_number) if t)
+                 if len("".join(s)) >= 4]
     fixed = {}
     for param, (_block, _label, values, visible) in parameters.items():
         if not visible or "|" in param:
@@ -310,9 +315,25 @@ def product_fixed_values(parameters: dict, product_name: str, order_number: str 
             if norm and any(norm == n or (len(norm) > len(n) and norm.startswith(n))
                             for n in names):
                 matches.append(value)
+            elif norm and any(_contains_sequence(_name_tokens(text), s) for s in sequences):
+                matches.append(value)
         if len(matches) == 1:
             fixed[param] = matches[0]
     return fixed
+
+
+_TOKEN_SPLIT = re.compile(r"[^a-z0-9]+|(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])")
+
+
+def _name_tokens(text: str) -> list[str]:
+    """«RMG4 S od. RMG4 C-Last» -> rmg, 4, s, od, rmg, 4, c, last: Wörter und
+    Zahlen einzeln, damit «RMG4 S» und «RMG 4 S» gleich sind."""
+    return [t for t in _TOKEN_SPLIT.split((text or "").lower()) if t]
+
+
+def _contains_sequence(tokens: list[str], wanted: list[str]) -> bool:
+    n = len(wanted)
+    return bool(n) and any(tokens[i:i + n] == wanted for i in range(len(tokens) - n + 1))
 
 
 def restrict_to_product(com_objects: list, parameters: dict, product_name: str,

@@ -772,6 +772,10 @@ class BelegungsplanService:
             elif ga.room_number:
                 ga_by_roomnr_gewerk.setdefault((ga.room_number, code), []).append(ga)
 
+        from .weather_alarms import element_alarms, station_gas
+        # Importiert: die Verknüpfungen stehen in der ETS, nichts dazuplanen
+        weather_gas = {} if project.topology.is_imported else station_gas(project)
+
         rows: list[ActorRow] = []
         covered_device_addrs: set[str] = set()  # Adressen mit GA-Treffer (kein CO-Fallback nötig)
         # phys. Adresse -> Menge bedienter room_ids (fuer Szenen-Geltungsbereichs-
@@ -879,6 +883,30 @@ class BelegungsplanService:
                                 room_id=room_id,
                                 gewerk_code=gewerk_code,
                                 function_name=ga.function_name,
+                                ga_designation=ga.designation,
+                                ga_address=ga.address,
+                                dpt=ga.datapoint_type,
+                            ))
+                        # Wetteralarme (FA-644): GAs der Wetterstation auf
+                        # demselben Kanal, für das Sicherheits-KO
+                        for alarm, ga in element_alarms(room, gewerk_code, elem_nr,
+                                                        weather_gas):
+                            rows.append(ActorRow(
+                                line_name=line.name,
+                                area_number=area.area_number,
+                                line_number=line.line_number,
+                                floor_name=floor_index.get(room_id, ""),
+                                uv_location=device.installation_location or line.uv_location or "",
+                                actor_type=device.product,
+                                physical_address=device.physical_address,
+                                channel_number="",
+                                element_number=elem_nr,
+                                room_number=room.number,
+                                zone_name=zone_name,
+                                room_name=room.name,
+                                room_id=room_id,
+                                gewerk_code=gewerk_code,
+                                function_name=alarm,
                                 ga_designation=ga.designation,
                                 ga_address=ga.address,
                                 dpt=ga.datapoint_type,

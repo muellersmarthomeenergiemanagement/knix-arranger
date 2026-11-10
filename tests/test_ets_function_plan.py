@@ -1021,3 +1021,74 @@ def test_dialog_shows_alarms_of_the_weather_station(project):
     dialog._gas.cellWidget(rows["REGEN"], 2).setCurrentIndex(1)       # Weglassen
     dialog._accept()
     assert dialog.result_function().omitted == ["REGEN"]
+
+
+# ── Heizung eines Raums: Ist, Soll, Stellgrösse, Fensterkontakt ──────────
+
+def _room_heating(project, contacts=1):
+    wohnen = _room(project, "Wohnen")
+    if contacts:
+        wohnen.gewerk_assignments.append(GewerkAssignment(gewerk_code="FK", count=contacts))
+    heating = next(a for a in wohnen.gewerk_assignments if a.gewerk_code == "H")
+    function = KnixFunction(name="Heizung Wohnen", function_type="FT-9", room_id=wohnen.id,
+                            members=[FunctionMember(heating.id, 1)])
+    project.functions.append(function)
+    regenerate_addresses(project)
+    return function
+
+
+def test_room_heating_uses_the_gas_of_its_element(project):
+    from knix_arranger.services.ets_function_plan import room_gas, shared_gas, status_gas
+    function = _room_heating(project, contacts=2)
+    found = status_gas(project, function)
+    assert set(found) == {"IST", "BASIS-SOLL", "STELLGROESSE"}
+    assert all(ga.gewerk_code == "H" and not ga.function_id for ga in found.values())
+    window = room_gas(project, function)["FENSTER"]
+    assert (window.gewerk_code, window.element_number, window.planned_function) == ("FK", 1, "E/A")
+    assert set(shared_gas(project, function)) == {"IST", "BASIS-SOLL", "STELLGROESSE", "FENSTER"}
+    # eigene GA nur die Betriebsart
+    assert set(_gas(project, function)) == {"UMSCHALTEN BETRIEBSART"}
+    function.omitted = ["FENSTER", "IST"]
+    assert set(shared_gas(project, function)) == {"BASIS-SOLL", "STELLGROESSE"}
+
+
+def test_zone_heating_keeps_only_the_operating_mode(project):
+    from knix_arranger.services.ets_function_plan import shared_gas
+    wohnen, kueche = _room(project, "Wohnen"), _room(project, "Küche")
+    zone = next(a for f in project.areal.all_floors for a in f.apartments)
+    members = [FunctionMember(next(a for a in r.gewerk_assignments if a.gewerk_code == "H").id, 1)
+               for r in (wohnen, kueche)]
+    function = KnixFunction(name="Abwesend", function_type="FT-9", zone_id=zone.id,
+                            members=members)
+    project.functions.append(function)
+    regenerate_addresses(project)
+    assert shared_gas(project, function) == {}
+
+
+def test_room_heating_in_the_ets_comparison_and_not_on_buttons(project):
+    from knix_arranger.services.ets_function_plan import shared_gas
+    function = _room_heating(project)
+    found = shared_gas(project, function)
+    wohnen = _room(project, "Wohnen")
+    wohnen.ets_functions.append(EtsFunction("Andere", "FT-1", []))
+    task = next(i.details["task"] for i in check_plan(project)
+                if i.details.get("kind") == "anlegen" and "Heizung Wohnen" in i.message)
+    for label, point in (("Isttemperatur", "IST"), ("Solltemperatur", "BASIS-SOLL"),
+                         ("stetige Stellgrösse", "STELLGROESSE"), ("Fensterkontakt", "FENSTER")):
+        assert f"{label} {found[point].address}" in task
+    sf = SensorFunktion(function_id=function.id)
+    wohnen.bedienelemente.append(Bedienelement(
+        element_type="Tastereinheit", channels=4, funktionen=[sf], is_auto=False))
+    apply_function_buttons(project)
+    assert not [e for e in sf.extra_gas if e.role == "rueckmeldung"]
+
+
+def test_dialog_shows_the_points_of_a_room_heating(project):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from knix_arranger.ui.dialogs.function_edit_dialog import FunctionEditDialog
+    function = _room_heating(project)
+    dialog = FunctionEditDialog(project, function)
+    texts = [dialog._gas.item(r, 0).text() for r in range(dialog._gas.rowCount())]
+    assert "Isttemperatur  (Element)" in texts and "Fensterkontakt  (Fensterkontakt)" in texts
+    assert dialog._leader.isHidden()

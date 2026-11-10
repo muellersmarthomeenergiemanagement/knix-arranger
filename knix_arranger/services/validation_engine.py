@@ -151,6 +151,7 @@ class ValidationEngine:
             issues.extend(self._check_flag_recommendations(project))
             issues.extend(self._check_product_capabilities(project))
             issues.extend(self._check_bedienelement_leftovers(project))
+            issues.extend(self._check_weather_alarms(project))
             # FA-609, FA-611 bis FA-613: Topologie
             from .topology_validation import check_topology
             issues.extend(check_topology(project))
@@ -877,6 +878,32 @@ class ValidationEngine:
                 details={"gewerk": name},
             ))
         return issues
+
+    @staticmethod
+    def _check_weather_alarms(project) -> list[ValidationIssue]:
+        """FA-644: Sonnenschutz ohne Wetteralarm. Geplant: Elemente, aber
+        keine Wetterstation mit Windalarm. Importiert: Kanäle in Betrieb,
+        deren Sicherheits-KOs keine GA haben."""
+        from .weather_alarms import WIND, protected_elements, station_gas, unprotected_channels
+        if project.topology.is_imported:
+            return [ValidationIssue(
+                "info", "FA-644",
+                f"Aktor {device.physical_address}: {count} Sonnenschutz-Kanal/-Kanäle ohne "
+                f"Wetteralarm – kein Sicherheits-KO ist verknüpft",
+                "", "In der ETS den Wind- bzw. Regen- oder Frostalarm der Wetterstation auf die "
+                "Sicherheits-KOs legen, oder so belassen (Innenjalousien)",
+                designation=device.physical_address,
+                details={"device": device.physical_address, "count": count})
+                for device, count in unprotected_channels(project)]
+        elements = protected_elements(project)
+        if not elements or WIND in station_gas(project):
+            return []
+        return [ValidationIssue(
+            "info", "FA-644",
+            f"{len(elements)} Sonnenschutz-Element(e) ohne Windalarm: keine Wetterstation geplant",
+            "", "Wetterstation (Gewerk W) planen – KNiX legt ihre Alarme auf die Sicherheits-KOs "
+            "der Kanäle – oder so belassen, wenn nur Innenjalousien geplant sind",
+            details={"count": len(elements)})]
 
     @staticmethod
     def _check_scene_numbers(project) -> list[ValidationIssue]:

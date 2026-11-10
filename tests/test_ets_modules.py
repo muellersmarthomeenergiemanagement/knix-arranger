@@ -127,6 +127,19 @@ def test_product_fixes_shared_application_parameter():
                       {"0": "Gerät auswählen..", "3": "HMG 6 T..", "4": "RMG 8 S.."}, True]}
     assert product_fixed_values(params, "HMG 6 T", "4930240") == {"P-1": "3"}
     assert product_fixed_values(params, "DM 4 T", "4940275") == {}
+    # Theben MiX V1.8: der Gerätename steht mitten im Auswahltext, teils
+    # ohne Leerzeichen («RMG4 S»)
+    mix = {"P-1990": ["Allgemein", "Art des Grundmoduls (GM)", {
+        "0": "Gerät auswählen..", "4097": "GM ist ein RMG4 S od. RMG4 C-Last",
+        "6146": "GM ist ein DMG 2 S oder ein SMG 2 S", "7809": "GM ist ein BMG 6",
+        "5891": "GM ist ein JMG4 S", "5124": "GM ist ein HMG 4"}, True]}
+    assert product_fixed_values(mix, "DMG 2 S", "4910220") == {"P-1990": "6146"}
+    assert product_fixed_values(mix, "RMG 4 S", "4910204") == {"P-1990": "4097"}
+    assert product_fixed_values(mix, "HMG 4", "4910210") == {"P-1990": "5124"}
+    # kein Teilwort («MG 4» steckt in «HMG 4» und «JMG4 S») und nicht mehrdeutig
+    assert product_fixed_values(mix, "XMG 4", "") == {}
+    two = {"P-1": ["Allgemein", "Typ", {"1": "DMG 2 S", "2": "DMG 2 T"}, True]}
+    assert product_fixed_values(two, "DMG 2", "") == {}
     assert when_matches("1 3 5", "3") and when_matches(">2", "3") and not when_matches("!=3", "3")
 
 

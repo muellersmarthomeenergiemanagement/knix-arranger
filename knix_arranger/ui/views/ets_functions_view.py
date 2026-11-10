@@ -371,9 +371,17 @@ class EtsFunctionsView(QWidget):
                 gas_node.addChild(item)
             # Status über den Leitkanal: Rückmeldung des ersten Elements
             # ... und Wind-/Regenalarm: GA der Wetterstation
-            shared = [(p, ga, "Leitkanal", "Status der Funktion: Rückmeldung eines ihrer "
-                       "Elemente, keine eigene GA")
-                      for p, ga in plan.status_gas(project, function).items()]
+            if function.function_type in plan.SINGLE_MEMBER_STATUS:
+                shared = [(p, ga, "Element", "GA des Elements, von der Heizungsfunktion des "
+                           "Raums mitbenutzt, keine eigene GA")
+                          for p, ga in plan.status_gas(project, function).items()]
+            else:
+                shared = [(p, ga, "Leitkanal", "Status der Funktion: Rückmeldung eines ihrer "
+                           "Elemente, keine eigene GA")
+                          for p, ga in plan.status_gas(project, function).items()]
+            shared += [(p, ga, "Fensterkontakt", "Erster Fensterkontakt im Raum, von der "
+                        "Funktion mitbenutzt, keine eigene GA")
+                       for p, ga in plan.room_gas(project, function).items()]
             shared += [(p, ga, "Wetterstation", "Alarm der Wetterstation, von der Funktion "
                         "mitbenutzt, keine eigene GA")
                        for p, ga in plan.alarm_gas(project, function).items()]

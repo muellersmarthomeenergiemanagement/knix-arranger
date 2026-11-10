@@ -183,6 +183,12 @@ _EXTRA_KEYWORDS: dict[str, tuple[str, ...]] = {
     "IST": ("actual temperature", "ist-temperatur", "istwert", "actual value"),
     "BASIS-SOLL": ("setpoint", "sollwert", "basic setpoint", "consigne"),
     "STOERUNG": ("fault", "error", "malfunction", "störung", "défaut"),
+    # Wetteralarme auf den Sicherheits-KOs der Sonnenschutz-Kanäle (FA-644):
+    # «Windalarm» bzw. neutral «Sicherheit 1 (M1), Alarm» (Griesser)
+    "WIND ALARM": ("windalarm", "wind", "sicherheit", "alarm", "safety", "sécurité"),
+    "REGEN": ("regenalarm", "regen", "rain", "pluie", "sicherheit", "alarm", "safety",
+              "sécurité"),
+    "FROST ALARM": ("frostalarm", "frost", "sicherheit", "alarm", "safety", "sécurité"),
 }
 _CAMEL = re.compile(r"(?<=[a-zäöü])(?=[A-ZÄÖÜ])")
 _NOT_ALNUM = re.compile(r"[^a-z0-9äöüéè]")
@@ -220,6 +226,7 @@ def suggest_co(channel_cos: list, function: str, used=frozenset(), dpt: str = ""
     Rückmeldung); Taster übergeben eine Textregel, ihre Befehle senden nur
     (MDT «F4 – Stopp / Lamellen Auf/Zu», K Ü)."""
     from .ko_plausibility import is_feedback_function
+    from .weather_alarms import names_other_alarm
     is_feedback = is_feedback or _is_feedback
     keywords = _keywords(function)
     feedback = is_feedback_function(function)
@@ -227,6 +234,9 @@ def suggest_co(channel_cos: list, function: str, used=frozenset(), dpt: str = ""
     best, best_score = None, 0
     for co in channel_cos:
         if co.object_number in used or is_feedback(co) != feedback:
+            continue
+        # «Regenalarm» ist kein Platz für den Windalarm
+        if names_other_alarm(f"{co.object_function} {co.name}", function):
             continue
         co_main, co_sub = _dpt_key(co.data_type)
         if ga_main and co_main and co_main != ga_main:

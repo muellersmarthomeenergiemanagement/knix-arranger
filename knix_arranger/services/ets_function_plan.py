@@ -87,6 +87,21 @@ STATUS_POINTS: dict[str, tuple[PlanPoint, ...]] = {
     "FT-10": (PlanPoint("RM", "InfoOnOff", "DPST-1-1", 0),),
     "FT-6": (PlanPoint("RM", "InfoOnOff", "DPST-1-1", 0),
              PlanPoint("RM WERT", "InfoDimmingValue", "DPST-5-1", 1)),
+    # Heizung eines Raums (genau ein Element, siehe status_points): die
+    # ETS-Funktion führt Ist, Soll und Stellgrösse -- das sind die GAs des
+    # Elements. Eine Zonen-Funktion («Wohnzone Abwesend») hat nur die
+    # Betriebsart; welche Isttemperatur sollte dort gelten.
+    "FT-9": (PlanPoint("IST", "TempRoom", "DPST-9-1", 0),
+             PlanPoint("BASIS-SOLL", "TempRoomSetpoint", "DPST-9-1", 1),
+             PlanPoint("STELLGROESSE", "ValvePosition", "DPST-5-1", 2)),
+}
+#: Typen, deren Status-Punkte nur für ein einzelnes Element gelten
+SINGLE_MEMBER_STATUS = frozenset({"FT-9"})
+
+#: Fensterkontakt einer Heizungsfunktion eines Raums: die GA des ersten
+#: Fensterkontakts (Gewerk FK, "E/A") im Raum, keine eigene GA.
+ROOM_POINTS: dict[str, tuple[PlanPoint, ...]] = {
+    "FT-9": (PlanPoint("FENSTER", "WindowStatus", "DPST-1-19", 0),),
 }
 
 #: Wind- und Regenalarm einer Sonnenschutz-Funktion: die GA der Wetterstation
@@ -101,8 +116,10 @@ ALARM_POINTS: dict[str, tuple[PlanPoint, ...]] = {
 
 
 def shared_points(function_type: str) -> tuple[PlanPoint, ...]:
-    """Punkte ohne eigene GA: Status (Leitkanal) und Alarme (Wetterstation)."""
-    return STATUS_POINTS.get(function_type, ()) + ALARM_POINTS.get(function_type, ())
+    """Punkte ohne eigene GA: Status (Leitkanal), Alarme (Wetterstation) und
+    Fensterkontakt (Raum)."""
+    return (STATUS_POINTS.get(function_type, ()) + ALARM_POINTS.get(function_type, ())
+            + ROOM_POINTS.get(function_type, ()))
 
 
 def in_ets_function(function_type: str, function_name: str) -> bool:
@@ -554,10 +571,38 @@ def function_ga_map(project, function: KnixFunction,
 
 
 def status_points(function: KnixFunction) -> tuple[PlanPoint, ...]:
-    """Status-Punkte des Typs ohne die weggelassenen."""
+    """Status-Punkte des Typs ohne die weggelassenen. Heizung: nur als
+    Funktion eines Raums mit genau einem Element."""
+    if function.function_type in SINGLE_MEMBER_STATUS and len(function.members) != 1:
+        return ()
     omitted = set(function.omitted or ())
     return tuple(p for p in STATUS_POINTS.get(function.function_type, ())
                  if p.function not in omitted)
+
+
+def room_points(function: KnixFunction) -> tuple[PlanPoint, ...]:
+    """Raum-Punkte (Fensterkontakt) ohne die weggelassenen; wie die
+    Status-Punkte der Heizung nur für ein einzelnes Element."""
+    if len(function.members) != 1 or not function.room_id:
+        return ()
+    omitted = set(function.omitted or ())
+    return tuple(p for p in ROOM_POINTS.get(function.function_type, ())
+                 if p.function not in omitted)
+
+
+def room_gas(project, function: KnixFunction, structure=None) -> dict[str, GroupAddress]:
+    """Raum-Punkt -> GA: der erste Fensterkontakt (Gewerk FK, "E/A") im
+    Raum der Funktion."""
+    points = room_points(function)
+    if not points:
+        return {}
+    structure = structure if structure is not None else project.group_addresses
+    contacts = sorted(
+        (ga for ga in structure.all_addresses()
+         if ga.gewerk_code == "FK" and ga.room_id == function.room_id
+         and ga.planned_function == "E/A" and not ga.is_placeholder),
+        key=lambda ga: (ga.element_number, ga.main_group, ga.middle_group, ga.sub_group))
+    return {point.function: contacts[0] for point in points} if contacts else {}
 
 
 #: Status-Punkt -> (Befehl des Elements, DPT-Hauptnummer, Grösse in Bit):
@@ -577,9 +622,13 @@ def _ko_groups(device) -> list[list]:
     groups = [ch.com_objects for ch in device_channels(device) if ch.com_objects]
     if groups:
         return groups
+    from .gewerk_channel_matching import _CHANNEL_TAG_RE
     by_head: dict[str, list] = {}
     for co in device.communication_objects:
-        head = (co.name or "").split(",")[0].strip()
+        # Kanal als Klammer-Tag (Griesser «Sicherheit 1 (M1), Alarm»), sonst
+        # der Name vor dem ersten Komma
+        tag = _CHANNEL_TAG_RE.search(co.name or "")
+        head = tag.group(1) if tag else (co.name or "").split(",")[0].strip()
         if head:
             by_head.setdefault(head, []).append(co)
     return list(by_head.values())
@@ -796,10 +845,11 @@ def alarm_gas(project, function: KnixFunction, members=None,
 
 def shared_gas(project, function: KnixFunction, members=None,
                structure=None) -> dict[str, GroupAddress]:
-    """Punkte ohne eigene GA: Status über den Leitkanal und Alarme der
-    Wetterstation."""
+    """Punkte ohne eigene GA: Status über den Leitkanal, Alarme der
+    Wetterstation und Fensterkontakt des Raums."""
     return {**status_gas(project, function, members, structure),
-            **alarm_gas(project, function, members, structure)}
+            **alarm_gas(project, function, members, structure),
+            **room_gas(project, function, structure)}
 
 
 def split_key(point: str, code: str) -> str:
@@ -1383,8 +1433,10 @@ def apply_function_buttons(project) -> int:
                 primary = texts[0] if texts else ""
                 extra = [SensorFunktionGa(t, "befehl", f"{function.name} {point}")
                          for t, (point, _ga) in zip(texts[1:], points[1:])]
-                # Status über den Leitkanal: Rückmeldung (LED) der Taste
-                if function is not None and primary:
+                # Status über den Leitkanal: Rückmeldung (LED) der Taste --
+                # nicht Ist/Soll/Stellgrösse einer Heizungsfunktion
+                if (function is not None and primary
+                        and function.function_type not in SINGLE_MEMBER_STATUS):
                     extra += [SensorFunktionGa(f"{ga.address}  {ga.designation}", "rueckmeldung",
                                                f"{function.name} Status")
                               for ga in status_gas(project, function).values()]

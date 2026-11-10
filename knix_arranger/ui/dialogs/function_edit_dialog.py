@@ -17,8 +17,9 @@ from PySide6.QtWidgets import (
 
 from ...models.ets_function import CustomPoint, KnixFunction, FunctionMember
 from ...services.ets_function_plan import (
-    ALARM_POINTS, CUSTOM_DPTS, PLAN_POINTS, PLAN_TYPES, STATUS_POINTS, Location,
-    _gewerk_middle_group, _omitted, alarm_gas, shared_points, status_candidates, status_gas,
+    ALARM_POINTS, CUSTOM_DPTS, PLAN_POINTS, PLAN_TYPES, ROOM_POINTS, SINGLE_MEMBER_STATUS,
+    STATUS_POINTS, Location, _gewerk_middle_group, _omitted, alarm_gas, room_gas,
+    shared_points, status_candidates, status_gas,
     _point_label, function_ga_map, member_candidates, plan_type_label, point_of,
 )
 from ...services.function_gewerke import gewerk_label
@@ -241,14 +242,27 @@ class FunctionEditDialog(QDialog):
     def _fill_status_rows(self, function_type: str) -> None:
         """Status über den Leitkanal: Rückmeldung des ersten gewählten
         Elements, ohne eigene GA; weglassen möglich."""
-        points = STATUS_POINTS.get(function_type, ())
-        self._leader_label.setVisible(bool(points))
-        self._leader.setVisible(bool(points))
         draft = KnixFunction(function_type=function_type,
                              members=[FunctionMember(a, n) for a, n in self._checked()])
         index = self._location.currentIndex()
         if 0 <= index < len(self._locations):
             draft.room_id, draft.zone_id = self._locations[index][:2]
+        # Heizung: Ist, Soll, Stellgrösse und Fensterkontakt nur als Funktion
+        # eines Raums mit genau einem Element -- dann ohne Wahl des Leitkanals
+        single = function_type in SINGLE_MEMBER_STATUS
+        points = STATUS_POINTS.get(function_type, ())
+        if single and len(draft.members) != 1:
+            points = ()
+        self._leader_label.setVisible(bool(points) and not single)
+        self._leader.setVisible(bool(points) and not single)
+        found = room_gas(self._project, draft)
+        for point in ROOM_POINTS.get(function_type, ()):
+            if point.function in found:
+                self._add_shared_row(
+                    function_type, point.function, found[point.function],
+                    "Fensterkontakt", "– kein Fensterkontakt im Raum",
+                    "Die Funktion benutzt die GA des ersten Fensterkontakts im Raum mit, "
+                    "ohne eigene GA.")
         # Wind-/Regenalarm: GA der Wetterstation, ohne eigene GA -- nur die
         # Alarme, die das Projekt hat
         alarms = ALARM_POINTS.get(function_type, ())
@@ -284,6 +298,13 @@ class FunctionEditDialog(QDialog):
         draft.omitted = sorted(self._omit)
         found = status_gas(self._project, draft)
         for point in points:
+            if single:
+                self._add_shared_row(
+                    function_type, point.function, found.get(point.function),
+                    "Element", "– das Element hat diese GA nicht",
+                    "Die Heizungsfunktion eines Raums benutzt die GAs ihres Elements mit, "
+                    "ohne eigene GA.")
+                continue
             self._add_shared_row(
                 function_type, point.function, found.get(point.function),
                 "Leitkanal", "– kein Element mit Rückmeldung",
