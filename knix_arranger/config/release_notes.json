@@ -2,6 +2,14 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.48",
+      "date": "2026-11-10",
+      "behoben": [
+        "Umbau-Varianten › Erweiterung: Bei mehreren Elementen einer Position erhält jedes Element seinen eigenen Klartext. «Rotten, Berg» mit Anzahl 2 ergibt «… (Rotten)» und «… (Berg)» statt zweimal «(Rotten, Berg)». Passt die Zahl der Namen nicht zur Anzahl, gilt der ganze Text für alle.",
+        "Umbau-Varianten › Erweiterung: Eine Wetterstation verlangt keine Aktorkanäle mehr."
+      ]
+    },
+    {
       "version": "1.4.47",
       "date": "2026-11-10",
       "verbessert": [
