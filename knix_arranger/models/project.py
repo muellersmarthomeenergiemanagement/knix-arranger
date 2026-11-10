@@ -60,6 +60,10 @@ class ProjectConfig:
     gateway_scope: dict[str, str] = field(default_factory=dict)
     # Linie (Line.id) des gemeinsamen Gateways je Gewerk; leer = automatisch
     gateway_line: dict[str, str] = field(default_factory=dict)
+    # Ein Gateway für mehrere Gewerke: Gewerk -> Gewerk, dessen Gerät es
+    # mitbenutzt (z.B. PV -> WP: ein Modbus-Gateway für Wärmepumpe und PV).
+    # Gilt nur, wenn beide gemeinsam für das Projekt geplant sind.
+    gateway_partner: dict[str, str] = field(default_factory=dict)
     # Szenennummern je Ebene (FA-1814): "room"/"apartment"/"central" ->
     # [erste, letzte]; leer = Vorgabe aus services.scene_numbering
     scene_number_ranges: dict[str, list[int]] = field(default_factory=dict)
@@ -77,6 +81,7 @@ class ProjectConfig:
             "preferred_manufacturers": self.preferred_manufacturers,
             "gateway_scope": dict(self.gateway_scope),
             "gateway_line": dict(self.gateway_line),
+            "gateway_partner": dict(self.gateway_partner),
             "scene_number_ranges": {k: list(v) for k, v in self.scene_number_ranges.items()},
         }
 
@@ -91,6 +96,7 @@ class ProjectConfig:
             )),
             gateway_scope=dict(data.get("gateway_scope", {})),
             gateway_line=dict(data.get("gateway_line", {})),
+            gateway_partner=dict(data.get("gateway_partner", {})),
             scene_number_ranges={k: list(v) for k, v in
                                  data.get("scene_number_ranges", {}).items()},
         )
@@ -243,6 +249,20 @@ class KnxProject:
         return {code: self.config.gateway_line.get(code, "")
                 for code, actor_type in GEWERK_TO_ACTOR_TYPE.items()
                 if actor_type in GATEWAY_ACTOR_TYPES and self.config.gateway_shared(code)}
+
+    def gateway_partners(self) -> dict[str, str]:
+        """Gültige Zuordnungen «Gerät teilen mit»: Gewerk -> führendes Gewerk.
+        Beide gemeinsam für das Projekt, keine Kapazitäts-Gateways (DALI, DMX),
+        das führende Gewerk teilt nicht selbst weiter."""
+        from .device import GEWERK_TO_ACTOR_TYPE
+        shared = self.shared_gateways()
+        capacity = {"DALI-Gateway", "DMX-KNX-Gateway"}   # = actor_service.CAPACITY_GATEWAY_TYPES
+        sharing = {c for c, lead in self.config.gateway_partner.items() if c != lead}
+        return {code: leader for code, leader in self.config.gateway_partner.items()
+                if code != leader and code in shared and leader in shared
+                and leader not in sharing
+                and GEWERK_TO_ACTOR_TYPE.get(code) not in capacity
+                and GEWERK_TO_ACTOR_TYPE.get(leader) not in capacity}
 
     @property
     def all_rooms(self) -> list[Room]:

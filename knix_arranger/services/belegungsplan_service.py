@@ -800,7 +800,7 @@ class BelegungsplanService:
                 # derselben Gruppe und erhalten jeweils ihre eigene Kapazität.
                 groups: dict[frozenset, list[tuple]] = {}
                 for device in actor_devices:
-                    gewerke = self._gewerke_for_device(device.product)
+                    gewerke = self._gewerke_for_device(device)
                     if not gewerke:
                         continue
                     cap = self._parse_channel_count(device.product)
@@ -1088,7 +1088,7 @@ class BelegungsplanService:
                         continue
 
                     if light_jalousie_gas:
-                        gewerke = self._gewerke_for_device(device.product)
+                        gewerke = self._gewerke_for_device(device)
                         for ga in light_jalousie_gas:
                             if ga.gewerk_code not in gewerke:
                                 continue
@@ -1155,9 +1155,13 @@ class BelegungsplanService:
         return zone_rooms if zone_rooms is not None else set()
 
     @staticmethod
-    def _gewerke_for_device(product: str) -> set[str]:
-        """Leitet die zugehörigen Gewerk-Codes aus dem Gerätetyp-String ab."""
-        return gewerke_for_actor_product(product)
+    def _gewerke_for_device(device) -> set[str]:
+        """Gewerk-Codes eines Aktors/Gateways: zugewiesene Funktionen (z.B. ein
+        Gateway für WP und PV), sonst aus dem Gerätetyp abgeleitet."""
+        if isinstance(device, str):
+            return gewerke_for_actor_product(device)
+        manual = {c for c in (device.manual_functions or []) if c != "SZ"}
+        return manual or gewerke_for_actor_product(device.product)
 
     @staticmethod
     def _parse_channel_count(product: str) -> int:

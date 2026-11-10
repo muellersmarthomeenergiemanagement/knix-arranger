@@ -14,6 +14,7 @@ from ...models.project import KnxProject
 from ...models.building import ActorAssignment
 from ...models.material_list import MaterialEntry
 from ...services.actor_service import ActorService
+from ...services.actor_service import CAPACITY_GATEWAY_TYPES as _CAPACITY_GATEWAYS
 from ...services.topology_engine import TopologyEngine
 from ...services.verteiler_service import (
     VerteilerPlacement, apply_device_locations, verteiler_label,
@@ -143,6 +144,7 @@ class Step06Actors(QWidget):
             line_results = service.determine_actors_per_line(
                 topology, all_rooms, catalog,
                 shared=self._project.shared_gateways(),
+                partners=self._project.gateway_partners(),
             )
         except Exception:
             logger.exception("Fehler bei Aktor-Ermittlung")
@@ -275,6 +277,7 @@ class Step06Actors(QWidget):
                 small_project=(topology.topology_mode == "TP-64"),
                 preserve_manual=True,
                 shared_gateways=self._project.shared_gateways(),
+                gateway_partners=self._project.gateway_partners(),
                 backbone_type=self._project.config.backbone_type,
             )
             self._guard.mark_done(self._project, KEY_DEVICES)
@@ -353,7 +356,29 @@ class Step06Actors(QWidget):
             line_combo.currentIndexChanged.connect(
                 lambda _i, c=code, combo=line_combo: self._set_gateway_line(c, combo.currentData()))
             self._gateway_grid.addWidget(line_combo, row, 2)
-        self._gateway_grid.setColumnStretch(3, 1)
+
+            # Ein Gateway für mehrere Gewerke: Gerät eines anderen Gewerks mitbenutzen
+            partner = QComboBox()
+            partner.addItem("eigenes Gerät", "")
+            for other in codes:
+                other_gewerk = catalog.get(other)
+                if (other == code or other in project.config.gateway_partner
+                        or GEWERK_TO_ACTOR_TYPE.get(other) in _CAPACITY_GATEWAYS):
+                    continue
+                partner.addItem(f"Gerät von {other} – "
+                                f"{other_gewerk.name if other_gewerk else other}", other)
+            partner.setCurrentIndex(max(0, partner.findData(
+                project.config.gateway_partner.get(code, ""))))
+            leads = any(lead == code for lead in project.config.gateway_partner.values())
+            partner.setEnabled(shared and not leads and partner.count() > 1
+                               and GEWERK_TO_ACTOR_TYPE.get(code) not in _CAPACITY_GATEWAYS)
+            partner.setToolTip("Ein Gateway für mehrere Gewerke, z.B. ein Modbus-Gateway für "
+                               "Wärmepumpe und PV. Nur für Gewerke, die gemeinsam für das "
+                               "Projekt geplant sind.")
+            partner.currentIndexChanged.connect(
+                lambda _i, c=code, combo=partner: self._set_gateway_partner(c, combo.currentData()))
+            self._gateway_grid.addWidget(partner, row, 3)
+        self._gateway_grid.setColumnStretch(4, 1)
 
     def _set_gateway_scope(self, code: str, scope: str) -> None:
         from ...models.project import SHARED_GATEWAY_DEFAULTS
@@ -362,6 +387,17 @@ class Step06Actors(QWidget):
             self._project.config.gateway_scope.pop(code, None)
         else:
             self._project.config.gateway_scope[code] = scope
+        # «Gerät teilen mit» gilt nur für gemeinsame Gateways
+        QTimer.singleShot(0, self._build_gateway_choices)
+        QTimer.singleShot(0, self._calculate)
+
+    def _set_gateway_partner(self, code: str, leader: str) -> None:
+        if leader:
+            self._project.config.gateway_partner[code] = leader
+        else:
+            self._project.config.gateway_partner.pop(code, None)
+        # Auswahl der anderen Zeilen hängt davon ab (wer führt, teilt nicht weiter)
+        QTimer.singleShot(0, self._build_gateway_choices)
         QTimer.singleShot(0, self._calculate)
 
     def _set_gateway_line(self, code: str, line_id: str) -> None:

@@ -673,6 +673,9 @@ def build_document() -> Document:
             "UV-Zuordnung eines Aktors ändern (Zuweisungs-Dialog)",
             "Gateways: je Gewerk «gemeinsam für das Projekt» (z. B. Revox für Studio "
             "und Wohnung: ein Gateway mit 2 Zonen) oder «je Linie» (DALI)",
+            "Gateways: «Gerät teilen mit» – ein Gateway für mehrere Gewerke, z. B. ein "
+            "Modbus-Gateway für Wärmepumpe, PV und Speicher (nur bei «gemeinsam für "
+            "das Projekt»)",
         ],
         berechnet=[
             "Schalt-, Dimm-, Jalousie- und Heizungsaktoren aus den Gewerken",

@@ -428,6 +428,7 @@ class Step04Topology(QWidget):
                     small_project=(self._project.topology.topology_mode == "TP-64"),
                     preserve_manual=True,
                     shared_gateways=self._project.shared_gateways(),
+                    gateway_partners=self._project.gateway_partners(),
                     backbone_type=self._project.config.backbone_type,
                 )
                 self._guard.mark_done(self._project, KEY_DEVICES)
@@ -551,6 +552,7 @@ class Step04Topology(QWidget):
             self._project.gewerk_catalog,
             small_project=(self._project.topology.topology_mode == "TP-64"),
             shared_gateways=self._project.shared_gateways(),
+            gateway_partners=self._project.gateway_partners(),
             backbone_type=self._project.config.backbone_type,
         )
 
@@ -1039,6 +1041,7 @@ class Step04Topology(QWidget):
                     small_project=(self._project.topology.topology_mode == "TP-64"),
                     preserve_manual=True,
                     shared_gateways=self._project.shared_gateways(),
+                    gateway_partners=self._project.gateway_partners(),
                     backbone_type=self._project.config.backbone_type,
                 )
             self._display_topology()

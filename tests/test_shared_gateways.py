@@ -218,3 +218,85 @@ def test_product_without_com_objects_never_overwrites_one_with():
     assert shared_gateway_targets(project, first) == []
     second.linked_product = None
     assert [a for _r, a in shared_gateway_targets(project, first)] == [second]
+
+
+# ── Ein Gateway für mehrere Gewerke ──────────────────────────────────────
+
+def _energy_project() -> KnxProject:
+    """Technik mit Wärmepumpe, PV und Speicher (alle gemeinsam für das Projekt)."""
+    project = _project()
+    technik = next(r for r in project.all_rooms if r.number == "E09")
+    technik.gewerk_assignments = [GewerkAssignment(gewerk_code=c) for c in ("WP", "PV", "SP")]
+    return project
+
+
+def _gateways_with_partners(project) -> list:
+    TopologyEngine(project.config.topology_mode).populate_devices(
+        project.topology, project.all_rooms, project.gewerk_catalog,
+        shared_gateways=project.shared_gateways(),
+        gateway_partners=project.gateway_partners())
+    return [d for area in project.topology.areas for line in area.lines
+            for d in line.devices if d.device_type == "gateway"
+            and not d.product.startswith(("DALI", "KNX-Schnittstelle"))]
+
+
+def test_one_gateway_for_several_gewerke():
+    project = _energy_project()
+    assert sorted(d.product for d in _gateways_with_partners(project)) == [
+        "Modbus-KNX-Gateway", "PV-KNX-Gateway", "Speicher-KNX-Gateway"]
+    project.config.gateway_partner = {"PV": "WP", "SP": "WP"}
+    (gateway,) = _gateways_with_partners(project)
+    assert gateway.product == "Modbus-KNX-Gateway"
+    assert sorted(gateway.manual_functions) == ["PV", "SP", "WP"]
+    from knix_arranger.services.device_gewerk_service import gewerk_codes_for_device
+    assert gewerk_codes_for_device(gateway) == {"WP", "PV", "SP"}
+    restored = ProjectConfig.from_dict(project.config.to_dict())
+    assert restored.gateway_partner == {"PV": "WP", "SP": "WP"}
+
+
+def test_partner_only_with_shared_gateways():
+    project = _energy_project()
+    project.config.gateway_partner = {"PV": "WP", "WP": "SP", "LDA": "WP", "SP": "SP"}
+    # WP teilt selbst weiter -> PV ungültig; LDA ist kein gemeinsames Gateway;
+    # SP mit sich selbst bedeutungslos
+    assert project.gateway_partners() == {"WP": "SP"}
+    project.config.gateway_partner = {"PV": "WP"}
+    project.config.gateway_scope["PV"] = "line"
+    assert project.gateway_partners() == {}
+
+
+def test_shared_gateway_serves_all_partner_circuits():
+    """Belegung: das gemeinsame Gerät bedient WP und PV (Gewerke aus
+    manual_functions, nicht nur aus dem Typ «Modbus»)."""
+    from knix_arranger.services.belegungsplan_service import BelegungsplanService
+    project = _energy_project()
+    technik = next(r for r in project.all_rooms if r.number == "E09")
+    technik.gewerk_assignments = [GewerkAssignment(gewerk_code=c) for c in ("WP", "PV")]
+    project.config.gateway_partner = {"PV": "WP"}
+    (gateway,) = _gateways_with_partners(project)
+    assert BelegungsplanService._gewerke_for_device(gateway) == {"WP", "PV"}
+    assert BelegungsplanService._gewerke_for_device("Modbus-KNX-Gateway") == {"WP"}
+
+
+def test_step_offers_device_partner():
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    from knix_arranger.ui.wizard.step06_actors import Step06Actors
+    project = _energy_project()
+    step = Step06Actors(project)
+    step._calculate()
+    rows = {step._gateway_grid.itemAtPosition(r, 0).widget().text().split(" ")[0]: r
+            for r in range(step._gateway_grid.rowCount())
+            if step._gateway_grid.itemAtPosition(r, 0)}
+    pv = step._gateway_grid.itemAtPosition(rows["PV"], 3).widget()
+    assert pv.isEnabled() and pv.itemText(0) == "eigenes Gerät"
+    choices = [pv.itemData(i) for i in range(pv.count())]
+    assert "WP" in choices and "LDA" not in choices      # DALI nie
+    pv.setCurrentIndex(choices.index("WP"))
+    app.processEvents()
+    assert project.config.gateway_partner == {"PV": "WP"}
+    app.processEvents()
+    wp = step._gateway_grid.itemAtPosition(rows["WP"], 3).widget()
+    assert not wp.isEnabled()                             # WP führt, teilt nicht weiter
+    lda = step._gateway_grid.itemAtPosition(rows["LDA"], 3).widget()
+    assert not lda.isEnabled()

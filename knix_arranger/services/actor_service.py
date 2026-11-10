@@ -116,8 +116,10 @@ class ActorService:
 
         for req in requirements:
             if req.single_device:
+                codes = list(dict.fromkeys(req.gewerk_codes))
                 actors.append(Actor(actor_type=req.actor_type,
-                                    channels=req.channels_needed))
+                                    channels=req.channels_needed,
+                                    gewerk_codes=codes if len(codes) > 1 else []))
                 continue
             available = self.channel_options.get(req.actor_type, [4, 8, 12])
             remaining = req.channels_needed
@@ -142,6 +144,7 @@ class ActorService:
     def determine_actors_per_line(
         self, topology: Topology, all_rooms: list[Room],
         catalog: GewerkCatalog, shared: dict[str, str] | None = None,
+        partners: dict[str, str] | None = None,
     ) -> list[LineActorResult]:
         """
         Ermittelt Aktoren pro Linie (liniengerecht).
@@ -155,8 +158,12 @@ class ActorService:
         Ihre Elemente aller Räume zählen zusammen auf einer Linie -- z.B. ein
         Revox-Gateway für Studio und Wohnung, die Telegramme laufen über die
         Koppler.
+
+        partners: Gewerk -> führendes Gewerk (KnxProject.gateway_partners):
+        das Gewerk zählt beim Gateway des führenden mit, ein Gerät für beide.
         """
         shared = shared or {}
+        partners = {c: l for c, l in (partners or {}).items() if c in shared and l in shared}
         # Room-ID -> Room Lookup erstellen
         room_by_id = {r.id: r for r in all_rooms}
         lines = [(area, line) for area in topology.areas for line in area.lines]
@@ -178,12 +185,24 @@ class ActorService:
 
         # Gemeinsame Gateways: alle Elemente des Gewerks auf eine Linie
         for code, line_id in shared.items():
-            rooms = [r for r in all_rooms
-                     if any(a.gewerk_code == code for a in r.gewerk_assignments)]
-            # Nur dieses Gewerk -- sonst käme die erste Anforderung irgendeines
-            # Gewerks der Räume heraus (z.B. Schaltaktor fürs Licht statt MM)
-            requirement = next(iter(self.determine_actors(
-                rooms, catalog, only_codes={code})), None) if rooms else None
+            if code in partners:
+                continue            # zählt beim Gateway des führenden Gewerks
+            group = [code] + sorted(c for c, lead in partners.items() if lead == code)
+            requirement = None
+            for member in group:
+                rooms = [r for r in all_rooms
+                         if any(a.gewerk_code == member for a in r.gewerk_assignments)]
+                # Nur dieses Gewerk -- sonst käme die erste Anforderung irgendeines
+                # Gewerks der Räume heraus (z.B. Schaltaktor fürs Licht statt MM)
+                found = next(iter(self.determine_actors(
+                    rooms, catalog, only_codes={member})), None) if rooms else None
+                if found is None:
+                    continue
+                if requirement is None:
+                    requirement = found
+                else:
+                    requirement.channels_needed += found.channels_needed
+                    requirement.gewerk_codes += found.gewerk_codes
             if requirement is None:
                 continue
             # Ein Gerät für das ganze System -- ausser bei Gateways mit

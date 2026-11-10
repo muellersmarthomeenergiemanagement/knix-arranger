@@ -215,6 +215,7 @@ class TopologyEngine:
                          small_project: bool = False,
                          preserve_manual: bool = False,
                          shared_gateways: dict[str, str] | None = None,
+                         gateway_partners: dict[str, str] | None = None,
                          backbone_type: str | None = None,
                          renumber: bool = False):
         """
@@ -223,6 +224,9 @@ class TopologyEngine:
         ihres Bereichs; renumber=True vergibt alle neu in Standardreihenfolge
         («Teilnehmernummern neu ordnen»).
         shared_gateways: gemeinsame Gateways (KnxProject.shared_gateways()).
+        gateway_partners: ein Gateway für mehrere Gewerke
+        (KnxProject.gateway_partners()); das Gerät erhält alle Gewerke als
+        manual_functions.
         backbone_type: Medium der Bereichslinie aus den Projekteigenschaften
         ("TP"/"IP"); bestimmt, ob sie eine Spannungsversorgung braucht.
 
@@ -293,6 +297,7 @@ class TopologyEngine:
 
         actor_results = actor_service.determine_actors_per_line(
             topology, all_rooms, catalog, shared=shared_gateways,
+            partners=gateway_partners,
         )
         sensor_results = sensor_service.determine_sensors_per_line(
             topology, all_rooms, catalog
@@ -395,6 +400,7 @@ class TopologyEngine:
                                         placement.actor_location(line, actor.actor_type)
                                         or actor.uv_location),
                                     datasheets=list(actor.product.datasheets),
+                                manual_functions=list(actor.gewerk_codes),
                                 ))
                 else:
                     # Keine programmierten / manuell aufgeteilten Aktoren →
@@ -426,6 +432,7 @@ class TopologyEngine:
                                     placement.actor_location(line, actor.actor_type)
                                     or actor.uv_location),
                                 datasheets=list(actor.product.datasheets),
+                                manual_functions=list(actor.gewerk_codes),
                             ))
 
                 # ── Sensoren einfügen (Kap. 9.1: Adressen 101-199) ───────────

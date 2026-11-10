@@ -52,6 +52,9 @@ class Actor:
     uv_location: str = ""         # z.B. "UV2 (Steigzone)"
     # Kanalzuordnungen
     channel_gewerk_map: dict[int, str] = field(default_factory=dict)
+    # Ein Gateway für mehrere Gewerke (KnxProject.gateway_partners): alle
+    # Gewerke des Geräts; leer = aus dem Typ abgeleitet. Nur bei der Planung.
+    gewerk_codes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
