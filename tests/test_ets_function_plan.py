@@ -772,3 +772,252 @@ def test_dialog_shows_lead_channel_and_can_omit(project):
     assert dialog._gas.item(rows["RM"], 1).text().split()[0].count("/") == 2
     dialog._gas.cellWidget(rows["RM WERT"], 2).setCurrentIndex(1)     # Weglassen
     assert "RM WERT" in dialog._omit
+
+
+def _imported_lights():
+    """Importiertes Projekt wie das Chalet: zwei DALI-Gruppen im Raum, die
+    Rückmeldungen in MG 7 heissen wie die Befehle; das Gateway lässt keine
+    Kanäle erkennen («G1, Schalten,» / «G1, Status,»)."""
+    from knix_arranger.models.building import Apartment, Building, Floor, Room, Wing
+    from knix_arranger.models.group_address import (
+        GroupAddress, GroupAddressStructure, MainGroup, MiddleGroup,
+    )
+    from knix_arranger.models.topology import (
+        Area, CommunicationObject, Device, Line, Topology,
+    )
+    project = KnxProject(name="Import")
+    project.topology = Topology(is_imported=True)
+    assignment = GewerkAssignment(gewerk_code="LD", count=2)
+    room = Room(number="04", name="Schlafen", gewerk_assignments=[assignment])
+    floor = Floor(name="Dachgeschoss", short_code="DG", main_group_number=7,
+                  apartments=[Apartment(rooms=[room])])
+    project.areal.buildings.append(Building(wings=[Wing(floors=[floor])]))
+
+    def ga(mg, sub, designation):
+        return GroupAddress(main_group=4, middle_group=mg, sub_group=sub,
+                            designation=designation, assignment_id=assignment.id)
+    names = [(0, "LD.DG.04.01_ea"), (1, "LD.DG.04.01_dim"), (2, "LD.DG.04.01_wert"),
+             (5, "LD.DG.04.02_ea"), (6, "LD.DG.04.02_dim"), (7, "LD.DG.04.02_wert")]
+    project.group_addresses = GroupAddressStructure(main_groups=[MainGroup(
+        number=4, name="DG", middle_groups=[
+            MiddleGroup(number=0, group_addresses=[ga(0, s, n) for s, n in names]),
+            MiddleGroup(number=7, group_addresses=[
+                ga(7, s, n) for s, n in names if not n.endswith("_dim")])])])
+
+    def co(number, name, function, dpt, flags, gas):
+        return CommunicationObject(object_number=number, name=name, object_function=function,
+                                   data_type=dpt, flags=flags, connected_gas=gas)
+    device = Device(physical_address="1.1.9", device_type="gateway")
+    for group, base, sub in ((1, 32, 0), (2, 60, 5)):
+        device.communication_objects += [
+            co(base, f"G{group}, Schalten,", "An/Aus", "DPST-1-1", "KS", [f"4/0/{sub}"]),
+            co(base + 1, f"G{group}, Dimmen,", "Heller/Dunkler", "DPST-3-7", "KS",
+               [f"4/0/{sub + 1}"]),
+            co(base + 2, f"G{group}, Wert setzen,", "Wert", "DPST-5-1", "KS", [f"4/0/{sub + 2}"]),
+            co(base + 5, f"G{group}, Status,", "An/Aus", "DPST-1-1", "KLÜ", [f"4/7/{sub}"]),
+            co(base + 6, f"G{group}, Status,", "Wert", "DPST-5-1", "KLÜ", [f"4/7/{sub + 2}"]),
+        ]
+    line = Line(line_number=1)
+    line.devices.append(device)
+    area = Area(area_number=1)
+    area.lines.append(line)
+    project.topology.areas.append(area)
+    function = KnixFunction(
+        name="Alles", function_type="FT-6", room_id=room.id, number=1,
+        members=[FunctionMember(assignment.id, 2), FunctionMember(assignment.id, 1)])
+    project.functions.append(function)
+    return project, function, device
+
+
+def test_imported_lead_channel_from_status_ko_of_the_actor_channel():
+    """Chalet: die Rückmeldung 4/7/5 heisst wie der Befehl 4/0/5 -- der
+    Leitkanal kommt vom Status-KO des Kanals, an dem der Befehl hängt."""
+    from knix_arranger.services.ets_function_plan import status_gas, status_leader
+    project, function, device = _imported_lights()
+    found = status_gas(project, function)
+    assert {p: g.address for p, g in found.items()} == {"RM": "4/7/5", "RM WERT": "4/7/7"}
+    assert status_leader(project, function).element_number == 2
+    # Status im Aktor nicht verknüpft -> das nächste Element ist Leitkanal
+    for co in device.communication_objects:
+        if co.name == "G2, Status,":
+            co.connected_gas = []
+    found = status_gas(project, function)
+    assert {p: g.address for p, g in found.items()} == {"RM": "4/7/0", "RM WERT": "4/7/2"}
+    assert status_leader(project, function).element_number == 1
+    # ohne Aktor-KOs kein Leitkanal (die Bezeichnung allein reicht nicht)
+    device.communication_objects = []
+    assert status_gas(project, function) == {}
+    assert status_leader(project, function) is None
+
+
+def test_imported_lead_channel_ignores_status_on_a_function_ga():
+    """Ein Status-KO, das auf eine Funktions-GA oder eine Zentral-GA sendet,
+    ist keine Rückmeldung des Elements."""
+    from knix_arranger.services.ets_function_plan import status_gas
+    project, function, device = _imported_lights()
+    sync_function_gas(project)
+    own = next(g for g in function_gas(project.group_addresses) if g.function_name == "E/A")
+    for co in device.communication_objects:
+        if co.name == "G2, Status," and co.object_function == "An/Aus":
+            co.connected_gas = [own.address]
+    assert status_gas(project, function)["RM"].address == "4/7/0"
+
+
+def test_one_lead_channel_for_all_status_points():
+    """Chalet «Treppe EG nach OG»: Element 2 hat keinen Dimmwert -- Status und
+    Dimmwert kommen trotzdem vom selben Element (dem ersten mit beiden)."""
+    from knix_arranger.services.ets_function_plan import status_gas, status_leader
+    project, function, device = _imported_lights()
+    for co in device.communication_objects:
+        if co.name == "G2, Status," and co.object_function == "Wert":
+            co.connected_gas = []
+    found = status_gas(project, function)
+    assert {p: g.address for p, g in found.items()} == {"RM": "4/7/0", "RM WERT": "4/7/2"}
+    assert status_leader(project, function).element_number == 1
+    # nur der Schaltstatus gefragt: wieder das erste Element
+    function.omitted = ["RM WERT"]
+    assert {p: g.address for p, g in status_gas(project, function).items()} == {"RM": "4/7/5"}
+
+
+def test_lead_channel_chosen_by_hand():
+    from knix_arranger.services.ets_function_plan import (
+        status_candidates, status_gas, status_leader,
+    )
+    project, function, device = _imported_lights()
+    assignment_id = function.members[0].assignment_id
+    assert [m.element_number for m in status_candidates(project, function)] == [2, 1]
+    function.status_member = FunctionMember(assignment_id, 1)
+    assert status_leader(project, function).element_number == 1
+    assert status_gas(project, function)["RM"].address == "4/7/0"
+    # bleibt beim Speichern erhalten
+    loaded = KnixFunction.from_dict(function.to_dict())
+    assert (loaded.status_member.assignment_id, loaded.status_member.element_number) == (
+        assignment_id, 1)
+    assert "status_member" not in KnixFunction(name="x").to_dict()
+    # gewähltes Element ohne Rückmeldung bzw. nicht mehr Mitglied -> automatisch
+    for co in device.communication_objects:
+        if co.name == "G1, Status,":
+            co.connected_gas = []
+    assert status_leader(project, function).element_number == 2
+    function.status_member = FunctionMember(assignment_id, 9)
+    assert status_leader(project, function).element_number == 2
+
+
+def test_dialog_lets_choose_the_lead_channel(project):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from knix_arranger.ui.dialogs.function_edit_dialog import FunctionEditDialog
+    function, lights = _dim_function(project)
+    dialog = FunctionEditDialog(project, function)
+    assert not dialog._leader.isHidden()
+    assert dialog._leader.count() == 3 and dialog._leader.currentIndex() == 0
+    rows = {dialog._gas.item(r, 0).data(256): r for r in range(dialog._gas.rowCount())}
+    automatic = dialog._gas.item(rows["RM"], 1).text()
+    # das andere Element wählen: die Tabelle zeigt dessen Rückmeldung
+    other = next(i for i in (1, 2) if dialog._leader.itemData(i) != dialog._leader.itemData(1))
+    dialog._leader.setCurrentIndex(other)
+    rows = {dialog._gas.item(r, 0).data(256): r for r in range(dialog._gas.rowCount())}
+    assert dialog._gas.item(rows["RM"], 1).text() != automatic
+    dialog._accept()
+    chosen = dialog.result_function().status_member
+    assert (chosen.assignment_id, chosen.element_number) == tuple(dialog._leader.itemData(other))
+    # Jalousie: kein Leitkanal zur Wahl
+    assert FunctionEditDialog(project, project.functions[0])._leader.isHidden()
+
+
+# ── Wind- und Regenalarm über die Wetterstation ──────────────────────────
+
+def _with_weather_station(project):
+    wohnen = _room(project, "Wohnen")
+    wohnen.gewerk_assignments.append(GewerkAssignment(gewerk_code="W", count=1))
+    regenerate_addresses(project)
+    return project.functions[0]
+
+
+def test_blind_function_uses_alarms_of_the_weather_station(project):
+    from knix_arranger.services.ets_function_plan import alarm_gas, shared_gas
+    function = project.functions[0]
+    assert alarm_gas(project, function) == {}          # ohne Wetterstation
+    function = _with_weather_station(project)
+    found = alarm_gas(project, function)
+    assert set(found) == {"WIND ALARM", "REGEN"}
+    assert all(ga.gewerk_code == "W" and not ga.function_id for ga in found.values())
+    # keine eigene GA der Funktion dafür
+    assert not {"WIND ALARM", "REGEN"} & set(_gas(project, function))
+    assert shared_gas(project, function) == found
+    # weglassen
+    function.omitted = ["REGEN"]
+    assert set(alarm_gas(project, function)) == {"WIND ALARM"}
+    # Licht-Funktionen haben keinen Alarm
+    dim, _lights = _dim_function(project)
+    assert alarm_gas(project, dim) == {}
+
+
+def test_alarms_belong_into_the_ets_function(project):
+    from knix_arranger.services.ets_function_plan import alarm_gas
+    function = _with_weather_station(project)
+    found = alarm_gas(project, function)
+    wohnen = _room(project, "Wohnen")
+    wohnen.ets_functions.append(EtsFunction("Andere", "FT-1", []))
+    task = next(i.details["task"] for i in check_plan(project)
+                if i.details.get("kind") == "anlegen" and "Fensterfront" in i.message)
+    assert f"Windalarm {found['WIND ALARM'].address}" in task
+    assert f"Regenalarm {found['REGEN'].address}" in task
+    # in der ETS zugeordnet: nichts mehr offen
+    own = _gas(project, function)
+    refs = [EtsFunctionRef("MoveUpDown", own["AUF/AB"].address),
+            EtsFunctionRef("StopStepUpDown", own["STOPP"].address),
+            EtsFunctionRef("WindAlarm", found["WIND ALARM"].address)]
+    wohnen.ets_functions.append(EtsFunction("Fensterfront", "FT-7", refs))
+    status = next(s for s in compare_plan(project) if s.function is function)
+    assert [ga.address for ga in status.missing] == [found["REGEN"].address]
+
+
+def test_imported_alarm_from_the_safety_ko_of_the_actor_channel():
+    """Chalet: «Sicherheit 1 (M4), Alarm» sagt nicht, ob Wind oder Frost --
+    das sagt die GA «J.Windsicherheit_ea»."""
+    from knix_arranger.models.group_address import GroupAddress, MainGroup, MiddleGroup
+    from knix_arranger.models.topology import Area, CommunicationObject, Device, Line
+    from knix_arranger.services.ets_function_plan import alarm_gas
+    project = _imported_dg()
+    project.group_addresses.main_groups.append(MainGroup(
+        number=0, name="Zentral", middle_groups=[MiddleGroup(number=5, group_addresses=[
+            GroupAddress(main_group=0, middle_group=5, sub_group=12,
+                         designation="J.Windsicherheit_ea"),
+            GroupAddress(main_group=0, middle_group=5, sub_group=17,
+                         designation="J.Frost.Sicherheit_ea")])]))
+
+    def co(number, name, function, dpt, gas):
+        return CommunicationObject(object_number=number, name=name, object_function=function,
+                                   data_type=dpt, flags="KS", connected_gas=gas)
+    device = Device(physical_address="1.1.5", device_type="actor")
+    device.communication_objects = [
+        co(base + offset, name.format(m=m), function, dpt, [ga])
+        for m, base, move in ((1, 0, "4/1/40"), (2, 22, "4/1/45"))
+        for offset, name, function, dpt, ga in (
+            (1, "Bedienung Storen (M{m}), Endlage", "Auf / Ab", "DPST-1-8", move),
+            (12, "Sicherheit 1 (M{m}), Alarm", "Ein / Aus", "DPST-1-5", "0/5/12"),
+            (13, "Sicherheit 2 (M{m}), Alarm", "Ein / Aus", "DPST-1-5", "0/5/17"))]
+    line = Line(line_number=1)
+    line.devices.append(device)
+    area = Area(area_number=1)
+    area.lines.append(line)
+    project.topology.areas.append(area)
+    found = alarm_gas(project, project.functions[0])
+    assert {p: g.address for p, g in found.items()} == {"WIND ALARM": "0/5/12"}
+
+
+def test_dialog_shows_alarms_of_the_weather_station(project):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from knix_arranger.services.ets_function_plan import alarm_gas
+    from knix_arranger.ui.dialogs.function_edit_dialog import FunctionEditDialog
+    function = _with_weather_station(project)
+    dialog = FunctionEditDialog(project, function)
+    rows = {dialog._gas.item(r, 0).data(256): r for r in range(dialog._gas.rowCount())}
+    assert "Windalarm  (Wetterstation)" == dialog._gas.item(rows["WIND ALARM"], 0).text()
+    assert dialog._gas.item(rows["WIND ALARM"], 1).text().startswith(
+        alarm_gas(project, function)["WIND ALARM"].address)
+    dialog._gas.cellWidget(rows["REGEN"], 2).setCurrentIndex(1)       # Weglassen
+    dialog._accept()
+    assert dialog.result_function().omitted == ["REGEN"]

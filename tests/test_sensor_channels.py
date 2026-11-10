@@ -207,3 +207,36 @@ def test_ohne_quelle_keine_externe_helligkeit():
         object_number=6, name="Obj_BrightnessExternal", object_function="P1: Externe Helligkeit",
         data_type="DPT-9", flags="K-Ü-U"))
     assert not [link for link in sensor_links(project, melder) if link.role == "helligkeit"]
+
+
+def _rocker_cos(rockers: int) -> list:
+    """Feller EDIZIOdue: je Wippe «Taste n» (links) und «Taste n, rechts»."""
+    cos = []
+    for n in range(1, rockers + 1):
+        base = 6 * (n - 1)
+        cos.append(CommunicationObject(object_number=base, name=f"Taste {n}",
+                                       object_function="EIN/AUS, Schalten", flags="KSÜ"))
+        cos.append(CommunicationObject(object_number=base + 3, name=f"Taste {n}, rechts",
+                                       object_function="EIN/AUS, Schalten", flags="KSÜ"))
+    return cos
+
+
+def test_taste_ohne_gegenstueck_am_produkt_bekommt_kein_ko():
+    """Neun Tasten an vier Wippen: Taste 9 hat kein KO -- früher galten für
+    sie alle KOs des Geräts, ihre GA landete auf einer anderen Taste."""
+    from knix_arranger.services.sensor_channels import _channel_cos, _own_channel
+    cos = _rocker_cos(4)
+    assert [c.object_number for c in _channel_cos(cos, "Taste 7")] == [18]
+    assert [c.object_number for c in _channel_cos(cos, "Taste 8")] == [21]
+    assert _channel_cos(cos, "Taste 9") == []
+    assert _channel_cos(cos, "Status 10") == []
+    assert _own_channel(cos, "Taste 9")
+    # Tasten ohne Wippen: Taste 5 an einem 4fach-Taster
+    plain = [CommunicationObject(object_number=n, name=f"Taste {n}", flags="KSÜ")
+             for n in range(1, 5)]
+    assert _channel_cos(plain, "Taste 5") == []
+    # KOs ohne Tastennamen («Object 1»): weiterhin alle zur Auswahl
+    generic = [CommunicationObject(object_number=n, name=f"Object {n}") for n in range(1, 5)]
+    assert _channel_cos(generic, "Taste 9") is generic
+    # kein Tastenkanal (Melder «P3: …»): unverändert alle
+    assert _channel_cos(_melder_cos(), "Kanal 3") != []

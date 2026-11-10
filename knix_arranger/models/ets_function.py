@@ -97,9 +97,10 @@ class KnixFunction:
     eines Raums oder einer Zone, z.B. "Fensterfront" für drei Jalousien.
 
     Die Funktion hat eigene GAs (GroupAddress.function_id) in der HG des
-    Stockwerks, MG des Gewerks ab UG 250 rückwärts -- reine Befehls-GAs, keine
-    Rückmeldung. Sie werden zusätzlich zu den GAs der Elemente auf deren
-    Aktorkanäle verknüpft und lassen sich auf Tasten legen.
+    Stockwerks, MG des Gewerks ab UG 250 rückwärts -- reine Befehls-GAs. Den
+    Status zeigt der Leitkanal (Rückmeldung eines Elements, status_member).
+    Sie werden zusätzlich zu den GAs der Elemente auf deren Aktorkanäle
+    verknüpft und lassen sich auf Tasten legen.
     """
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     name: str = ""
@@ -120,6 +121,9 @@ class KnixFunction:
     omitted: list[str] | None = field(default_factory=list)
     custom_points: list[CustomPoint] = field(default_factory=list)
     linked_gas: dict[str, str] = field(default_factory=dict)
+    # Leitkanal von Hand: Element, dessen Rückmeldung die Funktion zeigt
+    # (None = KNiX wählt das erste Element mit allen Rückmeldungen)
+    status_member: FunctionMember | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -134,6 +138,7 @@ class KnixFunction:
             **({"custom_points": [p.to_dict() for p in self.custom_points]}
                if self.custom_points else {}),
             **({"linked_gas": dict(self.linked_gas)} if self.linked_gas else {}),
+            **({"status_member": self.status_member.to_dict()} if self.status_member else {}),
         }
 
     @classmethod
@@ -152,4 +157,6 @@ class KnixFunction:
                      else None if data.get("ets_gas") else []),
             custom_points=[CustomPoint.from_dict(p) for p in data.get("custom_points", [])],
             linked_gas=dict(data.get("linked_gas") or {}),
+            status_member=(FunctionMember.from_dict(data["status_member"])
+                           if data.get("status_member") else None),
         )

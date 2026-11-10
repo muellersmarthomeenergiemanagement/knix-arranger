@@ -9,6 +9,8 @@ Funktions-GA bedient den ganzen Bezirk, die Einzelbedienung bleibt.
 Funktionen haben eigene Befehlsadressen (User 2026-10-21). Ihren Status
 zeigt der Leitkanal: die Funktion benutzt die Rückmeldung ihres ersten
 Elements mit, ohne eigene GA (STATUS_POINTS, status_gas; User 2026-11-10).
+Importierte Projekte: Rückmeldung über das Status-KO des Aktorkanals
+(_imported_status_gas), da sie dort wie der Befehl heisst.
 Ihre Elemente werden zuerst bestimmt (Gewerke); erst daraus ergibt sich, auf
 welchem Aktorkanal die Funktions-GAs verknüpft werden.
 
@@ -87,6 +89,21 @@ STATUS_POINTS: dict[str, tuple[PlanPoint, ...]] = {
              PlanPoint("RM WERT", "InfoDimmingValue", "DPST-5-1", 1)),
 }
 
+#: Wind- und Regenalarm einer Sonnenschutz-Funktion: die GA der Wetterstation
+#: (Gewerk W, "WIND ALARM" / "REGEN"), keine eigene GA -- eine Wetterstation
+#: meldet für alle Funktionen (ets_function_service.SHARED_OK_ROLES). Die ETS
+#: legt beim Anlegen der Funktion je eine neue GA an; zuzuordnen ist die der
+#: Wetterstation.
+ALARM_POINTS: dict[str, tuple[PlanPoint, ...]] = {
+    "FT-7": (PlanPoint("WIND ALARM", "WindAlarm", "DPST-1-5", 0),
+             PlanPoint("REGEN", "RainAlarm", "DPST-1-5", 1)),
+}
+
+
+def shared_points(function_type: str) -> tuple[PlanPoint, ...]:
+    """Punkte ohne eigene GA: Status (Leitkanal) und Alarme (Wetterstation)."""
+    return STATUS_POINTS.get(function_type, ()) + ALARM_POINTS.get(function_type, ())
+
 
 def in_ets_function(function_type: str, function_name: str) -> bool:
     """Funktionspunkt, den die ETS-Funktion kennt (dort zuzuordnen).
@@ -94,7 +111,7 @@ def in_ets_function(function_type: str, function_name: str) -> bool:
     if function_type == "FT-0":
         return True
     return any(p.function == function_name and p.role
-               for p in PLAN_POINTS.get(function_type, ()) + STATUS_POINTS.get(function_type, ()))
+               for p in PLAN_POINTS.get(function_type, ()) + shared_points(function_type))
 #: Planbare Typen in der Reihenfolge der Auswahl
 PLAN_TYPES = ("FT-7", "FT-1", "FT-6", "FT-10", "FT-9", "FT-0")
 #: MG der Funktions-GAs; Benutzerdefiniert: MG des ersten Mitglieds, sonst
@@ -362,7 +379,8 @@ def _element_function(ga, by_ko: dict[str, str] | None = None) -> str:
 def _element_gas(project, structure=None) -> dict[tuple[str, int], dict[str, GroupAddress]]:
     """(Zuweisung, Element) -> Funktion -> Befehls-GA des Elements.
     Rückmeldungen (Variante B: MG 6/7) zählen nicht, sie tragen in
-    importierten Projekten dieselbe Bezeichnung wie der Befehl."""
+    importierten Projekten dieselbe Bezeichnung wie der Befehl (dort findet
+    sie _imported_status_gas über den Aktorkanal)."""
     imported = project.topology.is_imported
     renumber = room_wide_renumbering(project) if imported else None
     by_ko = ko_functions(project) if imported else None
@@ -542,38 +560,246 @@ def status_points(function: KnixFunction) -> tuple[PlanPoint, ...]:
                  if p.function not in omitted)
 
 
+#: Status-Punkt -> (Befehl des Elements, DPT-Hauptnummer, Grösse in Bit):
+#: in importierten Projekten führt der Befehl zum Aktorkanal, dessen
+#: Status-KO dieser Grösse die Rückmeldung sendet.
+_STATUS_SOURCE = {"RM": ("E/A", "1", 1), "RM WERT": ("WERT", "5", 8)}
+#: Stichworte, die unter mehreren Status-KOs gleicher Grösse das richtige
+#: wählen («Status Schalten» vor «Status Sperren»)
+_STATUS_HINTS = {"RM": ("schalt", "switch", "ein/aus", "an/aus", "on/off"),
+                 "RM WERT": ("wert", "hellig", "dimm", "value", "bright")}
+
+
+def _ko_groups(device) -> list[list]:
+    """KOs je Kanal des Geräts. Ohne erkennbare Kanäle (DALI-Gateway:
+    «G1, Schalten,», «G1, Status,») nach dem Namen vor dem ersten Komma."""
+    from .actor_channels import device_channels
+    groups = [ch.com_objects for ch in device_channels(device) if ch.com_objects]
+    if groups:
+        return groups
+    by_head: dict[str, list] = {}
+    for co in device.communication_objects:
+        head = (co.name or "").split(",")[0].strip()
+        if head:
+            by_head.setdefault(head, []).append(co)
+    return list(by_head.values())
+
+
+def _command_channels(project) -> dict[str, list]:
+    """Befehls-GA -> Kanäle (KO-Listen) der Aktoren und Gateways, die auf sie
+    hören."""
+    from .actor_channels import _is_feedback
+    channels: dict[str, list] = {}
+    for area in project.topology.areas:
+        for line in area.lines:
+            for device in line.devices:
+                if device.device_type not in ("actor", "gateway"):
+                    continue
+                for channel in _ko_groups(device):
+                    for co in channel:
+                        if co.connected_gas and not _is_feedback(co):
+                            for address in co.connected_gas:
+                                channels.setdefault(address, []).append(channel)
+    return channels
+
+
+def _channel_status(channel_cos, point: str, exclude) -> str:
+    """GA, auf die das Status-KO des Kanals für diesen Punkt sendet (seine
+    erste), oder ""."""
+    from .actor_channels import _dpt_key, _is_feedback
+    from .ko_size import co_bits
+    _command, main, bits = _STATUS_SOURCE[point]
+    found = []
+    for co in channel_cos:
+        if not co.connected_gas or not _is_feedback(co) or co.connected_gas[0] in exclude:
+            continue
+        co_main = _dpt_key(co.data_type)[0]
+        if co_main == main or (not co_main and co_bits(co) == bits):
+            found.append(co)
+    if not found:
+        return ""
+    hints = _STATUS_HINTS[point]
+    named = [co for co in found
+             if any(h in f"{co.object_function or ''} {co.name or ''}".lower() for h in hints)]
+    return (named or found)[0].connected_gas[0]
+
+
+def _imported_status_gas(project, element_gas, structure=None) -> dict[tuple, dict]:
+    """(Zuweisung, Element) -> Status-Punkt -> Rückmeldungs-GA in importierten
+    Projekten: die GA, auf die das Status-KO des Aktorkanals sendet, an dem
+    der Befehl des Elements hängt. Die Bezeichnung hilft nicht (Chalet:
+    Rückmeldung 1/7/0 heisst wie der Befehl 1/0/0), die Lage auch nicht immer
+    (1/2/11 «_status» neben dem Befehl)."""
+    structure = structure if structure is not None else project.group_addresses
+    gas = {ga.address: ga for ga in structure.all_addresses()}
+    channels = _command_channels(project)
+    result: dict[tuple, dict] = {}
+    for key, functions in element_gas.items():
+        commands = {ga.address for ga in functions.values()}
+        for point, (command, _main, _bits) in _STATUS_SOURCE.items():
+            ga = functions.get(command)
+            if ga is None:
+                continue
+            for channel in channels.get(ga.address, ()):
+                status = gas.get(_channel_status(channel, point, commands))
+                if status is not None and not status.function_id and status.main_group != 0:
+                    result.setdefault(key, {})[point] = status
+                    break
+    return result
+
+
+def _status_lookup(project, structure=None):
+    """(Mitglied, Status-Punkt) -> Rückmeldungs-GA des Elements oder None:
+    geplant die Element-GA «RM»/«RM WERT», importiert über den Aktorkanal."""
+    element_gas = _element_gas(project, structure)
+    imported = (_imported_status_gas(project, element_gas, structure)
+                if project.topology.is_imported else {})
+
+    def lookup(member, point: str):
+        key = (member.assignment.id, member.element_number)
+        return element_gas.get(key, {}).get(point) or imported.get(key, {}).get(point)
+    return lookup
+
+
+def _pick_leader(function: KnixFunction, members, points, lookup):
+    """Leitkanal: ein Element für alle Status-Punkte. Das von Hand gewählte
+    (KnixFunction.status_member), solange es Mitglied ist und eine
+    Rückmeldung hat; sonst das erste Element mit allen Rückmeldungen, sonst
+    das erste mit einer."""
+    def has(member, every: bool) -> bool:
+        found = [lookup(member, p.function) is not None for p in points]
+        return all(found) if every else any(found)
+
+    chosen = function.status_member
+    if chosen is not None:
+        key = (chosen.assignment_id, chosen.element_number)
+        member = next((m for m in members
+                       if (m.assignment.id, m.element_number) == key), None)
+        if member is not None and has(member, False):
+            return member
+    return (next((m for m in members if has(m, True)), None)
+            or next((m for m in members if has(m, False)), None))
+
+
+def status_candidates(project, function: KnixFunction, members=None) -> list:
+    """Mitglieder, die Leitkanal sein können (mindestens eine Rückmeldung)."""
+    points = status_points(function)
+    if members is None:
+        members = [m for m in resolve_members(project, function) if m is not None]
+    lookup = _status_lookup(project)
+    return [m for m in members if any(lookup(m, p.function) is not None for p in points)]
+
+
 def status_gas(project, function: KnixFunction, members=None,
                structure=None) -> dict[str, GroupAddress]:
-    """Status-Punkt -> Rückmeldungs-GA des Leitkanals: das erste Element der
-    Funktion, das diese Rückmeldung hat (automatisch, User 2026-11-10)."""
+    """Status-Punkt -> Rückmeldungs-GA des Leitkanals (User 2026-11-10):
+    alle Punkte vom selben Element, siehe _pick_leader."""
     points = status_points(function)
     if not points:
         return {}
     if members is None:
         members = [m for m in resolve_members(project, function) if m is not None]
-    element_gas = _element_gas(project, structure)
-    result = {}
-    for point in points:
-        for member in members:
-            ga = element_gas.get((member.assignment.id, member.element_number), {}).get(
-                point.function)
-            if ga is not None:
-                result[point.function] = ga
-                break
-    return result
+    lookup = _status_lookup(project, structure)
+    leader = _pick_leader(function, members, points, lookup)
+    if leader is None:
+        return {}
+    found = {point.function: lookup(leader, point.function) for point in points}
+    return {point: ga for point, ga in found.items() if ga is not None}
 
 
 def status_leader(project, function: KnixFunction, members=None):
     """Mitglied, dessen Rückmeldung die Funktion zeigt (Leitkanal), oder None."""
     if members is None:
         members = [m for m in resolve_members(project, function) if m is not None]
-    found = status_gas(project, function, members)
-    if not found:
-        return None
+    points = status_points(function)
+    return _pick_leader(function, members, points, _status_lookup(project)) if points else None
+
+
+#: Alarm-Punkt -> Stichworte in KO-Text oder GA-Bezeichnung (importiert)
+_ALARM_WORDS = {"WIND ALARM": re.compile(r"wind|vent", re.I),
+                "REGEN": re.compile(r"regen|rain|pluie", re.I)}
+_ALARM_KO = re.compile(r"alarm|sicherheit|safety|s[eé]curit", re.I)
+
+
+def alarm_points(function: KnixFunction) -> tuple[PlanPoint, ...]:
+    """Alarm-Punkte des Typs ohne die weggelassenen."""
+    omitted = set(function.omitted or ())
+    return tuple(p for p in ALARM_POINTS.get(function.function_type, ())
+                 if p.function not in omitted)
+
+
+def _imported_alarm_gas(project, members, points, gas) -> dict[str, GroupAddress]:
+    """Importiert: die GA am Sicherheits-/Alarm-KO des Aktorkanals eines
+    Mitglieds. Die KOs heissen neutral («Sicherheit 1 (M4), Alarm»), ob Wind
+    oder Regen sagt erst die GA («J.Windsicherheit_ea»)."""
+    from .actor_channels import _dpt_key, _is_feedback
     element_gas = _element_gas(project)
-    first = next(iter(found.values()))
-    return next((m for m in members if any(g is first for g in element_gas.get(
-        (m.assignment.id, m.element_number), {}).values())), None)
+    channels = _command_channels(project)
+    result: dict[str, GroupAddress] = {}
+    for member in members:
+        commands = element_gas.get((member.assignment.id, member.element_number), {})
+        seen = []
+        for command in commands.values():
+            for channel in channels.get(command.address, ()):
+                if not any(channel is c for c in seen):
+                    seen.append(channel)
+        for channel in seen:
+            for co in channel:
+                text = f"{co.name or ''} {co.object_function or ''}"
+                if not co.connected_gas or _is_feedback(co):
+                    continue
+                if _dpt_key(co.data_type) != ("1", "5") and not _ALARM_KO.search(text):
+                    continue
+                for address in co.connected_gas:
+                    ga = gas.get(address)
+                    if ga is None or ga.function_id:
+                        continue
+                    for point in points:
+                        if point.function not in result and _ALARM_WORDS[point.function].search(
+                                f"{text} {ga.designation or ''}"):
+                            result[point.function] = ga
+        if len(result) == len(points):
+            break
+    return result
+
+
+def alarm_gas(project, function: KnixFunction, members=None,
+              structure=None) -> dict[str, GroupAddress]:
+    """Alarm-Punkt -> GA der Wetterstation, die die Funktion mitbenutzt:
+    geplant "WIND ALARM" / "REGEN" des Gewerks W (die Station auf dem
+    Stockwerk der Funktion zuerst), importiert die GA am Alarm-KO der
+    Aktorkanäle."""
+    points = alarm_points(function)
+    if not points:
+        return {}
+    structure = structure if structure is not None else project.group_addresses
+    all_gas = list(structure.all_addresses())
+    result: dict[str, GroupAddress] = {}
+    if project.topology.is_imported:
+        if members is None:
+            members = [m for m in resolve_members(project, function) if m is not None]
+        result = _imported_alarm_gas(project, members, points,
+                                     {ga.address: ga for ga in all_gas})
+    location = locate(project, function)
+    home = location.floor.main_group_number if location is not None else None
+    for point in points:
+        if point.function in result:
+            continue
+        found = [ga for ga in all_gas
+                 if ga.gewerk_code == "W" and ga.planned_function == point.function
+                 and not ga.is_placeholder]
+        if found:
+            result[point.function] = next(
+                (ga for ga in found if ga.main_group == home), found[0])
+    return {p.function: result[p.function] for p in points if p.function in result}
+
+
+def shared_gas(project, function: KnixFunction, members=None,
+               structure=None) -> dict[str, GroupAddress]:
+    """Punkte ohne eigene GA: Status über den Leitkanal und Alarme der
+    Wetterstation."""
+    return {**status_gas(project, function, members, structure),
+            **alarm_gas(project, function, members, structure)}
 
 
 def split_key(point: str, code: str) -> str:
@@ -922,7 +1148,7 @@ def compare_plan(project) -> list[PlanStatus]:
     # Funktionspunkt -> GA (bei mitbenutzten GAs ist ga.function_name die
     # Funktion des Elements, nicht der Punkt)
     gas_by_function = {f.id: list(function_ga_map(project, f).items())
-                       + list(status_gas(project, f).items())
+                       + list(shared_gas(project, f).items())
                        for f in project.functions}
     statuses = []
     candidates = []
@@ -952,8 +1178,7 @@ def compare_plan(project) -> list[PlanStatus]:
 # ── Prüfung (FA-637) ──────────────────────────────────────────────────────
 
 def _point_label(function_type: str, function_name: str) -> str:
-    point = next((p for p in PLAN_POINTS.get(function_type, ())
-                  + STATUS_POINTS.get(function_type, ())
+    point = next((p for p in PLAN_POINTS.get(function_type, ()) + shared_points(function_type)
                   if p.function == function_name), None)
     if point is None:
         return function_name
@@ -999,7 +1224,7 @@ def check_plan(project) -> list:
         # stehen schon in der ETS, eine ETS-Funktion dazu ist freiwillig
         if ets_read and not (function.ets_gas and status.ets is None):
             missing = {id(ga) for ga in status.missing}
-            with_status = list(ga_map.items()) + list(status_gas(project, function).items())
+            with_status = list(ga_map.items()) + list(shared_gas(project, function).items())
             point_text = ", ".join(
                 f"{_point_label(function.function_type, point)} {ga.address}"
                 for point, ga in with_status

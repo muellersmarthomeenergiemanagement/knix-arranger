@@ -370,14 +370,20 @@ class EtsFunctionsView(QWidget):
                     item.setForeground(5, warn)
                 gas_node.addChild(item)
             # Status über den Leitkanal: Rückmeldung des ersten Elements
-            for point, ga in plan.status_gas(project, function).items():
+            # ... und Wind-/Regenalarm: GA der Wetterstation
+            shared = [(p, ga, "Leitkanal", "Status der Funktion: Rückmeldung eines ihrer "
+                       "Elemente, keine eigene GA")
+                      for p, ga in plan.status_gas(project, function).items()]
+            shared += [(p, ga, "Wetterstation", "Alarm der Wetterstation, von der Funktion "
+                        "mitbenutzt, keine eigene GA")
+                       for p, ga in plan.alarm_gas(project, function).items()]
+            for point, ga, source, tooltip in shared:
                 ga_state = "" if not ets_read or status.ets is None else (
                     "fehlt" if ga.address in missing else "zugeordnet")
-                ga_state = ", ".join(p for p in ("Leitkanal", ga_state) if p)
+                ga_state = ", ".join(p for p in (source, ga_state) if p)
                 item = QTreeWidgetItem(["", "", plan._point_label(function.function_type, point),
                                         ga.address, ga.designation, ga_state])
-                item.setToolTip(5, "Status der Funktion: Rückmeldung ihres ersten Elements, "
-                                   "keine eigene GA")
+                item.setToolTip(5, tooltip)
                 item.setData(0, Qt.UserRole, function.id)
                 if "fehlt" in ga_state:
                     item.setForeground(5, warn)

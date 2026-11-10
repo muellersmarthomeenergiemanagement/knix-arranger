@@ -17,8 +17,8 @@ from PySide6.QtWidgets import (
 
 from ...models.ets_function import CustomPoint, KnixFunction, FunctionMember
 from ...services.ets_function_plan import (
-    CUSTOM_DPTS, PLAN_POINTS, PLAN_TYPES, STATUS_POINTS, Location, _gewerk_middle_group,
-    _omitted, status_gas,
+    ALARM_POINTS, CUSTOM_DPTS, PLAN_POINTS, PLAN_TYPES, STATUS_POINTS, Location,
+    _gewerk_middle_group, _omitted, alarm_gas, shared_points, status_candidates, status_gas,
     _point_label, function_ga_map, member_candidates, plan_type_label, point_of,
 )
 from ...services.function_gewerke import gewerk_label
@@ -43,6 +43,9 @@ class FunctionEditDialog(QDialog):
         self._omit = set(_omitted(self._function))
         self._custom = [CustomPoint(c.function, c.dpt) for c in self._function.custom_points]
         self._linked = dict(self._function.linked_gas)
+        chosen = self._function.status_member
+        self._leader_key = ((chosen.assignment_id, chosen.element_number)
+                            if chosen is not None else None)
         self._current_gas = (function_ga_map(project, function)
                              if function is not None else {})
 
@@ -51,8 +54,8 @@ class FunctionEditDialog(QDialog):
                       "einer Taste aus. Ihre Befehls-GAs liegen in der HG des Stockwerks "
                       "am Ende der Mittelgruppe (ab UG 250 rückwärts) und werden "
                       "zusätzlich auf die Aktorkanäle der Elemente "
-                      "verknüpft. Den Status zeigt der Leitkanal: die Rückmeldung des "
-                      "ersten Elements, ohne eigene GA.")
+                      "verknüpft. Den Status zeigt der Leitkanal: die Rückmeldung eines "
+                      "Elements, ohne eigene GA.")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #666;")
         layout.addWidget(hint)
@@ -116,6 +119,15 @@ class FunctionEditDialog(QDialog):
         self._btn_add_point.clicked.connect(self._add_point)
         add_row.addWidget(self._btn_add_point)
         add_row.addStretch()
+        # Leitkanal: automatisch oder ein Element von Hand
+        self._leader_label = QLabel("Leitkanal:")
+        self._leader = QComboBox()
+        self._leader.setToolTip(
+            "Element, dessen Rückmeldung die Funktion zeigt. Automatisch: das erste "
+            "gewählte Element, das alle Rückmeldungen hat.")
+        self._leader.currentIndexChanged.connect(self._on_leader)
+        add_row.addWidget(self._leader_label)
+        add_row.addWidget(self._leader)
         layout.addLayout(add_row)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -183,7 +195,7 @@ class FunctionEditDialog(QDialog):
     def _on_type_changed(self) -> None:
         # Standardpunkte des alten Typs gelten nicht mehr
         names = {p.function for p in PLAN_POINTS.get(self._type.currentData(), ())
-                 + STATUS_POINTS.get(self._type.currentData(), ())}
+                 + shared_points(self._type.currentData())}
         custom = {c.function for c in self._custom}
         self._omit &= names
         self._linked = {k: v for k, v in self._linked.items() if k in names | custom}
@@ -230,38 +242,87 @@ class FunctionEditDialog(QDialog):
         """Status über den Leitkanal: Rückmeldung des ersten gewählten
         Elements, ohne eigene GA; weglassen möglich."""
         points = STATUS_POINTS.get(function_type, ())
-        if not points:
-            return
+        self._leader_label.setVisible(bool(points))
+        self._leader.setVisible(bool(points))
         draft = KnixFunction(function_type=function_type,
                              members=[FunctionMember(a, n) for a, n in self._checked()])
+        index = self._location.currentIndex()
+        if 0 <= index < len(self._locations):
+            draft.room_id, draft.zone_id = self._locations[index][:2]
+        # Wind-/Regenalarm: GA der Wetterstation, ohne eigene GA -- nur die
+        # Alarme, die das Projekt hat
+        alarms = ALARM_POINTS.get(function_type, ())
+        if alarms:
+            found = alarm_gas(self._project, draft)
+            for point in alarms:
+                if point.function not in found:
+                    continue
+                self._add_shared_row(
+                    function_type, point.function, found.get(point.function),
+                    "Wetterstation", "– keine Wetterstation mit diesem Alarm",
+                    "Die Funktion benutzt die Alarm-GA der Wetterstation mit, ohne eigene "
+                    "GA. In der ETS-Funktion ist diese GA zuzuordnen, nicht die von der "
+                    "ETS neu angelegte.")
+        if not points:
+            return
+        # Wahl von Hand gilt nur, solange das Element gewählt ist und eine
+        # Rückmeldung hat
+        candidates = status_candidates(self._project, draft)
+        keys = [(m.assignment.id, m.element_number) for m in candidates]
+        if self._leader_key not in keys:
+            self._leader_key = None
+        self._leader.blockSignals(True)
+        self._leader.clear()
+        self._leader.addItem("Automatisch", None)
+        for member, key in zip(candidates, keys):
+            self._leader.addItem(member.label, key)
+        self._leader.setCurrentIndex(
+            keys.index(self._leader_key) + 1 if self._leader_key else 0)
+        self._leader.blockSignals(False)
+        if self._leader_key:
+            draft.status_member = FunctionMember(*self._leader_key)
+        draft.omitted = sorted(self._omit)
         found = status_gas(self._project, draft)
         for point in points:
-            row = self._gas.rowCount()
-            self._gas.insertRow(row)
-            item = QTableWidgetItem(_point_label(function_type, point.function) + "  (Leitkanal)")
-            item.setFlags(Qt.ItemIsEnabled)
-            item.setData(Qt.UserRole, point.function)
-            self._gas.setItem(row, 0, item)
-            ga = found.get(point.function)
-            if point.function in self._omit:
-                text = "– weggelassen"
-            elif ga is not None:
-                text = f"{ga.address}  {ga.designation}"
-            else:
-                text = "– kein Element mit Rückmeldung"
-            ga_item = QTableWidgetItem(text)
-            ga_item.setFlags(Qt.ItemIsEnabled)
-            ga_item.setToolTip("Die Funktion zeigt die Rückmeldung ihres ersten Elements. "
-                               "Genau ein Status-KO sendet – eine eigene Status-GA bekäme "
-                               "kein Telegramm.")
-            self._gas.setItem(row, 1, ga_item)
-            combo = QComboBox()
-            combo.addItem("Leitkanal (automatisch)", _AUTO)
-            combo.addItem("Weglassen", _OMIT)
-            combo.setCurrentIndex(1 if point.function in self._omit else 0)
-            combo.currentIndexChanged.connect(
-                lambda _i, c=combo, pt=point.function: self._on_status_kind(pt, c.currentData()))
-            self._gas.setCellWidget(row, 2, combo)
+            self._add_shared_row(
+                function_type, point.function, found.get(point.function),
+                "Leitkanal", "– kein Element mit Rückmeldung",
+                "Die Funktion zeigt die Rückmeldung eines ihrer Elemente "
+                "(Leitkanal, wählbar unter der Tabelle). "
+                "Genau ein Status-KO sendet – eine eigene Status-GA bekäme "
+                "kein Telegramm.")
+
+    def _add_shared_row(self, function_type: str, point: str, ga, source: str,
+                        missing: str, tooltip: str) -> None:
+        """Zeile eines Punkts ohne eigene GA (Leitkanal, Wetterstation)."""
+        row = self._gas.rowCount()
+        self._gas.insertRow(row)
+        item = QTableWidgetItem(f"{_point_label(function_type, point)}  ({source})")
+        item.setFlags(Qt.ItemIsEnabled)
+        item.setData(Qt.UserRole, point)
+        self._gas.setItem(row, 0, item)
+        if point in self._omit:
+            text = "– weggelassen"
+        elif ga is not None:
+            text = f"{ga.address}  {ga.designation}"
+        else:
+            text = missing
+        ga_item = QTableWidgetItem(text)
+        ga_item.setFlags(Qt.ItemIsEnabled)
+        ga_item.setToolTip(tooltip)
+        self._gas.setItem(row, 1, ga_item)
+        combo = QComboBox()
+        combo.addItem(source, _AUTO)
+        combo.addItem("Weglassen", _OMIT)
+        combo.setCurrentIndex(1 if point in self._omit else 0)
+        combo.currentIndexChanged.connect(
+            lambda _i, c=combo, pt=point: self._on_status_kind(pt, c.currentData()))
+        self._gas.setCellWidget(row, 2, combo)
+
+    def _on_leader(self) -> None:
+        data = self._leader.currentData()
+        self._leader_key = tuple(data) if data else None
+        self._fill_gas()
 
     def _on_status_kind(self, point: str, kind: str) -> None:
         if kind == _OMIT:
@@ -369,6 +430,8 @@ class FunctionEditDialog(QDialog):
         fn.omitted = sorted(self._omit)
         fn.custom_points = list(self._custom)
         fn.linked_gas = dict(self._linked)
+        fn.status_member = (FunctionMember(*self._leader_key)
+                            if self._leader_key in members else None)
         if moved or not any(f.id == fn.id for f in self._project.functions):
             from ...services.ets_function_plan import next_number
             fn.number = next_number(self._project, fn)

@@ -318,6 +318,8 @@ def _nth_channel(function: str, nth: int) -> str:
 
 _RIGHT_SIDE = re.compile(r"\b(?:rechts|right|droite|destra)\b", re.IGNORECASE)
 _KEY_CHANNEL = re.compile(r"^\s*(?:taste|status)\b", re.IGNORECASE)
+# KO einer nummerierten Taste («Taste 3», «Button 2», «Wippe 1», MDT «F4»)
+_ANY_KEY = re.compile(r"\b(?:taste|button|wippe|rocker|f)\s*\d+\b", re.IGNORECASE)
 
 
 def _is_rocker_product(cos: list) -> bool:
@@ -348,6 +350,12 @@ def _channel_cos(cos: list, channel: str) -> list:
         right = n % 2 == 0
         own = [co for co in own
                if bool(_RIGHT_SIDE.search(f"{co.name} {co.object_function}")) == right]
+    if not own and _KEY_CHANNEL.match(channel or "") and any(
+            _ANY_KEY.search(f"{co.name} {co.object_function}") for co in cos):
+        # Taste, die das Produkt nicht hat (Taste 9 an vier Wippen): kein KO
+        # -- sonst landete ihre GA auf einem freien KO einer anderen Taste.
+        # FA-629 meldet die fehlenden Tasten.
+        return []
     return _with_generic_followers(cos, own) or cos
 
 
