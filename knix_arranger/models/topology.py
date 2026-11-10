@@ -198,6 +198,11 @@ class Device:
     # mit eigener TP-Schnittstelle): zählt bei Teilnehmern und Busstrom,
     # bleibt beim Re-Import erhalten, geht nicht in den ETS-Export
     external: bool = False
+    # Dummy in der ETS: steht für ein Gerät, das die ETS nicht programmiert
+    # (z.B. Z-Server), damit dessen GAs in Filtertabellen und Dokumentation
+    # stehen. Busanalyse: GAs, auf die es sendet, ohne Verknüpfung am Dummy
+    # sind ein Hinweis zum Nachtragen, kein Abweichen von Anlage und ETS.
+    dummy: bool = False
     # Zusatzadressen des Geräts, z.B. Tunneling-Adressen einer IP-Schnittstelle
     # (ETS: AdditionalAddresses; ise 1.1.70 -> 1.1.71, 1.1.72, 1.1.73).
     # Belegen Adressen der Linie, senden im Mitschnitt als eigene Absender.
@@ -260,6 +265,7 @@ class Device:
             "co_map": self.co_map,
             "taster_index": self.taster_index,
             "external": self.external,
+            "dummy": self.dummy,
             "additional_addresses": self.additional_addresses,
         }
 
@@ -297,6 +303,7 @@ class Device:
                     for k, v in (data.get("co_map") or {}).items()},
             taster_index=int(data.get("taster_index", 0) or 0),
             external=bool(data.get("external", False)),
+            dummy=bool(data.get("dummy", False)),
             additional_addresses=list(data.get("additional_addresses") or []),
         )
         d.communication_objects = [
@@ -454,6 +461,12 @@ def is_presence_detector_product(product: str) -> bool:
 def is_power_supply_product(product: str) -> bool:
     """Produktname einer KNX-Spannungsversorgung (z.B. 'SV/S30.640.3.1 Power Supply')."""
     return bool(_POWER_SUPPLY_RE.search(product or ""))
+
+
+def is_dummy_text(*texts: str) -> bool:
+    """ETS-Name, Beschreibung, Kommentar, Produkt oder Applikation weisen das
+    Gerät als Dummy aus («Dummy Z-Server», «Dummy-Applikation»)."""
+    return any("dummy" in (t or "").lower() for t in texts)
 
 
 def is_power_supply(device: Device) -> bool:

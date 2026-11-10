@@ -154,13 +154,19 @@ def keep_external_devices(old_project: KnxProject, new_project: KnxProject) -> s
     wurden (Busanalyse) und im neuen Import fehlen, z.B. weil die .knxproj
     sie nicht enthielt."""
     keep_additional_addresses(old_project, new_project)
-    taken = {d.physical_address for a in new_project.topology.areas
+    taken = {d.physical_address: d for a in new_project.topology.areas
              for l in a.lines for d in l.devices}
     kept = set()
     for old_area in old_project.topology.areas:
         for old_line in old_area.lines:
             for device in old_line.devices:
-                if not device.external or device.physical_address in taken:
+                # Ein ETS-Gerät an der Adresse eines bisher externen Geräts (oder
+                # eines Dummys) ist dessen Dummy (Z-Server 1.1.200)
+                new = taken.get(device.physical_address)
+                if new is not None and (device.external or device.dummy) \
+                        and device.physical_address[-1:].isdigit():
+                    new.dummy = True
+                if not device.external or new is not None:
                     continue
                 area = next((a for a in new_project.topology.areas
                              if a.area_number == old_area.area_number), None)

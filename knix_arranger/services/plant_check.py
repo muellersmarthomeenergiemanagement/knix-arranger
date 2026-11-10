@@ -103,7 +103,7 @@ def run_check(project, validation_counts: tuple[int, int] | None = None) -> list
     external = [d for d in consumers if d.external]
     if external:
         from .filter_tables import dummy_needs
-        needs = dummy_needs(project)
+        needs = [n for n in dummy_needs(project) if n.device.external]
         hint = "Mit einem Dummy in der ETS dokumentieren (Filtertabellen)."
         if needs:
             hint = " ".join(

@@ -27,7 +27,7 @@ from ..models.group_address import (
 )
 from ..models.topology import (
     Topology, Area, Line, Device, CommunicationObject, is_power_supply_product,
-    is_presence_detector_product, PRESENCE_DETECTOR_FAMILIES,
+    is_presence_detector_product, PRESENCE_DETECTOR_FAMILIES, is_dummy_text,
 )
 from ..models.building import Areal, Building, Wing, Floor, Apartment, Room, Verteiler, Bedienelement
 from ..models.ets_function import EtsFunction, EtsFunctionRef
@@ -1712,6 +1712,9 @@ class KnxprojImportService:
                     f"{area_num}.{line_num}.{a.get('Address')}"
                     for a in di.findall("k:AdditionalAddresses/k:Address", _NSM)
                     if (a.get("Address") or "").isdigit()],
+                dummy=is_dummy_text(di.get("Name", ""), di.get("Description", ""),
+                                    rtf_to_text(di.get("Comment", "")), product_name,
+                                    self._app_names.get(ap_id, "")),
             )
 
             # Kommunikationsobjekte (ComObjectInstanceRefs)

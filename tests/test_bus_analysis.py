@@ -688,3 +688,58 @@ def test_invalid_frames_are_not_telegrams(tmp_path):
     assert finding.title == "1 fehlerhafte(r) Rahmen (Prüfsumme oder Länge)"
     assert finding.level == "warning"                                     # 1 von 2 Rahmen
     assert finding.items == ["10:00:02: " + artefact]
+
+
+# ── Dummy in der ETS (Z-Server) ─────────────────────────────────────────
+
+def _dummy_project():
+    """Z-Server 1.1.200 als Dummy aus der ETS: eine GA verknüpft, 0/5/13 fehlt."""
+    project = _project()
+    zserver = project.topology.areas[0].lines[0].devices[0]
+    zserver.external, zserver.dummy = False, True
+    zserver.communication_objects = [CommunicationObject(
+        name="Wert", flags="K-S-Ü-", connected_gas=["12/1/1"])]
+    return project
+
+
+def test_dummy_sends_on_unlinked_ga_is_hint(tmp_path):
+    a = analyze(_dummy_project(), summarize(parse_log(_log(tmp_path))))
+    assert a.dummy_gas == {"1.1.200": ["0/5/13"]}
+    assert a.external_gas == {}
+    titles = [f.title for f in a.findings]
+    assert not any("nicht verknüpft ist" in t for t in titles)     # keine Warnung
+    hint = next(f for f in a.findings if f.title.startswith("Dummy 1.1.200"))
+    assert hint.level == "info" and hint.items == ["0/5/13"]
+    assert "Z-Server" in hint.title
+    sender = next(s for s in a.senders if s.address == "1.1.200")
+    assert sender.name == "Z-Server (Dummy)"
+
+
+def test_ordinary_device_unlinked_stays_warning(tmp_path):
+    project = _dummy_project()
+    project.topology.areas[0].lines[0].devices[0].dummy = False
+    a = analyze(project, summarize(parse_log(_log(tmp_path))))
+    assert a.dummy_gas == {}
+    finding = next(f for f in a.findings if "nicht verknüpft ist" in f.title)
+    assert finding.level == "warning"
+
+
+def test_reimport_marks_ets_device_at_external_address_as_dummy():
+    from knix_arranger.services.project_reconcile_service import keep_external_devices
+    old, new = _project(), _dummy_project()
+    zserver = new.topology.areas[0].lines[0].devices[0]
+    zserver.dummy = False
+    kept = keep_external_devices(old, new)
+    assert kept == set() and zserver.dummy                        # ETS-Gerät gilt
+    devices = [d for a in new.topology.areas for l in a.lines for d in l.devices]
+    assert [d.physical_address for d in devices].count("1.1.200") == 1
+
+
+def test_dummy_flag_from_ets_texts_and_saved():
+    from knix_arranger.models.topology import is_dummy_text
+    assert is_dummy_text("Dummy Z-Server", "")
+    assert is_dummy_text("", "", "", "", "Dummy-Applikation")
+    assert not is_dummy_text("Z-Server", "Visualisierung")
+    device = Device(physical_address="1.1.200", dummy=True)
+    assert Device.from_dict(device.to_dict()).dummy
+    assert not Device.from_dict({"physical_address": "1.1.1"}).dummy

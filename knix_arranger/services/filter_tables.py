@@ -141,6 +141,10 @@ class DummyNeed:
 
     @property
     def task(self) -> str:
+        if getattr(self.device, "dummy", False) and not self.device.external:
+            return (f"Dummy {self.device.physical_address} mit {len(self.gas)} GA(s) "
+                    f"verbinden: {', '.join(self.gas)}; "
+                    f"{', '.join(self.couplers)} programmieren (Filtertabelle).")
         return (f"Dummy {self.device.physical_address} in Linie {self.line} anlegen, "
                 f"mit {len(self.gas)} GA(s) verbinden: {', '.join(self.gas)}; "
                 f"{', '.join(self.couplers)} programmieren (Filtertabelle).")
@@ -159,7 +163,9 @@ def observed_targets(project) -> dict[str, set[str]]:
 
 def dummy_needs(project, filters: CouplerFilters | None = None,
                 targets: dict[str, set[str]] | None = None) -> list[DummyNeed]:
-    """Je externem Gerät die angesprochenen GAs, die ein Koppler sperrt."""
+    """Je externem Gerät und Dummy die angesprochenen GAs, die ein Koppler
+    sperrt. Beim Dummy zählen seine Verknüpfungen in den Tabellen mit, übrig
+    bleiben die GAs, die am Dummy fehlen."""
     from .report_sorting import group_address_key, physical_address_key
     filters = filters or CouplerFilters.from_project(project)
     targets = observed_targets(project) if targets is None else targets
@@ -168,7 +174,7 @@ def dummy_needs(project, filters: CouplerFilters | None = None,
         for line in area.lines:
             key = f"{area.area_number}.{line.line_number}"
             for device in line.devices:
-                if not device.external:
+                if not (device.external or getattr(device, "dummy", False)):
                     continue
                 addresses = targets.get(device.physical_address, set())
                 for extra in device.additional_addresses:

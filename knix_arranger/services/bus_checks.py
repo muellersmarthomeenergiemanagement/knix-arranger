@@ -278,11 +278,14 @@ def findings(a, Finding) -> list:
             [i.text for i in a.size_issues[:30]]))
     names = {p.dst: p.designation for p in a.pairs if p.designation}
     for need in a.dummy_needs:
-        name = need.device.product or "Externes Gerät"
+        dummy = getattr(need.device, "dummy", False) and not need.device.external
+        name = need.device.product or ("Dummy" if dummy else "Externes Gerät")
+        intro = ("Diese GAs sind am Dummy in der ETS nicht verknüpft." if dummy
+                 else "Das Gerät steht nicht in der ETS.")
         found.append(Finding(
             "warning", f"{name} {need.device.physical_address}: {len(need.gas)} GA(s) "
                        f"durch Koppler {', '.join(need.couplers)} gesperrt",
-            f"Das Gerät steht nicht in der ETS. Die ETS trägt eine GA nur in die "
+            f"{intro} Die ETS trägt eine GA nur in die "
             f"Filtertabelle ein, wenn sie auch ausserhalb der Linie des Kopplers verknüpft "
             f"ist; diese GAs sind nur hinter dem Koppler verknüpft und erreichen das Gerät "
             f"nicht (Schreiben, Lesen und Antworten). Abhilfe: {need.task}",

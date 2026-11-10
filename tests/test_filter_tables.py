@@ -117,3 +117,16 @@ def test_worklist_and_bus_analysis():
                for f in a.findings)
     (issue,) = [i for i in a.unanswered if i.ga == "3/5/76"]
     assert issue.blocked_by == ["1.2.0"] and "Koppler 1.2.0 sperrt" in issue.text
+
+
+def test_dummy_in_ets_lists_only_missing_gas():
+    """Z-Server als Dummy in der ETS, mit 3/5/76 verknüpft: die ETS trägt 3/5/76
+    in die Tabelle des 1.2.0 ein, fehlen bleibt 12/0/100."""
+    project = _project()
+    zserver = project.topology.areas[0].lines[0].devices[0]
+    zserver.external, zserver.dummy = False, True
+    zserver.communication_objects = [CommunicationObject(connected_gas=["3/5/76"])]
+    (need,) = dummy_needs(project)
+    assert need.gas == ["12/0/100"] and need.couplers == ["1.2.0"]
+    assert need.task == ("Dummy 1.1.200 mit 1 GA(s) verbinden: 12/0/100; "
+                         "1.2.0 programmieren (Filtertabelle).")

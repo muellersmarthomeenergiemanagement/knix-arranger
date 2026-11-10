@@ -371,7 +371,9 @@ class SenderRow:
         name = self.device.product or "Gerät"
         if self.via:
             name = f"{self.via} von {self.device.physical_address} {name}"
-        return name + (" (nicht im ETS-Projekt)" if self.device.external else "")
+        if self.device.external:
+            return name + " (nicht im ETS-Projekt)"
+        return name + (" (Dummy)" if getattr(self.device, "dummy", False) else "")
 
     @property
     def known(self) -> bool:
@@ -457,6 +459,7 @@ class BusAnalysis:
     hop_issues: list = field(default_factory=list)
     load: list = field(default_factory=list)
     dummy_needs: list = field(default_factory=list)  # filter_tables.DummyNeed (FA-643)
+    dummy_gas: dict = field(default_factory=dict)    # Dummy -> gesendete GAs ohne Verknüpfung
 
     @property
     def per_minute(self) -> float:
@@ -535,6 +538,14 @@ def analyze(project, summary: dict) -> BusAnalysis:
         for s in senders if s.device is not None and s.device.external and not s.via}
     unlinked = [p for p in group_pairs if p.src in devices and not p.sender_linked
                 and p.dst in gas]
+    # Dummy in der ETS (Z-Server): gesendete GAs, die am Dummy fehlen
+    dummy_gas: dict[str, list[str]] = defaultdict(list)
+    for p in unlinked:
+        if getattr(devices[p.src], "dummy", False) and not devices[p.src].external \
+                and p.dst not in dummy_gas[p.src]:
+            dummy_gas[p.src].append(p.dst)
+    for sent in dummy_gas.values():
+        sent.sort(key=group_address_key)
     repeated = sorted((p for p in pairs if p.repeats), key=lambda p: -p.repeats)
     unacked = sorted((p for p in pairs if p.unacked), key=lambda p: -p.frames)
     disturbed = sorted((p for p in pairs if p.acks and (p.acks[1] or p.acks[2])),
@@ -547,16 +558,17 @@ def analyze(project, summary: dict) -> BusAnalysis:
     active = set(by_sender) | {owners[x].physical_address for x in by_sender if x in owners}
     if duration >= MIN_SILENT_HOURS * 3600:
         silent = sorted((d for d in devices.values()
-                         if is_consumer(d) and not d.external
+                         if is_consumer(d) and not d.external and not getattr(d, "dummy", False)
                          and d.device_type not in ("coupler",)
                          and d.physical_address not in active),
                         key=lambda d: physical_address_key(d.physical_address))
 
     findings = _findings(summary, duration, senders, unknown, external_gas, unlinked,
                          repeated, frequent, missing, silent, unacked, disturbed,
-                         sum(p.missed for p in pairs))
+                         sum(p.missed for p in pairs), dummy_gas, devices)
     result = BusAnalysis(summary, duration, senders, pairs, unknown, external_gas, unlinked,
                          repeated, unacked, disturbed, frequent, missing, silent, findings)
+    result.dummy_gas = dict(dummy_gas)
     _extend(result, gas, devices, project)
     return result
 
@@ -582,7 +594,8 @@ def _extend(a: BusAnalysis, gas: dict, devices: dict, project=None) -> None:
 
 
 def _findings(summary, duration, senders, unknown, external_gas, unlinked, repeated,
-              frequent, missing, silent, unacked=(), disturbed=(), missed=0) -> list[Finding]:
+              frequent, missing, silent, unacked=(), disturbed=(), missed=0,
+              dummy_gas=None, devices=None) -> list[Finding]:
     found = []
     if unknown:
         found.append(Finding(
@@ -596,7 +609,16 @@ def _findings(summary, duration, senders, unknown, external_gas, unlinked, repea
             "info", f"Externes Gerät {address} sendet auf {len(sent)} GA(s)",
             "In der ETS mit keinem Gerät dieser Adresse verknüpft. Für Filtertabellen und "
             "Dokumentation einen Dummy mit diesen GAs verknüpfen.", sent))
-    others = [p for p in unlinked if p.src not in external_gas]
+    dummy_gas = dummy_gas or {}
+    for address, sent in dummy_gas.items():
+        device = (devices or {}).get(address)
+        name = getattr(device, "product", "") or "Dummy"
+        found.append(Finding(
+            "info", f"Dummy {address} ({name}): {len(sent)} gesendete GA(s) am Dummy "
+                    "nicht verknüpft",
+            "Das Gerät hinter dem Dummy (z.B. Visualisierung) sendet auf diese GAs. In der "
+            "ETS am Dummy verknüpfen, damit Dokumentation und Filtertabellen stimmen.", sent))
+    others = [p for p in unlinked if p.src not in external_gas and p.src not in dummy_gas]
     if others:
         found.append(Finding(
             "warning", f"{len(others)} Mal sendet ein Gerät auf eine GA, mit der es in der "

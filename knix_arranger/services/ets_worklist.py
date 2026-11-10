@@ -184,8 +184,10 @@ def current_items(project) -> list[WorkItem]:
     from .filter_tables import dummy_needs
     for need in dummy_needs(project):
         address = need.device.physical_address
+        dummy = getattr(need.device, "dummy", False) and not need.device.external
+        where = "Dummy in der ETS" if dummy else "nicht in der ETS"
         item = WorkItem(f"FA-643|{address}", PRIO_MUST, "FA-643", f"Linie {need.line}",
-                        need.task, f"{need.device.product} (nicht in der ETS)".strip(),
+                        need.task, f"{need.device.product} ({where})".strip(),
                         sort=(PRIO_MUST, 1, _addr_sort(address)))
         items.setdefault(item.key, item)
     return sorted(items.values(), key=lambda i: i.sort)
