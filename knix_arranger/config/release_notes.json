@@ -2,6 +2,18 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.52",
+      "date": "2026-11-10",
+      "neu": [
+        "Wetteralarme auf den Sonnenschutz-Aktoren: Ist eine Wetterstation geplant, legt KNiX ihren Wind- und Frostalarm im Belegungsplan auf jeden Kanal von Jalousie und Rollladen, bei der Markise zusätzlich den Regenalarm. Unter «Kanäle und KOs zuordnen…» schlägt KNiX dafür die Sicherheits-KOs des Kanals vor. Für Innenjalousien stellen Sie den Alarm dort auf «nicht verknüpfen».",
+        "Validierung: Hinweis, wenn Sonnenschutz ohne Wetterstation geplant ist. In importierten Projekten nennt KNiX die Aktoren, deren Sonnenschutz-Kanäle kein verknüpftes Sicherheits-KO haben.",
+        "ETS-Funktionen: Die Heizungsfunktion eines Raums (ein Element) benutzt Ist- und Solltemperatur und Stellgrösse ihres Elements sowie den ersten Fensterkontakt des Raums mit, ohne eigene GAs. Der ETS-Abgleich verlangt diese GAs in der ETS-Funktion. Funktionen über mehrere Räume behalten nur die Betriebsart."
+      ],
+      "verbessert": [
+        "Herstellerdateien: Theben MiX-Serie V1.8 – KNiX erkennt das Grundmodul auch, wenn der Gerätename mitten im Auswahltext steht («GM ist ein DMG 2 S oder ein SMG 2 S»), und zeigt nur noch die KOs dieses Geräts. Die Herstellerdateien im Produktordner werden dafür einmal neu eingelesen."
+      ]
+    },
+    {
       "version": "1.4.51",
       "date": "2026-11-10",
       "neu": [
