@@ -2,6 +2,20 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.51",
+      "date": "2026-11-10",
+      "neu": [
+        "ETS-Funktionen: Der Leitkanal lässt sich im Dialog «Funktion» von Hand wählen («Leitkanal:» unter der GA-Tabelle). «Automatisch» nimmt das erste Element, das alle Rückmeldungen hat – Status und Dimmwert kommen damit immer vom selben Element.",
+        "ETS-Funktionen: Eine Sonnenschutz-Funktion benutzt Wind- und Regenalarm der Wetterstation mit, ohne eigene GA. Der ETS-Abgleich verlangt diese GAs in der ETS-Funktion (Windalarm, Regenalarm) anstelle der GAs, die die ETS dort neu anlegt. Im Dialog stehen sie mit «(Wetterstation)» und lassen sich weglassen."
+      ],
+      "verbessert": [
+        "ETS-Funktionen in importierten Projekten: KNiX findet den Leitkanal über das Status-KO des Aktorkanals, an dem der Befehl des Elements hängt – auch wenn die Rückmeldung gleich heisst wie der Befehl, und auch an DALI-Gateways. Bisher blieb der Status dort meist leer. Den Wind- und Regenalarm findet KNiX am Sicherheits-KO des Aktorkanals."
+      ],
+      "behoben": [
+        "KOs zuordnen: Eine Taste, die das Produkt nicht hat (z.B. Taste 9 an einem Taster mit vier Wippen), bekommt im Vorschlag kein KO mehr. Bisher landete ihre GA auf einem freien KO einer anderen Taste."
+      ]
+    },
+    {
       "version": "1.4.50",
       "date": "2026-11-10",
       "neu": [
