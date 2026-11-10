@@ -267,6 +267,16 @@ VALIDATION_RULES = {
         "Materialliste › «Produkte mit KOs übernehmen…» bzw. die KNXPROD des "
         "Herstellers importieren.",
     ),
+    "FA-644": (
+        "Sonnenschutz ohne Wetteralarm",
+        "Jalousien, Rollläden und Markisen fahren bei Sturm nur hoch, wenn der "
+        "Alarm der Wetterstation auf dem Sicherheits-KO ihres Aktorkanals liegt. "
+        "Geplante Projekte: Sonnenschutz geplant, aber keine Wetterstation mit "
+        "Windalarm. Importierte Projekte: Kanäle in Betrieb, deren "
+        "Sicherheits-KOs alle ohne Gruppenadresse sind.",
+        "Wetterstation (Gewerk W) planen bzw. in der ETS den Alarm auf die "
+        "Sicherheits-KOs legen. Bei Innenjalousien kann der Hinweis bleiben.",
+    ),
     "FA-620": (
         "GA-Generierung",
         "Fehler: eine Mittelgruppe ist voll, Gruppenadressen eines Gewerks "
