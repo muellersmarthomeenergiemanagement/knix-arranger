@@ -2,6 +2,13 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.49",
+      "date": "2026-11-10",
+      "neu": [
+        "Ein Gateway für mehrere Gewerke: Im Wizard-Schritt Aktoren gibt es bei den Gateways die Spalte «Gerät teilen mit». Stellen Sie z.B. PV und Speicher auf «Gerät von WP», plant KNiX ein Modbus-Gateway für Wärmepumpe, PV und Speicher – in Topologie, Materialliste und Kanalzuordnung. Voraussetzung: die Gewerke sind «gemeinsam für das Projekt» geplant; DALI- und DMX-Gateways sind ausgenommen. Das Produkt für die GA-Planung wählen Sie in Schritt 5 weiterhin je Gewerk."
+      ]
+    },
+    {
       "version": "1.4.48",
       "date": "2026-11-10",
       "behoben": [
