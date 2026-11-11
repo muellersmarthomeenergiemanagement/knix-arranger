@@ -117,6 +117,12 @@ def _check_bus_access() -> None:
     handler.handle_raw_cemi(bytes.fromhex("2900BCE011010801010080"))
     if seen != ["2900BCE011010801010080"]:
         raise RuntimeError("Rohe Rahmen nicht mitgelesen")
+    # USB-Schnittstellen (hidapi): Geräte abfragen geht auch ohne Schnittstelle
+    from ..services.knx_usb import Reassembler, build_reports, find_devices
+    find_devices()
+    (report,) = build_reports(0x0F, 0x01, b"")
+    if Reassembler().feed(report).body != b"":
+        raise RuntimeError("USB-Bericht nicht zusammengesetzt")
 
 
 def _check_main_window() -> None:

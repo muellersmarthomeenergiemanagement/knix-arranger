@@ -36,13 +36,18 @@ TUNNEL_TCP = "tunnel_tcp"
 TUNNEL_SECURE = "tunnel_secure"
 ROUTING = "routing"
 ROUTING_SECURE = "routing_secure"
+USB = "usb"
+USB_BUSMONITOR = "usb_busmonitor"
 KINDS = [
     (TUNNEL_UDP, "Tunnel (UDP), z.B. Fernzugang, ältere IP-Schnittstellen"),
     (TUNNEL_TCP, "Tunnel (TCP)"),
     (TUNNEL_SECURE, "Secure-Tunnel (TCP)"),
     (ROUTING, "Routing (Multicast, IP-Router im lokalen Netz)"),
     (ROUTING_SECURE, "Secure-Routing"),
+    (USB, "USB-Schnittstelle (Gruppenmonitor)"),
+    (USB_BUSMONITOR, "USB-Busmonitor (mit Quittungen und Wiederholungen)"),
 ]
+USB_KINDS = (USB, USB_BUSMONITOR)
 SECURE_KINDS = (TUNNEL_SECURE, ROUTING_SECURE)
 DEFAULT_PORT = 3671
 
@@ -62,13 +67,17 @@ class ConnectionSettings:
     # Secure: Schlüsseldatei der ETS (.knxkeys) oder Benutzer-ID des Tunnels
     keyring_path: str = ""
     user_id: int = 0
-    # gewünschte Tunneladresse (leer = die Schnittstelle wählt)
+    # gewünschte Tunneladresse (leer = die Schnittstelle wählt); bei USB die
+    # Adresse der Schnittstelle (Linie für den Hinweis auf nicht sichtbare GAs)
     individual_address: str = ""
+    # USB: Gerät «VID:PID:Seriennummer» (knx_usb.UsbDevice.key)
+    usb_device: str = ""
 
     def to_dict(self) -> dict:
         return {"kind": self.kind, "host": self.host, "port": self.port,
                 "route_back": self.route_back, "keyring_path": self.keyring_path,
-                "user_id": self.user_id, "individual_address": self.individual_address}
+                "user_id": self.user_id, "individual_address": self.individual_address,
+                "usb_device": self.usb_device}
 
     @classmethod
     def from_dict(cls, data: dict | None) -> ConnectionSettings:
@@ -82,6 +91,7 @@ class ConnectionSettings:
             keyring_path=data.get("keyring_path", ""),
             user_id=int(data.get("user_id") or 0),
             individual_address=data.get("individual_address", ""),
+            usb_device=data.get("usb_device", ""),
         )
 
     @property
@@ -92,9 +102,17 @@ class ConnectionSettings:
     def is_secure(self) -> bool:
         return self.kind in SECURE_KINDS
 
+    @property
+    def is_usb(self) -> bool:
+        return self.kind in USB_KINDS
+
     def problems(self, secrets: Secrets | None = None) -> list[str]:
         """Was für eine Verbindung fehlt (leer = vollständig)."""
         found = []
+        if self.is_usb:
+            if not self.usb_device:
+                found.append("Keine USB-Schnittstelle gewählt.")
+            return found
         if not self.is_routing and not self.host.strip():
             found.append("Adresse der Schnittstelle (IP oder Name) fehlt.")
         if not 0 < self.port < 65536:
@@ -114,6 +132,9 @@ class ConnectionSettings:
 
     def label(self) -> str:
         kind = dict(KINDS).get(self.kind, self.kind).split(" (")[0].split(",")[0]
+        if self.is_usb:
+            return f"{kind} · {self.usb_device.split(':')[0]}:{self.usb_device.split(':')[1]}" \
+                if self.usb_device.count(":") >= 1 else kind
         target = "Multicast" if self.is_routing else f"{self.host}:{self.port}"
         return f"{kind} · {target}"
 
@@ -137,6 +158,11 @@ class LiveTelegram:
     payload: str = ""       # Hex, wie in der Busanalyse
     size: int | None = None  # 0 = Wert im APCI (bis 6 Bit), sonst Anzahl Byte
     secure: bool = False    # KNX Data Secure (entschlüsselt)
+    # nur Busmonitor: Wiederholung und Quittung danach ("ack", "nak", "busy",
+    # "nak_busy"; "" = keine bzw. unbekannt)
+    repeat: bool = False
+    ack: str = ""
+    busmonitor: bool = False
 
 
 def telegram_from_xknx(telegram, now: datetime | None = None) -> LiveTelegram | None:
@@ -185,9 +211,15 @@ class MonitorRow:
     def cells(self) -> list[str]:
         """Anzeige- und CSV-Spalten in der Reihenfolge von COLUMNS."""
         t = self.telegram
+        service = _SERVICE_LABELS.get(t.service, t.service)
+        if t.repeat:
+            service += " (Wdh.)"
+        ack = _ACK_LABELS.get(t.ack, "") if t.busmonitor else ""
+        if t.busmonitor and not t.ack:
+            ack = "keine"
         return [t.time.strftime("%H:%M:%S.%f")[:-3], self.sender, t.destination,
-                self.designation, _SERVICE_LABELS.get(t.service, t.service),
-                self.value, self.gewerk, self.room, self.floor]
+                self.designation, service, self.value, self.gewerk, self.room, self.floor,
+                ack]
 
     def search_cells(self) -> list[str]:
         return [self.telegram.source, self.telegram.destination, self.sender,
@@ -195,8 +227,9 @@ class MonitorRow:
 
 
 COLUMNS = ["Zeit", "Absender", "GA", "Bezeichnung", "Dienst", "Wert", "Gewerk",
-           "Raum", "Stockwerk"]
+           "Raum", "Stockwerk", "Quittung"]
 _SERVICE_LABELS = {"Write": "Schreiben", "Read": "Lesen", "Response": "Antwort"}
+_ACK_LABELS = {"ack": "ACK", "nak": "NAK", "busy": "BUSY", "nak_busy": "NAK+BUSY"}
 
 
 class MonitorContext:
@@ -353,9 +386,9 @@ def live_recording(frames: list[tuple[str, datetime]], label: str = "",
                    connection: str = "") -> dict:
     """Aufgezeichnete rohe cEMI-Rahmen (Hex, Zeit) als Mitschnitt für die
     Busanalyse (project.bus_recordings), ausgewertet wie ein ETS-Mitschnitt
-    (bus_monitor.add_frames): Gruppenmonitor ohne Wiederholungen und
-    Quittungen, mit Routing-Zähler und Rahmenlänge. BusLogError ohne
-    auswertbare Telegramme."""
+    (bus_monitor.add_frames): über einen Tunnel Gruppenmonitor ohne
+    Wiederholungen und Quittungen, über den USB-Busmonitor mit beidem; mit
+    Routing-Zähler und Rahmenlänge. BusLogError ohne auswertbare Telegramme."""
     from .bus_monitor import Recording, add_frames, summarize
     times = [when for _raw, when in frames if when]
     start = min(times, default=None)
@@ -365,7 +398,10 @@ def live_recording(frames: list[tuple[str, datetime]], label: str = "",
         file=label,
         start=start, stop=max(times, default=None), connection=connection,
         mode="Gruppenmonitor (KNiX Live-Monitor)")
-    return summarize(add_frames(rec, frames))
+    rec = add_frames(rec, frames)
+    if rec.busmon:
+        rec.mode = "Busmonitor (KNiX Live-Monitor)"
+    return summarize(rec)
 
 
 # ── Verbindung ─────────────────────────────────────────────────────────────
@@ -425,6 +461,12 @@ class ConnectionStats:
     unreadable: int = 0         # Rahmen, die xknx nicht lesen konnte
     sequence_lost: int = 0      # verworfen wegen falscher Folgenummer (UDP-Verlust)
     reconnects: int = 0         # Verbindung abgebrochen und neu aufgebaut
+    # nur Busmonitor
+    repeats: int = 0
+    acks: int = 0
+    naks: int = 0
+    busys: int = 0
+    unacked: int = 0            # Datenrahmen ohne Quittung
 
     @property
     def other(self) -> int:
@@ -449,6 +491,10 @@ class ConnectionStats:
             parts.append(f"{self.sequence_lost} verloren (Folgenummer)")
         if self.reconnects:
             parts.append(f"{self.reconnects}× neu verbunden")
+        if self.acks or self.naks or self.busys or self.repeats or self.unacked:
+            parts.append(f"Quittungen: {self.acks} ACK, {self.naks} NAK, {self.busys} BUSY, "
+                         f"{self.unacked} ohne")
+            parts.append(f"{self.repeats} Wiederholungen")
         return " · ".join(parts)
 
 
@@ -491,14 +537,23 @@ class BusConnection:
     def start(self, settings: ConnectionSettings, secrets: Secrets) -> None:
         if self.running:
             return
-        config = connection_config(settings, secrets)
         self.stats = ConnectionStats()
         self.local_address = ""
+        if settings.is_usb:
+            self._usb_stop = threading.Event()
+            self._thread = threading.Thread(target=self._run_usb, args=(settings,),
+                                            name="knx-usb", daemon=True)
+            self._thread.start()
+            return
+        config = connection_config(settings, secrets)
         self._thread = threading.Thread(target=self._run, args=(config, settings.label()),
                                         name="knx-bus", daemon=True)
         self._thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
+        usb_stop = getattr(self, "_usb_stop", None)
+        if usb_stop is not None:
+            usb_stop.set()
         loop, stop = self._loop, self._stop
         if loop is not None and stop is not None and not loop.is_closed():
             try:
@@ -517,6 +572,27 @@ class BusConnection:
             self._on_state(STATE_ERROR, _error_text(exc))
         finally:
             self._loop = self._stop = None
+
+    def _run_usb(self, settings: ConnectionSettings) -> None:
+        label = settings.label()
+        session = None
+        try:
+            self._on_state(STATE_CONNECTING, label)
+            session = _usb_session(settings, getattr(self, "hid_module", None))
+            session.setup(busmonitor=settings.kind == USB_BUSMONITOR)
+            # Adresse der USB-Schnittstelle liefert sie nicht; für den Hinweis
+            # auf nicht sichtbare GAs gilt die eingetragene
+            self.local_address = settings.individual_address.strip()
+            self._on_state(STATE_CONNECTED, label)
+            _usb_loop(self, settings, session, self._usb_stop)
+        except Exception as exc:
+            logger.warning("USB-Verbindung %s: %s", label, exc)
+            self._on_state(STATE_ERROR, str(exc))
+            return
+        finally:
+            if session is not None:
+                session.close()
+        self._on_state(STATE_DISCONNECTED, label)
 
     async def _main(self, config, label: str) -> None:
         from xknx import XKNX
@@ -569,6 +645,79 @@ class BusConnection:
                 self._on_state(STATE_DISCONNECTED, label)
         finally:
             xknx_log.removeHandler(loss_counter)
+
+
+def _usb_session(settings: ConnectionSettings, hid_module=None):
+    """Schnittstelle zum gespeicherten Gerät öffnen (knx_usb)."""
+    from .knx_usb import UsbError, UsbLink, UsbSession, find_devices
+    devices = find_devices(hid_module)
+    device = next((d for d in devices if d.key == settings.usb_device), None)
+    if device is None:       # Seriennummer fehlt/anders: gleiche Hersteller- und Produkt-ID
+        vid_pid = ":".join(settings.usb_device.split(":")[:2])
+        device = next((d for d in devices if d.key.startswith(vid_pid + ":")), None)
+    if device is None:
+        raise UsbError("USB-Schnittstelle nicht gefunden – angeschlossen?")
+    return UsbSession(UsbLink(device, hid_module))
+
+
+def _usb_loop(connection: "BusConnection", settings: ConnectionSettings, session,
+              stop: threading.Event) -> None:
+    """Rahmen der USB-Schnittstelle lesen und wie einen Mitschnitt auswerten:
+    L_Busmon.ind mit Wiederholungen und Quittungen, sonst L_Data.ind."""
+    from .bus_monitor import INVALID, Telegram as BusTelegram, decode
+    stats = connection.stats
+    busmonitor = settings.kind == USB_BUSMONITOR
+    last: LiveTelegram | None = None
+    while not stop.is_set():
+        raw = session.frames(200)
+        if raw is None:
+            continue
+        hexraw, now = raw.hex().upper(), datetime.now()
+        result = decode(hexraw, now)
+        if result is None:
+            # Bestätigungen der Schnittstelle (M_Prop…) gehören nicht dazu;
+            # alles andere zählen und protokollieren, damit nichts still fehlt
+            if raw[:1] not in (b"\xf5", b"\xfb"):
+                stats.frames += 1
+                stats.unreadable += 1
+                logger.info("USB-Rahmen nicht auswertbar: %s", hexraw)
+            continue
+        if isinstance(result, str) and result != INVALID:    # Quittung
+            stats.acks += result == "ack"
+            stats.naks += result in ("nak", "nak_busy")
+            stats.busys += result in ("busy", "nak_busy")
+            if last is not None and not last.ack:
+                last.ack = result
+                stats.unacked -= 1
+            last = None
+            if connection._on_raw is not None:
+                connection._on_raw(hexraw, now)
+            continue
+        stats.frames += 1
+        if connection._on_raw is not None:
+            connection._on_raw(hexraw, now)
+        if result == INVALID:
+            stats.unreadable += 1
+            last = None
+            continue
+        assert isinstance(result, BusTelegram)
+        if busmonitor:
+            stats.unacked += 1
+            stats.repeats += result.repeat
+        if not result.group:
+            last = None
+            continue
+        if result.service not in ("Write", "Read", "Response"):
+            stats.secure_undecoded += 1     # Data Secure («Erweiterter Dienst»)
+            last = None
+            continue
+        live = LiveTelegram(time=now, source=result.src, destination=result.dst,
+                            service=result.service, payload=result.payload,
+                            size=result.size if result.size >= 0 else None,
+                            repeat=result.repeat, busmonitor=busmonitor)
+        stats.group += 1
+        last = live if busmonitor else None
+        connection._on_telegram(live)
 
 
 def _tapping_handler(xknx, on_raw: Callable[[str, datetime], None] | None,

@@ -75,6 +75,15 @@ class MonitorModel(QAbstractTableModel):
         self.rows.extend(rows)
         self.endInsertRows()
 
+    def refresh_tail(self, rows: int = 50) -> None:
+        """Letzte Zeilen neu zeichnen: die Quittung (Busmonitor) trifft erst
+        nach ihrem Telegramm ein und wird dort nachgetragen."""
+        if self.rows:
+            last = len(self.rows) - 1
+            column = len(COLUMNS) - 1
+            self.dataChanged.emit(self.index(max(0, last - rows), column),
+                                  self.index(last, column))
+
     def clear(self) -> None:
         self.beginResetModel()
         self.rows = []
@@ -139,7 +148,9 @@ class LiveMonitorView(QWidget):
         intro = QLabel(
             "Gruppentelegramme der Anlage in Echtzeit, mit Bezeichnung, Wert, Gewerk, Raum "
             "und Stockwerk aus dem Projekt. KNiX verbindet sich über KNXnet/IP (Tunnel, "
-            "Secure-Tunnel, Routing) und sendet nichts. Orange: GA nicht im Projekt.")
+            "Secure-Tunnel, Routing) oder eine USB-Schnittstelle und sendet nichts. Der "
+            "USB-Busmonitor zeigt zusätzlich Quittungen und Wiederholungen. Orange: GA "
+            "nicht im Projekt.")
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color: {TEXT_MUTED};")
         layout.addWidget(intro)
@@ -233,7 +244,7 @@ class LiveMonitorView(QWidget):
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setStretchLastSection(True)
-        for column, width in enumerate((95, 220, 70, 300, 80, 110, 170, 170)):
+        for column, width in enumerate((95, 220, 70, 300, 100, 110, 170, 140, 120)):
             self._table.setColumnWidth(column, width)
         layout.addWidget(self._table, 1)
         self._update_controls()
@@ -352,6 +363,7 @@ class LiveMonitorView(QWidget):
 
     def _flush(self) -> None:
         self._show_stats()
+        self._model.refresh_tail()
         if not self._pending or self._context is None:
             return
         telegrams, self._pending = self._pending, []

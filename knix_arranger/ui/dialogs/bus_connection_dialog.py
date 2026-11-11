@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...services.bus_access import (
-    KINDS, ROUTING_SECURE, TUNNEL_SECURE, TUNNEL_UDP, ConnectionSettings, Secrets,
+    KINDS, ROUTING_SECURE, TUNNEL_SECURE, TUNNEL_UDP, USB_KINDS, ConnectionSettings, Secrets,
 )
 from ..styles import TEXT_MUTED
 
@@ -24,19 +24,36 @@ class BusConnectionDialog(QDialog):
         layout = QVBoxLayout(self)
         intro = QLabel(
             "KNiX verbindet sich über KNXnet/IP mit einer IP-Schnittstelle, einem "
-            "IP-Router oder einem Fernzugang und zeigt die Gruppentelegramme. "
-            "Es wird nichts gesendet. Passwörter werden nicht gespeichert.")
+            "IP-Router oder einem Fernzugang oder direkt mit einer USB-Schnittstelle "
+            "und zeigt die Gruppentelegramme; der USB-Busmonitor zeigt dazu Quittungen "
+            "und Wiederholungen der Linie, an der die Schnittstelle steckt. Es wird nichts "
+            "gesendet. Passwörter werden nicht gespeichert.")
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color: {TEXT_MUTED};")
         layout.addWidget(intro)
 
-        form = QFormLayout()
+        form = self._form = QFormLayout()
         self._kind = QComboBox()
         for key, label in KINDS:
             self._kind.addItem(label, key)
         self._kind.setCurrentIndex(max(0, self._kind.findData(settings.kind)))
         self._kind.currentIndexChanged.connect(self._update)
         form.addRow("Verbindung:", self._kind)
+
+        # USB: Schnittstelle wählen
+        usb = QWidget()
+        usb_row = QHBoxLayout(usb)
+        usb_row.setContentsMargins(0, 0, 0, 0)
+        self._usb = QComboBox()
+        self._usb_refresh = QPushButton("Suchen")
+        self._usb_refresh.setObjectName("secondary")
+        self._usb_refresh.clicked.connect(lambda: self._fill_usb(self._usb.currentData()))
+        usb_row.addWidget(self._usb, 1)
+        usb_row.addWidget(self._usb_refresh)
+        self._usb_widget = usb
+        self._usb_label = QLabel("USB-Schnittstelle:")
+        form.addRow(self._usb_label, usb)
+        self._fill_usb(settings.usb_device)
 
         self._host = QLineEdit(settings.host)
         self._host.setPlaceholderText("z.B. 192.168.1.20")
@@ -73,6 +90,7 @@ class BusConnectionDialog(QDialog):
         row.addWidget(self._keyring)
         row.addWidget(browse)
         form.addRow("Schlüsseldatei:", keyring)
+        self._keyring_widget = keyring
         self._keyring_password = self._password()
         form.addRow("Passwort Schlüsseldatei:", self._keyring_password)
         self._user_id = QSpinBox()
@@ -108,6 +126,26 @@ class BusConnectionDialog(QDialog):
         layout.addWidget(buttons)
         self._update()
 
+    def _fill_usb(self, selected: str = "") -> None:
+        """Angeschlossene KNX-USB-Schnittstellen (knx_usb.find_devices)."""
+        self._usb.clear()
+        try:
+            from ...services.knx_usb import find_devices
+            devices = find_devices()
+        except Exception as exc:      # hidapi fehlt oder Zugriff verweigert
+            devices = []
+            self._usb.setToolTip(f"USB-Schnittstellen nicht abfragbar: {exc}")
+        for device in devices:
+            self._usb.addItem(device.label(), device.key)
+        if not devices:
+            self._usb.addItem("Keine KNX-USB-Schnittstelle gefunden", "")
+        index = self._usb.findData(selected) if selected else -1
+        if index < 0 and selected:    # andere Seriennummer: gleiches Modell
+            vid_pid = ":".join(selected.split(":")[:2]) + ":"
+            index = next((i for i in range(self._usb.count())
+                          if (self._usb.itemData(i) or "").startswith(vid_pid)), -1)
+        self._usb.setCurrentIndex(max(0, index))
+
     @staticmethod
     def _password() -> QLineEdit:
         edit = QLineEdit()
@@ -123,10 +161,21 @@ class BusConnectionDialog(QDialog):
 
     def _update(self) -> None:
         kind = self._kind.currentData()
+        usb = kind in USB_KINDS
         routing = kind in ("routing", ROUTING_SECURE)
-        for widget in (self._host, self._host_label, self._port, self._port_label,
-                       self._address, self._address_label):
+        for widget in (self._host, self._host_label, self._port, self._port_label):
+            widget.setVisible(not routing and not usb)
+        for widget in (self._address, self._address_label):
             widget.setVisible(not routing)
+        self._address_label.setText("Adresse der Schnittstelle:" if usb else "Tunneladresse:")
+        self._address.setPlaceholderText("optional, z.B. 1.2.250 (Linie für den Hinweis)"
+                                         if usb else "leer = Schnittstelle wählt")
+        self._usb_widget.setVisible(usb)
+        self._usb_label.setVisible(usb)
+        # über USB entschlüsselt KNiX nichts: Secure-Angaben ausblenden
+        for widget in (self._secure_title, self._keyring_widget, self._keyring_password,
+                       self._keyring_hint):
+            self._form.setRowVisible(widget, not usb)
         self._route_back.setVisible(kind == TUNNEL_UDP)
         tunnel_secure = kind == TUNNEL_SECURE
         for widget in (self._user_id, self._user_id_label, self._user_password,
@@ -142,7 +191,8 @@ class BusConnectionDialog(QDialog):
             kind=self._kind.currentData(), host=self._host.text().strip(),
             port=self._port.value(), route_back=self._route_back.isChecked(),
             keyring_path=self._keyring.text().strip(), user_id=self._user_id.value(),
-            individual_address=self._address.text().strip())
+            individual_address=self._address.text().strip(),
+            usb_device=self._usb.currentData() or "")
 
     def secrets(self) -> Secrets:
         return Secrets(
