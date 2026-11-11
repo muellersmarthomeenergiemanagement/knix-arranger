@@ -43,7 +43,7 @@
     "sunset": "Sonnenuntergang",
     "all_year": "ganzjährig",
     "heading_stoerungen": "Wenn etwas nicht funktioniert",
-    "stoerungen": "• Eine Leuchte reagiert nicht: zuerst prüfen, ob das Leuchtmittel defekt ist und ob im Sicherungskasten eine Sicherung ausgelöst hat.\n• Mehrere Taster reagieren nicht mehr: Bitte nichts selbst verändern und uns kontaktieren – vermutlich ist die Steuerung betroffen.\n• Storen fahren nicht: Bei Wind oder Frost sind sie zum Schutz oft gesperrt und fahren erst wieder, wenn die Gefahr vorbei ist.",
+    "stoerungen": "• Eine Leuchte reagiert nicht: zuerst prüfen, ob das Leuchtmittel defekt ist und ob im Sicherungskasten eine Sicherung ausgelöst hat.\n• Mehrere Taster reagieren nicht mehr: Bitte nichts selbst verändern und uns kontaktieren – vermutlich ist die Steuerung betroffen.\n• Storen fahren nicht: Bei Wind oder Frost sind sie zum Schutz oft gesperrt und fahren erst wieder, wenn die Gefahr vorbei ist.\n• Nach einem Stromunterbruch startet die Anlage von selbst wieder; das kann ein bis zwei Minuten dauern. Szenen und Einstellungen bleiben gespeichert. Leuchten und Storen nehmen je nach Einstellung ihren vorherigen Zustand ein oder bleiben aus bzw. stehen. Funktioniert danach etwas nicht, kontaktieren Sie uns.",
     "heading_kontakt": "Ihr Ansprechpartner",
     "hint": "Hinweis",
     "no_floor": "Ohne Stockwerk",

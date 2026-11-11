@@ -42,7 +42,7 @@
     "sunset": "Sunset",
     "all_year": "all year",
     "heading_stoerungen": "If something does not work",
-    "stoerungen": "• A light does not respond: first check whether the bulb is defective and whether a fuse has tripped in the distribution board.\n• Several push-buttons no longer respond: please do not change anything yourself and contact us – the control system is probably affected.\n• Blinds do not move: in wind or frost they are often locked for protection and only move again once the danger has passed.",
+    "stoerungen": "• A light does not respond: first check whether the bulb is defective and whether a fuse has tripped in the distribution board.\n• Several push-buttons no longer respond: please do not change anything yourself and contact us – the control system is probably affected.\n• Blinds do not move: in wind or frost they are often locked for protection and only move again once the danger has passed.\n• After a power failure the system restarts by itself; this can take one to two minutes. Scenes and settings remain stored. Depending on the setting, lights and blinds return to their previous state or stay off or stationary. If something does not work afterwards, please contact us.",
     "heading_kontakt": "Your contact",
     "hint": "Note",
     "no_floor": "No floor",

@@ -42,7 +42,7 @@
     "sunset": "Coucher du soleil",
     "all_year": "toute l'année",
     "heading_stoerungen": "En cas de panne",
-    "stoerungen": "• Un luminaire ne réagit pas : vérifiez d'abord si l'ampoule est défectueuse et si un fusible a sauté dans le tableau électrique.\n• Plusieurs poussoirs ne réagissent plus : ne modifiez rien vous-même et contactez-nous – la commande est probablement concernée.\n• Les stores ne bougent pas : en cas de vent ou de gel, ils sont souvent bloqués par sécurité et ne bougent à nouveau qu'une fois le danger passé.",
+    "stoerungen": "• Un luminaire ne réagit pas : vérifiez d'abord si l'ampoule est défectueuse et si un fusible a sauté dans le tableau électrique.\n• Plusieurs poussoirs ne réagissent plus : ne modifiez rien vous-même et contactez-nous – la commande est probablement concernée.\n• Les stores ne bougent pas : en cas de vent ou de gel, ils sont souvent bloqués par sécurité et ne bougent à nouveau qu'une fois le danger passé.\n• Après une coupure de courant, l'installation redémarre d'elle-même ; cela peut prendre une à deux minutes. Les scènes et les réglages restent enregistrés. Selon le réglage, les luminaires et les stores reprennent leur état précédent ou restent éteints ou immobiles. Si quelque chose ne fonctionne pas ensuite, contactez-nous.",
     "heading_kontakt": "Votre interlocuteur",
     "hint": "Remarque",
     "no_floor": "Sans étage",

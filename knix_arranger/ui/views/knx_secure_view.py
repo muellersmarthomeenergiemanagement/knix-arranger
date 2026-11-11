@@ -163,7 +163,7 @@ class KnxSecureView(QWidget):
         self._tabs.addTab(self._build_access_tab(), "Zugangsdaten (ETS6-Passwort)")
         self._tabs.addTab(self._build_ga_tab(), "GA-Sicherheit")
         self._tabs.addTab(self._build_devices_tab(), "Gerätekompatibilität / FDSK")
-        self._tabs.addTab(self._build_warnings_tab(), "Mischlinien-Warnungen")
+        self._tabs.addTab(self._build_warnings_tab(), "Mischbetrieb")
         layout.addWidget(self._tabs, 1)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -423,8 +423,12 @@ class KnxSecureView(QWidget):
     def _auto_suggest_security(self):
         n = self._service.auto_suggest_ga_security(self._project)
         self._populate_ga_tab()
-        QMessageBox.information(self, "GA-Sicherheit",
-                                f"{n} GA(s) auf 'Ein' gesetzt.")
+        text = f"{n} GA(s) auf 'Ein' gesetzt."
+        if self._service.last_skipped:
+            text += (f"\n\n{self._service.last_skipped} GA(s) ausgelassen: mit Geräten "
+                     "ohne KNX Secure verknüpft, gesichert könnten diese sie weder "
+                     "senden noch empfangen.")
+        QMessageBox.information(self, "GA-Sicherheit", text)
 
     def _set_all_ga_security(self, mode: str):
         for ga in self._project.group_addresses.all_addresses():
@@ -632,8 +636,11 @@ class KnxSecureView(QWidget):
         layout = QVBoxLayout(w)
 
         info = QLabel(
-            "Eine Linie mit gemischten Secure/Non-Secure-Geräten kompromittiert "
-            "die Sicherheit aller Geräte in dieser Linie."
+            "Secure- und Nicht-Secure-Geräte dürfen in derselben Linie arbeiten "
+            "(Mischbetrieb). Eine gesicherte Gruppenadresse verbindet aber nur "
+            "Secure-Geräte: Die Nicht-Secure-Geräte dieser Linien können nicht an "
+            "gesicherten GAs teilnehmen. Gesicherte GAs an Geräten ohne Secure "
+            "meldet die Validierung (FA-645)."
         )
         info.setWordWrap(True)
         layout.addWidget(info)
@@ -664,7 +671,6 @@ class KnxSecureView(QWidget):
             self._warnings_table.setItem(i, 1, QTableWidgetItem(", ".join(w.secure_devices)))
             self._warnings_table.setItem(i, 2, QTableWidgetItem(", ".join(w.non_secure_devices)))
             msg_item = QTableWidgetItem(w.message)
-            msg_item.setForeground(QColor("#B71C1C"))
             self._warnings_table.setItem(i, 3, msg_item)
         fit_columns(self._warnings_table)
 
@@ -732,7 +738,7 @@ class KnxSecureView(QWidget):
             f"{summary.get('fdsk_entered', 0)} / {summary.get('device_infos_count', 0)}",
             f"✓ GAs mit Security 'Ein': {summary.get('ga_security_on', 0)}",
             "",
-            f"{'⚠' if warnings else '✓'} Mischlinien-Warnungen: {len(warnings)}",
+            f"ℹ Linien im Mischbetrieb (zulässig): {len(warnings)}",
         ]
 
         if warnings:

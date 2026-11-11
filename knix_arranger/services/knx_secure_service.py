@@ -61,7 +61,7 @@ class KnxSecureWrongPassword(Exception):
 
 @dataclass
 class MixedLineWarning:
-    """Warnung für eine Linie mit gemischten Secure/Non-Secure Geräten (FA-2705)."""
+    """Hinweis: Linie mit Secure- und Nicht-Secure-Geräten (FA-2705)."""
     area_number: int
     line_number: int
     line_name: str
@@ -74,15 +74,16 @@ class MixedLineWarning:
         suffix = "…" if len(self.non_secure_devices) > 5 else ""
         return (
             f"Linie {self.area_number}.{self.line_number} ({self.line_name}): "
-            f"Gemischte KNX Secure-Konfiguration – "
-            f"{len(self.secure_devices)} Secure-Gerät(e) und "
-            f"{len(self.non_secure_devices)} Non-Secure-Gerät(e). "
-            f"Non-Secure: {non_sec}{suffix}"
+            f"{len(self.secure_devices)} Secure- und "
+            f"{len(self.non_secure_devices)} Nicht-Secure-Gerät(e), "
+            f"ohne gesicherte GAs: {non_sec}{suffix}"
         )
 
 
 class KnxSecureService:
     """Verwaltung aller KNX Secure-Aspekte eines Projekts."""
+
+    last_skipped = 0   # Auto-Vorschlag: GAs an Geräten ohne Secure ausgelassen
 
     # ── GA-Sicherheits-Auto-Vorschlag (FA-2703) ───────────────────────────────
 
@@ -95,8 +96,15 @@ class KnxSecureService:
 
         Gemäss KNX-Standard sind Mischanlagen (Secure + Non-Secure) erlaubt;
         es werden daher nur explizit sicherheitsrelevante GAs auf 'Ein' gesetzt.
+        Eine GA, die mit einem Gerät ohne KNX Secure verknüpft ist (oder nach
+        der KO-Zuordnung wäre), bleibt, wie sie ist: gesichert könnte dieses
+        Gerät sie weder senden noch empfangen (FA-645). Ihre Zahl steht danach
+        in self.last_skipped.
         """
-        changed = 0
+        from .ko_links import links_by_ga
+        from .secure_checks import is_secure_device
+        links = None
+        changed = skipped = 0
         for ga in project.group_addresses.all_addresses():
             text = (
                 (ga.designation or "") + " " +
@@ -105,9 +113,17 @@ class KnxSecureService:
             ).lower()
             if any(kw in text for kw in _SECURE_FUNCTION_KEYWORDS):
                 if ga.security != "Ein":
+                    if links is None:
+                        links = links_by_ga(project)
+                    if any(not is_secure_device(link.device, project)
+                           for link in links.get(ga.address, [])):
+                        skipped += 1
+                        continue
                     ga.security = "Ein"
                     changed += 1
-        logger.info(f"KnxSecureService: GA-Sicherheit gesetzt → {changed} GAs.")
+        self.last_skipped = skipped
+        logger.info(f"KnxSecureService: GA-Sicherheit gesetzt → {changed} GAs, "
+                    f"{skipped} an Geräten ohne Secure ausgelassen.")
         return changed
 
     def reset_ga_security_to_auto(self, project) -> int:
@@ -204,11 +220,10 @@ class KnxSecureService:
     # ── Mischlinien-Prüfung (FA-2705) ─────────────────────────────────────────
 
     def check_mixed_lines(self, config: KnxSecureConfig, project) -> list[MixedLineWarning]:
-        """Prüft alle Linien auf gemischte Secure/Non-Secure Besetzung (FA-2705).
-
-        Eine Warnung wird erzeugt, wenn eine Linie sowohl Secure- als auch
-        Non-Secure-fähige Geräte enthält.
-        """
+        """Linien mit Secure- und Nicht-Secure-Geräten (FA-2705). Mischbetrieb
+        ist zulässig (KNX-Swiss-Leitfaden «Sichere Gebäudeinformatik»); der
+        Hinweis zeigt, welche Geräte nicht an gesicherten GAs teilnehmen
+        können. Gesicherte GAs an solchen Geräten prüft FA-645."""
         from ..models.topology import is_bus_device
         warnings = []
         for area in project.topology.areas:

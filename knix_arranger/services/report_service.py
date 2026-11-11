@@ -280,6 +280,27 @@ VALIDATION_RULES = {
         "Wetterstation (Gewerk W) planen bzw. in der ETS den Alarm auf die "
         "Sicherheits-KOs legen. Bei Innenjalousien kann der Hinweis bleiben.",
     ),
+    "FA-645": (
+        "Gesicherte GA an Gerät ohne KNX Secure",
+        "Eine Gruppenadresse mit Sicherheit «Ein» muss an allen verknüpften KOs "
+        "gesichert sein; ein Gerät ohne KNX Secure kann sie weder senden noch "
+        "empfangen, die ETS verknüpft sie nicht (KNX-Swiss-Leitfaden «Sichere "
+        "Gebäudeinformatik»).",
+        "Sicherheit der GA auf «Auto» oder «Aus» stellen oder die Geräte durch "
+        "Secure-Geräte ersetzen.",
+    ),
+    "FA-645b": (
+        "Secure-Geräte hinter Koppler ohne Secure",
+        "KNX-Data-Secure-Telegramme sind länger; Linien- und Bereichskoppler "
+        "müssen sie (Extended Frames) weiterleiten.",
+        "Datenblatt des Kopplers prüfen, sonst einen Secure-Koppler einsetzen.",
+    ),
+    "FA-645c": (
+        "IP Secure nicht an allen IP-Routern",
+        "Wird ein IP-Router auf KNX IP Secure umgestellt, müssen alle IP-Router "
+        "der Anlage umgestellt werden.",
+        "IP-Router ohne IP Secure ersetzen oder IP Secure nicht verwenden.",
+    ),
     "FA-620": (
         "GA-Generierung",
         "Fehler: eine Mittelgruppe ist voll, Gruppenadressen eines Gewerks "

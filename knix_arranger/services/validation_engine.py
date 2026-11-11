@@ -163,6 +163,9 @@ class ValidationEngine:
             issues.extend(self._check_product_capabilities(project))
             issues.extend(self._check_bedienelement_leftovers(project))
             issues.extend(self._check_weather_alarms(project))
+            # FA-645: KNX Secure (KNX-Swiss-Leitfaden)
+            from .secure_checks import check_secure
+            issues.extend(check_secure(project))
             # FA-609, FA-611 bis FA-613: Topologie
             from .topology_validation import check_topology
             issues.extend(check_topology(project))

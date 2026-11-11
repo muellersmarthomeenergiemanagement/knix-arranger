@@ -153,7 +153,8 @@ class DocumentationService:
             )
             for idx, device in enumerate(devices):
                 dev_number = device.physical_address or f"#{idx + 1}"
-                for check_type, description in self._DEVICE_CHECKS:
+                for check_type, description in (self._DEVICE_CHECKS
+                                                 + self._extra_checks(device)):
                     checklist.items.append(ChecklistItem(
                         item_kind=ITEM_KIND_DEVICE,
                         check_type=check_type,
@@ -180,10 +181,12 @@ class DocumentationService:
             date=datetime.now().strftime("%Y-%m-%d"),
         )
         active_bes = [be for be in room.bedienelemente if not be.suppressed]
+        devices = self._devices_by_address()
         for be in active_bes:
             be_num = be.participant_number or ""
-            # Geräte-Grundprüfungen
-            for check_type, description in self._DEVICE_CHECKS:
+            # Geräte-Grundprüfungen und zusätzliche Prüfpunkte
+            extra = self._extra_checks(devices.get(be_num), be.element_type)
+            for check_type, description in self._DEVICE_CHECKS + extra:
                 checklist.items.append(ChecklistItem(
                     item_kind=ITEM_KIND_DEVICE,
                     check_type=check_type,
@@ -297,6 +300,36 @@ class DocumentationService:
     _DEVICE_CHECK_TEXT = ("montiert und beschriftet · physikalische Adresse · "
                           "Applikation geladen · Kommunikation")
 
+    # Zusätzliche Prüfpunkte nach der KNX-Swiss-Planungshilfe (Anhang 5.1,
+    # Checkliste KNX-Realisierung): Filtertabellen der Koppler aktivieren,
+    # KNX Secure aktivieren, Fühler und Messeinrichtungen kalibrieren
+    _FILTER_CHECK = ("Filtertabelle", "Filtertabelle aktiviert")
+    _SECURE_CHECK = ("KNX Secure", "KNX Secure aktiviert, Gerät danach neu geladen")
+    _CALIBRATION_CHECK = ("Kalibrierung", "Fühler und Messwerte kontrolliert, kalibriert")
+    _MEASURING_RE = re.compile(
+        r"thermostat|raumbedien|wetter|temperatur|f(ü|ue)hler|helligkeit|co2|co₂|"
+        r"luftqual|feuchte|pr(ä|ae)senz", re.IGNORECASE)
+
+    def _devices_by_address(self) -> dict:
+        return {d.physical_address: d for area in self.project.topology.areas
+                for line in area.lines for d in line.devices if d.physical_address}
+
+    def _extra_checks(self, device, element_type: str = "") -> list[tuple[str, str]]:
+        """Prüfpunkte je Gerät zusätzlich zur Grundprüfung."""
+        from ..models.topology import is_power_supply
+        checks = []
+        if device is not None and device.device_type == "coupler" and not is_power_supply(device):
+            checks.append(self._FILTER_CHECK)
+        secure = self.project.knx_secure
+        if device is not None and secure is not None and secure.enabled:
+            from .secure_checks import is_secure_device
+            if is_secure_device(device, self.project):
+                checks.append(self._SECURE_CHECK)
+        product = (device.product_name or device.product) if device is not None else ""
+        if self._MEASURING_RE.search(f"{element_type} {product}"):
+            checks.append(self._CALIBRATION_CHECK)
+        return checks
+
     # Ausdruck (PDF/Excel): eine Zeile je Taste, breite Bemerkungsspalte
     _CL_HEADERS = ["Taste", "Funktion", "Gruppenadressen", "OK", "Datum", "Visum",
                    "Bemerkung"]
@@ -345,6 +378,11 @@ class DocumentationService:
                 dev_keys = [(room.id, be.element_type, be_num, pt, "")
                             for pt, _ in self._DEVICE_CHECKS]
                 rows.append(("Gerät", "Grundprüfung", self._DEVICE_CHECK_TEXT, dev_keys))
+                device = builder.device_by_addr.get(be_num)
+                extra_rows = [("Gerät", description, "–",
+                               [(room.id, be.element_type, be_num, check_type, "")])
+                              for check_type, description
+                              in self._extra_checks(device, be.element_type)]
                 labels = {}
                 if be.function_assignments:
                     try:
@@ -385,7 +423,7 @@ class DocumentationService:
                         "–", f"Meldungen und Messwerte ({len(funcs)})",
                         "\n".join(r[2] for r in funcs if r[2] != "–") or "–",
                         [key for r in funcs for key in r[3]])]
-                device = builder.device_by_addr.get(be_num)
+                rows[1:1] = extra_rows
                 product = (device.product_name or device.product) if device else be.product_name
                 title = " · ".join(p for p in (be_num or "ohne Adresse",
                                                be.element_type or "Bedienelement", product) if p)
@@ -497,6 +535,10 @@ class DocumentationService:
                     keys = [(f"__verteiler__{location}", device.product or device.device_type,
                              number, pt, "") for pt, _ in self._DEVICE_CHECKS]
                     table.append([number, label, *mark(keys)])
+                    for check_type, description in self._extra_checks(device):
+                        key = (f"__verteiler__{location}", device.product or device.device_type,
+                               number, check_type, "")
+                        table.append(["", f"↳ {description}", *mark([key])])
                 pdf.add_table(["Adresse", "Gerät", "OK", "Datum", "Visum", "Bemerkung"],
                               table, col_widths=[0.09, 0.38, 0.05, 0.12, 0.07, 0.29])
 
@@ -579,6 +621,10 @@ class DocumentationService:
                     keys = [(f"__verteiler__{location}", device.product or device.device_type,
                              number, pt, "") for pt, _ in self._DEVICE_CHECKS]
                     rows.append(row_cells(keys, number, label, ""))
+                    for check_type, description in self._extra_checks(device):
+                        key = (f"__verteiler__{location}", device.product or device.device_type,
+                               number, check_type, "")
+                        rows.append(row_cells([key], "", f"↳ {description}", ""))
                 table(rows)
                 excel.add_empty_row(height=4)
 
@@ -874,7 +920,26 @@ class DocumentationService:
                 "Revisionsunterlagen (Berichte, Gruppenadressen)", "ETS-Projektdatei"]
         if project.knx_secure and project.knx_secure.enabled:
             docs.append("KNX-Secure-Archiv (vertraulich, separat)")
+            docs.append("ETS-Bericht «Projekt-Sicherheit» (vertraulich, separat)")
         pdf.add_paragraph("\n".join(f"[ ]  {d}" for d in docs))
+        # KNX-Swiss-Merkblatt ETS-Konfigurationsdatei: der Bauherr hat Anrecht
+        # auf die ETS-Datei; geregelt wird, wer sie aufbewahrt (Formular A/B)
+        pdf.add_heading("ETS-Projektdatei", level=3)
+        pdf.add_paragraph(
+            "[ ]  A: dem Bauherrn übergeben, inklusive Passwörter "
+            "(Datensicherung liegt beim Bauherrn)\n"
+            "[ ]  B: beim Integrator aufbewahrt; der Bauherr hat eine "
+            "Sicherheitskopie inklusive Passwörter erhalten")
+        pdf.add_note("Hinweis:", "Varianten gemäss KNX-Swiss-Merkblatt "
+                     "ETS-Konfigurationsdatei (Formular A bzw. B).")
+        # Übergabe gemäss KNX-Swiss-Planungshilfe, Anhang 5.2
+        pdf.add_heading("Übergabe", level=3)
+        pdf.add_paragraph("\n".join(f"[ ]  {d}" for d in (
+            "Physikalische Adressen an den Geräten beschriftet",
+            "Taster beschriftet",
+            "Bauherr instruiert: Bedienung, Szenen, Zeitprogramme, "
+            "Verhalten bei Stromunterbruch",
+            "Kontakt für den Kundendienst hinterlassen")))
 
         # Prüfergebnisse aus der Inbetriebnahme
         pdf.add_heading("Prüfergebnisse der Inbetriebnahme", level=2)
@@ -1296,10 +1361,12 @@ class DocumentationService:
 
         warnings = svc.check_mixed_lines(cfg, self.project)
         pdf.add_separator()
-        pdf.add_heading("Mischlinien-Warnungen", level=2)
+        pdf.add_heading("Linien im Mischbetrieb", level=2)
         if not warnings:
-            pdf.add_paragraph("Keine Mischlinien-Warnungen.")
+            pdf.add_paragraph("Keine Linie mit Secure- und Nicht-Secure-Geräten.")
         else:
+            pdf.add_paragraph("Mischbetrieb ist zulässig. Die Nicht-Secure-Geräte "
+                              "können nicht an gesicherten Gruppenadressen teilnehmen.")
             for w in warnings:
                 pdf.add_paragraph(f"• {w.message}")
 
