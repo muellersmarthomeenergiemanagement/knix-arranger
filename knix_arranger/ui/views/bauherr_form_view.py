@@ -1216,7 +1216,11 @@ class _TasterWidget(QFrame):
         layout.setSpacing(0)
 
         # ── Geräte-Header ─────────────────────────────────────────────────
-        pn   = be.participant_number or "–"
+        # Adresse und Positionsnummer «E05-01» (FA-1404b, geplant)
+        from ...services.position_numbers import PositionLabels
+        self._reference = PositionLabels(service.project).reference(
+            room, be, "", always=True)
+        pn   = self._reference or "–"
         name = service._device_product_name(be)
         mode = "Auto" if be.is_auto else "Manuell"
         te_idx = getattr(be, "taster_index", 1)
@@ -1430,7 +1434,7 @@ class _TasterWidget(QFrame):
         assigned = sum(1 for sf in self._be.funktionen if not sf.press_of
                        and (sf.gewerk_code or sf.ga_designation or sf.label))
         name = " ".join(p for p in (self._be.element_type or "Bedienelement",
-                                    self._be.participant_number) if p)
+                                    self._reference) if p)
         text = f"{name} entfernen?"
         if assigned:
             text += (f"\n\nSeine {assigned} belegte(n) Taste(n) gehen mit. Funktionen, die "

@@ -91,3 +91,17 @@ def test_saved_and_inherited():
     fresh = Bedienelement(element_type="Tastereinheit")
     _inherit(fresh, be)
     assert fresh.position_index == 3
+
+
+def test_views_always_show_the_position():
+    """Gebäudeansicht und Bauherrenberatung: Positionsnummer auch neben einer
+    eindeutigen Adresse (zum Beschriften der Pläne); aus Areal + Topologie."""
+    project, korridor, _schlafen = _project()
+    assign_position_numbers(project)
+    labels = PositionLabels(areal=project.areal, topology=project.topology)
+    melder = korridor.bedienelemente[2]
+    assert labels.reference(korridor, melder) == "1.1.13"
+    assert labels.reference(korridor, melder, always=True) == "1.1.13 · E05-03"
+    imported, korridor, _ = _project(imported=True)
+    assert PositionLabels(imported).reference(
+        korridor, korridor.bedienelemente[2], always=True) == "1.1.13"

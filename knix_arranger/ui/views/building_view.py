@@ -264,6 +264,9 @@ class BuildingView(QWidget):
             for be in room.bedienelemente
             if be.participant_number and not be.suppressed
         }
+        # Positionsnummer «E05-01» neben der Adresse (FA-1404b, geplant)
+        from ...services.position_numbers import PositionLabels
+        positions = PositionLabels(areal=self._areal, topology=self._topology)
 
         # Wizard-geplante (Gewerk-basierte) function_assignments speichern in
         # function_ga nur die GA-Bezeichnung, keine Adresse (siehe
@@ -401,7 +404,8 @@ class BuildingView(QWidget):
                                 )
                                 be_item = QTreeWidgetItem(
                                     room_item,
-                                    [be.element_type, row_type, be.participant_number,
+                                    [be.element_type, row_type,
+                                     positions.reference(room, be, "", always=True),
                                      f"{ch_info}, {len(be.function_assignments)} Funktionen"],
                                 )
                                 be_item.setData(0, Qt.UserRole, ("bedienelement", (be, room)))

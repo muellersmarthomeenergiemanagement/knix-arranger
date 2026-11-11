@@ -69,35 +69,48 @@ def assign_position_numbers(project) -> int:
 
 
 class PositionLabels:
-    """Anzeige je Bedienelement für Berichte: einmal je Bericht aufbauen."""
+    """Anzeige je Bedienelement: einmal je Bericht bzw. Ansicht aufbauen.
+    Aus dem Projekt oder (Gebäudeansicht) aus Areal und Topologie."""
 
-    def __init__(self, project):
-        self.project = project
-        self.planned = not project.topology.is_imported
+    def __init__(self, project=None, *, areal=None, topology=None):
+        areal = areal if project is None else project.areal
+        topology = topology if project is None else project.topology
+        self.planned = topology is None or not topology.is_imported
         self._floor_by_room = {}
-        if self.planned:
-            for floor in project.all_floors:
+        rooms = areal.all_rooms if areal is not None else []
+        if self.planned and areal is not None:
+            for floor in areal.all_floors:
                 for room in floor.all_rooms:
                     self._floor_by_room[room.id] = floor
-        shared = Counter(be.participant_number for r in project.all_rooms
+        shared = Counter(be.participant_number for r in rooms
                          for be in r.bedienelemente
                          if be.participant_number and not be.suppressed)
         self._shared = {pa for pa, n in shared.items() if n > 1}
         self._interfaces = {
-            d.physical_address for a in project.topology.areas for ln in a.lines
-            for d in ln.devices if d.physical_address and _INTERFACE_RE.search(
+            d.physical_address for a in (topology.areas if topology else [])
+            for ln in a.lines for d in ln.devices
+            if d.physical_address and _INTERFACE_RE.search(
                 f"{d.product or ''} {d.product_name or ''}")}
 
-    def number(self, room, be) -> str:
-        """Positionsnummer, wenn sie gezeigt werden soll, sonst ""."""
+    def label(self, room, be) -> str:
+        """«E05-01», "" ohne Nummer oder in importierten Projekten."""
         if not self.planned or not be.position_index:
-            return ""
-        pa = be.participant_number
-        if pa and pa not in self._shared and pa not in self._interfaces:
             return ""
         return f"{room_part(self._floor_by_room.get(room.id), room)}-{be.position_index:02d}"
 
-    def reference(self, room, be, missing: str = "Ohne Adresse") -> str:
-        """Kopf einer Gerätekarte: «1.1.12 · E05-01», «E05-01» oder missing."""
-        parts = [p for p in (be.participant_number, self.number(room, be)) if p]
+    def number(self, room, be) -> str:
+        """Positionsnummer für Berichte: nur wo die Adresse den Taster nicht
+        eindeutig bezeichnet, sonst ""."""
+        pa = be.participant_number
+        if pa and pa not in self._shared and pa not in self._interfaces:
+            return ""
+        return self.label(room, be)
+
+    def reference(self, room, be, missing: str = "Ohne Adresse",
+                  always: bool = False) -> str:
+        """«1.1.12 · E05-01», «E05-01» oder missing. always: Positionsnummer
+        auch neben einer eindeutigen Adresse (Ansichten der App, zum
+        Beschriften der Pläne)."""
+        position = self.label(room, be) if always else self.number(room, be)
+        parts = [p for p in (be.participant_number, position) if p]
         return " · ".join(parts) or missing
