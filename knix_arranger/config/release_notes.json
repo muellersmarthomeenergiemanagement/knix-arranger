@@ -2,6 +2,20 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.56",
+      "date": "2026-11-11",
+      "neu": [
+        "Positionsnummer der Bedienelemente nach den KNX-Swiss-Projektrichtlinien (10.7), z.B. «E05-01» = Raum E05, Taster 1: in geplanten Projekten je Raum fortlaufend und fest vergeben, auch nach dem Löschen eines Tasters rückt nichts nach. Gebäudeansicht und Bauherrenberatung zeigen sie neben der Adresse; die Berichte (Bedienelemente und Sensoren, Inbetriebnahme-Checkliste, Bedienungsanleitung) dort, wo die Adresse den Taster nicht eindeutig bezeichnet – ohne Adresse oder an einer Tasterschnittstelle.",
+        "Bedienungsanleitung mit Deckblatt wie die übrigen Berichte (Objektfoto, Bauherrschaft, Projektdaten), in der Sprache der Anleitung."
+      ],
+      "verbessert": [
+        "Deckblätter ohne erfasste Kundendaten zeigen keine leere Spalte «Auftraggeber» mehr."
+      ],
+      "behoben": [
+        "Inbetriebnahme-Checkliste: Gateways, die früher als Bedienelement eingelesen wurden (z.B. Vitogate als «Wassermelder»), stehen nach dem Öffnen nicht mehr mit ihren Prüfpunkten im Raum. Bereits abgezeichnete Geräteprüfungen gehen in die Verteiler-Checkliste über."
+      ]
+    },
+    {
       "version": "1.4.55",
       "date": "2026-11-11",
       "neu": [
