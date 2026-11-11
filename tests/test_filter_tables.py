@@ -130,3 +130,30 @@ def test_dummy_in_ets_lists_only_missing_gas():
     assert need.gas == ["12/0/100"] and need.couplers == ["1.2.0"]
     assert need.task == ("Dummy 1.1.200 mit 1 GA(s) verbinden: 12/0/100; "
                          "1.2.0 programmieren (Filtertabelle).")
+
+
+def test_invisible_at_interface_line():
+    """Live-Monitor (FA-3103): Schnittstelle in Linie 1.1 sieht GAs nicht, die
+    nur hinter LK 1.2.0 verknüpft sind (Chalet: 93 von 110 MM-GAs)."""
+    f = CouplerFilters.from_project(_project())
+    hidden = f.invisible_at("1.1", ["3/5/61", "3/5/76", "12/0/100", "0/5/7"])
+    assert hidden == {"3/5/76": ["1.2.0"], "12/0/100": ["1.2.0"]}
+    assert f.invisible_at("1.2", ["3/5/61", "3/5/76"]) == {}     # in der Linie selbst
+    assert CouplerFilters.from_project(_project(unfiltered="true")).invisible_at(
+        "1.1", ["3/5/76"]) == {}                                  # Koppler leitet weiter
+    # in die gekoppelte Linie hinein: der eigene LK sperrt, was dort nicht verknüpft ist
+    assert f.path_blockers("1.1", "1.2", "0/5/7") == ["1.2.0"]
+
+
+def test_visibility_text_for_live_monitor():
+    from knix_arranger.services.bus_access import visibility
+    project = _project()
+    project.group_addresses.main_groups[0].middle_groups[0].group_addresses.append(
+        GroupAddress(main_group=12, middle_group=0, sub_group=100, designation="Revox Text"))
+    result = visibility(project, "1.1.72")
+    assert result.line == "1.1" and set(result.hidden) == {"3/5/76", "12/0/100"}
+    assert result.text().startswith("Über diese Schnittstelle (Linie 1.1) nicht sichtbar: 2 GAs")
+    assert "Linienkoppler 1.2.0" in result.text()
+    assert result.by_coupler() == {"1.2.0": ["3/5/76", "12/0/100"]}
+    assert visibility(project, "15.15.250") is None      # Routing ohne Projektlinie
+    assert visibility(project, "") is None

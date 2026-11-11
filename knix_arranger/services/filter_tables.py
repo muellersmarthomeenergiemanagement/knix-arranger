@@ -118,6 +118,43 @@ class CouplerFilters:
                 add(f"{target}.0")
         return found
 
+    def path_blockers(self, source: str, target: str, ga: str) -> list[str]:
+        """Koppler, die ein Gruppentelegramm auf `ga` auf dem Weg von Linie
+        `source` zur Linie `target` ("B.L") aufhalten -- auch wenn in
+        `target` nichts mit der GA verknüpft ist (Messpunkt, Schnittstelle)."""
+        if ga in self.unfiltered or source == target:
+            return []
+        s_area, s_line = source.split(".")
+        t_area, t_line = target.split(".")
+        found = []
+        if s_line != "0" and source in self.line_couplers \
+                and not self.in_line_table(source, ga):
+            found.append(f"{source}.0")
+        if s_area != t_area:
+            if s_area in self.area_couplers and not self.in_area_table(s_area, ga):
+                found.append(f"{s_area}.0.0")
+            if t_area in self.area_couplers and not self.in_area_table(t_area, ga):
+                found.append(f"{t_area}.0.0")
+        if t_line != "0" and target in self.line_couplers \
+                and not self.in_line_table(target, ga):
+            found.append(f"{target}.0")
+        return found
+
+    def invisible_at(self, line: str, gas) -> dict[str, list[str]]:
+        """GAs, deren Telegramme die Linie `line` ("B.L", z.B. die Linie einer
+        Schnittstelle) nie erreichen, mit den sperrenden Kopplern: aus keiner
+        Linie, in der die GA verknüpft ist, kommt ein Telegramm durch. GAs
+        ohne Verknüpfung im Projekt bleiben aussen vor (nicht beurteilbar)."""
+        result = {}
+        for ga in gas:
+            sources = self.linked.get(ga, set())
+            if not sources or line in sources or ga in self.unfiltered:
+                continue
+            paths = [self.path_blockers(source, line, ga) for source in sorted(sources)]
+            if all(paths):
+                result[ga] = list(dict.fromkeys(c for path in paths for c in path))
+        return result
+
     def blocked(self, source: str, gas) -> dict[str, list[str]]:
         """GA -> sperrende Koppler, nur gesperrte GAs."""
         result = {}

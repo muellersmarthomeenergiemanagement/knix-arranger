@@ -174,6 +174,20 @@ class LiveMonitorView(QWidget):
             "Telegramme anderer Linien sieht die Schnittstelle nur, wenn der "
             "Linienkoppler sie durchlässt.")
         layout.addWidget(self._stats)
+        # GAs, die über diese Schnittstelle nie ankommen (Koppler sperrt)
+        hidden_row = QHBoxLayout()
+        self._hidden = QLabel()
+        self._hidden.setWordWrap(True)
+        self._hidden.setStyleSheet("color: #1565C0;")
+        self._hidden_btn = QPushButton("Liste…")
+        self._hidden_btn.setObjectName("secondary")
+        self._hidden_btn.clicked.connect(self._show_hidden)
+        hidden_row.addWidget(self._hidden, 1)
+        hidden_row.addWidget(self._hidden_btn)
+        layout.addLayout(hidden_row)
+        self._visibility = None
+        self._hidden.hide()
+        self._hidden_btn.hide()
 
         filters = QHBoxLayout()
         self._search = QLineEdit()
@@ -294,6 +308,8 @@ class LiveMonitorView(QWidget):
     def _on_state(self, state: str, text: str) -> None:
         if state == STATE_DISCONNECTED and self._state == STATE_ERROR:
             return          # Fehlermeldung stehen lassen
+        if state == STATE_CONNECTED:
+            self._update_visibility(self._connection.local_address)
         self._state = state
         labels = {STATE_CONNECTING: ("Verbinde mit {} …", "#1565C0"),
                   STATE_CONNECTED: ("Verbunden: {}", "#2E7D32"),
@@ -418,3 +434,39 @@ class LiveMonitorView(QWidget):
             self, "In Busanalyse übernommen",
             f"{summary['telegrams']} Telegramme als Mitschnitt «{summary['file']}» übernommen. "
             "Die Auswertung steht unter Bestand & Umbau › Busanalyse.")
+
+    # ── Nicht sichtbare GAs ──────────────────────────────────────────────
+
+    def _update_visibility(self, address: str) -> None:
+        from ...services.bus_access import visibility
+        try:
+            self._visibility = visibility(self._project, address)
+        except Exception:
+            self._visibility = None
+        text = self._visibility.text() if self._visibility else ""
+        self._hidden.setText(text)
+        self._hidden.setToolTip(
+            "Die ETS trägt eine GA nur in die Filtertabelle eines Kopplers ein, wenn sie "
+            "auch ausserhalb seiner Linie verknüpft ist. Sehen: Schnittstelle auf der "
+            "anderen Linie verwenden, den Koppler für die Fehlersuche auf «weiterleiten» "
+            "stellen oder die GAs auf dieser Linie mit einem Dummy verknüpfen.")
+        self._hidden.setVisible(bool(text))
+        self._hidden_btn.setVisible(bool(text))
+
+    def _show_hidden(self) -> None:
+        if not self._visibility or not self._visibility.hidden:
+            return
+        gas = self._context.gas if self._context else {}
+        lines = []
+        for couplers, addresses in self._visibility.by_coupler().items():
+            lines.append(f"Gesperrt durch {couplers}:")
+            for address in addresses:
+                ga = gas.get(address)
+                name = " ".join((ga.designation or "").split()) if ga else ""
+                lines.append(f"  {address}  {name}".rstrip())
+        box = QMessageBox(self)
+        box.setWindowTitle(f"Nicht sichtbar auf Linie {self._visibility.line}")
+        box.setText(self._visibility.text())
+        box.setDetailedText("\n".join(lines))
+        box.exec()
+

@@ -293,6 +293,7 @@ def test_connection_receives_telegram_from_tunnel_server():
         ("1.1.12", "1/0/1", "Write", "01")]
     assert "connected" in states and states[-1] == "disconnected"
     assert not connection.running
+    assert connection.local_address == "1.1.250"      # Tunneladresse der Schnittstelle
     # roher cEMI-Rahmen (L_Data.ind) für die Busanalyse
     assert len(raw) == 1 and raw[0][0].startswith("29")
     from knix_arranger.services.bus_access import live_recording
@@ -465,3 +466,22 @@ def test_stats_count_secure_without_key():
                                                  payload=GroupValueWrite(DPTBinary(1))))
     handler.handle_data_secure_key_issue(data, True)
     assert stats.secure_undecoded == 1 and "1 gesichert ohne Schlüssel" in stats.text()
+
+
+def test_live_monitor_shows_gas_the_interface_cannot_see(monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from tests.test_filter_tables import _project as chalet
+    view = _view(chalet())
+    view._connection.local_address = "1.1.72"
+    view._on_state("connected", "Tunnel · Test")
+    assert not view._hidden.isHidden()
+    assert "Linie 1.1) nicht sichtbar: 1 GAs" in view._hidden.text()
+    assert "1.2.0" in view._hidden.text()
+    shown = []
+    monkeypatch.setattr(QMessageBox, "exec", lambda box: shown.append(box.detailedText()))
+    view._show_hidden()
+    assert "Gesperrt durch 1.2.0:" in shown[0] and "3/5/76  Text1" in shown[0]
+    # Schnittstelle in der Linie des Revox: alles sichtbar
+    view._connection.local_address = "1.2.10"
+    view._on_state("connected", "Tunnel · Test")
+    assert view._hidden.isHidden()

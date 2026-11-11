@@ -303,6 +303,50 @@ def export_csv(rows: list[MonitorRow], path: str) -> int:
     return len(rows)
 
 
+# ── Was die Schnittstelle nicht sieht ──────────────────────────────────────
+
+@dataclass
+class Visibility:
+    """GAs, deren Telegramme die Linie der Schnittstelle nie erreichen
+    (Filtertabellen der Koppler, Regel FA-643)."""
+    line: str                                   # "1.1"
+    hidden: dict[str, list[str]] = field(default_factory=dict)  # GA -> Koppler
+
+    def by_coupler(self) -> dict[str, list[str]]:
+        from .report_sorting import group_address_key
+        result: dict[str, list[str]] = {}
+        for ga, couplers in self.hidden.items():
+            result.setdefault(", ".join(couplers), []).append(ga)
+        return {k: sorted(v, key=group_address_key) for k, v in sorted(result.items())}
+
+    def text(self) -> str:
+        if not self.hidden:
+            return ""
+        couplers = sorted({c for cs in self.hidden.values() for c in cs})
+        kind = "Koppler" if len(couplers) > 1 else (
+            "Bereichskoppler" if couplers[0].endswith(".0.0") else "Linienkoppler")
+        return (f"Über diese Schnittstelle (Linie {self.line}) nicht sichtbar: "
+                f"{len(self.hidden)} GAs – {kind} {', '.join(couplers)} lässt sie nicht "
+                "durch (Filtertabelle).")
+
+
+def visibility(project, address: str) -> Visibility | None:
+    """Welche GAs des Projekts an der Adresse `address` (Tunneladresse der
+    Schnittstelle) nie ankommen; None ohne verwertbare Adresse."""
+    from .filter_tables import CouplerFilters, line_of
+    line = line_of(address or "")
+    if not line or project is None:
+        return None
+    # nur Linien des Projekts (Routing ohne Adresse: 15.15.250 o.ä.)
+    lines = {f"{a.area_number}.{ln.line_number}" for a in project.topology.areas
+             for ln in a.lines}
+    if line not in lines:
+        return None
+    filters = CouplerFilters.from_project(project)
+    gas = [g.address for g in project.group_addresses.all_addresses()]
+    return Visibility(line, filters.invisible_at(line, gas))
+
+
 # ── Übernahme in die Busanalyse ────────────────────────────────────────────
 
 def live_recording(frames: list[tuple[str, datetime]], label: str = "",
@@ -434,6 +478,8 @@ class BusConnection:
         self._on_state = on_state
         self._on_raw = on_raw
         self.stats = ConnectionStats()
+        # eigene Adresse am Bus (Tunneladresse, z.B. "1.1.72"), sobald verbunden
+        self.local_address = ""
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stop: asyncio.Event | None = None
@@ -447,6 +493,7 @@ class BusConnection:
             return
         config = connection_config(settings, secrets)
         self.stats = ConnectionStats()
+        self.local_address = ""
         self._thread = threading.Thread(target=self._run, args=(config, settings.label()),
                                         name="knx-bus", daemon=True)
         self._thread.start()
@@ -496,6 +543,10 @@ class BusConnection:
                 if connected_once:
                     stats.reconnects += 1
                 connected_once = True
+                try:
+                    self.local_address = str(xknx.current_address)
+                except Exception:
+                    self.local_address = ""
             self._on_state(states.get(state, STATE_DISCONNECTED), label)
 
         xknx = XKNX(connection_config=config, telegram_received_cb=received,
