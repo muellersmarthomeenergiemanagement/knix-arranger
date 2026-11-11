@@ -822,8 +822,8 @@ class ReportService:
     def generate_ga_report(self, filepath: str):
         """Erzeugt die GA-Übersicht als PDF im Querformat.
 
-        Statistik, Übersicht Gewerk × Hauptgruppe, Prüfliste der GAs ohne
-        Aktor/Gerät und Bedienung, dann die Zentral- und Szenenadressen (HG 0)
+        Statistik, Prüfliste der GAs ohne Aktor/Gerät und Bedienung,
+        Übersicht Gewerk × Hauptgruppe, dann die Zentral- und Szenenadressen (HG 0)
         mit den betroffenen Gewerken und der Anzahl Aktoren, danach je
         Haupt-/Mittelgruppe jede GA mit Gewerk, Raum, Aktor (Kanal,
         Verteiler) und bedienenden Tastern/Sensoren (siehe ga_links).
@@ -870,8 +870,10 @@ class ReportService:
 
         main_groups = sorted(structure.main_groups, key=lambda h: h.number)
         used = [ga for ga in all_gas if not ga.is_placeholder]
-        self._ga_gewerk_overview(pdf, main_groups, used)
+        # Prüfliste (meist kurz) vor der Übersichtstabelle: füllt Seite 1
+        # unter der Statistik, die Tabelle bleibt am Stück
         self._ga_unconnected(pdf, used, links)
+        self._ga_gewerk_overview(pdf, main_groups, used)
 
         def dpt(ga) -> str:
             return dpt_number(ga.datapoint_type) or ga.datapoint_type or "-"
@@ -1058,6 +1060,8 @@ class ReportService:
         headers = ["Gewerk"] + [f"HG {n}" for n in hg_numbers] + ["Total"]
         n_cols = len(hg_numbers) + 1
         first = 0.34
+        # Übersicht als Ganzes: nicht mit einer Zeile unten auf Seite 1 beginnen
+        pdf.add_conditional_break(min_height=min(70 + 15 * len(rows), 420))
         pdf.add_heading("Gruppenadressen je Gewerk und Hauptgruppe", level=2)
         pdf.add_paragraph("  ".join(f"HG {n}: {names[n]}" for n in hg_numbers))
         pdf.add_table(headers, rows,
@@ -1960,11 +1964,6 @@ class ReportService:
         pdf.add_topology_diagram(diagram["areas"], diagram["backbone"],
                                  diagram["backbone_power"])
 
-        # ── Steigschema: Verlauf der Linien im Gebäudeschnitt (Querformat) ──
-        riser = build_riser_diagram(self.project)
-        if not riser.is_empty:
-            pdf.add_riser_diagram("Steigschema", riser)
-
         # ── Übersicht: Prinzipschema und Kennzahlen ─────────────────────────
         pdf.add_conditional_break(min_height=250)
         pdf.add_heading("Übersicht", level=2)
@@ -2047,6 +2046,13 @@ class ReportService:
                "angenommen. " if any_supply_assumed else "")
             + f"Über {RESERVE_LIMIT * 100:.0f} % fehlt Reserve für Erweiterungen. "
             "Spannungsabfall über die Leitungslänge ist nicht berücksichtigt.")
+
+        # ── Steigschema: Verlauf der Linien im Gebäudeschnitt (Querformat) ──
+        # nach der Übersicht: so füllt die Übersicht die erste Seite unter
+        # dem Diagramm, statt dass das Steigschema sie halb leer abschliesst
+        riser = build_riser_diagram(self.project)
+        if not riser.is_empty:
+            pdf.add_riser_diagram("Steigschema", riser)
 
         # ── Geräte nach Linie ────────────────────────────────────────────────
         widths = [0.10, 0.47, 0.20, 0.23]
@@ -2295,7 +2301,8 @@ class ReportService:
                       overview, col_widths=[0.27, 0.10, 0.16, 0.39, 0.08],
                       align=["left", "left", "left", "left", "right"])
         pdf.add_note("Hinweis:", "Das PDF enthält Lesezeichen nach Stockwerk, Raum "
-                                 "und Gerät. Jeder Raum beginnt auf einer neuen Seite.")
+                                 "und Gerät. Jeder Raum beginnt auf einer neuen Seite, "
+                                 "der erste bei genug Platz direkt nach der Übersicht.")
 
         # ── Mehrfach verknüpfte Sensorkanäle (FA-614) ────────────────────────
         from .multi_ga_check import find_multi_ga, VERDICT_RUECKMELDUNG
@@ -2324,8 +2331,12 @@ class ReportService:
 
         # ── Stockwerk → Raum → Gerät ─────────────────────────────────────────
         current_floor = None
-        for room, bes in entries:
-            pdf.add_page_break()
+        for index, (room, bes) in enumerate(entries):
+            # erster Raum auf der (oft kaum gefüllten) Restseite der Übersicht
+            if index == 0:
+                pdf.add_conditional_break(min_height=400)
+            else:
+                pdf.add_page_break()
             floor = floor_by_room.get(room.id, "") or "Ohne Stockwerk"
             if floor != current_floor:
                 pdf.add_heading(floor, level=2)

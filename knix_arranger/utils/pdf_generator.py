@@ -27,6 +27,39 @@ from .fonts import (
     finalize_pdf as _finalize_pdf, licensee_note as _licensee_note,
 )
 
+_IMAGE_CACHE: dict[tuple, bytes] = {}
+
+
+def _image_source(path: str, max_px: int) -> dict:
+    """Bild für insert_image, auf höchstens max_px Pixel (längere Seite)
+    verkleinert. Logos kommen oft in Druckauflösung (Firmenlogo 6548 × 2511
+    Pixel, 482 KB in jedem Bericht) und werden nur wenige Zentimeter gross
+    gedruckt. Rückgabe {"stream": ...} oder bei Fehlern {"filename": path}."""
+    try:
+        key = (path, os.path.getmtime(path), max_px)
+        if key not in _IMAGE_CACHE:
+            pix = fitz.Pixmap(path)
+            if max(pix.width, pix.height) <= max_px:
+                with open(path, "rb") as fh:
+                    _IMAGE_CACHE[key] = fh.read()
+            else:
+                scale = max_px / max(pix.width, pix.height)
+                if pix.colorspace and pix.colorspace.n == 4:      # CMYK
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                pix = fitz.Pixmap(pix, max(1, round(pix.width * scale)),
+                                  max(1, round(pix.height * scale)))
+                _IMAGE_CACHE[key] = (pix.tobytes("png") if pix.alpha
+                                     else pix.tobytes("jpg", jpg_quality=88))
+        return {"stream": _IMAGE_CACHE[key]}
+    except Exception as exc:
+        logger.debug(f"Bild nicht verkleinert ({path}): {exc}")
+        return {"filename": path}
+
+
+LOGO_MAX_PX = 900      # ~250 dpi bei 90 pt Breite
+PHOTO_MAX_PX = 1800
+
+
 # Akzentfarben für den Abschnittsbalken am linken Rand
 ACCENT_DEFAULT = (0.37, 0.63, 0.15)   # KNX-Grün
 ACCENT_ERROR   = (0.80, 0.16, 0.16)   # Rot
@@ -59,7 +92,8 @@ class PdfGenerator:
     PAGE_W  = 595
     PAGE_H  = 842
     MARGIN  = 50
-    HEADER_H = 82
+    HEADER_H = 62          # voller Firmenkopf (erste Inhaltsseite)
+    COMPACT_HEADER_H = 24  # Kopfzeile der Folgeseiten
     FOOTER_H = 25
 
     # Tabellen-Maße
@@ -382,6 +416,7 @@ class PdfGenerator:
         self._cur_page = None
         self._toc: list[list] = []
         self._heading_level = 0   # Lesezeichen der Gerätekarten eine Ebene tiefer
+        self._content_pages = 0   # erste Inhaltsseite: voller Firmenkopf
         cover_offset = 1 if self._client_profile is not None else 0
 
         # Deckblatt (falls Kundenprofil vorhanden)
@@ -401,7 +436,10 @@ class PdfGenerator:
                 page, y = self._new_page(doc)
 
             if btype == "page_break":
-                page, y = self._new_page(doc)
+                # auf einer noch leeren Seite (z.B. nach dem Steigschema) kein
+                # zweiter Umbruch -- sonst bleibt eine Seite nur mit Kopf
+                if abs(y - self._fresh_y) >= 0.5:
+                    page, y = self._new_page(doc)
 
             elif btype == "separator":
                 if y + 10 > bottom:
@@ -763,7 +801,7 @@ class PdfGenerator:
         Höchstens vier Bereiche nebeneinander, weitere in der nächsten Reihe.
         Eine Reihe, die höher als eine Seite ist, wird verkleinert."""
         colors = self._DIAGRAM_COLORS
-        top = self.MARGIN + self.HEADER_H + 10
+        top = 20 + self.COMPACT_HEADER_H + 12   # Folgeseite (schmaler Kopf)
         bottom = self.PAGE_H - self.MARGIN - self.FOOTER_H
         areas, backbone = block["areas"], block["backbone"]
         backbone_power = block.get("backbone_power")
@@ -937,6 +975,7 @@ class PdfGenerator:
         self._close_section_bar(self.PAGE_H - self.MARGIN - self.FOOTER_H)
         if page.number == len(doc) - 1 and abs(y - self._fresh_y) < 0.5:
             doc.delete_page(len(doc) - 1)
+            self._content_pages -= 1   # die Ersatzseite trägt den vollen Kopf
         self.PAGE_W, self.PAGE_H = self.__class__.PAGE_H, self.__class__.PAGE_W
         page, y = self._new_page(doc)
         self._sec_title, self._sub_title, self._accent = "", "", None
@@ -1038,7 +1077,7 @@ class PdfGenerator:
             try:
                 page.insert_image(
                     fitz.Rect(px0, y - 4, self.PAGE_W - self.MARGIN, y - 4 + self.PHOTO_H),
-                    filename=photo, keep_proportion=True)
+                    **_image_source(photo, PHOTO_MAX_PX), keep_proportion=True)
             except Exception:
                 show_photo = False
         # Rahmen wie ein Tasterrahmen
@@ -1263,77 +1302,139 @@ class PdfGenerator:
 
     # ── Header ────────────────────────────────────────────────────────────────
 
+    def _fit(self, text: str, fontsize: float, max_w: float, bold: bool = False) -> str:
+        """Text auf max_w kürzen («…»), damit Kopfangaben sich nicht überlagern."""
+        if max_w <= 0 or self._tw(text, fontsize, bold) <= max_w:
+            return text if max_w > 0 else ""
+        while text and self._tw(text + "…", fontsize, bold) > max_w:
+            text = text[:-1]
+        return text.rstrip() + "…" if text else ""
+
+    def _draw_logo(self, page, x: float, y: float, w: float, h: float) -> float:
+        """Logo einsetzen; gibt die belegte Breite zurück (0 ohne Logo)."""
+        if not (self.logo_path and os.path.exists(self.logo_path)):
+            return 0.0
+        try:
+            page.insert_image(fitz.Rect(x, y, x + w, y + h),
+                              **_image_source(self.logo_path, LOGO_MAX_PX),
+                              keep_proportion=True)
+            return w
+        except Exception:
+            return 0.0
+
     def _draw_header(self, page) -> float:
-        """
-        Kopfbereich (FA-855/857):
-        Links: Logo + Firmenname, Adresse, Kontakt
-        Rechts: Projektname, Kunde, Objekt, Datum
-        """
+        """Kopfbereich (FA-855/857). Die erste Inhaltsseite trägt den vollen
+        Firmenkopf (links Logo, Firma, Adresse, Kontakt; rechts Projekt,
+        Kunde, Objekt, Datum), die Folgeseiten nur eine schmale Kopfzeile
+        mit Firma, Projekt und Berichtstitel -- der volle Kopf kostete auf
+        jeder Seite gut ein Achtel der Fläche."""
+        self._content_pages = getattr(self, "_content_pages", 0) + 1
+        if self._content_pages > 1:
+            return self._draw_compact_header(page)
         margin = self.MARGIN
         y_top  = 20.0
-        logo_w = 80.0
-        header_bottom = y_top + self.HEADER_H
-
-        # KNX-grüne Trennlinie
-        page.draw_line(
-            fitz.Point(margin, header_bottom),
-            fitz.Point(self.PAGE_W - margin, header_bottom),
-            color=(0.37, 0.63, 0.15), width=1.5,
-        )
-
-        x_left = margin
-        if self.logo_path and os.path.exists(self.logo_path):
-            try:
-                page.insert_image(
-                    fitz.Rect(x_left, y_top, x_left + logo_w, y_top + 50),
-                    filename=self.logo_path, keep_proportion=True,
-                )
-                x_left += logo_w + 10
-            except Exception:
-                pass
-
-        # Firmeninfos links
-        y = y_top + 12
-        if self.company:
-            self._txt(page, fitz.Point(x_left, y), self.company,
-                      11, bold=True, color=(0.15, 0.15, 0.15))
-            y += 15
-        if self.company_address:
-            self._txt(page, fitz.Point(x_left, y), self.company_address,
-                      8, color=(0.4, 0.4, 0.4))
-            y += 12
-        contact = " | ".join(p for p in [self.company_phone, self.company_email] if p)
-        if contact:
-            self._txt(page, fitz.Point(x_left, y), contact,
-                      8, color=(0.4, 0.4, 0.4))
-
-        # Projektinfos rechts (rechtsbündig)
         right_x = self.PAGE_W - margin
-        yr = y_top + 12
 
+        # Projektinfos rechts (rechtsbündig): zuerst messen, die Firmen-
+        # angaben links erhalten den restlichen Platz. Projektnummer auf
+        # eigener Zeile, damit der Block schmal bleibt.
         proj_label = self.project_name
-        if self.project_number:
-            proj_label += f"  |  Nr. {self.project_number}"
+        right_lines = [f"Nr. {self.project_number}"] if self.project_number else []
+        right_lines += [f"{label}: {value}" for label, value in [
+            (self.labels["customer"], self.client_name),
+            (self.labels["object"], self.project_address),
+            (self.labels["date"], self.project_date),
+        ] if value]
+        max_right = self.content_width * 0.5
+        proj_label = self._fit(proj_label, 9.5, max_right, bold=True)
+        right_lines = [self._fit(t, 8, max_right) for t in right_lines]
+        right_w = max([self._tw(proj_label, 9.5, bold=True) if proj_label else 0.0]
+                      + [self._tw(t, 8) for t in right_lines])
+
+        yr = y_top + 12
         if proj_label:
             tw = self._tw(proj_label, 9.5, bold=True)
             self._txt(page, fitz.Point(right_x - tw, yr), proj_label,
                       9.5, bold=True, color=(0.15, 0.15, 0.15))
             yr += 14
-
-        for label, value in [
-            (self.labels["customer"], self.client_name),
-            (self.labels["object"], self.project_address),
-            (self.labels["date"], self.project_date),
-        ]:
-            if not value:
-                continue
-            lbl = f"{label}: {value}"
+        for lbl in right_lines:
             tw = self._tw(lbl, 8)
             self._txt(page, fitz.Point(right_x - tw, yr), lbl,
                       8, color=(0.4, 0.4, 0.4))
             yr += 12
 
+        x_left = margin
+        logo_w = self._draw_logo(page, x_left, y_top, 80.0, 50.0)
+        if logo_w:
+            x_left += logo_w + 10
+        left_w = right_x - right_w - 16 - x_left
+
+        # Firmeninfos links
+        y = y_top + 12
+        if self.company:
+            # passt nicht: kleiner und auf zwei Zeilen umbrechen, erst dann kürzen
+            if self._tw(self.company, 11, True) <= left_w:
+                size, name_lines = 11, [self.company]
+            else:
+                size = 10
+                # _wrap_lines misst in normaler Schrift; fett ist breiter
+                name_lines = (self._wrap_lines(self.company, left_w * 0.9, size)[:2]
+                              or [self.company])
+            for text in name_lines:
+                self._txt(page, fitz.Point(x_left, y), self._fit(text, size, left_w, True),
+                          size, bold=True, color=(0.15, 0.15, 0.15))
+                y += size + 2
+            y += 3
+        lines = [self.company_address] if self.company_address else []
+        contact = " | ".join(p for p in [self.company_phone, self.company_email] if p)
+        if contact and self._tw(contact, 8) > left_w:
+            lines += [p for p in [self.company_phone, self.company_email] if p]
+        elif contact:
+            lines.append(contact)
+        for text in lines:
+            self._txt(page, fitz.Point(x_left, y), self._fit(text, 8, left_w),
+                      8, color=(0.4, 0.4, 0.4))
+            y += 11
+
+        # KNX-grüne Trennlinie unter dem längeren der beiden Blöcke
+        header_bottom = max(y_top + self.HEADER_H, y - 4, yr - 4,
+                            y_top + 50 + 6 if logo_w else 0)
+        page.draw_line(
+            fitz.Point(margin, header_bottom),
+            fitz.Point(right_x, header_bottom),
+            color=(0.37, 0.63, 0.15), width=1.5,
+        )
         return header_bottom + 12
+
+    def _draw_compact_header(self, page) -> float:
+        """Schmale Kopfzeile der Folgeseiten: kleines Logo und Firma links,
+        Projekt und Berichtstitel rechts."""
+        margin = self.MARGIN
+        y_top = 20.0
+        bottom = y_top + self.COMPACT_HEADER_H
+        right_x = self.PAGE_W - margin
+        page.draw_line(fitz.Point(margin, bottom), fitz.Point(right_x, bottom),
+                       color=(0.37, 0.63, 0.15), width=1.0)
+        base = y_top + 14
+        right = "  ·  ".join(p for p in (self.project_name, self.title) if p)
+        right = self._fit(right, 8, self.content_width * 0.6)
+        right_w = self._tw(right, 8) if right else 0.0
+        if right:
+            self._txt(page, fitz.Point(right_x - right_w, base), right,
+                      8, color=(0.4, 0.4, 0.4))
+        x = margin
+        logo_w = self._draw_logo(page, x, y_top, 44.0, 18.0)
+        if logo_w:
+            x += logo_w + 8
+        # Firma nur vollständig; passt sie nicht, genügt das Logo
+        avail = right_x - right_w - 16 - x
+        company = self.company
+        if company and logo_w and self._tw(company, 8.5, True) > avail:
+            company = ""
+        if company:
+            self._txt(page, fitz.Point(x, base), self._fit(company, 8.5, avail, True),
+                      8.5, bold=True, color=(0.25, 0.25, 0.25))
+        return bottom + 12
 
     # ── Footer ────────────────────────────────────────────────────────────────
 
@@ -1411,7 +1512,7 @@ class PdfGenerator:
             try:
                 page.insert_image(
                     fitz.Rect(x_left, y_co, x_left + logo_w, y_co + 55),
-                    filename=self.logo_path, keep_proportion=True,
+                    **_image_source(self.logo_path, LOGO_MAX_PX), keep_proportion=True,
                 )
                 x_left += logo_w + 12
             except Exception:
@@ -1457,7 +1558,7 @@ class PdfGenerator:
                 pdf_rotation = (360 - qt_rotation) % 360
                 page.insert_image(
                     fitz.Rect(M, photo_top, M + photo_w, photo_bottom),
-                    filename=cp.photo_path,
+                    **_image_source(cp.photo_path, PHOTO_MAX_PX),
                     rotate=pdf_rotation,
                 )
                 photo_drawn = True

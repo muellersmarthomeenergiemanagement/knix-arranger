@@ -9,6 +9,9 @@ installierte Inter bzw. zuletzt auf Helvetica zurückgefallen.
 from __future__ import annotations
 import os
 import re
+import logging
+
+logger = logging.getLogger("knix_arranger.fonts")
 
 _BUNDLED_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "fonts")
 
@@ -75,7 +78,15 @@ def finalize_pdf(doc) -> None:
     """Vor dem Speichern jedes PDFs mit Inter aufrufen: bereinigt die
     ToUnicode-Tabellen (Textsuche, Kopieren), öffnet die Lesezeichen-
     Leiste beim Öffnen, sofern Lesezeichen vorhanden sind, und trägt
-    Programm und Lizenznehmer in die Dokumenteigenschaften ein."""
+    Programm und Lizenznehmer in die Dokumenteigenschaften ein.
+
+    Zuerst werden die Schriften auf die verwendeten Zeichen reduziert
+    (Inter vollständig eingebettet: ~400 KB je Bericht). Danach erst die
+    ToUnicode-Bereinigung, weil das Reduzieren die Tabellen neu schreibt."""
+    try:
+        doc.subset_fonts()
+    except Exception as exc:          # nur Grösse, kein Grund zum Abbruch
+        logger.debug(f"Schriften nicht reduziert: {exc}")
     for xref in range(1, doc.xref_length()):
         try:
             kind, value = doc.xref_get_key(xref, "ToUnicode")

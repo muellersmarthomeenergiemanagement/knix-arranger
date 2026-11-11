@@ -18,6 +18,7 @@ from ..models.documentation import (
 )
 from ..utils.pdf_generator import PdfGenerator
 from .report_sorting import physical_address_key, sorted_rooms
+from .room_sheet import TECH_PREFIX_RE
 from ..utils.excel_generator import ExcelGenerator, HAS_OPENPYXL
 
 logger = logging.getLogger("knix_arranger.documentation")
@@ -298,7 +299,9 @@ class DocumentationService:
     # Ausdruck (PDF/Excel): eine Zeile je Taste, breite Bemerkungsspalte
     _CL_HEADERS = ["Taste", "Funktion", "Gruppenadressen", "OK", "Datum", "Visum",
                    "Bemerkung"]
-    _CL_PDF_WIDTHS = [0.08, 0.21, 0.25, 0.05, 0.12, 0.07, 0.22]
+    # Funktion und GAs breit (sonst 3-4 Zeilen je Prüfpunkt), Datum für
+    # «14.10.2026» (erfasst bzw. von Hand), Bemerkung für eine kurze Notiz
+    _CL_PDF_WIDTHS = [0.07, 0.26, 0.30, 0.05, 0.12, 0.07, 0.13]
     _CL_XL_WIDTHS = [13, 30, 42, 11, 11, 8, 40]  # A–G in Zeichen
     _XL_CENTER_COLS = [4, 5, 6]           # OK, Datum, Visum zentrieren
     _XL_WRAP_COLS = [2, 3, 7]
@@ -365,7 +368,9 @@ class DocumentationService:
                 for row in group_assignments(be.function_assignments, builder._resolve):
                     if row.key is None:
                         k = ("~", row.name)
-                        taste, function = "–", row.name
+                        # technischen Vorsatz weglassen (wie im Raumbuch):
+                        # "1_1_CU401B_G__ / Verdichter" -> "Verdichter"
+                        taste, function = "–", TECH_PREFIX_RE.sub("", row.name) or row.name
                     else:
                         k = (row.key.number, row.key.side, row.key.variant)
                         taste = row.key.label()
@@ -441,7 +446,11 @@ class DocumentationService:
         current_floor = None
         for floor, room_label, cards in self._checklist_sections():
             if floor != current_floor:
-                pdf.add_page_break()
+                # erstes Stockwerk direkt unter der Einleitung (sonst S. 1 leer)
+                if current_floor is None:
+                    pdf.add_conditional_break(min_height=300)
+                else:
+                    pdf.add_page_break()
                 pdf.add_heading(floor, level=2)
                 current_floor = floor
             else:
@@ -459,13 +468,16 @@ class DocumentationService:
         if self.project.dali_configs:
             from .dali_service import DaliService
             svc = DaliService()
-            pdf.add_page_break()
-            pdf.add_heading("DALI Notbeleuchtung", level=2)
-            for gw in self.project.dali_configs.values():
-                rows = [[d["category"], d["text"], "", "[ ]", "", "", ""]
-                        for d in svc.generate_emergency_checklist_items(gw)]
-                if rows:
-                    pdf.add_table(self._CL_HEADERS, rows, col_widths=self._CL_PDF_WIDTHS)
+            # nur mit Prüfpunkten (Gateways ohne Notleuchten: keine leere Seite)
+            tables = [rows for rows in (
+                [[d["category"], d["text"], "", "[ ]", "", "", ""]
+                 for d in svc.generate_emergency_checklist_items(gw)]
+                for gw in self.project.dali_configs.values()) if rows]
+            if tables:
+                pdf.add_page_break()
+                pdf.add_heading("DALI Notbeleuchtung", level=2)
+            for rows in tables:
+                pdf.add_table(self._CL_HEADERS, rows, col_widths=self._CL_PDF_WIDTHS)
 
         # Verteiler: eine Zeile je Gerät
         verteiler = self._verteiler_devices_by_location()
