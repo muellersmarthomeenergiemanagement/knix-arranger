@@ -2,6 +2,32 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.53",
+      "date": "2026-11-11",
+      "verbessert": [
+        "Berichte zählen Busteilnehmer überall gleich: Geräte mit physikalischer Adresse inkl. Koppler, ohne Spannungsversorgungen; Geräte ausserhalb des ETS-Projekts (z.B. Z-Server) stehen getrennt («71 + 1 nicht im ETS-Projekt»). Gilt für Zusammenfassung, Abnahmeprotokoll, Anlagen-Check, Topologie-Bericht, Steigschema und KNX-Secure-Bericht.",
+        "Projektzusammenfassung: Busteilnehmer je Stockwerk aus der Topologie, Bereiche und Linien nur mit Geräten, dazu Bauherr und Objekt.",
+        "Kopf und Fuss: voller Firmenkopf nur auf der ersten Seite, Folgeseiten mit schmaler Kopfzeile (Projekt und Berichtstitel); der Berichtstitel steht im Fuss jeder Seite. Projekt, Bauherr und Objekt kommen bei Bedarf aus dem Kundenprofil.",
+        "PDF-Berichte sind deutlich kleiner (Schriften und Logo in Druckauflösung, z.B. 976 → 166 KB) und haben weniger fast leere Seiten.",
+        "ETS-Arbeitsliste: Erledigtes als Übersicht je Datum, einzeln nur die letzte Runde (vollständig im Excel); Abschnitte fortlaufend nummeriert; Einleitung passend für geplante Projekte.",
+        "Validierung: Lücken im Adressblock eine Zeile je Mittelgruppe, Befehl und Rückmeldung mit gleichem Namen (MG 0/1 und 6/7) gelten nicht mehr als Doppelname, eigenes Namensschema wird in der Zusammenfassung getrennt ausgewiesen.",
+        "KNX-Secure-Bericht: nur Secure-fähige Geräte und erfasste FDSK, übrige als Anzahl.",
+        "Inbetriebnahme-Checkliste: breitere Spalten (weniger Seiten), ein Prüfpunkt je Sensor für Meldungen und Messwerte, ohne technischen KO-Vorsatz.",
+        "Abnahmeprotokoll: Räume mit Stockwerk in Gebäude-Reihenfolge.",
+        "Bedienungsanleitung: Präsenzmelder und Binäreingänge mit verständlichem Satz statt «arbeitet automatisch»; Tasten in geplanten Projekten heissen nach dem Element («Licht Decke») statt nach dem Raum.",
+        "DALI-Bericht: Gruppen mit Leuchtenbezeichnung, leere Spalten entfallen. GA-Übersicht: Gewerk-Kürzel aus dem ETS-Projekt, die der Katalog nicht kennt, als «eigenes Kürzel» mit Hinweis.",
+        "Steigschema: Raumnamen auf zwei Zeilen statt abgeschnitten."
+      ],
+      "behoben": [
+        "GA-Übersicht zeigte die Mittelgruppen-Variante A statt der eingestellten Variante B.",
+        "Präsenzmelder (z.B. Theben compact office, Steinel pirios) und Binäreingänge waren als Aktor eingelesen und erschienen unter «Freie Kanäle»; sie werden beim Öffnen als Sensor eingeordnet.",
+        "Abnahmeprotokoll ohne Integrator, wenn das Protokoll vor dem Firmenprofil angelegt wurde.",
+        "Im Firmenkopf überlagerten sich lange Firmen- und Projektnamen.",
+        "Gateways mit einem früher angelegten Bedienelement (z.B. Vitogate als «Wassermelder») erschienen in Checkliste und Anleitung.",
+        "Szenenreport und Zeitsteuerungsplan ohne Daten erzeugen kein leeres PDF mehr, sondern einen Hinweis."
+      ]
+    },
+    {
       "version": "1.4.52",
       "date": "2026-11-10",
       "neu": [
