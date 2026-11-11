@@ -2,6 +2,19 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.55",
+      "date": "2026-11-11",
+      "neu": [
+        "Validierung nach den KNX-Swiss-Projektrichtlinien: mehrere Spannungsversorgungen einer Linie mit zusammen über 1280 mA (FA-613c), IP-Router ohne KNX Secure (FA-645d, Hinweis), IP-Linienkoppler unter einem IP-Bereichskoppler (FA-646)."
+      ],
+      "verbessert": [
+        "Busstrom zu hoch (FA-613b): Der Rat lautet jetzt «stärkere Spannungsversorgung, höchstens 1280 mA» statt «zweite Spannungsversorgung»."
+      ],
+      "behoben": [
+        "Variante B: Photovoltaik, Wallbox und Stromspeicher erhielten ihre GAs in Mittelgruppe 6, die den Licht-Rückmeldungen vorbehalten ist. Neu Mittelgruppe 5; bestehende GAs bleiben stehen, die Validierung (FA-607) meldet sie, «Neu ordnen» verschiebt sie."
+      ]
+    },
+    {
       "version": "1.4.54",
       "date": "2026-11-11",
       "neu": [
