@@ -2,6 +2,24 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.54",
+      "date": "2026-11-11",
+      "neu": [
+        "Validierung prüft KNX Secure nach dem KNX-Swiss-Leitfaden «Sichere Gebäudeinformatik»: gesicherte GA an einem Gerät ohne Secure (FA-645), Secure-Geräte hinter einem Koppler ohne Secure (FA-645b), IP Secure nicht an allen IP-Routern (FA-645c).",
+        "Inbetriebnahme-Checkliste mit den Prüfpunkten der KNX-Swiss-Planungshilfe: Filtertabelle aktiviert (Koppler), KNX Secure aktiviert und Gerät neu geladen (Secure-Geräte), Fühler und Messwerte kalibriert (Thermostate, Wetterstation, Präsenzmelder, Fühler).",
+        "Abnahmeprotokoll: Handhabung der ETS-Projektdatei nach KNX-Swiss-Merkblatt zum Ankreuzen (A: übergeben inkl. Passwörter, B: beim Integrator aufbewahrt), Übergabepunkte (Adressen und Taster beschriftet, Bauherr instruiert, Kundendienst-Kontakt), bei KNX Secure der ETS-Bericht «Projekt-Sicherheit» als Unterlage.",
+        "Bedienungsanleitung: Verhalten nach einem Stromunterbruch unter «Wenn etwas nicht funktioniert» (de/fr/it/en)."
+      ],
+      "verbessert": [
+        "Topologie-Diagramm (Ansicht und Bericht): Hauptlinie waagrecht, Linien hängen nebeneinander darunter; mehrere Bereiche untereinander an der Bereichslinie.",
+        "GA-Sicherheit automatisch vorschlagen setzt GAs, die mit Geräten ohne KNX Secure verknüpft sind, nicht mehr auf «Ein» und nennt ihre Zahl.",
+        "KNX Secure: Linien mit Secure- und Nicht-Secure-Geräten sind ein Hinweis «Mischbetrieb» statt einer Warnung – Mischbetrieb ist zulässig."
+      ],
+      "behoben": [
+        "Topologie-Diagramm zeigte den leeren Bereich 0 und die leere Linie B.0 aus dem ETS-Import."
+      ]
+    },
+    {
       "version": "1.4.53",
       "date": "2026-11-11",
       "verbessert": [
