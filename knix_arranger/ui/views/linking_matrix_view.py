@@ -552,7 +552,7 @@ class LinkingMatrixView(QWidget):
         try:
             from ...services.belegungsplan_export_service import BelegungsplanExportService
             cp = getattr(self._project, "company_profile", None)
-            pi = getattr(self._project, "project_info", None)
+            pi = self._project.report_info()
             BelegungsplanExportService().export_pdf(self._belegungsplan, path, cp, pi)
             QMessageBox.information(self, "Export erfolgreich",
                 f"Belegungsplan exportiert:\n{path}")

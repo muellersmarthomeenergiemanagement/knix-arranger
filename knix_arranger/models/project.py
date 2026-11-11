@@ -208,6 +208,20 @@ class KnxProject:
     )
     _file_path: str = field(default="", repr=False, compare=False)
 
+    def report_info(self) -> ProjectInfo:
+        """Kopfdaten der Berichte: die Projektangaben (FA-853), fehlende Felder
+        aus Projektname/-nummer und Kundenprofil (Bauherr, Objekt). Importierte
+        Projekte haben oft nur den Namen und das Kundenprofil."""
+        info = self.project_info
+        client = self.client_profile
+        return ProjectInfo(
+            project_name=info.project_name or self.name,
+            project_number=info.project_number or self.project_number,
+            client_name=info.client_name or (client.name if client else ""),
+            project_address=info.project_address or (client.object_address if client else ""),
+            date=info.date,
+        )
+
     @property
     def folder_path(self) -> str | None:
         """Ordner der gespeicherten Projektdatei (für Berichte/Revisionen, FA-1601)."""

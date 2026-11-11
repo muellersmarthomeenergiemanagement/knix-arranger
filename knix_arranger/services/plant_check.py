@@ -71,6 +71,7 @@ def run_check(project, validation_counts: tuple[int, int] | None = None) -> list
     from .bus_current import is_consumer, line_current, shared_catalog_or_none
     from .ko_links import TRANSMIT, parse_flags
     from .line_segments import segment_load
+    from ..models.topology import is_bus_device
     items: list[CheckItem] = []
     devices = _devices(project)
     consumers = [d for d in devices if is_consumer(d)]
@@ -151,12 +152,14 @@ def run_check(project, validation_counts: tuple[int, int] | None = None) -> list
             "mit einem Busmonitor-Mitschnitt prüfen." if no_sender else "", "bus_analysis"))
 
     # ── Geräte ───────────────────────────────────────────────────────────
-    knx = [d for d in consumers if not d.external and d.device_type != "coupler"]
+    # Zählregel Busteilnehmer (models.topology.count_bus_devices): Koppler
+    # zählen mit, Geräte ausserhalb des ETS-Projekts stehen oben unter Topologie
+    knx = [d for d in devices if is_bus_device(d) and not d.external]
     by_type = defaultdict(int)
     for d in knx:
         by_type[d.device_type] += 1
     labels = {"actor": "Aktoren", "sensor": "Sensoren", "gateway": "Gateways",
-              "other": "weitere"}
+              "coupler": "Koppler", "other": "weitere"}
     items.append(CheckItem("Geräte", "Busteilnehmer", f"{len(knx)} (" + ", ".join(
         f"{n} {labels.get(t, t)}" for t, n in sorted(by_type.items(), key=lambda kv: -kv[1]))
         + ")", INFO, "", "topology"))

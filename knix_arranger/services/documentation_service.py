@@ -72,7 +72,7 @@ class DocumentationService:
         return PdfGenerator(
             title=title,
             company_profile=self._company_profile,
-            project_info=self.project.project_info,
+            project_info=self.project.report_info(),
         )
 
     # -- Inbetriebnahme-Checkliste (FA-1901) --
@@ -733,28 +733,31 @@ class DocumentationService:
                                    ) -> AcceptanceProtocol:
         """Erzeugt ein leeres Abnahmeprotokoll (FA-1911). Integrator und
         Bauherr ohne Angabe aus Firmen- bzw. Kundenprofil."""
-        company = self._company_profile
-        if not integrator_name and company:
-            integrator_name = ", ".join(
-                p for p in (company.user_name, company.company_name) if p)
-        client = getattr(self.project, "client_profile", None)
-        if not client_name and client:
-            client_name = client.name
+        default_integrator, role, default_client = self._protocol_parties()
         protocol = AcceptanceProtocol(
             date=datetime.now().strftime("%d.%m.%Y"),
-            integrator_name=integrator_name,
-            integrator_role=company.role if company else "",
-            client_name=client_name,
+            integrator_name=integrator_name or default_integrator,
+            integrator_role=role,
+            client_name=client_name or default_client,
             checklists=self.create_checklists(),
         )
         return protocol
+
+    def _protocol_parties(self) -> tuple[str, str, str]:
+        """(Integrator, Rolle, Bauherr) aus Firmen- und Kundenprofil."""
+        company = self._company_profile
+        integrator = ", ".join(p for p in (company.user_name, company.company_name)
+                               if p) if company else ""
+        client = getattr(self.project, "client_profile", None)
+        return integrator, (company.role if company else ""), (client.name if client else "")
 
     def _plant_scope(self) -> list[list[str]]:
         """Umfang der Anlage für das Abnahmeprotokoll."""
         project = self.project
         imported = project.topology.is_imported
-        devices = [d for a in project.topology.areas for ln in a.lines for d in ln.devices
-                   if d.physical_address and not d.physical_address.endswith("-")]
+        from ..models.topology import count_bus_devices, is_bus_device
+        all_devices = [d for a in project.topology.areas for ln in a.lines for d in ln.devices]
+        devices = [d for d in all_devices if is_bus_device(d)]
         lines = sum(1 for a in project.topology.areas for ln in a.lines if ln.devices)
         bes = [be for r in project.all_rooms for be in r.bedienelemente if be.is_shown(imported)]
         operable = sum(1 for be in bes if be.is_operable)
@@ -764,7 +767,7 @@ class DocumentationService:
         rooms = sum(1 for r in project.all_rooms if r.bedienelemente)
         secure = project.knx_secure.enabled if project.knx_secure else False
         return [
-            ["Busteilnehmer", str(len(devices)), "Linien", str(lines)],
+            ["Busteilnehmer", count_bus_devices(all_devices).label(), "Linien", str(lines)],
             ["Bedienelemente", str(operable), "Sensoren", str(sensors)],
             ["Aktoren und Gateways", str(actors), "Gruppenadressen", str(gas)],
             ["Räume mit Bedienung", str(rooms), "KNX Secure", "ja" if secure else "nein"],
@@ -795,6 +798,17 @@ class DocumentationService:
         project = self.project
         client = getattr(project, "client_profile", None)
         company = self._company_profile
+        # Gespeichertes Protokoll ohne Angaben (vor dem Firmenprofil angelegt):
+        # Integrator und Bauherr wie bei einem neuen Protokoll ergänzen, ohne
+        # das gespeicherte Protokoll zu ändern
+        if not protocol.integrator_name or not protocol.client_name:
+            from dataclasses import replace
+            integrator, role, client_name = self._protocol_parties()
+            protocol = replace(
+                protocol,
+                integrator_name=protocol.integrator_name or integrator,
+                integrator_role=protocol.integrator_role or role,
+                client_name=protocol.client_name or client_name)
 
         pdf = self._make_pdf("Abnahmeprotokoll")
         pdf.add_heading("Abnahmeprotokoll KNX-Installation", level=1)
@@ -984,7 +998,7 @@ class DocumentationService:
                 from .belegungsplan_export_service import BelegungsplanExportService
                 path = target("Verknuepfungsmatrix.pdf")
                 BelegungsplanExportService().export_pdf(
-                    belegungsplan, path, self._company_profile, self.project.project_info
+                    belegungsplan, path, self._company_profile, self.project.report_info()
                 )
                 generated_files.append(("Belegungsplan (Verknüpfungsmatrix)", path))
 

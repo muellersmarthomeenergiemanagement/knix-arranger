@@ -1047,6 +1047,15 @@ class KnxprojImportService:
         if any(kw in name_lower for kw in actor_kw):
             return "actor"
 
+        # Produktklassierer (Namen, Bestellcodes wie BE/S, Präsenzmelder-
+        # Familien wie «compact office», «pirios») vor den KO-Flags: Präsenz-
+        # melder und Binäreingänge haben viele beschreibbare KOs und wären
+        # sonst Aktoren (Chalet 1.1.12, 1.1.29, 1.1.42)
+        from .product_classifier import ACTOR, SENSOR, classify
+        category = classify(product_name).category
+        if category in (SENSOR, ACTOR):
+            return category
+
         # CO-Flag-Heuristik: Mehrheit der COs mit WriteFlag → Aktor
         if co_metas:
             n_write = sum(1 for m in co_metas if m.get("write_flag"))

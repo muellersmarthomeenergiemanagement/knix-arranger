@@ -1338,7 +1338,8 @@ class PdfGenerator:
     # ── Footer ────────────────────────────────────────────────────────────────
 
     def _draw_footer(self, page, page_num: int, total: int):
-        """Footer: Bearbeiter links, Lizenznehmer Mitte, Seite X/Y rechts."""
+        """Footer: Berichtstitel und Bearbeiter links, Lizenznehmer Mitte,
+        Seite X/Y rechts. Der Titel ordnet ausgedruckte Folgeseiten zu."""
         margin = self.MARGIN
         y = self.PAGE_H - self.FOOTER_H + 8
 
@@ -1348,22 +1349,34 @@ class PdfGenerator:
             color=(0.75, 0.75, 0.75), width=0.5,
         )
 
-        if self.user_name:
-            bearbeiter = self.user_name
-            if self.user_role:
-                bearbeiter += f", {self.user_role}"
-            self._txt(page, fitz.Point(margin, y), bearbeiter,
+        page_text = f"{self.labels['page']} {page_num} / {total}"
+        page_w = self._tw(page_text, 7.5)
+        licensee = _licensee_note()
+        lic_w = self._tw(licensee, 7.5) if licensee else 0.0
+        lic_x = (self.PAGE_W - lic_w) / 2
+
+        bearbeiter = self.user_name
+        if bearbeiter and self.user_role:
+            bearbeiter += f", {self.user_role}"
+        # Platz links bis zum Lizenzvermerk (bzw. zur Seitenzahl); reicht er
+        # nicht für Titel und Bearbeiter, entfällt zuerst die Rolle, dann
+        # der Bearbeiter -- der Titel bleibt
+        limit = (lic_x if licensee else self.PAGE_W - margin - page_w) - margin - 12
+        candidates = [(self.title, bearbeiter), (self.title, self.user_name), (self.title, "")]
+        left = ""
+        for title, person in candidates:
+            left = "  ·  ".join(p for p in (title, person) if p)
+            if self._tw(left, 7.5) <= limit:
+                break
+        if left:
+            self._txt(page, fitz.Point(margin, y), left,
                       7.5, color=(0.5, 0.5, 0.5))
 
-        licensee = _licensee_note()
         if licensee:
-            tw = self._tw(licensee, 7.5)
-            self._txt(page, fitz.Point((self.PAGE_W - tw) / 2, y),
+            self._txt(page, fitz.Point(lic_x, y),
                       licensee, 7.5, color=(0.5, 0.5, 0.5))
 
-        page_text = f"{self.labels['page']} {page_num} / {total}"
-        tw = self._tw(page_text, 7.5)
-        self._txt(page, fitz.Point(self.PAGE_W - margin - tw, y),
+        self._txt(page, fitz.Point(self.PAGE_W - margin - page_w, y),
                   page_text, 7.5, color=(0.5, 0.5, 0.5))
 
     # ── Deckblatt ─────────────────────────────────────────────────────────────

@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from ..models.topology import count_bus_devices
 from .report_sorting import room_order
 from .verteiler_service import VerteilerPlacement, verteiler_devices, verteiler_label
 
@@ -474,8 +475,9 @@ def build_riser_diagram(project, highlight: str = "") -> RiserDiagram:
     # ── Legende ──────────────────────────────────────────────────────────
     for line in lines:
         vt_ref = line_vt[line.id]
-        n_dev = len(line.devices)
-        parts = [f"{n_dev} Teilnehmer" if n_dev else "",
+        bus = count_bus_devices(line.devices)
+        parts = [(f"{bus.ets} Teilnehmer" + (f" + {bus.external} extern" if bus.external else ""))
+                 if bus.total else "",
                  verteiler_label(*vt_ref) if vt_ref else "kein Verteiler",
                  f"Leitung {line.trunk_length:g} m" if line.trunk_length else ""]
         diagram.legend.append(LegendEntry(

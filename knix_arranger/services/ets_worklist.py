@@ -312,7 +312,7 @@ def export_pdf(project, filepath: str, company_profile=None) -> Worklist:
     from ..utils.pdf_generator import PdfGenerator
     worklist = build_worklist(project)
     pdf = PdfGenerator(title="ETS-Arbeitsliste", company_profile=company_profile,
-                       project_info=project.project_info)
+                       project_info=project.report_info())
     pdf.add_heading("ETS-Arbeitsliste", level=1)
     since = f" | Verglichen mit Stand vom {worklist.last_import}" if worklist.last_import else ""
     pdf.add_paragraph(f"Projekt: {project.name} | Erstellt: "

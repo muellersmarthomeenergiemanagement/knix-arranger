@@ -473,6 +473,41 @@ def is_power_supply(device: Device) -> bool:
     return device.device_type == "power_supply" or is_power_supply_product(device.product)
 
 
+# ── Zählregel Busteilnehmer (einheitlich für alle Berichte) ──────────────────
+# Busteilnehmer = Gerät mit physikalischer Adresse, Koppler eingeschlossen.
+# Spannungsversorgungen (Adresse B.L.-) zählen nicht. Geräte am Bus, die nicht
+# im ETS-Projekt stehen (Device.external, z.B. Z-Server), werden getrennt
+# ausgewiesen: «71 + 1 nicht im ETS-Projekt».
+
+def is_bus_device(device: Device) -> bool:
+    """Busteilnehmer: physikalische Adresse vorhanden, keine Spannungsversorgung."""
+    address = device.physical_address or ""
+    return bool(address) and not address.endswith("-") and not is_power_supply(device)
+
+
+@dataclass(frozen=True)
+class BusDeviceCount:
+    ets: int = 0        # Busteilnehmer im ETS-Projekt
+    external: int = 0   # am Bus, aber nicht im ETS-Projekt
+
+    @property
+    def total(self) -> int:
+        return self.ets + self.external
+
+    def label(self) -> str:
+        """«71» bzw. «71 + 1 nicht im ETS-Projekt»."""
+        if self.external:
+            return f"{self.ets} + {self.external} nicht im ETS-Projekt"
+        return str(self.ets)
+
+
+def count_bus_devices(devices) -> BusDeviceCount:
+    """Zählt Busteilnehmer nach der einheitlichen Regel (siehe oben)."""
+    bus = [d for d in devices if is_bus_device(d)]
+    external = sum(1 for d in bus if d.external)
+    return BusDeviceCount(len(bus) - external, external)
+
+
 # ── Koppler und Spannungsversorgungen (einheitlich für Ansichten und Berichte) ──
 # Angezeigt wird nur, was als Gerät vorhanden ist. Line.coupler_address bzw.
 # Area.coupler_address allein genügen nicht: der knxproj-Import setzt dort

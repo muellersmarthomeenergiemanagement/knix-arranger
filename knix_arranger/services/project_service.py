@@ -59,6 +59,29 @@ def correct_gateway_types(project) -> list[str]:
     return fixed
 
 
+def correct_sensor_types(project) -> list[str]:
+    """Bis 1.4.52 als Aktor eingelesene Sensoren (Präsenzmelder wie Theben
+    «compact office», Steinel «pirios», Binäreingänge BE/S): der Import fiel
+    auf die KO-Flags zurück, und die vielen beschreibbaren KOs ergaben einen
+    Aktor. Zum Sensor machen, wenn der Produktklassierer das Produkt am Namen
+    eindeutig als Sensor erkennt. Nur importierte Projekte. Die Bedienelemente
+    der Sensoren legt der Belegungsplan beim nächsten Öffnen an."""
+    if not project.topology.is_imported:
+        return []
+    from .product_classifier import SENSOR, classify
+    fixed = []
+    for area in project.topology.areas:
+        for line in area.lines:
+            for device in line.devices:
+                if device.device_type != "actor":
+                    continue
+                name = device.product or device.product_name or ""
+                if classify(name, device.order_number or "").category == SENSOR:
+                    device.device_type = "sensor"
+                    fixed.append(device.physical_address)
+    return fixed
+
+
 class ProjectService:
     """Service für Projekt-Verwaltung."""
 
@@ -95,6 +118,9 @@ class ProjectService:
         fixed = correct_gateway_types(project)
         if fixed:
             logger.info(f"Als Gateway eingeordnet: {', '.join(fixed)}")
+        fixed = correct_sensor_types(project)
+        if fixed:
+            logger.info(f"Als Sensor eingeordnet: {', '.join(fixed)}")
         logger.info(f"Projekt geladen: {filepath}")
         return project
 

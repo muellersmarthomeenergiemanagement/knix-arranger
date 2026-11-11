@@ -500,7 +500,7 @@ class Step07Addresses(QWidget):
         structure = self._project.group_addresses
         all_gas = structure.all_addresses()
         manual_count = sum(1 for g in all_gas if g.is_manual)
-        text = f"Variante {structure.variant}: {len(all_gas)} Gruppenadressen"
+        text = f"Variante {self._project.config.mg_variant}: {len(all_gas)} Gruppenadressen"
         if manual_count:
             text += f" ({manual_count} manuell)"
         self._summary.setText(text)

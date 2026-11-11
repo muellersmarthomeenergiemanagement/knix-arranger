@@ -17,7 +17,9 @@ from .bus_current import (
 )
 from ..models.project import KnxProject
 from ..models.building import Bedienelement
-from ..models.topology import area_coupler, is_power_supply, line_coupler, line_title
+from ..models.topology import (
+    area_coupler, count_bus_devices, is_bus_device, is_power_supply, line_coupler, line_title,
+)
 from ..services.topology_diagram import (
     TOPOLOGY_TYPE_ORDER, TOPOLOGY_TYPE_PLURAL, device_type_label, area_title,
     build_topology_diagram,
@@ -681,6 +683,12 @@ class ReportService:
         room = self._room_by_id.get(device.room_id)
         return _clean_location(f"{room.number} {room.name}") if room else ""
 
+    def _mg_variant(self) -> str:
+        """Mittelgruppen-Variante aus den Projekteigenschaften. Nicht
+        group_addresses.variant: die bleibt bei importierten Projekten auf
+        dem Standard «A», auch wenn das Projekt nach Variante B aufgebaut ist."""
+        return self.project.config.mg_variant or "A"
+
     def _gewerk_label(self, code: str) -> str:
         """Gibt 'Code – Name' zurück, z.B. 'LD – Licht dimmbar'."""
         gewerk = self.project.gewerk_catalog.get(code)
@@ -692,7 +700,7 @@ class ReportService:
         pdf = PdfGenerator(
             title=title,
             company_profile=self._company_profile,
-            project_info=self.project.project_info,
+            project_info=self.project.report_info(),
         )
         cp = self.project.client_profile
         if cp and cp.name:
@@ -809,7 +817,8 @@ class ReportService:
         from .ga_links import ga_links
 
         structure = self.project.group_addresses
-        mg_names = (MIDDLE_GROUP_NAMES_B if structure.variant == "B"
+        variant = self._mg_variant()
+        mg_names = (MIDDLE_GROUP_NAMES_B if variant == "B"
                     else MIDDLE_GROUP_NAMES_A)
         links = ga_links(self.project)
 
@@ -820,7 +829,7 @@ class ReportService:
 
         pdf.add_heading(title, level=1)
         pdf.add_paragraph(
-            f"Variante: {structure.variant} | "
+            f"Variante: {variant} | "
             f"Datum: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
         )
         pdf.add_separator()
@@ -1079,7 +1088,7 @@ class ReportService:
         from .gewerk_service import GewerkService
         structure = self.project.group_addresses
         catalog = self.project.gewerk_catalog
-        mg_names = (MIDDLE_GROUP_NAMES_B if structure.variant == "B"
+        mg_names = (MIDDLE_GROUP_NAMES_B if self._mg_variant() == "B"
                     else MIDDLE_GROUP_NAMES_A)
         mg_label = {}
         for hg in structure.main_groups:
@@ -1399,15 +1408,29 @@ class ReportService:
         pdf.add_paragraph(f"Stockwerke: {len(floors)}")
         pdf.add_paragraph(f"Räume: {len(rooms)}")
 
+        topo_devices = [d for a in p.topology.areas for ln in a.lines for d in ln.devices]
+        bus_devices = [d for d in topo_devices if is_bus_device(d)]
         if floors:
             # importiert: HG des Stockwerks aus seinen GAs (wie ETS-Funktionen)
             from .ets_function_plan import floor_main_groups
             floor_hg = floor_main_groups(p)
+            # Geräte je Stockwerk: Busteilnehmer der Topologie über ihren Raum;
+            # ohne Topologie die Schätzung aus den Gewerken (Planung)
+            floor_of_room = {r.id: f.id for f in floors for r in f.all_rooms}
+            per_floor: dict[str, int] = defaultdict(int)
+            for d in bus_devices:
+                if not d.external and d.room_id in floor_of_room:
+                    per_floor[floor_of_room[d.room_id]] += 1
+
+            def floor_devices(floor) -> str:
+                return str(per_floor.get(floor.id, 0) if bus_devices
+                           else floor.total_devices())
             # Je Gebäude ein Zeilenblock (gemeinsame Schattierung), Zonen je
             # Stockwerk -- bei Nebengebäuden sonst nicht unterscheidbar
             multi = len(buildings) > 1
             headers = (["Gebäude"] if multi else []) + [
-                "Stockwerk", "HG", "Zonen", "Räume", "Geräte"]
+                "Stockwerk", "HG", "Zonen", "Räume",
+                "Busteilnehmer" if bus_devices else "Geräte (geschätzt)"]
             rows, groups = [], []
             from .report_sorting import floors_bottom_up
             for b_idx, building in enumerate(buildings):
@@ -1422,42 +1445,36 @@ class ReportService:
                         else str(floor_hg[floor.id]) if floor.id in floor_hg else "–",
                         zones or "–",
                         str(len(floor.all_rooms)),
-                        str(floor.total_devices()),
+                        floor_devices(floor),
                     ])
                     groups.append(b_idx)
-            widths = ([0.20, 0.22, 0.07, 0.31, 0.10, 0.10] if multi
-                      else [0.30, 0.08, 0.42, 0.10, 0.10])
+            widths = ([0.20, 0.20, 0.07, 0.29, 0.10, 0.14] if multi
+                      else [0.28, 0.08, 0.40, 0.10, 0.14])
             align = (["left"] if multi else []) + [
                 "left", "right", "left", "right", "right"]
             pdf.add_table(headers, rows, col_widths=widths, align=align,
                           groups=groups if multi else None)
+            without_floor = sum(1 for d in bus_devices
+                                if not d.external and d.room_id not in floor_of_room)
+            if without_floor:
+                pdf.add_note("Ohne Raum:", f"{without_floor} Busteilnehmer ohne "
+                             "Raumzuordnung sind in der Tabelle nicht enthalten.")
 
-        # Topologie
+        # Topologie: wie der Topologie-Bericht nur Linien mit Geräten
         pdf.add_heading("Topologie", level=2)
-        areas = p.topology.areas
-        lines = sum(len(a.lines) for a in areas)
-        devices = sum(
-            len(l.devices) for a in areas for l in a.lines
-        )
-        pdf.add_paragraph(f"Bereiche: {len(areas)}")
-        pdf.add_paragraph(f"Linien: {lines}")
-        pdf.add_paragraph(f"Geräte: {devices}")
+        used_lines = [(a, ln) for a in p.topology.areas for ln in a.lines if ln.devices]
+        pdf.add_paragraph(f"Bereiche: {len({id(a) for a, _ln in used_lines})}")
+        pdf.add_paragraph(f"Linien: {len(used_lines)}")
+        pdf.add_paragraph(f"Busteilnehmer: {count_bus_devices(topo_devices).label()}")
 
-        # Gerätetyp-Aufschluesselung
-        type_counts: dict[str, int] = {}
-        for area in areas:
-            for line in area.lines:
-                for dev in line.devices:
-                    label = {
-                        "actor": "Aktoren",
-                        "sensor": "Sensoren",
-                        "coupler": "Koppler",
-                        "power_supply": "Spannungsversorgungen",
-                    }.get(dev.device_type, "Sonstige")
-                    type_counts[label] = type_counts.get(label, 0) + 1
-        if type_counts:
-            for label, count in type_counts.items():
-                pdf.add_paragraph(f"  {label}: {count}")
+        # Aufschlüsselung der Busteilnehmer nach Gerätetyp (wie Topologie-Bericht)
+        type_counts = Counter(_device_type_label(d) for d in bus_devices)
+        for t in TOPOLOGY_TYPE_ORDER:
+            if type_counts.get(t):
+                pdf.add_paragraph(f"  {TOPOLOGY_TYPE_PLURAL[t]}: {type_counts[t]}")
+        supplies = sum(1 for d in topo_devices if is_power_supply(d))
+        if supplies:
+            pdf.add_paragraph(f"Spannungsversorgungen: {supplies} (keine Busteilnehmer)")
 
         pdf.add_separator()
 
@@ -2027,7 +2044,12 @@ class ReportService:
                 title = line_title(area, line)
                 if multi_area and area.name:
                     title = f"{area.name} – {title}"
-                parts = [_n_devices(len(line.devices))]
+                bus = count_bus_devices(line.devices)
+                parts = [f"{bus.ets} Busteilnehmer" + (
+                    f" + {bus.external} nicht im ETS-Projekt" if bus.external else "")]
+                n_supply = len(line.devices) - bus.total
+                if n_supply:
+                    parts.append(f"{n_supply} SV")
                 if _line_coupler(area, line):
                     parts.append(f"Koppler {_line_coupler(area, line)}")
                 pdf.add_heading(f"{title}  ({', '.join(parts)})", level=3)
