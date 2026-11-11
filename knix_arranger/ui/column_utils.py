@@ -14,7 +14,8 @@ Kernfunktion fit_columns():
 from __future__ import annotations
 
 
-def fit_columns(widget, min_col_width: int = 50, stretch_to_fit: bool = True) -> None:
+def fit_columns(widget, min_col_width: int = 50, stretch_to_fit: bool = True,
+                flex: int | None = None) -> None:
     """
     Passt Spaltenbreiten an den Inhalt an.
 
@@ -47,6 +48,16 @@ def fit_columns(widget, min_col_width: int = 50, stretch_to_fit: bool = True) ->
         return  # Widget noch nicht dargestellt – nichts tun
 
     total = sum(widget.columnWidth(i) for i in range(n))
+    if flex is not None and 0 <= flex < n:
+        # Eine Spalte (langer Freitext, z.B. «Details») nimmt den Rest der
+        # Breite: sie füllt den freien Platz bzw. gibt bei Platzmangel als
+        # einzige nach -- Namen und Adressen bleiben ganz lesbar.
+        header = widget.header() if hasattr(widget, "header") else widget.horizontalHeader()
+        others = total - widget.columnWidth(flex)
+        minimum = max(min_col_width, header.sectionSizeHint(flex) + 16, vp_width // 4)
+        if others + minimum <= vp_width:
+            widget.setColumnWidth(flex, vp_width - others)
+            return
     if total <= vp_width:
         return  # Alles passt → fertig
 

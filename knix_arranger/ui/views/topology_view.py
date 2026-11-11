@@ -172,7 +172,7 @@ class TopologyView(QWidget):
         self._tree.target_data = self._drop_line
         self._tree.can_drop = self._can_drop
         self._tree.on_drop = self._apply_line_move
-        self._tree.itemExpanded.connect(lambda _: fit_columns(self._tree))
+        self._tree.itemExpanded.connect(lambda _: self._fit_columns())
         self._tree.setHeaderLabels([
             "Element", "Adresse", "Geräte", "Einbauort", "Details",
         ])
@@ -313,12 +313,12 @@ class TopologyView(QWidget):
         parts = [
             f"<span style='color:{_COLOR_COUPLER.name()};'>&#9679;</span> Koppler (BK/LK)",
             f"<span style='color:{_COLOR_POWER.name()};'>&#9679;</span> Speisegerät (SV)",
-            f"<span style='color:{_COLOR_PROGRAMMED.name()};'>&#9679;</span> [P] physikalisch programmiert (Adresse gesperrt)",
+            "<b>[P]</b> physikalisch programmiert (Adresse gesperrt)",
             f"<span style='color:{_COLOR_EXTERNAL.name()};'>&#9679;</span> nicht im ETS-Projekt",
         ]
         if self._knx_secure and self._knx_secure.enabled:
             parts.append(
-                f"<span style='color:{_COLOR_SECURE_MISSING.name()};'>&#9679;</span> "
+                f"<span style='color:{_COLOR_SECURE_MISSING.name()};'>Adresse rot</span>: "
                 "kein KNX Secure"
             )
         self._legend.setText("&nbsp;&nbsp;".join(parts))
@@ -442,7 +442,11 @@ class TopologyView(QWidget):
             self._colorize(bb_item, _COLOR_POWER)
 
         for area in self._topology.areas:
-            area_devices = sum(l.device_count for l in area.lines)
+            # Spalte «Geräte» = Busteilnehmer wie im Kopf und in den Berichten
+            # (ohne Spannungsversorgungen), nicht line.device_count
+            from ...models.topology import count_bus_devices
+            area_devices = count_bus_devices(
+                d for l in area.lines for d in l.devices).total
             area_item = QTreeWidgetItem(self._tree, [
                 f"Bereich {area.area_number} - {area.name}",
                 str(area.area_number),
@@ -509,7 +513,7 @@ class TopologyView(QWidget):
                     # Linienadresse B.L – die Koppleradresse B.L.0 steht nur
                     # beim Koppler selbst (sofern als Gerät vorhanden)
                     f"{area.area_number}.{line.line_number}",
-                    str(line.device_count),
+                    str(count_bus_devices(line.devices).total),
                     line.uv_location or "",
                     current_text,
                 ])
@@ -605,13 +609,15 @@ class TopologyView(QWidget):
                         info = self._knx_secure.device_infos.get(device.id)
                         secure_missing = bool(info and not info.secure_supported)
 
+                    # Nur die Adresse einfärben: ganze Zeilen in Rot (und Violett
+                    # für «programmiert», in importierten Projekten jedes Gerät)
+                    # liessen die Topologie wie eine Fehlerliste aussehen.
+                    # Mischbetrieb ist zulässig; «programmiert» zeigt das [P].
                     if secure_missing:
-                        self._colorize(dev_item, _COLOR_SECURE_MISSING)
-                        dev_item.setToolTip(
-                            0, "Gerät unterstützt laut KNXPROD-Daten kein KNX Secure"
-                        )
-                    elif device.is_programmed:
-                        self._colorize(dev_item, _COLOR_PROGRAMMED)
+                        dev_item.setForeground(1, _COLOR_SECURE_MISSING)
+                        for column in (0, 1):
+                            dev_item.setToolTip(
+                                column, "Gerät unterstützt laut KNXPROD-Daten kein KNX Secure")
                     if device.external:
                         self._colorize(dev_item, _COLOR_EXTERNAL)
                         dev_item.setToolTip(
@@ -628,7 +634,7 @@ class TopologyView(QWidget):
                         self._add_sensor_function_items(dev_item, device)
 
         self._mark_room_locations()
-        fit_columns(self._tree)
+        self._fit_columns()
 
         # ── Zustand wiederherstellen ──
         self._restore_tree_state(expanded_areas, expanded_lines, selected_id)
@@ -871,7 +877,7 @@ class TopologyView(QWidget):
 
     def _expand_all(self):
         self._tree.expandAll()
-        fit_columns(self._tree)
+        self._fit_columns()
 
     def _collapse_all(self):
         """Linien zuklappen – Bereiche bleiben aufgeklappt."""
@@ -883,7 +889,7 @@ class TopologyView(QWidget):
             for j in range(area_item.childCount()):
                 area_item.child(j).setExpanded(False)
         self._tree.setUpdatesEnabled(True)
-        fit_columns(self._tree)
+        self._fit_columns()
 
     # ── Interaktion ──
 
@@ -1750,6 +1756,37 @@ class TopologyView(QWidget):
 
         for i in range(self._tree.topLevelItemCount()):
             walk(self._tree.topLevelItem(i))
+
+    _MAX_NAME_WIDTH = 460
+
+    def _fit_columns(self) -> None:
+        """Spaltenbreiten: «Details» nimmt den Rest; die Namensspalte nach
+        ALLEN Zeilen (Qt misst nur die gerade sichtbaren -- nach dem Rollen
+        waren längere Gerätenamen abgeschnitten)."""
+        fit_columns(self._tree, flex=4)
+        metrics = self._tree.fontMetrics()
+        indent = self._tree.indentation()
+        widest = 0
+
+        def walk(item, depth: int) -> None:
+            nonlocal widest
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child.isHidden():
+                    continue
+                widest = max(widest, metrics.horizontalAdvance(child.text(0))
+                             + indent * (depth + 1) + 12)
+                if child.isExpanded():
+                    walk(child, depth + 1)
+        walk(self._tree.invisibleRootItem(), 0)
+        wanted = min(widest, self._MAX_NAME_WIDTH)
+        if wanted > self._tree.columnWidth(0):
+            grow = wanted - self._tree.columnWidth(0)
+            self._tree.setColumnWidth(0, wanted)
+            # den Zuwachs gibt «Details» ab, solange es breit genug bleibt
+            details = self._tree.columnWidth(4)
+            if details - grow >= self._tree.viewport().width() // 4:
+                self._tree.setColumnWidth(4, details - grow)
 
     @staticmethod
     def _colorize(item: QTreeWidgetItem, color: QColor) -> None:

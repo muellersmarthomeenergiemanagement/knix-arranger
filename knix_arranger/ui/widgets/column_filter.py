@@ -25,7 +25,11 @@ class TreeColumnFilter(QWidget):
             # Ohne Layout: die Felder liegen genau über den Spalten und
             # scrollen mit, ohne dem Fenster eine Mindestbreite aufzuzwingen
             edit = QLineEdit(self)
-            edit.setPlaceholderText(f"Filter {tree.headerItem().text(col)}")
+            # nur der Spaltenname: «Filter Adresse» war in schmalen Spalten
+            # abgeschnitten («Filter Ad…»)
+            name = tree.headerItem().text(col)
+            edit.setPlaceholderText(f"{name} …")
+            edit.setToolTip(f"Nach {name} filtern")
             edit.setClearButtonEnabled(True)
             edit.textChanged.connect(self.apply)
             self._edits.append(edit)

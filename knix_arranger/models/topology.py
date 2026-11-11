@@ -515,14 +515,14 @@ def used_lines(topology) -> list:
 
 
 def topology_summary(topology) -> str:
-    """«1 Bereich, 2 Linien, 71 + 1 nicht im ETS-Projekt Busteilnehmer» --
+    """«1 Bereich, 2 Linien, Busteilnehmer: 71 + 1 nicht im ETS-Projekt» --
     eine Zählung für Topologie-Ansicht, Übersicht und Berichte."""
     lines = used_lines(topology)
     areas = len({id(area) for area, _line in lines})
     count = count_bus_devices(d for _area, line in lines for d in line.devices)
     return (f"{areas} {'Bereich' if areas == 1 else 'Bereiche'}, "
             f"{len(lines)} {'Linie' if len(lines) == 1 else 'Linien'}, "
-            f"{count.label()} Busteilnehmer")
+            f"Busteilnehmer: {count.label()}")
 
 
 # ── Koppler und Spannungsversorgungen (einheitlich für Ansichten und Berichte) ──

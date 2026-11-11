@@ -88,7 +88,8 @@ class TestFA2704SecureMarkierung:
         def walk(item):
             for i in range(item.childCount()):
                 child = item.child(i)
-                result[child.text(0)] = child.foreground(0).color().name()
+                # Secure-Markierung liegt auf der Adresse (Spalte 1)
+                result[child.text(0)] = child.foreground(1).color().name()
                 walk(child)
         walk(root)
         return result
