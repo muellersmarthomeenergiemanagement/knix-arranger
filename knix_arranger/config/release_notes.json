@@ -2,6 +2,17 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.57",
+      "date": "2026-11-11",
+      "neu": [
+        "Live-Monitor (Bestand & Umbau): KNiX verbindet sich ohne ETS mit der Anlage und zeigt die Gruppentelegramme in Echtzeit – mit Absender, Bezeichnung, Wert nach Datenpunkttyp, Gewerk, Raum und Stockwerk aus dem Projekt; GAs, die nicht im Projekt stehen, orange. Verbindung über IP-Schnittstelle, IP-Router oder Fernzugang: Tunnel (UDP, auch über VPN/NAT), Tunnel (TCP), Secure-Tunnel (Benutzer-ID und Passwort oder Schlüsseldatei der ETS), Routing. Filter nach Text, Gewerk und Stockwerk, Anzeige anhalten, Aufzeichnung als CSV speichern. Der Monitor sendet nichts; Passwörter werden nicht gespeichert."
+      ],
+      "verbessert": [
+        "Bedienungsanleitung in Französisch, Italienisch und Englisch: Projektnummer auf dem Deckblatt mit «N°», «N.» bzw. «No.» statt «Nr.».",
+        "Positionsnummer: ein von Hand hinzugefügtes Bedienelement erhält seine Nummer sofort, nicht erst bei der nächsten Neuberechnung."
+      ]
+    },
+    {
       "version": "1.4.56",
       "date": "2026-11-11",
       "neu": [
