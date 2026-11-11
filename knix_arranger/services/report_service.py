@@ -702,9 +702,13 @@ class ReportService:
         return self.project.config.mg_variant or "A"
 
     def _gewerk_label(self, code: str) -> str:
-        """Gibt 'Code – Name' zurück, z.B. 'LD – Licht dimmbar'."""
+        """Gibt 'Code – Name' zurück, z.B. 'LD – Licht dimmbar'. Kürzel aus
+        dem ETS-Projekt, die der Gewerk-Katalog nicht kennt (Chalet: AK, HS),
+        als «eigenes Kürzel» statt nackt."""
+        if not code:
+            return code
         gewerk = self.project.gewerk_catalog.get(code)
-        name = gewerk.name if gewerk else ""
+        name = gewerk.name if gewerk else "eigenes Kürzel"
         return f"{code} – {name}" if name else code
 
     def _make_pdf(self, title: str) -> PdfGenerator:
@@ -876,10 +880,10 @@ class ReportService:
         self._ga_gewerk_overview(pdf, main_groups, used)
 
         def dpt(ga) -> str:
-            return dpt_number(ga.datapoint_type) or ga.datapoint_type or "-"
+            return dpt_number(ga.datapoint_type) or ga.datapoint_type or "–"
 
         def lines(items: list[str]) -> str:
-            return "\n".join(items) or "-"
+            return "\n".join(items) or "–"
 
         room_of = self._ga_rooms()
 
@@ -910,14 +914,14 @@ class ReportService:
                     continue
                 rows = []
                 for ga in gas:
-                    designation = ga.designation or "-"
+                    designation = ga.designation or "–"
                     link = links.get(ga.address)
                     if central_hg:
                         actors = link.actor_addresses if link else []
                         n = len(actors)
                         rows.append([
                             ga.address, designation, dpt(ga),
-                            ", ".join(link.gewerke) if link and link.gewerke else "-",
+                            ", ".join(link.gewerke) if link and link.gewerke else "–",
                             (f"{n} Aktor{'en' if n != 1 else ''}", ", ".join(actors))
                             if n else lines(link.outputs if link else []),
                             lines(link.operators if link else []),
@@ -925,8 +929,8 @@ class ReportService:
                         continue
                     rows.append([
                         ga.address, designation, dpt(ga),
-                        ", ".join(link.gewerke) if link and link.gewerke else "-",
-                        room_of.get(ga.address, "-"),
+                        ", ".join(link.gewerke) if link and link.gewerke else "–",
+                        room_of.get(ga.address, "–"),
                         lines(link.outputs if link else []),
                         lines(link.operators if link else []),
                     ])
@@ -1067,12 +1071,17 @@ class ReportService:
         pdf.add_table(headers, rows,
                       col_widths=[first] + [(1 - first) / n_cols] * n_cols,
                       align=["left"] + ["right"] * n_cols)
+        unknown = sorted(c for c in counts if c and not catalog.get(c))
+        if unknown:
+            pdf.add_note("Eigene Kürzel:", f"{', '.join(unknown)} stammen aus dem "
+                         "ETS-Projekt und fehlen im Gewerk-Katalog. Namen über "
+                         "«Eigenes Gewerk anlegen…» (Gewerke) hinterlegen.")
 
     def _ga_unconnected(self, pdf, gas: list, links: dict) -> None:
         """Prüfliste: GAs ohne Aktor, Gerät und Bedienung -- vor der Übertragung
         in die ETS klären (fehlender Aktor, nicht verknüpfte Funktion)."""
-        rows = [[ga.address, ga.designation or "-",
-                 ga.gewerk_code or "-"]
+        rows = [[ga.address, ga.designation or "–",
+                 ga.gewerk_code or "–"]
                 for ga in sorted(gas, key=lambda g: (g.main_group, g.middle_group, g.sub_group))
                 if not (links.get(ga.address) and links[ga.address].connected)]
         pdf.add_heading("Prüfliste: Gruppenadressen ohne Verbindung", level=2)
@@ -1407,8 +1416,11 @@ class ReportService:
 
         # Projektinformationen
         pdf.add_heading("Projektinformationen", level=2)
+        info = p.report_info()
         pdf.add_paragraph(f"Projektname: {p.name}")
-        pdf.add_paragraph(f"Projektnummer: {p.project_number}")
+        pdf.add_paragraph(f"Projektnummer: {info.project_number or '–'}")
+        pdf.add_paragraph(f"Bauherr: {info.client_name or '–'}")
+        pdf.add_paragraph(f"Objekt: {info.project_address or '–'}")
         pdf.add_paragraph(f"MG-Variante: {p.config.mg_variant}")
         pdf.add_paragraph(f"Topologie-Modus: {p.config.topology_mode}")
         pdf.add_paragraph(f"Backbone-Typ: {p.config.backbone_type}")

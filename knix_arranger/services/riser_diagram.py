@@ -43,7 +43,7 @@ VT_H = 17
 LANE_PAD = 6
 LANE_W = 6
 ROOM_W = 46
-ROOM_H = 26
+ROOM_H = 30   # Nummer + zwei Zeilen Raumname
 ROOM_GAP = 4
 ZONE_GAP = 10
 ZONE_LABEL_H = 9
@@ -123,6 +123,32 @@ class RiserDiagram:
 def text_width(text: str, size: float, bold: bool = False) -> float:
     """Geschätzte Textbreite (Inter), für Kürzen und Legendenspalten."""
     return len(text) * size * (0.56 if bold else 0.52)
+
+
+def wrap_text(text: str, avail: float, size: float, max_lines: int = 2,
+              last_avail: float | None = None) -> list[str]:
+    """Bricht an Leerzeichen bzw. Bindestrichen auf höchstens max_lines Zeilen
+    um; die letzte Zeile wird nötigenfalls mit «…» gekürzt (Breite last_avail)."""
+    text = " ".join((text or "").split())
+    last_avail = avail if last_avail is None else last_avail
+    words = re.findall(r"\S+?(?:-|\s|$)", text + " ") if text else []
+    lines: list[str] = []
+    current = ""
+    for i, word in enumerate(words):
+        if len(lines) == max_lines - 1:
+            rest = current + "".join(words[i:])
+            lines.append(fit_text(rest.strip(), last_avail, size))
+            return lines
+        candidate = current + word
+        if current and text_width(candidate.rstrip(), size) > avail:
+            lines.append(current.strip())
+            current = word
+        else:
+            current = candidate
+    if current.strip():
+        width = last_avail if len(lines) == max_lines - 1 else avail
+        lines.append(fit_text(current.strip(), width, size))
+    return lines
 
 
 def fit_text(text: str, avail: float, size: float, bold: bool = False) -> str:
@@ -337,7 +363,7 @@ def build_riser_diagram(project, highlight: str = "") -> RiserDiagram:
                     shapes.append(Rect(vx, vy, VT_W - 4, VT_H, fill=VT_FILL, ref=ref))
                     shapes.append(Label(vx + 3, vy + 7.5, vt.verteiler_type or "VT", 6.5, True,
                                         "#FFFFFF", ref=ref))
-                    shapes.append(Label(vx + 3, vy + 14, fit_text(vt.name or vroom.name, VT_W - 10, 5),
+                    shapes.append(Label(vx + 3, vy + 14, fit_text(" ".join((vt.name or vroom.name or "").split()), VT_W - 10, 5),
                                         5, color="#CFD8DC", ref=ref))
                     vt_anchor[vt.id] = (vx + VT_W - 4, vy + VT_H / 2)
                     n_act = sum(1 for d in verteiler_devices(project.topology, vt, vroom)
@@ -364,9 +390,14 @@ def build_riser_diagram(project, highlight: str = "") -> RiserDiagram:
                                            width=0.7, ref=ref))
                         shapes.append(Label(rx + 3, ry + 8.5, fit_text(room.number, ROOM_W - 6, 6.5, True),
                                             6.5, True, ref=ref))
-                        shapes.append(Label(rx + 3, ry + 16, fit_text(room.name, ROOM_W - 6, 5.5),
-                                            5.5, color="#455A64", ref=ref))
                         n_dev = devices_by_room.get(room.id, 0)
+                        # Raumname auf bis zu zwei Zeilen (eine Zeile fasst nur
+                        # ~14 Zeichen); die zweite lässt Platz für die Anzahl
+                        for k, text in enumerate(wrap_text(
+                                room.name, ROOM_W - 6, 5.5,
+                                last_avail=ROOM_W - 6 - (9 if n_dev else 0))):
+                            shapes.append(Label(rx + 3, ry + 15.5 + 6.5 * k, text,
+                                                5.5, color="#455A64", ref=ref))
                         if n_dev:
                             shapes.append(Label(rx + ROOM_W - 3, ry + ROOM_H - 3, str(n_dev), 5.5,
                                                 color=MUTED, align="right", ref=ref))
@@ -478,7 +509,7 @@ def build_riser_diagram(project, highlight: str = "") -> RiserDiagram:
         bus = count_bus_devices(line.devices)
         parts = [(f"{bus.ets} Teilnehmer" + (f" + {bus.external} extern" if bus.external else ""))
                  if bus.total else "",
-                 verteiler_label(*vt_ref) if vt_ref else "kein Verteiler",
+                 " ".join(verteiler_label(*vt_ref).split()) if vt_ref else "kein Verteiler",
                  f"Leitung {line.trunk_length:g} m" if line.trunk_length else ""]
         diagram.legend.append(LegendEntry(
             _line_key(line), color_of[line.id], f"{line_short(line)} {line.name}".strip(),

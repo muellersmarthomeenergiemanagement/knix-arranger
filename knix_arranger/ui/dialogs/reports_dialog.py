@@ -581,7 +581,23 @@ class ReportsDialog(QDialog):
         self._run("Aktoren-und-Gateways-Bericht wird erstellt…", do,
                   f"Aktoren-und-Gateways-Bericht erstellt: {path}", path)
 
+    def _nothing_to_report(self, available: bool, title: str, text: str) -> bool:
+        """Kein leeres PDF: ohne Daten nur ein Hinweis (gleiche Bedingungen
+        wie im Revisionspaket). Gibt True zurück, wenn nichts zu erstellen ist."""
+        if available:
+            return False
+        QMessageBox.information(self, title, text)
+        return True
+
     def _gen_szenen(self):
+        # Szenen erfasst oder Szenen-Adressen (DPT 17/18) im Projekt
+        has_scene_ga = any((ga.datapoint_type or "").startswith(("DPST-17", "DPST-18",
+                                                                   "DPT-17", "DPT-18"))
+                           for ga in self._project.group_addresses.all_addresses())
+        if self._nothing_to_report(
+                any(s.name for s in self._project.scenes) or has_scene_ga, "Szenenreport",
+                "Im Projekt sind keine Szenen erfasst – kein Szenenreport erstellt."):
+            return
         path, _ = license_gate.get_save_file_name(
             self, "Szenenreport speichern",
             self._default_export_path(f"{self._project.name}_Szenenreport.pdf"),
@@ -616,6 +632,11 @@ class ReportsDialog(QDialog):
 
     def _gen_time_programs(self):
         """Zeitsteuerungsplan (FA-3307c)."""
+        if self._nothing_to_report(
+                bool(self._project.time_programs), "Zeitsteuerungsplan",
+                "Im Projekt sind keine Zeitprogramme erfasst – kein Zeitsteuerungsplan "
+                "erstellt."):
+            return
         path, _ = license_gate.get_save_file_name(
             self, "Zeitsteuerungsplan speichern",
             self._default_export_path(f"{self._project.name}_Zeitsteuerungsplan.pdf"),

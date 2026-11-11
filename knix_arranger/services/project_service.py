@@ -51,11 +51,15 @@ def correct_gateway_types(project) -> list[str]:
                     continue
                 device.device_type = "gateway"
                 fixed.append(device.physical_address)
-    if fixed:
-        for room in project.all_rooms:
-            # ein Gateway ist kein Bedienelement im Raum
-            room.bedienelemente = [be for be in room.bedienelemente
-                                   if be.participant_number not in fixed]
+    # ein Gateway ist kein Bedienelement im Raum -- bei jedem Laden, nicht
+    # nur beim Umstellen des Typs: wurde das Projekt danach gespeichert,
+    # blieb das Element stehen (Chalet: 1.1.32 «Wassermelder» mit 61
+    # Prüfpunkten in der Checkliste)
+    gateways = {d.physical_address for a in project.topology.areas for ln in a.lines
+                for d in ln.devices if d.device_type == "gateway" and d.physical_address}
+    for room in project.all_rooms:
+        room.bedienelemente = [be for be in room.bedienelemente
+                               if be.participant_number not in gateways]
     return fixed
 
 

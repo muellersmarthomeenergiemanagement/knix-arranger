@@ -176,7 +176,9 @@ class TestReportsDialogFlow:
         geöffnet (wie jeder Bericht)."""
         from knix_arranger.ui.dialogs import reports_dialog
         from knix_arranger.ui.dialogs.reports_dialog import ReportsDialog
+        from knix_arranger.models.time_program import TimeProgram
         project, company = _complete_project()
+        project.time_programs = [TimeProgram(name="Storen")]
         project._file_path = str(tmp_path / "Test.knxarr")
         dlg = ReportsDialog(project, company_profile=company)
 
@@ -196,3 +198,17 @@ class TestReportsDialogFlow:
         assert [call.args[0].toLocalFile() for call in opened.call_args_list] == [
             str(plan).replace("\\", "/"),
             str(tmp_path / "Berichte" / f"{project.name}_Topologie.pdf").replace("\\", "/")]
+
+
+def test_no_empty_time_plan_pdf(qapp, tmp_path):
+    """Ohne Zeitprogramme nur ein Hinweis, kein leeres PDF (Befund 17)."""
+    from knix_arranger.ui.dialogs import reports_dialog
+    from knix_arranger.ui.dialogs.reports_dialog import ReportsDialog
+    project, company = _complete_project()
+    project.time_programs = []
+    project._file_path = str(tmp_path / "Test.knxarr")
+    dlg = ReportsDialog(project, company_profile=company)
+    with patch.object(reports_dialog.QMessageBox, "information") as info, \
+         patch.object(reports_dialog.license_gate, "get_save_file_name") as save_as:
+        dlg._gen_time_programs()
+    assert info.called and not save_as.called

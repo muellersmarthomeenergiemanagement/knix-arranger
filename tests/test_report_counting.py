@@ -201,3 +201,59 @@ def test_worklist_done_summarised(tmp_path, monkeypatch):
     assert "Zuletzt erledigt (30.10.2026)" in text
     assert "GA 1/1/5" not in text and "FA-604 (100)" in text
     assert "übrigen 100 erledigten Aufgaben" in text
+
+
+# ── Vollständigkeit und Kleinigkeiten (Befunde 8, 11-13, 19, 20, 25, 26) ────
+
+def test_sensor_sentence_from_product():
+    from knix_arranger.services.user_manual import sensor_sentence
+    assert sensor_sentence("Sensor", "compact office EIB").startswith("Präsenzmelder")
+    assert sensor_sentence("Sensor", "BE/S8.20.1 Binary Input,8-fold").startswith("Binäreingang")
+    assert "arbeitet automatisch" not in sensor_sentence("Sensor", "XYZ 123")
+
+
+def test_manual_key_label_without_room_name():
+    from knix_arranger.models.group_address import GroupAddress
+    from knix_arranger.services.user_manual import object_label
+    catalog = KnxProject().gewerk_catalog
+
+    def label(designation, code):
+        return object_label(GroupAddress(main_group=1, middle_group=0, sub_group=1,
+                                         designation=designation, gewerk_code=code),
+                            catalog, "Wohnen")
+    assert label("LD_EG_02_01 E/A (Wohnen Decke)", "LD") == "Licht Decke"
+    assert label("LD_EG_02_01 E/A (Wohnen)", "LD") == "Licht"
+    assert label("J_EG_02_01 AUF/AB (Wohnen Süd)", "J") == "Storen Süd"
+    assert label("ZE Zentral Rauchalarm AUS", "") .endswith("Aus")
+
+
+def test_unknown_gewerk_code_labelled():
+    project = _project()
+    assert ReportService(project)._gewerk_label("AK") == "AK – eigenes Kürzel"
+    assert ReportService(project)._gewerk_label("") == ""
+
+
+def test_worklist_intro_by_project_kind():
+    from knix_arranger.services import ets_worklist as wl
+    assert wl.how_to_use(_project(imported=True)) == wl.HOW_TO_USE
+    assert "hakt Erledigtes selbst ab" not in wl.how_to_use(_project(imported=False))
+
+
+def test_gateway_bedienelement_removed_on_every_load():
+    from knix_arranger.models.building import Bedienelement
+    from knix_arranger.services.project_service import correct_gateway_types
+    project = _project()
+    gate = Device(physical_address="1.1.32", device_type="gateway", product="Vitogate 200")
+    project.topology.areas[0].lines[0].devices.append(gate)
+    room = project.all_rooms[0]
+    room.bedienelemente = [Bedienelement(element_type="Wassermelder",
+                                         participant_number="1.1.32", is_auto=False)]
+    assert correct_gateway_types(project) == []          # Typ schon richtig
+    assert room.bedienelemente == []
+
+
+def test_riser_room_name_wraps():
+    from knix_arranger.services.riser_diagram import ROOM_W, wrap_text
+    assert wrap_text("Eingang / Studio", ROOM_W - 6, 5.5) == ["Eingang /", "Studio"]
+    assert wrap_text("Galerie", ROOM_W - 6, 5.5) == ["Galerie"]
+    assert len(wrap_text("Kinderzimmer mit Ankleide und Bad", ROOM_W - 6, 5.5)) == 2

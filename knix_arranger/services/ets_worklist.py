@@ -44,6 +44,15 @@ STATUS_NEW, STATUS_OPEN, STATUS_DONE = "neu", "offen", "erledigt"
 # in der ETS ("trennen", nicht "Verbindung löschen").
 HOW_TO_USE = ("In der ETS korrigieren, betroffene Geräte programmieren, Projekt exportieren "
               "und in KNiX erneut importieren – KNiX hakt Erledigtes selbst ab.")
+# Geplante Projekte: KNiX gleicht die Liste nur nach einem Import ab
+HOW_TO_USE_PLANNED = ("In der ETS umsetzen und betroffene Geräte programmieren; Erledigtes "
+                      "abhaken. KNiX gleicht die Liste erst ab, wenn das ETS-Projekt "
+                      "eingelesen wird.")
+
+
+def how_to_use(project) -> str:
+    """Einleitung der Arbeitsliste passend zur Projektart."""
+    return HOW_TO_USE if project.topology.is_imported else HOW_TO_USE_PLANNED
 
 
 @dataclass
@@ -360,7 +369,7 @@ def export_pdf(project, filepath: str, company_profile=None) -> Worklist:
     since = f" | Verglichen mit Stand vom {worklist.last_import}" if worklist.last_import else ""
     pdf.add_paragraph(f"Projekt: {project.name} | Erstellt: "
                       f"{date.today().strftime('%d.%m.%Y')}{since}")
-    pdf.add_paragraph(HOW_TO_USE)
+    pdf.add_paragraph(how_to_use(project))
 
     # Abschnitte fortlaufend nummeriert, auch wenn eine Stufe leer ist
     section = 0
@@ -404,7 +413,7 @@ def export_excel(project, filepath: str) -> Worklist:
     excel.set_print_options(orientation="landscape")
     excel.add_header()
     excel.add_empty_row()
-    excel.add_paragraph(HOW_TO_USE)
+    excel.add_paragraph(how_to_use(project))
     headers = ["Nr.", "Status", "Ort in der ETS", "Aufgabe", "Erledigt", "Bemerkung"]
     section = 0
     for prio, rows in _numbered(worklist):

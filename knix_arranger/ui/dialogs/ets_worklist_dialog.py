@@ -32,7 +32,7 @@ class EtsWorklistDialog(QDialog):
         self._on_jump = on_jump
 
         layout = QVBoxLayout(self)
-        hint = QLabel(ets_worklist.HOW_TO_USE + "  ·  Doppelklick: zum Gerät bzw. zur GA, "
+        hint = QLabel(ets_worklist.how_to_use(project) + "  ·  Doppelklick: zum Gerät bzw. zur GA, "
                       "Rechtsklick: weitere Ziele.")
         hint.setObjectName("hint")
         hint.setWordWrap(True)

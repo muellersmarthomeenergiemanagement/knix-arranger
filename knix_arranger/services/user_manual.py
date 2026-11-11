@@ -340,6 +340,8 @@ def _clean(text: str) -> str:
     text = re.sub(r"[-_\s]*\b1\s*(bit|byte)\b", "", text, flags=re.IGNORECASE)
     text = re.sub(r"[_]+", " ", text)
     text = re.sub(r"\bRaum\s?\d+\b", "", text)      # UniPro-Raumnummer "Raum2"
+    # Schaltwörter wie im übrigen Text («Rauchalarm AUS» -> «Rauchalarm Aus»)
+    text = re.sub(r"\b(EIN|AUS|AUF|ZU)\b", lambda m: m.group(1).capitalize(), text)
     return " ".join(text.split()).strip(" -·")
 
 
@@ -395,6 +397,16 @@ def object_label(ga, catalog, room_name: str) -> str:
         head = f"Musik {place}".strip() if "musik" not in func.lower() else place
         return " – ".join(p for p in (head, func) if p) or "Musik"
     gewerk = catalog.get(code) if (code and catalog) else None
+    # Geplante GAs tragen «(Raum Element)», z.B. «(Wohnen Decke)»: der Raum
+    # steht schon über der Tabelle -- nur das Element, mit dem Gewerk-Wort
+    # davor («Licht Decke»), sonst hiesse die Taste wie der Raum
+    room = (room_name or "").strip()
+    if detail and room and detail.lower().startswith(room.lower() + " "):
+        rest = detail[len(room):].strip()
+        word = _CATEGORY_WORD.get(gewerk.category, gewerk.name) if gewerk else ""
+        if word and gewerk.category != "jalousie" and word.lower() not in rest.lower():
+            rest = f"{word} {rest}"
+        detail = rest
     if detail and not (room_name and detail.lower() == room_name.lower()):
         # Storen nur mit Ort ("Mitte", "Berg") -> "Storen Mitte"
         if (gewerk and gewerk.category == "jalousie" and not is_gate(detail)
@@ -488,12 +500,27 @@ _SENSOR_TEXT = (
 )
 
 
+_SENSOR_BY_CLASS = {
+    "Praesenzmelder": _SENSOR_TEXT[0][1],
+    "Binäreingang": ("Binäreingang: gibt Meldungen von Kontakten an die Anlage weiter, "
+                     "z.B. Fenster, Störmeldungen oder herkömmliche Schalter."),
+    "Wetterstation": _SENSOR_TEXT[4][1],
+}
+
+
 def sensor_sentence(element_type: str, product: str = "") -> str:
     text = f"{element_type} {product}".lower()
     for words, sentence in _SENSOR_TEXT:
         if any(w in text for w in words):
             return sentence
-    return f"{element_type}: arbeitet automatisch."
+    # Typ nur «Sensor» (z.B. importierte Binäreingänge und Präsenzmelder):
+    # Art am Produkt erkennen, statt «Sensor: arbeitet automatisch.»
+    from .product_classifier import classify
+    for name in (product, element_type):
+        sentence = _SENSOR_BY_CLASS.get(classify(name or "").device_type)
+        if sentence:
+            return sentence
+    return f"{element_type}: arbeitet selbständig, keine Bedienung nötig."
 
 
 def _friendly_type(be) -> str:

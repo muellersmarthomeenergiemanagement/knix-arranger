@@ -6,6 +6,7 @@ Bedienungsanleitungen und Revisionspakete.
 from __future__ import annotations
 import logging
 import os
+import re
 from datetime import date, datetime
 
 from .building_service import BuildingService
@@ -331,14 +332,7 @@ class DocumentationService:
         project = project_for_export(self.project)
         builder = UserManualBuilder(project, snapshot=False)
         imported = project.topology.is_imported
-        floor_by_room = {}
-        for building in project.areal.buildings:
-            for wing in building.wings:
-                for floor in wing.floors:
-                    for apt in floor.apartments:
-                        for room in apt.rooms:
-                            floor_by_room[room.id] = BuildingService.floor_label(
-                                project.areal, floor)
+        floor_by_room = self._floor_by_room(project)
 
         sections = []
         for room in sorted_rooms(project.areal):
@@ -383,6 +377,14 @@ class DocumentationService:
                     if row.led_gas:
                         gas += "\n" + "\n".join("LED: " + _ga_line(g) for g in row.led_gas)
                     rows.append((taste, function, gas.strip() or "–", fa_keys.get(k, [])))
+                # Sensoren (nicht bedienbar): ein Prüfpunkt für alle Meldungen
+                # und Messwerte statt einer Zeile je KO (Rauchmelder: 10)
+                if not be.is_operable and len(rows) > 2:
+                    funcs = rows[1:]
+                    rows = rows[:1] + [(
+                        "–", f"Meldungen und Messwerte ({len(funcs)})",
+                        "\n".join(r[2] for r in funcs if r[2] != "–") or "–",
+                        [key for r in funcs for key in r[3]])]
                 device = builder.device_by_addr.get(be_num)
                 product = (device.product_name or device.product) if device else be.product_name
                 title = " · ".join(p for p in (be_num or "ohne Adresse",
@@ -785,17 +787,38 @@ class DocumentationService:
             ["Räume mit Bedienung", str(rooms), "KNX Secure", "ja" if secure else "nein"],
         ]
 
+    @staticmethod
+    def _floor_by_room(project) -> dict[str, str]:
+        """room.id -> Stockwerk-Bezeichnung (wie in der Checkliste)."""
+        return {room.id: BuildingService.floor_label(project.areal, floor)
+                for building in project.areal.buildings
+                for wing in building.wings for floor in wing.floors
+                for apt in floor.apartments for room in apt.rooms}
+
     def _checked_by_room(self) -> list[list[str]]:
-        """Je Checkliste: Prüfpunkte, Mängel, offen, Prüfzeitraum, Prüfer."""
+        """Je Checkliste: Prüfpunkte, Mängel, offen, Prüfzeitraum, Prüfer.
+        Räume mit Stockwerk in Gebäude-Reihenfolge (Raumnummern sind bei
+        importierten Projekten nur je Stockwerk eindeutig), danach DALI und
+        die Verteiler."""
+        floor_by_room = self._floor_by_room(self.project)
+        order = {room.id: i for i, room in enumerate(sorted_rooms(self.project.areal))}
+        rooms_by_id = {r.id: r for r in self.project.all_rooms}
         rows = []
-        for cl in self.project.checklists:
+        for cl in sorted(self.project.checklists,
+                         key=lambda c: (c.room_id not in order, order.get(c.room_id, 0),
+                                        c.room_name)):
             if not cl.items:
                 continue
+            room = rooms_by_id.get(cl.room_id)
+            label = cl.room_name
+            if room is not None:
+                label = f"{floor_by_room.get(room.id, '')} · {room.number} {room.name}"
+                label = " ".join(label.split()).strip(" ·")
             done = [i for i in cl.items if i.result]
             defects = sum(1 for i in done if i.result == "Mangel")
             days = sorted(i.checked_date for i in done if i.checked_date)
             visums = ", ".join(sorted({i.checked_by for i in done if i.checked_by}))
-            rows.append([cl.room_name, str(len(cl.items)), str(defects),
+            rows.append([label, str(len(cl.items)), str(defects),
                          str(len(cl.items) - len(done)),
                          _date_span(days[0], days[-1]) if days else "–", visums or "–"])
         return rows
@@ -1180,7 +1203,7 @@ class DocumentationService:
 
         pdf.add_paragraph(
             "Hinweis: KNiX Arranger generiert und verwaltet keine KNX-Secure-"
-            "Laufzeitschlüssel -- diese erzeugt ausschliesslich ETS6 aus dem "
+            "Laufzeitschlüssel – diese erzeugt ausschliesslich ETS6 aus dem "
             "geräteindividuellen Zertifikat (FDSK). " + (
                 "Dieser Bericht enthält die tatsächlich hinterlegten Geheimwerte "
                 "als Archivkopie -- vertraulich behandeln, nicht ungeschützt "
@@ -1323,13 +1346,28 @@ class DocumentationService:
                 # Gruppen mit ihren GAs (für die Parametrierung des Gateways)
                 if gw.groups:
                     pdf.add_heading("Gruppen", level=3)
+                    groups = sorted(gw.groups, key=lambda g: g.number)
+
+                    def group_name(g) -> str:
+                        # Gruppenname ist oft nur der Raum; die Leuchten stehen
+                        # in der Schalt-GA: «( Spots Durchgang )»
+                        ga = existing_gas.get(g.ga_switch)
+                        m = re.search(r"\(\s*([^()]*?)\s*\)\s*$", ga.designation or "") if ga else None
+                        detail = " ".join(m.group(1).split()) if m else ""
+                        if detail and detail.lower() not in (g.name or "").lower():
+                            return " · ".join(p for p in (g.name, detail) if p)
+                        return g.name
+                    columns = [("Schalten", "ga_switch"), ("Dimmen", "ga_dim"),
+                               ("Wert", "ga_value"), ("Status", "ga_status"),
+                               ("Szene", "ga_scene"), ("Störung", "ga_fault")]
+                    # nur Spalten, die bei mindestens einer Gruppe belegt sind
+                    columns = [(h, a) for h, a in columns if any(getattr(g, a) for g in groups)]
+                    ga_w = 0.11
                     pdf.add_table(
-                        ["Gr.", "Name", "Schalten", "Dimmen", "Wert", "Status", "Szene",
-                         "Störung"],
-                        [[str(g.number), g.name, g.ga_switch, g.ga_dim, g.ga_value,
-                          g.ga_status, g.ga_scene, g.ga_fault]
-                         for g in sorted(gw.groups, key=lambda g: g.number)],
-                        col_widths=[0.06, 0.26, 0.11, 0.11, 0.11, 0.11, 0.12, 0.12],
+                        ["Gr.", "Name"] + [h for h, _a in columns],
+                        [[str(g.number), group_name(g)] + [getattr(g, a) or "–" for _h, a in columns]
+                         for g in groups],
+                        col_widths=[0.06, 0.94 - ga_w * len(columns)] + [ga_w] * len(columns),
                     )
 
                 rows = svc.generate_device_list(gw, self.project)
