@@ -158,7 +158,8 @@ VALIDATION_RULES = {
     ),
     "FA-605": (
         "Lücken im Adressblock",
-        "Zwischen belegten Adressen einer Mittelgruppe sind Adressen frei.",
+        "Zwischen belegten Adressen einer Mittelgruppe sind Adressen frei; "
+        "je Mittelgruppe eine Zeile mit allen freien Bereichen.",
         "Keine, sofern die Lücken als Reserve gewollt sind.",
     ),
     "FA-607": (
@@ -437,17 +438,28 @@ def _rule_sort_key(rule_id: str) -> tuple:
     return (not rule_id.startswith("GA"), int(m.group(1)) if m else 0, rule_id)
 
 
+def _own_naming_scheme(fa610_issues: list, ga_count: int) -> int:
+    """Anzahl der FA-610-Hinweise, wenn sie auf ein eigenes Namensschema
+    deuten (mehr als die Hälfte aller GAs, typisch beim Import); sonst 0.
+    Der Bericht zeigt dann nur Beispiele und weist die Zahl getrennt aus."""
+    n = len(fa610_issues)
+    return n if n > FA610_EXAMPLES and n > ga_count * 0.5 else 0
+
+
 def _clean(text: str) -> str:
     """Mehrfach-Leerzeichen aus importierten Bezeichnungen entfernen."""
     return " ".join((text or "").split()) or "–"
 
 
 def _gap_range(issue: ValidationIssue) -> tuple[str, str]:
-    start, end = issue.details.get("start"), issue.details.get("end")
-    if start is None:
-        return issue.message, ""
-    text = str(start) if start == end else f"{start}–{end}"
-    return text, str(end - start + 1)
+    gaps = issue.details.get("gaps")
+    if not gaps:
+        start, end = issue.details.get("start"), issue.details.get("end")
+        if start is None:
+            return issue.message, ""
+        gaps = [(start, end)]
+    text = ", ".join(str(s) if s == e else f"{s}–{e}" for s, e in gaps)
+    return text, str(sum(e - s + 1 for s, e in gaps))
 
 
 # ── Topologie-Bericht ────────────────────────────────────────────────────────
@@ -743,7 +755,10 @@ class ReportService:
         pdf.add_paragraph(f"Geprüfte Gruppenadressen: {ga_count}")
         pdf.add_paragraph(f"Fehler: {count('error')}")
         pdf.add_paragraph(f"Warnungen: {count('warning')}")
-        pdf.add_paragraph(f"Hinweise: {count('info')}")
+        own_scheme = _own_naming_scheme(by_level["info"].get("FA-610", []), ga_count)
+        pdf.add_paragraph(f"Hinweise: {count('info')}" + (
+            f", davon {own_scheme} Bezeichnungen nach eigenem Namensschema (FA-610)"
+            if own_scheme else ""))
 
         if issues:
             overview = []
@@ -791,8 +806,7 @@ class ReportService:
 
         # Sehr viele Bezeichnungs-Hinweise (typisch bei Import mit eigenem
         # Namensschema): nur Beispiele statt Einzelliste
-        if rule_id == "FA-610" and len(ordered) > FA610_EXAMPLES \
-                and len(ordered) > ga_count * 0.5:
+        if rule_id == "FA-610" and _own_naming_scheme(ordered, ga_count):
             pct = round(100 * len(ordered) / ga_count) if ga_count else 100
             pdf.add_paragraph(
                 f"{len(ordered)} von {ga_count} Bezeichnungen ({pct} %) weichen vom "

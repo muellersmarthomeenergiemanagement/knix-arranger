@@ -139,3 +139,65 @@ def test_stored_protocol_gets_integrator_and_footer_title(tmp_path):
     text = _pdf_text(path)
     assert "Max Muster, Muster AG (Integrator)" in text
     assert "Abnahmeprotokoll  ·  Max Muster" in text
+
+
+# ── Umfang: Validierung und ETS-Arbeitsliste (Befunde 14, 15) ────────────────
+
+def _ga_structure(*addresses):
+    from knix_arranger.models.group_address import (
+        GroupAddress, GroupAddressStructure, MainGroup, MiddleGroup,
+    )
+    structure = GroupAddressStructure()
+    groups: dict = {}
+    for addr, name in addresses:
+        h, m, s = (int(x) for x in addr.split("/"))
+        hg = groups.setdefault(h, MainGroup(number=h, name=f"HG {h}"))
+        mg = next((g for g in hg.middle_groups if g.number == m), None)
+        if mg is None:
+            mg = MiddleGroup(number=m, name=f"MG {m}")
+            hg.middle_groups.append(mg)
+        mg.group_addresses.append(GroupAddress(
+            main_group=h, middle_group=m, sub_group=s, designation=name,
+            datapoint_type="DPST-1-1"))
+    structure.main_groups = list(groups.values())
+    return structure
+
+
+def test_gaps_one_issue_per_middle_group():
+    from knix_arranger.services.validation_engine import ValidationEngine
+    structure = _ga_structure(("1/0/0", "a"), ("1/0/3", "b"), ("1/0/5", "c"), ("1/0/9", "d"))
+    gaps = [i for i in ValidationEngine().validate(structure) if i.rule_id == "FA-605"]
+    assert len(gaps) == 1
+    assert gaps[0].details["gaps"] == [(1, 2), (4, 4), (6, 8)]
+    assert "1–2, 4, 6–8 frei (6)" in gaps[0].message
+
+
+def test_command_feedback_same_name_is_no_duplicate():
+    project = _project()
+    project.group_addresses = _ga_structure(
+        ("1/0/0", "L.UG.01.1_ea"), ("1/7/0", "L.UG.01.1_ea"),     # Befehl/Rückmeldung
+        ("0/2/105", "WP Sollwert"), ("0/2/109", "WP Sollwert"))   # echt doppelt
+    from knix_arranger.services.validation_engine import ValidationEngine
+    dup = [i for i in ValidationEngine(project.gewerk_catalog).validate(
+        project.group_addresses, project)
+        if i.rule_id == "FA-625" and "mehrfach" in i.message]
+    assert [i.message for i in dup] == ["GA-Bezeichnung mehrfach: 0/2/105, 0/2/109"]
+
+
+def test_worklist_done_summarised(tmp_path, monkeypatch):
+    from knix_arranger.services import ets_worklist as wl
+    done = [wl.WorkItem(f"k{n}", wl.PRIO_CHECK, "FA-604", f"GA 1/1/{n}", "DPT ergänzen.",
+                        status=wl.STATUS_DONE, done_on="22.10.2026", sort=(n,))
+            for n in range(100)]
+    done.append(wl.WorkItem("x", wl.PRIO_MUST, "FA-614", "1.1.51 KO 6", "trennen.",
+                            status=wl.STATUS_DONE, done_on="30.10.2026"))
+    monkeypatch.setattr(wl, "build_worklist", lambda project: wl.Worklist(
+        items=[wl.WorkItem("o", wl.PRIO_FUNC, "FA-637", "GA 4/4/1", "Funktion anlegen.")],
+        done=done))
+    path = tmp_path / "wl.pdf"
+    wl.export_pdf(_project(), str(path))
+    text = _pdf_text(path)
+    assert "1  ETS-Funktionen anlegen" in text            # fortlaufend, nicht «4»
+    assert "Zuletzt erledigt (30.10.2026)" in text
+    assert "GA 1/1/5" not in text and "FA-604 (100)" in text
+    assert "übrigen 100 erledigten Aufgaben" in text

@@ -45,9 +45,24 @@ def test_secure_linie_aus_topologie(tmp_path):
         device_id=taster.id, device_name="Push button (EN)", physical_address="1.1.51",
         line_id="veraltet")}
     taster.product_name = "Taster EDIZIOdue"
+    taster.secure_supported = True     # aufgeführt werden nur Secure-fähige Geräte
     path = str(tmp_path / "secure.pdf")
     DocumentationService(project).generate_knx_secure_report(path)
     text = "".join(pg.get_text() for pg in fitz.open(path))
     assert "Taster EDIZIOdue" in text and "Push button" not in text
     row = text[text.index("Taster EDIZIOdue"):]
     assert "1.1.51" in row and "\n1.1\n" in row
+
+
+def test_secure_bericht_nur_secure_geraete(tmp_path):
+    project = _project()
+    project.knx_secure.enabled = True
+    devices = [d for a in project.topology.areas for ln in a.lines for d in ln.devices]
+    project.knx_secure.device_infos = {d.id: DeviceSecureInfo(
+        device_id=d.id, device_name=d.product, physical_address=d.physical_address)
+        for d in devices}
+    path = str(tmp_path / "secure.pdf")
+    DocumentationService(project).generate_knx_secure_report(path)
+    text = "".join(pg.get_text() for pg in fitz.open(path))
+    assert f"KNX Secure-fähige Geräte: 0 von {len(devices)}" in text
+    assert f"Nicht aufgeführt: {len(devices)} Geräte ohne KNX Secure" in text

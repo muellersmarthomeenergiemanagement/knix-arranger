@@ -209,12 +209,17 @@ class KnxSecureService:
         Eine Warnung wird erzeugt, wenn eine Linie sowohl Secure- als auch
         Non-Secure-fähige Geräte enthält.
         """
+        from ..models.topology import is_bus_device
         warnings = []
         for area in project.topology.areas:
             for line in area.lines:
                 secure_names = []
                 non_secure_names = []
+                # Busteilnehmer im ETS-Projekt (Zählregel der Berichte):
+                # Spannungsversorgungen und externe Geräte sind nicht dabei
                 for device in line.devices:
+                    if not is_bus_device(device) or device.external:
+                        continue
                     info = config.device_infos.get(device.id)
                     label = (device.product_name or device.product
                              or device.physical_address)

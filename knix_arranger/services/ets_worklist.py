@@ -308,6 +308,49 @@ def _task_text(item: WorkItem) -> str:
     return item.task + (f"\n{item.detail}" if item.detail else "")
 
 
+DONE_DETAIL_LIMIT = 60
+
+
+def _done_date_key(done_on: str) -> tuple:
+    """Neueste zuerst; Einträge ohne Datum («seit letztem Import») zuoberst."""
+    parts = done_on.split(".")
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        d, m, y = (int(p) for p in parts)
+        return (0, -y, -m, -d)
+    return (-1, 0, 0, 0)
+
+
+def _pdf_done_section(pdf, done: list[WorkItem]) -> None:
+    """Erledigtes knapp: je Datum Anzahl und Regeln, einzeln nur die jüngste
+    Runde. Die vollständige Liste steht im Excel (Blatt «Erledigt») -- im
+    Chalet waren es 1030 Einträge auf 24 Seiten."""
+    from collections import Counter, defaultdict
+    by_date: dict[str, list[WorkItem]] = defaultdict(list)
+    for item in done:
+        by_date[item.done_on or "ohne Datum"].append(item)
+    dates = sorted(by_date, key=_done_date_key)
+
+    pdf.add_conditional_break(min_height=120)
+    pdf.add_heading(f"Erledigt  ({len(done)})", level=2)
+    rows = []
+    for d in dates:
+        rules = Counter(i.rule_id for i in by_date[d])
+        rows.append([d, str(len(by_date[d])),
+                     ", ".join(f"{r} ({n})" for r, n in rules.most_common())])
+    pdf.add_table(["Erledigt am", "Anzahl", "Regeln"], rows,
+                  col_widths=[0.18, 0.10, 0.72], align=["left", "right", "left"])
+
+    latest = sorted(by_date[dates[0]], key=lambda i: i.sort)
+    shown = latest[:DONE_DETAIL_LIMIT]
+    pdf.add_heading(f"Zuletzt erledigt ({dates[0]})", level=3)
+    pdf.add_table(["Ort in der ETS", "Aufgabe"],
+                  [[i.where, i.task] for i in shown], col_widths=[0.30, 0.70])
+    rest = len(done) - len(shown)
+    if rest:
+        pdf.add_note("Hinweis:", f"Die übrigen {rest} erledigten Aufgaben stehen einzeln "
+                     "in der Excel-Fassung der Arbeitsliste (Blatt «Erledigt»).")
+
+
 def export_pdf(project, filepath: str, company_profile=None) -> Worklist:
     from ..utils.pdf_generator import PdfGenerator
     worklist = build_worklist(project)
@@ -319,25 +362,26 @@ def export_pdf(project, filepath: str, company_profile=None) -> Worklist:
                       f"{date.today().strftime('%d.%m.%Y')}{since}")
     pdf.add_paragraph(HOW_TO_USE)
 
+    # Abschnitte fortlaufend nummeriert, auch wenn eine Stufe leer ist
+    section = 0
     for prio, rows in _numbered(worklist):
         if not rows:
             continue
+        section += 1
         title, explanation = PRIORITIES[prio]
         new = sum(1 for _n, i in rows if i.status == STATUS_NEW)
         pdf.add_conditional_break(min_height=120)
-        pdf.add_heading(f"{prio}  {title}  ({len(rows)}" + (f", davon {new} neu)" if new else ")"),
-                        level=2)
+        pdf.add_heading(f"{section}  {title}  ({len(rows)}"
+                        + (f", davon {new} neu)" if new else ")"), level=2)
         pdf.add_paragraph(explanation)
         pdf.add_table(_PDF_HEADERS, [
             [("NEU " if item.status == STATUS_NEW else "") + str(n), item.where,
              _task_text(item), "[ ]"] for n, item in rows], col_widths=_PDF_WIDTHS)
+    if not section:
+        pdf.add_paragraph("Keine offenen Aufgaben.")
 
     if worklist.done:
-        pdf.add_conditional_break(min_height=120)
-        pdf.add_heading(f"Erledigt  ({len(worklist.done)})", level=2)
-        pdf.add_table(["Ort in der ETS", "Aufgabe", "Erledigt am"],
-                      [[i.where, i.task, i.done_on] for i in worklist.done],
-                      col_widths=[0.24, 0.60, 0.16])
+        _pdf_done_section(pdf, worklist.done)
     pdf.save(filepath)
     logger.info("ETS-Arbeitsliste PDF: %s", filepath)
     return worklist
@@ -362,12 +406,14 @@ def export_excel(project, filepath: str) -> Worklist:
     excel.add_empty_row()
     excel.add_paragraph(HOW_TO_USE)
     headers = ["Nr.", "Status", "Ort in der ETS", "Aufgabe", "Erledigt", "Bemerkung"]
+    section = 0
     for prio, rows in _numbered(worklist):
         if not rows:
             continue
+        section += 1
         title, explanation = PRIORITIES[prio]
         excel.add_empty_row()
-        excel.add_heading(f"{prio}  {title}  ({len(rows)}) – {explanation}", level=2)
+        excel.add_heading(f"{section}  {title}  ({len(rows)}) – {explanation}", level=2)
         excel.add_table(headers, [
             [n, item.status, item.where, _task_text(item), XL_CHOICES[0], ""]
             for n, item in rows],

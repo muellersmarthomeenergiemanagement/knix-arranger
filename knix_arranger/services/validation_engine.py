@@ -94,6 +94,17 @@ def _actor_dpts(project) -> dict[str, set[str]]:
     return result
 
 
+def _command_feedback_pair(gas) -> bool:
+    """Befehl und Rückmeldung mit gleicher Bezeichnung (FA-625 ausgenommen):
+    gleiche HG und Untergruppe, Befehl in MG 0/1, Rückmeldung in MG 6/7 --
+    so vorgesehen (Variante B; Chalet: 1/0/0 «L.UG.01.1_ea» und 1/7/0)."""
+    if len(gas) != 2:
+        return False
+    a, b = sorted(gas, key=lambda g: g.middle_group)
+    return (a.main_group == b.main_group and a.sub_group == b.sub_group
+            and a.middle_group in (0, 1) and b.middle_group in (6, 7))
+
+
 class ValidationEngine:
     """Prüft GA-Strukturen auf Konformitaet."""
 
@@ -698,7 +709,7 @@ class ValidationEngine:
         assignments = {a.id: (room, a) for room in project.all_rooms
                        for a in room.gewerk_assignments}
         for name, gas in names.items():
-            if len(gas) < 2:
+            if len(gas) < 2 or _command_feedback_pair(gas):
                 continue
             addresses = [ga.address for ga in gas]
             message = f"GA-Bezeichnung mehrfach: {', '.join(addresses)}"
@@ -1198,26 +1209,28 @@ class ValidationEngine:
         """FA-605: Prüft Adressblock-Integritaet (keine Luecken).
 
         Nur ein Hinweis: In importierten Projekten sind Lücken meist gewollt
-        (Reserve-Adressen, Gliederung nach Räumen)."""
+        (Reserve-Adressen, Gliederung nach Räumen). Eine Meldung je
+        Mittelgruppe mit allen Lücken -- im Chalet sonst 251 Einzelmeldungen."""
         issues = []
         for hg in structure.main_groups:
             for mg in hg.middle_groups:
-                gas = sorted(mg.group_addresses, key=lambda g: g.sub_group)
-                if not gas:
+                subs = sorted({g.sub_group for g in mg.group_addresses})
+                gaps = [(a + 1, b - 1) for a, b in zip(subs, subs[1:]) if b != a + 1]
+                if not gaps:
                     continue
-                # Pruefe ob Adressen lueckenlos aufeinanderfolgen
-                for i in range(len(gas) - 1):
-                    if gas[i + 1].sub_group != gas[i].sub_group + 1:
-                        gap_start = gas[i].sub_group + 1
-                        gap_end = gas[i + 1].sub_group - 1
-                        issues.append(ValidationIssue(
-                            "info", "FA-605",
-                            f"Lücke in MG {hg.number}/{mg.number}: "
-                            f"Adressen {gap_start}-{gap_end} fehlen",
-                            f"{hg.number}/{mg.number}/{gap_start}",
-                            details={"mg": f"{hg.number}/{mg.number}",
-                                     "start": gap_start, "end": gap_end},
-                        ))
+                ranges = ", ".join(str(s) if s == e else f"{s}–{e}" for s, e in gaps)
+                free = sum(e - s + 1 for s, e in gaps)
+                details = {"mg": f"{hg.number}/{mg.number}",
+                           "start": gaps[0][0], "end": gaps[0][1]}
+                if len(gaps) > 1:
+                    details["gaps"] = gaps
+                issues.append(ValidationIssue(
+                    "info", "FA-605",
+                    f"{'Lücken' if len(gaps) > 1 else 'Lücke'} in MG {hg.number}/{mg.number}: "
+                    f"Adressen {ranges} frei ({free})",
+                    f"{hg.number}/{mg.number}/{gaps[0][0]}",
+                    details=details,
+                ))
         return issues
 
     def _check_feedback_variant_b(self, structure: GroupAddressStructure) -> list[ValidationIssue]:

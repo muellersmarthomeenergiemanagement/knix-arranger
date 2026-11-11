@@ -1200,12 +1200,19 @@ class DocumentationService:
             )
         if cfg.ets_password_note:
             pdf.add_paragraph(f"Notiz / Wiederherstellungsplan: {cfg.ets_password_note}")
+        # Zählregel Busteilnehmer wie Anlagen-Check und Abnahmeprotokoll
+        # (nicht die Archiv-Einträge: die enthalten Spannungsversorgungen,
+        # externe und nicht mehr vorhandene Geräte)
+        from ..models.topology import is_bus_device
+        bus = [d for a in self.project.topology.areas for ln in a.lines for d in ln.devices
+               if is_bus_device(d) and not d.external]
+        capable_ids = {d.id for d in bus if d.secure_supported}
+        fdsk_ids = {k for k, info in cfg.device_infos.items() if info.fdsk}
+        pdf.add_paragraph(f"KNX Secure-fähige Geräte: {len(capable_ids)} von {len(bus)}")
         pdf.add_paragraph(
-            f"KNX Secure-fähige Geräte: {summary['secure_devices']} / {summary['device_infos_count']}"
-        )
-        pdf.add_paragraph(
-            f"FDSK-Zertifikate erfasst: {summary['fdsk_entered']} / {summary['device_infos_count']}"
-        )
+            f"FDSK-Zertifikate erfasst: {len(fdsk_ids & capable_ids)} von {len(capable_ids)}"
+            + (f" (dazu {len(fdsk_ids - capable_ids)} weitere im Archiv)"
+               if fdsk_ids - capable_ids else ""))
         pdf.add_paragraph(
             f"Gruppenadressen mit Security 'Ein': {summary['ga_security_on']}"
         )
@@ -1226,8 +1233,14 @@ class DocumentationService:
             headers = ["Gerät", "Adresse", "Linie", "KNX Secure",
                        "FDSK" if include_secrets else "FDSK erfasst"]
             rows = []
+            omitted = 0
             for info in infos:
                 line_label, device = by_id.get(id_of.get(id(info), ""), ("", None))
+                # Nur was für Secure zählt: fähige Geräte und erfasste FDSK
+                secure = device.secure_supported if device is not None else info.secure_supported
+                if not secure and not info.fdsk:
+                    omitted += 1
+                    continue
                 if device is not None:
                     name = device.product_name or device.product or info.device_name
                     address = device.physical_address or info.physical_address
@@ -1236,11 +1249,15 @@ class DocumentationService:
                     address = info.physical_address
                 rows.append([
                     name, address, line_label,
-                    "Ja" if info.secure_supported else "Nein",
+                    "Ja" if secure else "Nein",
                     (info.fdsk or "–") if include_secrets else ("Ja" if info.fdsk else "Nein"),
                 ])
             rows.sort(key=lambda r: physical_address_key(r[1]))
-            pdf.add_table(headers, rows, col_widths=[0.46, 0.12, 0.10, 0.14, 0.18])
+            if rows:
+                pdf.add_table(headers, rows, col_widths=[0.46, 0.12, 0.10, 0.14, 0.18])
+            if omitted:
+                pdf.add_note("Nicht aufgeführt:", f"{omitted} Geräte ohne KNX Secure und "
+                             "ohne erfasstes FDSK.")
 
         warnings = svc.check_mixed_lines(cfg, self.project)
         pdf.add_separator()
