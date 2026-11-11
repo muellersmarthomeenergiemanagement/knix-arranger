@@ -20,6 +20,10 @@ from ...services.bus_access import (
 )
 from ..styles import TEXT_MUTED
 
+# rohe Rahmen für die Busanalyse: so viele höchstens (rund ein Tag in einem
+# Einfamilienhaus), ältere fallen weg
+MAX_RAW_FRAMES = 500_000
+
 _UNKNOWN_COLOR = QColor("#E65100")     # GA nicht im Projekt
 
 
@@ -27,6 +31,7 @@ class _Bridge(QObject):
     """Rückrufe aus dem Verbindungs-Thread in den Hauptthread."""
     telegram = Signal(object)
     state = Signal(str, str)
+    raw = Signal(str, object)
 
 
 class MonitorModel(QAbstractTableModel):
@@ -99,12 +104,19 @@ class MonitorFilter(QSortFilterProxyModel):
 class LiveMonitorView(QWidget):
     # Verbindungseinstellungen geändert (Projekt ungespeichert)
     settings_changed = Signal()
+    # Aufzeichnung als Mitschnitt in die Busanalyse übernommen
+    recording_added = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._project = None
+        self._bus = None
         self._context: MonitorContext | None = None
         self._pending: list = []
+        # rohe Rahmen (Hex, Zeit) für die Busanalyse, unabhängig von Filter
+        # und Anhalten; Verbindung, über die sie kamen
+        self._raw: list[tuple[str, object]] = []
+        self._connection_label = ""
         self._paused = False
         self._held: list = []
         self._state = STATE_DISCONNECTED
@@ -113,7 +125,9 @@ class LiveMonitorView(QWidget):
         # Thread in den Hauptthread zu (Queued Connection)
         self._bridge.telegram.connect(self._on_telegram)
         self._bridge.state.connect(self._on_state)
-        self._connection = BusConnection(self._bridge.telegram.emit, self._bridge.state.emit)
+        self._bridge.raw.connect(self._on_raw)
+        self._connection = BusConnection(self._bridge.telegram.emit, self._bridge.state.emit,
+                                         self._bridge.raw.emit)
         self._timer = QTimer(self)
         self._timer.setInterval(200)
         self._timer.timeout.connect(self._flush)
@@ -137,9 +151,17 @@ class LiveMonitorView(QWidget):
         self._disconnect_btn.setObjectName("secondary")
         self._disconnect_btn.clicked.connect(self._disconnect)
         self._status = QLabel()
+        self._analysis_btn = QPushButton("In Busanalyse übernehmen")
+        self._analysis_btn.setObjectName("secondary")
+        self._analysis_btn.setToolTip(
+            "Die ganze Aufzeichnung (ohne Filter) als Mitschnitt in die Busanalyse: "
+            "Absender, fehlende Verknüpfungen, unbekannte GAs, Datenlänge, Buslast usw. "
+            "Wiederholungen und Quittungen enthält nur ein Busmonitor-Mitschnitt.")
+        self._analysis_btn.clicked.connect(self._to_analysis)
         row.addWidget(self._connect_btn)
         row.addWidget(self._disconnect_btn)
         row.addWidget(self._status, 1)
+        row.addWidget(self._analysis_btn)
         layout.addLayout(row)
 
         filters = QHBoxLayout()
@@ -193,6 +215,9 @@ class LiveMonitorView(QWidget):
 
     # ── Projekt ──────────────────────────────────────────────────────────
 
+    def set_bus(self, bus) -> None:
+        self._bus = bus
+
     def set_project(self, project) -> None:
         if project is not self._project and self._connection.running:
             self._connection.stop()       # anderes Projekt = andere Anlage
@@ -238,6 +263,7 @@ class LiveMonitorView(QWidget):
         if settings.to_dict() != self._project.bus_connection:
             self._project.bus_connection = settings.to_dict()
             self.settings_changed.emit()
+        self._connection_label = settings.label()
         try:
             self._connection.start(settings, dialog.secrets())
         except Exception as exc:     # z.B. Schlüsseldatei fehlt
@@ -275,6 +301,7 @@ class LiveMonitorView(QWidget):
         self._connect_btn.setEnabled(self._project is not None and not running)
         self._disconnect_btn.setEnabled(running)
         self._export_btn.setEnabled(bool(self._model.rows))
+        self._analysis_btn.setEnabled(bool(self._raw))
         if not self._status.text():
             self._status.setText("Nicht verbunden")
             self._status.setStyleSheet(f"color: {TEXT_MUTED};")
@@ -283,6 +310,11 @@ class LiveMonitorView(QWidget):
 
     def _on_telegram(self, telegram) -> None:
         self._pending.append(telegram)
+
+    def _on_raw(self, raw: str, when) -> None:
+        self._raw.append((raw, when))
+        if len(self._raw) > MAX_RAW_FRAMES:
+            del self._raw[:len(self._raw) - MAX_RAW_FRAMES]
 
     def _flush(self) -> None:
         if not self._pending or self._context is None:
@@ -314,6 +346,7 @@ class LiveMonitorView(QWidget):
     def _clear(self) -> None:
         self._model.clear()
         self._held = []
+        self._raw = []
         self._update_count()
         self._update_controls()
 
@@ -344,3 +377,25 @@ class LiveMonitorView(QWidget):
             QMessageBox.warning(self, "Speichern", f"Datei nicht speicherbar:\n{exc}")
             return
         QMessageBox.information(self, "Gespeichert", f"{count} Telegramme gespeichert.")
+
+    def _to_analysis(self) -> None:
+        """Aufzeichnung als Mitschnitt in die Busanalyse (FA-640)."""
+        if self._project is None or not self._raw:
+            return
+        from ...services.bus_access import live_recording
+        from ...services.bus_monitor import BusLogError
+        try:
+            summary = live_recording(list(self._raw), connection=self._connection_label)
+        except BusLogError as exc:
+            QMessageBox.warning(self, "In Busanalyse übernehmen", str(exc))
+            return
+        if self._bus:
+            self._bus.begin_change(f"Live-Aufzeichnung {summary['file']} in die Busanalyse")
+        self._project.bus_recordings.append(summary)
+        if self._bus:
+            self._bus.any_change.emit("bus_recordings")
+        self.recording_added.emit()
+        QMessageBox.information(
+            self, "In Busanalyse übernommen",
+            f"{summary['telegrams']} Telegramme als Mitschnitt «{summary['file']}» übernommen. "
+            "Die Auswertung steht unter Bestand & Umbau › Busanalyse.")

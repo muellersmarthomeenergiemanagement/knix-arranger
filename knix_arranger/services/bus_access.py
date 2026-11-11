@@ -303,6 +303,27 @@ def export_csv(rows: list[MonitorRow], path: str) -> int:
     return len(rows)
 
 
+# ── Übernahme in die Busanalyse ────────────────────────────────────────────
+
+def live_recording(frames: list[tuple[str, datetime]], label: str = "",
+                   connection: str = "") -> dict:
+    """Aufgezeichnete rohe cEMI-Rahmen (Hex, Zeit) als Mitschnitt für die
+    Busanalyse (project.bus_recordings), ausgewertet wie ein ETS-Mitschnitt
+    (bus_monitor.add_frames): Gruppenmonitor ohne Wiederholungen und
+    Quittungen, mit Routing-Zähler und Rahmenlänge. BusLogError ohne
+    auswertbare Telegramme."""
+    from .bus_monitor import Recording, add_frames, summarize
+    times = [when for _raw, when in frames if when]
+    start = min(times, default=None)
+    if not label:
+        label = f"Live-Monitor {start:%d.%m.%Y %H:%M}" if start else "Live-Monitor"
+    rec = Recording(
+        file=label,
+        start=start, stop=max(times, default=None), connection=connection,
+        mode="Gruppenmonitor (KNiX Live-Monitor)")
+    return summarize(add_frames(rec, frames))
+
+
 # ── Verbindung ─────────────────────────────────────────────────────────────
 
 STATE_CONNECTING = "connecting"
@@ -350,13 +371,17 @@ def connection_config(settings: ConnectionSettings, secrets: Secrets):
 
 
 class BusConnection:
-    """Verbindung im eigenen Thread. on_telegram(LiveTelegram) und
-    on_state(Zustand, Text) werden aus diesem Thread aufgerufen."""
+    """Verbindung im eigenen Thread. on_telegram(LiveTelegram),
+    on_state(Zustand, Text) und on_raw(Hex, Zeit) werden aus diesem Thread
+    aufgerufen; on_raw bekommt jeden rohen cEMI-Rahmen (für die Busanalyse,
+    gesicherte Telegramme verschlüsselt)."""
 
     def __init__(self, on_telegram: Callable[[LiveTelegram], None],
-                 on_state: Callable[[str, str], None]):
+                 on_state: Callable[[str, str], None],
+                 on_raw: Callable[[str, datetime], None] | None = None):
         self._on_telegram = on_telegram
         self._on_state = on_state
+        self._on_raw = on_raw
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stop: asyncio.Event | None = None
@@ -413,6 +438,12 @@ class BusConnection:
 
         xknx = XKNX(connection_config=config, telegram_received_cb=received,
                     connection_state_changed_cb=changed, state_updater=False)
+        if self._on_raw is not None:
+            # rohe Rahmen mitlesen, bevor xknx sie auswertet: die Schnittstelle
+            # ruft bei jedem Rahmen xknx.cemi_handler.handle_raw_cemi auf (der
+            # Handler hat __slots__, darum eine Unterklasse statt Ersetzen der
+            # Methode; vor dem Start, Data Secure richtet xknx beim Start ein)
+            xknx.cemi_handler = _tapping_handler(xknx, self._on_raw)
         self._on_state(STATE_CONNECTING, label)
         await xknx.start()
         try:
@@ -420,6 +451,21 @@ class BusConnection:
         finally:
             await xknx.stop()
             self._on_state(STATE_DISCONNECTED, label)
+
+
+def _tapping_handler(xknx, on_raw: Callable[[str, datetime], None]):
+    """CEMIHandler von xknx, der jeden rohen Rahmen zuerst an on_raw gibt."""
+    from xknx.cemi import CEMIHandler
+
+    class TappingCEMIHandler(CEMIHandler):
+        def handle_raw_cemi(self, raw_cemi: bytes) -> None:
+            try:
+                on_raw(raw_cemi.hex().upper(), datetime.now())
+            except Exception:
+                logger.exception("Rohen Rahmen nicht aufgezeichnet")
+            super().handle_raw_cemi(raw_cemi)
+
+    return TappingCEMIHandler(xknx)
 
 
 def _error_text(exc: Exception) -> str:

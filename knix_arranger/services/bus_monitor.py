@@ -238,10 +238,17 @@ def parse_log(path: str) -> Recording:
         stop=_time(stop_el.get("Timestamp", "")) if stop_el is not None else None,
         connection=start_el.get("ConnectionName", "") if start_el is not None else "",
         mode=start_el.get("Mode", "") if start_el is not None else "")
+    frames = ((el.get("RawData", ""), _time(el.get("Timestamp", "")))
+              for el in root.iter(f"{_NS}Telegram"))
+    return add_frames(rec, frames)
+
+
+def add_frames(rec: Recording, frames) -> Recording:
+    """Rohe cEMI-Rahmen (Hex, Zeit) in den Mitschnitt aufnehmen: ETS-Datei
+    (parse_log) oder Live-Monitor (bus_access.live_recording). L_Busmon.ind
+    bringt Wiederholungen und Quittungen, L_Data.ind nur die Telegramme."""
     waiting: Telegram | None = None           # Datenrahmen, der auf die Quittung wartet
-    for el in root.iter(f"{_NS}Telegram"):
-        raw = el.get("RawData", "")
-        when = _time(el.get("Timestamp", ""))
+    for raw, when in frames:
         result = decode(raw, when)
         minute = when.replace(second=0, microsecond=0) if when else None
         if result == INVALID:

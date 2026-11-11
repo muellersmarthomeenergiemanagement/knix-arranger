@@ -467,6 +467,8 @@ class MainWindow(QMainWindow):
         from .views.live_monitor_view import LiveMonitorView
         self._live_monitor_view = LiveMonitorView()
         self._live_monitor_view.settings_changed.connect(lambda: self._set_dirty(True))
+        self._live_monitor_view.recording_added.connect(
+            lambda: self._mark_stale("bus_analysis", "plant_check", "renovation", "overview"))
         self._changelog_view.changed.connect(
             lambda: self._bus.any_change.emit("changelog")
         )
@@ -541,6 +543,7 @@ class MainWindow(QMainWindow):
         self._customer_quote_view.set_bus(self._bus)
         self._renovation_view.set_bus(self._bus)
         self._bus_analysis_view.set_bus(self._bus)
+        self._live_monitor_view.set_bus(self._bus)
         # Matrix = Übersicht, bearbeitet wird in der Bauherrenberatung
         self._linking_matrix_view.open_in_bauherr.connect(self._open_in_bauherr)
 

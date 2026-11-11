@@ -274,8 +274,9 @@ def test_connection_receives_telegram_from_tunnel_server():
     stop = threading.Event()
     server = threading.Thread(target=_fake_tunnel_server, args=(sock, stop), daemon=True)
     server.start()
-    received, states = [], []
-    connection = BusConnection(received.append, lambda state, _text: states.append(state))
+    received, states, raw = [], [], []
+    connection = BusConnection(received.append, lambda state, _text: states.append(state),
+                               lambda frame, when: raw.append((frame, when)))
     try:
         connection.start(ConnectionSettings(host="127.0.0.1", port=sock.getsockname()[1]),
                          Secrets())
@@ -292,6 +293,12 @@ def test_connection_receives_telegram_from_tunnel_server():
         ("1.1.12", "1/0/1", "Write", "01")]
     assert "connected" in states and states[-1] == "disconnected"
     assert not connection.running
+    # roher cEMI-Rahmen (L_Data.ind) für die Busanalyse
+    assert len(raw) == 1 and raw[0][0].startswith("29")
+    from knix_arranger.services.bus_access import live_recording
+    summary = live_recording(raw, connection="Tunnel · Test")
+    assert summary["telegrams"] == 1 and summary["connection"] == "Tunnel · Test"
+    assert summary["pairs"][0][:4] == ["1.1.12", "1/0/1", "Write", 1]
 
 
 def test_connection_error_when_nobody_answers():
@@ -307,3 +314,59 @@ def test_connection_error_when_nobody_answers():
     connection.stop()
     assert states[-1][0] == "error"
     assert states[-1][1].startswith("Schnittstelle antwortet nicht")
+
+
+def _raw_frame(destination="1/0/1", source="1.1.12", value=1) -> str:
+    """Roher cEMI-Rahmen L_Data.ind (Hex) wie von der Schnittstelle."""
+    from xknx.cemi import CEMIFrame, CEMILData, CEMIMessageCode
+    from xknx.dpt import DPTBinary
+    from xknx.telegram import Telegram, TelegramDirection
+    from xknx.telegram.address import GroupAddress, IndividualAddress
+    from xknx.telegram.apci import GroupValueWrite
+    telegram = Telegram(destination_address=GroupAddress(destination),
+                        source_address=IndividualAddress(source),
+                        direction=TelegramDirection.INCOMING,
+                        payload=GroupValueWrite(DPTBinary(value)))
+    return CEMIFrame(code=CEMIMessageCode.L_DATA_IND,
+                     data=CEMILData.init_from_telegram(telegram)).to_knx().hex().upper()
+
+
+def test_live_recording_like_ets_group_monitor():
+    from knix_arranger.services.bus_access import live_recording
+    from knix_arranger.services.bus_monitor import BusLogError
+    t0 = datetime(2026, 11, 11, 16, 0, 0)
+    frames = [(_raw_frame(), t0), (_raw_frame(value=0), t0.replace(second=30)),
+              (_raw_frame("5/5/5", "1.1.99"), t0.replace(minute=1))]
+    summary = live_recording(frames)
+    assert summary["file"] == "Live-Monitor 11.11.2026 16:00"
+    assert summary["mode"].startswith("Gruppenmonitor")
+    assert (summary["telegrams"], summary["repeats"], summary["ack_known"]) == (3, 0, False)
+    assert [p[:4] for p in summary["pairs"]] == [["1.1.12", "1/0/1", "Write", 2],
+                                                 ["1.1.99", "5/5/5", "Write", 1]]
+    assert len(summary["minutes"]) == 2               # Buslast je Minute
+    with pytest.raises(BusLogError):
+        live_recording([])
+
+
+def test_live_monitor_hands_recording_to_bus_analysis(monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from knix_arranger.services.bus_monitor import analyze
+    project = _project()
+    view = _view(project)
+    assert not view._analysis_btn.isEnabled()
+    t0 = datetime(2026, 11, 11, 16, 0, 0)
+    view._on_raw(_raw_frame(), t0)
+    view._on_raw(_raw_frame("5/5/5", "1.1.99"), t0)
+    view._update_controls()
+    assert view._analysis_btn.isEnabled()
+    shown = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
+    added = []
+    view.recording_added.connect(lambda: added.append(True))
+    view._to_analysis()
+    assert added and len(project.bus_recordings) == 1 and "2 Telegramme" in shown[0]
+    analysis = analyze(project, project.bus_recordings[0])
+    assert [s.address for s in analysis.unknown] == ["1.1.99"]     # Absender ausserhalb
+    assert [p.dst for p in analysis.missing_gas] == ["5/5/5"]           # GA nicht im Projekt
+    view._clear()
+    assert not view._raw and not view._analysis_btn.isEnabled()

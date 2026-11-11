@@ -109,6 +109,14 @@ def _check_bus_access() -> None:
         payload=GroupValueWrite(DPTBinary(1))), datetime.now())
     if live is None or live.payload != "01":
         raise RuntimeError("Telegramm nicht umgewandelt")
+    # Mitlesen der rohen Rahmen (Busanalyse) hängt an xknx-Interna
+    from xknx import XKNX
+    from ..services.bus_access import _tapping_handler
+    seen = []
+    handler = _tapping_handler(XKNX(), lambda raw, _when: seen.append(raw))
+    handler.handle_raw_cemi(bytes.fromhex("2900BCE011010801010080"))
+    if seen != ["2900BCE011010801010080"]:
+        raise RuntimeError("Rohe Rahmen nicht mitgelesen")
 
 
 def _check_main_window() -> None:
