@@ -55,7 +55,7 @@ class CustomGewerkDialog(QDialog):
             "automatischer Gruppenadress-Erzeugung.\n\n"
             "Automatische Aktor-/Produktvorschläge funktionieren dafür nicht -- "
             "das Gerät muss manuell zugewiesen und seine Kommunikationsobjekte "
-            "über die CO-Verknüpfung manuell mit Gruppenadressen verbunden "
+            "über die KO-Verknüpfung manuell mit Gruppenadressen verbunden "
             "werden."
         )
         info.setWordWrap(True)

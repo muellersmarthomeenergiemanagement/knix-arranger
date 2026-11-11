@@ -85,7 +85,7 @@ NAV_GROUPS: list[tuple[str, list[tuple[str, str, str]]]] = [
     ]),
     ("Adressen & Logik", [
         ("addresses",       "Gruppenadressen",     "binary-tree"),
-        ("co_linking",      "CO-Verknüpfung",      "link"),
+        ("co_linking",      "KO-Verknüpfung",      "link"),
         ("linking_matrix",  "Verknüpfungsmatrix",  "grid-dots"),
         ("ets_functions",   "ETS-Funktionen",      "puzzle"),
         ("validation",      "Validierung",         "circle-check"),

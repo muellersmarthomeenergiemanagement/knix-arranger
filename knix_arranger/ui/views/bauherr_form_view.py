@@ -1477,7 +1477,8 @@ class BauherrFormView(QWidget):
         self._service: BauherrFormService | None = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # Rand wie die übrigen Ansichten (vorher ohne Rand am Fensterrand)
+        layout.setContentsMargins(9, 9, 9, 9)
 
         title = QLabel("Bauherren-Beratung – Tastenbelegung")
         title.setObjectName("title")

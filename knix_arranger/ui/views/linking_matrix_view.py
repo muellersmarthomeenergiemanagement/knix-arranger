@@ -169,29 +169,20 @@ class LinkingMatrixView(QWidget):
         btn_layout = QHBoxLayout()
 
         self._btn_refresh = QPushButton("Aktualisieren")
+        self._btn_refresh.setObjectName("secondary")
         self._btn_refresh.clicked.connect(self._refresh)
         btn_layout.addWidget(self._btn_refresh)
 
         btn_layout.addStretch()
 
         self._btn_export_pdf = QPushButton("Als PDF exportieren")
-        self._btn_export_pdf.setStyleSheet(
-            "QPushButton { background-color: #1565C0; color: white; "
-            "font-weight: bold; padding: 6px 16px; border-radius: 4px; }"
-            "QPushButton:hover { background-color: #1976D2; }"
-            "QPushButton:disabled { background-color: #ccc; }"
-        )
+        self._btn_export_pdf.setObjectName("secondary")
         self._btn_export_pdf.clicked.connect(self._export_pdf)
         self._btn_export_pdf.setEnabled(False)
         btn_layout.addWidget(self._btn_export_pdf)
 
         self._btn_export = QPushButton("Als XLSX exportieren")
-        self._btn_export.setStyleSheet(
-            "QPushButton { background-color: #2E7D32; color: white; "
-            "font-weight: bold; padding: 6px 16px; border-radius: 4px; }"
-            "QPushButton:hover { background-color: #388E3C; }"
-            "QPushButton:disabled { background-color: #ccc; }"
-        )
+        self._btn_export.setObjectName("secondary")
         self._btn_export.clicked.connect(self._export_xlsx)
         self._btn_export.setEnabled(False)
         btn_layout.addWidget(self._btn_export)

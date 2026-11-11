@@ -102,6 +102,10 @@ def store(project, path: str) -> str:
     target = os.path.join(folder, os.path.basename(path))
     try:
         if os.path.exists(target):
+            # Zwischenspeicher von filecmp leeren: er merkt sich Ergebnisse
+            # nach Grösse und Änderungszeit -- ein neuer Stand mit gleicher
+            # Grösse und gleichem Zeitstempel galt sonst als unverändert
+            filecmp.clear_cache()
             if filecmp.cmp(path, target, shallow=False):
                 return target
             _set_aside(target)

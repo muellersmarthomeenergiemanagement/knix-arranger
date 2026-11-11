@@ -62,11 +62,16 @@ class BuildingView(QWidget):
         # Toolbar – Zeile 1: Hinzufügen
         toolbar1 = QHBoxLayout()
         self._btn_add_building  = QPushButton("+ Gebäude")
+        self._btn_add_building.setObjectName("secondary")
         self._btn_add_wing      = QPushButton("+ Flügel")
+        self._btn_add_wing.setObjectName("secondary")
         self._btn_add_floor     = QPushButton("+ Stockwerk")
+        self._btn_add_floor.setObjectName("secondary")
         self._btn_add_apartment = QPushButton("+ Wohnung/Zone")
+        self._btn_add_apartment.setObjectName("secondary")
         self._btn_add_room      = QPushButton("+ Raum")
         self._btn_add_verteiler = QPushButton("+ Verteiler")
+        self._btn_add_verteiler.setObjectName("secondary")
 
         self._btn_add_building.clicked.connect(self._add_building)
         self._btn_add_wing.clicked.connect(self._add_wing)
@@ -87,6 +92,7 @@ class BuildingView(QWidget):
         # Toolbar – Zeile 2: Bearbeiten / Löschen
         toolbar2 = QHBoxLayout()
         self._btn_rename = QPushButton("Umbenennen")
+        self._btn_rename.setObjectName("secondary")
         self._btn_rename.clicked.connect(self._rename_selected)
         self._btn_delete = QPushButton("Entfernen")
         self._btn_delete.setObjectName("danger")

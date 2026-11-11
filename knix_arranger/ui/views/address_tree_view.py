@@ -123,9 +123,11 @@ class AddressTreeView(QWidget):
         # Toolbar
         toolbar = QHBoxLayout()
         self._btn_expand_all = QPushButton("Alle aufklappen")
+        self._btn_expand_all.setObjectName("secondary")
         self._btn_expand_all.setToolTip("Alle Haupt- und Mittelgruppen aufklappen")
         self._btn_expand_all.clicked.connect(self._expand_all)
         self._btn_collapse_all = QPushButton("Alle zuklappen")
+        self._btn_collapse_all.setObjectName("secondary")
         self._btn_collapse_all.setToolTip("Alle Haupt- und Mittelgruppen zuklappen")
         self._btn_collapse_all.clicked.connect(self._collapse_all)
         toolbar.addWidget(self._btn_expand_all)

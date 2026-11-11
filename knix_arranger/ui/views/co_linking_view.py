@@ -63,7 +63,7 @@ _COL_CONF = 11
 _NUM_COLS = 12
 
 _HEADERS = [
-    "✓", "Geräteadresse", "Ort", "CO-Funktion", "CO-DPT", "GA-DPT", "Flags",
+    "✓", "Geräteadresse", "Ort", "KO-Funktion", "KO-DPT", "GA-DPT", "Flags",
     "Richtung", "Gewerk", "GA-Adresse", "GA-Bezeichnung", "Konfidenz",
 ]
 
@@ -116,7 +116,7 @@ class CoLinkingView(QWidget):
         layout.setSpacing(8)
 
         # Titel
-        title = QLabel("CO-Verknüpfung")
+        title = QLabel("KO-Verknüpfung")
         title.setObjectName("title")
         layout.addWidget(title)
 
@@ -220,27 +220,25 @@ class CoLinkingView(QWidget):
         btn_layout = QHBoxLayout()
 
         self._btn_refresh = QPushButton("Aktualisieren")
+        self._btn_refresh.setObjectName("secondary")
         self._btn_refresh.setToolTip("Vorschläge neu berechnen")
         self._btn_refresh.clicked.connect(self._refresh)
         btn_layout.addWidget(self._btn_refresh)
 
         self._btn_all = QPushButton("Alle auswählen")
+        self._btn_all.setObjectName("secondary")
         self._btn_all.clicked.connect(lambda: self._set_all(True))
         btn_layout.addWidget(self._btn_all)
 
         self._btn_none = QPushButton("Alle abwählen")
+        self._btn_none.setObjectName("secondary")
         self._btn_none.clicked.connect(lambda: self._set_all(False))
         btn_layout.addWidget(self._btn_none)
 
         btn_layout.addStretch()
 
         self._btn_apply = QPushButton("Verknüpfungen übernehmen")
-        self._btn_apply.setStyleSheet(
-            "QPushButton { background-color: #1565C0; color: white; "
-            "font-weight: bold; padding: 6px 16px; border-radius: 4px; }"
-            "QPushButton:hover { background-color: #1976D2; }"
-            "QPushButton:disabled { background-color: #ccc; }"
-        )
+        # Hauptaktion im Standardgrün (vorher eigener blauer Stil)
         self._btn_apply.clicked.connect(self._apply)
         self._btn_apply.setEnabled(False)
         btn_layout.addWidget(self._btn_apply)
@@ -346,7 +344,7 @@ class CoLinkingView(QWidget):
                 if col == _COL_GA_ADDR and is_dup:
                     item.setToolTip(
                         "Diese GA-Adresse wird am selben Gerät mehrfach vorgeschlagen "
-                        "(mehrere CO-Funktionen) -- prüfen, ob das gewollt ist."
+                        "(mehrere KO-Funktionen) – prüfen, ob das gewollt ist."
                     )
                 self._table.setItem(row_idx, col, item)
 
@@ -431,7 +429,7 @@ class CoLinkingView(QWidget):
 
         self._project.touch()
         QMessageBox.information(
-            self, "CO-Verknüpfung abgeschlossen",
+            self, "KO-Verknüpfung abgeschlossen",
             f"{count} neue CO-GA-Verknüpfung(en) in die Topologie eingetragen.\n\n"
             "Die Verknüpfungen dienen als Vorlage für die Programmierung in ETS."
         )

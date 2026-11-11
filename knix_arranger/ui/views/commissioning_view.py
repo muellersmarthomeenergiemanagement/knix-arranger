@@ -76,11 +76,12 @@ class CommissioningView(QWidget):
         self._populating = False   # verhindert Signalschleifen beim Befüllen
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # Rand wie die übrigen Ansichten (vorher ohne Rand am Fensterrand)
+        layout.setContentsMargins(9, 9, 9, 9)
 
         # ── Header ────────────────────────────────────────────────────────────
         hdr = QHBoxLayout()
-        hdr.setContentsMargins(8, 6, 8, 4)
+        hdr.setContentsMargins(0, 0, 0, 4)
         title = QLabel("Inbetriebnahme-Checkliste")
         title.setObjectName("title")
         hdr.addWidget(title)
@@ -95,6 +96,7 @@ class CommissioningView(QWidget):
         hdr.addWidget(self._btn_init)
 
         self._btn_sync = QPushButton("Abgleichen")
+        self._btn_sync.setObjectName("secondary")
         self._btn_sync.setToolTip(
             "Neue Räume/BEs/GAs werden hinzugefügt.\n"
             "Bestehende Items mit Ergebnissen bleiben unverändert."
@@ -103,6 +105,7 @@ class CommissioningView(QWidget):
         hdr.addWidget(self._btn_sync)
 
         self._btn_export = QPushButton("Excel exportieren…")
+        self._btn_export.setObjectName("secondary")
         self._btn_export.setToolTip(
             "Checkliste zum Ausfüllen auf der Baustelle: je Stockwerk ein Blatt, "
             "Spalte OK als Auswahlliste")
@@ -110,6 +113,7 @@ class CommissioningView(QWidget):
         hdr.addWidget(self._btn_export)
 
         self._btn_import = QPushButton("Excel einlesen…")
+        self._btn_import.setObjectName("secondary")
         self._btn_import.setToolTip(
             "Ausgefüllte Checkliste einlesen: Ergebnisse, Datum, Visum und "
             "Bemerkungen werden übernommen, «offen» lässt vorhandene Ergebnisse "
@@ -196,6 +200,7 @@ class CommissioningView(QWidget):
         bulk_layout.addWidget(btn_apply_sel)
 
         btn_apply_all = QPushButton("Alle sichtbaren")
+        btn_apply_all.setObjectName("secondary")
         btn_apply_all.setToolTip("Ergebnis auf alle aktuell angezeigten Zeilen anwenden")
         btn_apply_all.clicked.connect(self._bulk_apply_all)
         bulk_layout.addWidget(btn_apply_all)
