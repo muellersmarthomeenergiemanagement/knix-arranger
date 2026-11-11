@@ -118,6 +118,8 @@ def build():
         f"--output-dir={BUILD_DIR}",
         "--output-filename=KNiX_Arranger.exe",
         "--include-package=knix_arranger",
+        # Buszugriff (FA-3101): xknx laedt Teile erst beim Verbinden
+        "--include-package=xknx",
         *[f"--include-data-dir={ROOT / d}={d}" for d in DATA_DIRS],
         "--nofollow-import-to=pytest,tkinter,numpy",
         # Die generierte MuPDF-Anbindung ist so gross, dass dem C-Compiler der

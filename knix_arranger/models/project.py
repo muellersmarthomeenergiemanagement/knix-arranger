@@ -153,6 +153,9 @@ class KnxProject:
     line_plans: list[LinePlan] = field(default_factory=list)
     # Busmonitor-Mitschnitte als Zusammenfassung (FA-640, services/bus_monitor)
     bus_recordings: list[dict] = field(default_factory=list)
+    # Buszugriff (FA-3101): Verbindung zur Anlage ohne Passwörter
+    # (services/bus_access.ConnectionSettings.to_dict)
+    bus_connection: dict = field(default_factory=dict)
     # Erweiterungen im Bestand (FA-642), neben dem Ist-Stand
     extension_plans: list[ExtensionPlan] = field(default_factory=list)
     # Projektstatus: Datum (ISO), an dem die Gruppenadressen eines geplanten
@@ -319,6 +322,7 @@ class KnxProject:
             "functions": [f.to_dict() for f in self.functions],
             "line_plans": [p.to_dict() for p in self.line_plans],
             "bus_recordings": copy.deepcopy(self.bus_recordings),
+            "bus_connection": copy.deepcopy(self.bus_connection),
             "extension_plans": [p.to_dict() for p in self.extension_plans],
             "ets_transferred": self.ets_transferred,
             "areal": self.areal.to_dict(),
@@ -380,6 +384,7 @@ class KnxProject:
         project.ets_worklist = copy.deepcopy(data.get("ets_worklist") or {})
         project.line_plans = [LinePlan.from_dict(p) for p in data.get("line_plans", [])]
         project.bus_recordings = copy.deepcopy(data.get("bus_recordings") or [])
+        project.bus_connection = copy.deepcopy(data.get("bus_connection") or {})
         project.extension_plans = [ExtensionPlan.from_dict(p)
                                    for p in data.get("extension_plans", [])]
         project.functions = [KnixFunction.from_dict(f) for f in data.get("functions", [])]

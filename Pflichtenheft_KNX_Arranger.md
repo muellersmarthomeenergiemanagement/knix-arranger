@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 4.10
+**Version:** 4.11
 **Datum:** 11.11.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -104,6 +104,7 @@
 | 4.08 | 11.11.2026 | M. Mueller / Claude AI | Abgleich mit den KNX-Swiss-Dokumenten (Planungshilfe 2025, Leitfaden Sichere Gebaeudeinformatik 1.3, Merkblatt ETS-Konfigurationsdatei, BIM-Ratgeber, Merkblatt Beleuchtungssteuerungen): KNX-Secure-Pruefungen der Validierung (FA-645 gesicherte GA an Geraet ohne Secure, FA-645b Koppler ohne Secure vor Secure-Geraeten, FA-645c IP Secure nicht an allen IP-Routern), Auto-Vorschlag der GA-Sicherheit laesst GAs an Geraeten ohne Secure aus (FA-2703), Mischbetrieb als zulaessiger Hinweis statt Warnung (FA-2705). Topologie-Diagramm mit waagrechter Hauptlinie, Linien nebeneinander, mehrere Bereiche untereinander an der Bereichslinie; leerer Bereich 0 und leere Linie B.0 aus dem Import erscheinen nicht (FA-904). Inbetriebnahme-Checkliste mit Filtertabelle, KNX Secure und Kalibrierung (FA-1902), Abnahmeprotokoll mit Uebergabe der ETS-Datei nach Formular A/B und Uebergabepunkten (FA-1912), Bedienungsanleitung mit Stromunterbruch (FA-2003) |
 | 4.09 | 11.11.2026 | M. Mueller / Claude AI | Abgleich mit den KNX-Swiss-Projektrichtlinien 2024: Variante B haelt MG 6/7 fuer die Rueckmeldungen von Licht und Jalousie frei, Gewerke mit Katalog-MG 6/7 (PV, EV, SP) weichen auf MG 5 aus (FA-422), FA-607 meldet fremde Gewerke in MG 6/7 bei Variante B; parallele Spannungsversorgungen ueber 1280 mA (FA-613c), Rat "zweite Spannungsversorgung" bei FA-613b entfernt; IP-Router ohne KNX Secure (FA-645d), IP-Linienkoppler unter IP-Bereichskoppler (FA-646) |
 | 4.10 | 11.11.2026 | M. Mueller / Claude AI | Positionsnummer der Bedienelemente nach Projektrichtlinien 10.7 (FA-1404b); Bedienungsanleitung mit Deckblatt in der Sprache der Anleitung (FA-2001a); gespeicherte Checklisten verlieren beim Oeffnen die Pruefpunkte von Gateways, die frueher als Bedienelement galten (FA-1902) |
+| 4.11 | 11.11.2026 | M. Mueller / Claude AI | ETS COM-Server (FA-3100) neu gefasst als Buszugriff ohne ETS: Verbindung ueber KNXnet/IP inkl. Secure-Tunnel und Schluesseldatei (FA-3101), Live-Monitor (FA-3102a, FA-3103); Senden und gefuehrter Funktionstest mit Eintrag in die Checkliste geplant (FA-3102b, FA-3104); Abgleich mit der ETS ueber .knxproj (FA-3102c entfaellt) |
 | 4.01 | 05.11.2026 | M. Mueller / Claude AI | Busanalyse wertet die Quittungen aus (FA-640a): ACK, NAK, BUSY je Rahmen, Ziele mit Empfaenger ohne Quittung, Hinweis auf von der Schnittstelle nicht weitergegebene Quittungen (Chalet ueber ise Remote Access: 52 ACK, 51 Rahmen ohne aufgezeichnete Quittung und ohne Wiederholung); Ansicht Busanalyse filterbar (FA-640b); Werte nach DPT und Datenlaenge gegen DPT (FA-640c), Lesen ohne Antwort und mehrere Antwortende (FA-640d), mehrere Sender (FA-640e), Messpunkt aus dem Routing-Zaehler und Weiterleitung ohne Empfaenger (FA-640f, Chalet: Messpunkt Linie 1.1, 18 GAs der Revox in Linie 1.2 ohne Empfaenger in 1.1), Buslast je Minute (FA-640g), Vergleich zweier Mitschnitte (FA-640h) |
 | 4.00 | 03.11.2026 | M. Mueller / Claude AI | Erweiterung im Bestand (FA-642): Adressen in der Mittelgruppe der Anlage, Namen nach ihrem Schema oder KNX Swiss, freie Aktorkanaele, GA-Liste (CSV) fuer die ETS und Bericht; Arbeitsweg und Anlagen-Check nennen die Erweiterungen |
 | 3.79 | 29.10.2026 | M. Mueller / Claude AI | Datenpunkttyp je KO: .knxproj (aktive Variante, Aenderung am KO) und Topologie-Report (Anzeigenamen ueber die DPT-Tabelle des KNX-Stamms, auch "Haupttyp, Untertyp", mehrdeutige Namen nach Groesse) liefern die DPT-Kennung, aeltere Projekte werden beim Laden uebersetzt (FA-522a); Anzeige "1.008 Auf/Ab"; neue Pruefung FA-638 Untertyp mit anderer Bedeutung des Werts; KO-Vorschlag bevorzugt den gleichen Untertyp |
@@ -293,7 +294,7 @@ Alle Anforderungen in diesem Pflichtenheft sind nach der MoSCoW-Methode priorisi
 | DALI-Detailkonfiguration | FA-2801 bis FA-2806 | **(C)** | Vollstaendige DALI-Projektierung (Gruppen, Szenen, Notlicht) |
 | Zeitsteuerungsplanung | FA-2901 bis FA-2906 | **(C)** | Astro-Timer, Wochenprogramme, Feiertagskalender |
 | CO-Auto-Linking | FA-3001 bis FA-3005 | **(S)** | Groesster Zeitgewinn bei ETS-Programmierung |
-| ETS COM-Server | FA-3101 bis FA-3104 | **(W)** | Inbetriebnahme-Unterstuetzung, spaeteren Ausbau vorgemerkt |
+| Buszugriff | FA-3101 bis FA-3104 | **(S/W)** | Verbindung ueber KNXnet/IP und Live-Monitor umgesetzt; USB, Senden und gefuehrter Funktionstest geplant |
 | Eingabe-Effizienz | FA-3201 bis FA-3211 | **(S/C)** | Workflow-Optimierung fuer den Integrator: Schnelleingaben, Multi-Select, Massenerfassung |
 | Zeitsteuerung Datenmodell | FA-3301 | **(C)** | Grundlage fuer alle weiteren Zeitsteuerungsfunktionen |
 | Zeitprogramm-Editor | FA-3302 | **(C)** | Hauptansicht zur Wochenprogramm-Pflege |
@@ -1674,14 +1675,16 @@ Aktor | Sensor | Linienkoppler | Bereichskoppler | IP-Router | Netzteil | DALI-G
 
 ---
 
-### 3.32 ETS COM-Server-Anbindung (FA-3100)
+### 3.32 Buszugriff (FA-3100)
+
+Bis Version 4.10 als "ETS COM-Server-Anbindung" gefuehrt. Eine Fernsteuerung der ETS6 durch ein fremdes Programm ist nicht vorgesehen; der offizielle Weg in die ETS waere eine ETS-App (Entwicklerprogramm der KNX Association) und ist zurueckgestellt. KNiX greift stattdessen selbst auf den Bus zu, ohne ETS. Projektdaten aus der ETS kommen weiterhin ueber den .knxproj-Import und Re-Import (FA-527).
 
 | ID | Anforderung |
 |----|-------------|
-| FA-3101 | Das System kann eine direkte Verbindung zur ETS6 ueber den ETS-COM-Server (OLE-Automation-Schnittstelle) herstellen. Die Verbindung ermoeglicht die Fernsteuerung von ETS6-Funktionen aus dem KNX Arranger heraus. Die Funktion setzt eine installierte und geoeffnete ETS6-Instanz auf demselben Rechner voraus. **(W)** |
-| FA-3102 | Ueber die ETS-COM-Verbindung muss das System folgende Funktionen anbieten: a) Gruppenadress-Monitor: Empfangene KNX-Telegramme in Echtzeit anzeigen (GA, Wert, Zeitstempel), b) Telegramm senden: Beliebigen Wert an eine GA senden (z.B. fuer Funktionstests), c) Projektdaten synchronisieren: Aktuelle GA-Struktur aus ETS einlesen und mit dem KNX Arranger-Projekt abgleichen. **(W)** |
-| FA-3103 | Der Telegramm-Monitor muss filterbar sein: nach GA, nach Gewerk, nach Raum, nach Stockwerk. Empfangene Werte werden mit Zeitstempel, GA-Adresse, GA-Bezeichnung und dekodiertem Wert angezeigt. Eine Exportfunktion (CSV) der Telegrammaufzeichnung muss angeboten werden. **(W)** |
-| FA-3104 | Das System muss Inbetriebnahme-Testsequenzen unterstuetzen: Pro Raum koennen automatisch alle Schalt-GAs nacheinander mit Testwerten beschickt werden (EIN -- 2 s Pause -- AUS), um die Verdrahtung und Programmierung sequenziell zu verifizieren. Die Testergebnisse (Reaktion erkannt / nicht erkannt) werden im Inbetriebnahme-Protokoll (FA-1903) gespeichert. **(W)** |
+| FA-3101 | Verbindung zur Anlage ohne ETS ueber KNXnet/IP: Tunnel (UDP, auch ueber NAT/VPN mit "Route back", z.B. Fernzugang ise), Tunnel (TCP), Secure-Tunnel (TCP, Benutzer-ID und Passwort des Tunnels, optional Geraete-Authentifizierung, oder Schluesseldatei der ETS .knxkeys mit Passwort), Routing und Secure-Routing (Backbone-Schluessel oder Schluesseldatei). Mit Schluesseldatei werden gesicherte GAs (Data Secure) entschluesselt. Die Verbindungsangaben ohne Passwoerter werden im Projekt gespeichert; Passwoerter nur fuer die laufende Verbindung. Beim Wechsel des Projekts und beim Beenden wird die Verbindung getrennt. Etappe 1b: USB-Schnittstellen (HID, z.B. Siemens OCI702). **(S)** |
+| FA-3102 | Funktionen des Buszugriffs: a) Live-Gruppenmonitor (Ansicht "Live-Monitor" unter "Bestand & Umbau"): Gruppentelegramme in Echtzeit, KNiX sendet dabei nichts (auch keine Leseanfragen); b) Telegramm senden und GA lesen, aus den Ansichten GA, Verknuepfungsmatrix und Checkliste, mit ausdruecklicher Bestaetigung (geplant); c) entfaellt (Abgleich mit der ETS ueber den .knxproj-Import, FA-527). **(S: a; W: b)** |
+| FA-3103 | Der Live-Monitor zeigt je Telegramm Zeit (ms), Absender (Adresse und Geraet aus der Topologie, auch Tunneling-Zusatzadressen), GA, Bezeichnung, Dienst (Schreiben, Lesen, Antwort), Wert nach dem DPT der GA wie die Busanalyse (FA-640c; unbekannter DPT: Hex), Gewerk, Raum und Stockwerk wie im Raumbuch; GAs, die nicht im Projekt stehen, orange. Filter: Suchtext wie in der Busanalyse (GA, Adresse, Bezeichnung, Raum, Wert), Gewerk (Kuerzel genau) und Stockwerk. Anzeige anhalten (weiter aufzeichnen, beim Fortsetzen nachtragen), leeren; hoechstens 20 000 Telegramme, aeltere fallen weg. Export der gefilterten Aufzeichnung als CSV (Semikolon, UTF-8, mit Datum, Daten in Hex und DPT). **(S)** |
+| FA-3104 | Gefuehrter Funktionstest (geplant): je Raum die Schalt-GAs nacheinander ausloesen (EIN -- Pause -- AUS) und die Rueckmelde-GA des Aktors abwarten; Reaktion erkannt / nicht erkannt traegt KNiX als Ergebnis mit Datum und Visum in die Inbetriebnahme-Checkliste ein (FA-1902). Ausgeschlossene Gewerke (Alarm, Sicherheit), Bestaetigung vor dem Start, Telegrammrate begrenzt, jederzeit anhaltbar. Ueber einen Fernzugang gehen Quittungen verloren; massgebend ist die Rueckmeldung. **(W)** |
 
 ---
 

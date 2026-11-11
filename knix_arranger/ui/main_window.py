@@ -463,6 +463,10 @@ class MainWindow(QMainWindow):
             lambda: self._mark_stale("plant_check", "renovation", "overview"))
         self._plant_check_view = PlantCheckView()
         self._plant_check_view.navigate_requested.connect(self._navigate_from_overview)
+        # Buszugriff (FA-3101 ff.): Live-Monitor
+        from .views.live_monitor_view import LiveMonitorView
+        self._live_monitor_view = LiveMonitorView()
+        self._live_monitor_view.settings_changed.connect(lambda: self._set_dirty(True))
         self._changelog_view.changed.connect(
             lambda: self._bus.any_change.emit("changelog")
         )
@@ -498,6 +502,7 @@ class MainWindow(QMainWindow):
             "changelog": self._changelog_view,
             "renovation": self._renovation_view,
             "bus_analysis": self._bus_analysis_view,
+            "live_monitor": self._live_monitor_view,
             "plant_check": self._plant_check_view,
             "help": self._help_view,
             "wizard": self._wizard_widget,
@@ -692,6 +697,7 @@ class MainWindow(QMainWindow):
             "changelog": self._changelog_view,
             "renovation": self._renovation_view,
             "bus_analysis": self._bus_analysis_view,
+            "live_monitor": self._live_monitor_view,
             "plant_check": self._plant_check_view,
         }
         refreshers = {key: (lambda v=view: v.set_project(p)) for key, view in views.items()}
@@ -737,6 +743,10 @@ class MainWindow(QMainWindow):
         # der Bauherrenberatung, das Neuaufbauen aller Ansichten (Projekt_23:
         # 7 s je Klick)
         self._stale_views = set(self._view_refreshers())
+        # anderes Projekt = andere Anlage: offene Busverbindung sofort trennen
+        if self._live_monitor_view._project is not self._project:
+            self._live_monitor_view.set_project(self._project)
+            self._stale_views.discard("live_monitor")
         self._refresh_view(self._current_view_key())
         self._sidebar.set_imported(self._project.topology.is_imported)
 
@@ -2851,3 +2861,5 @@ class MainWindow(QMainWindow):
                 event.ignore()
         else:
             event.accept()
+        if event.isAccepted():
+            self._live_monitor_view.shutdown()   # Busverbindung trennen

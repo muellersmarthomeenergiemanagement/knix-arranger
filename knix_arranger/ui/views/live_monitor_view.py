@@ -1,0 +1,346 @@
+"""
+Live-Monitor (FA-3102a, FA-3103): Gruppentelegramme der Anlage in Echtzeit,
+mit Bezeichnung, Wert nach DPT, Gewerk, Raum und Stockwerk aus dem Projekt;
+filtern, anhalten, als CSV speichern. Liest nur (services/bus_access).
+"""
+from __future__ import annotations
+
+from PySide6.QtCore import (
+    QAbstractTableModel, QModelIndex, QObject, QSortFilterProxyModel, Qt, QTimer, Signal,
+)
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QTableView, QVBoxLayout, QWidget,
+)
+
+from ...services.bus_access import (
+    COLUMNS, MAX_ROWS, STATE_CONNECTED, STATE_CONNECTING, STATE_DISCONNECTED, STATE_ERROR,
+    BusConnection, ConnectionSettings, MonitorContext, MonitorRow, export_csv, row_matches,
+)
+from ..styles import TEXT_MUTED
+
+_UNKNOWN_COLOR = QColor("#E65100")     # GA nicht im Projekt
+
+
+class _Bridge(QObject):
+    """Rückrufe aus dem Verbindungs-Thread in den Hauptthread."""
+    telegram = Signal(object)
+    state = Signal(str, str)
+
+
+class MonitorModel(QAbstractTableModel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.rows: list[MonitorRow] = []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self.rows)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(COLUMNS)
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+            return COLUMNS[section]
+        return None
+
+    def data(self, index, role=Qt.DisplayRole):
+        row = self.rows[index.row()]
+        if role == Qt.DisplayRole:
+            return row.cells()[index.column()]
+        if role == Qt.ForegroundRole and not row.known and index.column() in (2, 3):
+            return _UNKNOWN_COLOR
+        if role == Qt.ToolTipRole and not row.known and index.column() in (2, 3):
+            return "GA nicht im Projekt"
+        if role == Qt.ToolTipRole and index.column() == 5 and row.dpt:
+            return f"{row.dpt} · Daten {row.telegram.payload or '–'}"
+        return None
+
+    def append(self, rows: list[MonitorRow]) -> None:
+        if not rows:
+            return
+        overflow = len(self.rows) + len(rows) - MAX_ROWS
+        if overflow > 0:
+            self.beginRemoveRows(QModelIndex(), 0, overflow - 1)
+            del self.rows[:overflow]
+            self.endRemoveRows()
+        start = len(self.rows)
+        self.beginInsertRows(QModelIndex(), start, start + len(rows) - 1)
+        self.rows.extend(rows)
+        self.endInsertRows()
+
+    def clear(self) -> None:
+        self.beginResetModel()
+        self.rows = []
+        self.endResetModel()
+
+
+class MonitorFilter(QSortFilterProxyModel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.query = self.gewerk = self.floor = ""
+
+    def set_filter(self, query: str, gewerk: str, floor: str) -> None:
+        # Qt ab 6.10: begin/endFilterChange statt des veralteten invalidateFilter
+        if hasattr(self, "beginFilterChange"):
+            self.beginFilterChange()
+            self.query, self.gewerk, self.floor = query, gewerk, floor
+            self.endFilterChange(QSortFilterProxyModel.Direction.Rows)
+        else:
+            self.query, self.gewerk, self.floor = query, gewerk, floor
+            self.invalidateRowsFilter()
+
+    def filterAcceptsRow(self, source_row, source_parent) -> bool:
+        row = self.sourceModel().rows[source_row]
+        return row_matches(row, self.query, self.gewerk, self.floor)
+
+
+class LiveMonitorView(QWidget):
+    # Verbindungseinstellungen geändert (Projekt ungespeichert)
+    settings_changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._project = None
+        self._context: MonitorContext | None = None
+        self._pending: list = []
+        self._paused = False
+        self._held: list = []
+        self._state = STATE_DISCONNECTED
+        self._bridge = _Bridge()
+        # gebundene Methoden: Qt stellt die Signale aus dem Verbindungs-
+        # Thread in den Hauptthread zu (Queued Connection)
+        self._bridge.telegram.connect(self._on_telegram)
+        self._bridge.state.connect(self._on_state)
+        self._connection = BusConnection(self._bridge.telegram.emit, self._bridge.state.emit)
+        self._timer = QTimer(self)
+        self._timer.setInterval(200)
+        self._timer.timeout.connect(self._flush)
+
+        layout = QVBoxLayout(self)
+        title = QLabel("Live-Monitor")
+        title.setObjectName("title")
+        layout.addWidget(title)
+        intro = QLabel(
+            "Gruppentelegramme der Anlage in Echtzeit, mit Bezeichnung, Wert, Gewerk, Raum "
+            "und Stockwerk aus dem Projekt. KNiX verbindet sich über KNXnet/IP (Tunnel, "
+            "Secure-Tunnel, Routing) und sendet nichts. Orange: GA nicht im Projekt.")
+        intro.setWordWrap(True)
+        intro.setStyleSheet(f"color: {TEXT_MUTED};")
+        layout.addWidget(intro)
+
+        row = QHBoxLayout()
+        self._connect_btn = QPushButton("Verbinden…")
+        self._connect_btn.clicked.connect(self._connect)
+        self._disconnect_btn = QPushButton("Trennen")
+        self._disconnect_btn.setObjectName("secondary")
+        self._disconnect_btn.clicked.connect(self._disconnect)
+        self._status = QLabel()
+        row.addWidget(self._connect_btn)
+        row.addWidget(self._disconnect_btn)
+        row.addWidget(self._status, 1)
+        layout.addLayout(row)
+
+        filters = QHBoxLayout()
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Suchen: GA, Adresse, Bezeichnung, Raum, Wert "
+                                        "(z.B. 1/2 Küche)")
+        self._search.setClearButtonEnabled(True)
+        self._search.textChanged.connect(self._apply_filter)
+        self._gewerk = QComboBox()
+        self._gewerk.setToolTip("Gewerk")
+        self._gewerk.currentIndexChanged.connect(self._apply_filter)
+        self._floor = QComboBox()
+        self._floor.setToolTip("Stockwerk")
+        self._floor.currentIndexChanged.connect(self._apply_filter)
+        self._pause_btn = QPushButton("Anhalten")
+        self._pause_btn.setObjectName("secondary")
+        self._pause_btn.setCheckable(True)
+        self._pause_btn.setToolTip("Anzeige anhalten; Telegramme werden weiter aufgezeichnet")
+        self._pause_btn.toggled.connect(self._toggle_pause)
+        self._clear_btn = QPushButton("Leeren")
+        self._clear_btn.setObjectName("secondary")
+        self._clear_btn.clicked.connect(self._clear)
+        self._export_btn = QPushButton("Als CSV speichern…")
+        self._export_btn.setObjectName("secondary")
+        self._export_btn.clicked.connect(self._export)
+        self._count = QLabel()
+        self._count.setStyleSheet(f"color: {TEXT_MUTED};")
+        filters.addWidget(self._search, 3)
+        filters.addWidget(self._gewerk, 1)
+        filters.addWidget(self._floor, 1)
+        for widget in (self._pause_btn, self._clear_btn, self._export_btn, self._count):
+            filters.addWidget(widget)
+        layout.addLayout(filters)
+
+        self._model = MonitorModel(self)
+        self._proxy = MonitorFilter(self)
+        self._proxy.setSourceModel(self._model)
+        self._table = QTableView()
+        self._table.setModel(self._proxy)
+        self._table.setSelectionBehavior(QTableView.SelectRows)
+        self._table.setAlternatingRowColors(True)
+        self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(22)
+        header = self._table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setStretchLastSection(True)
+        for column, width in enumerate((95, 220, 70, 300, 80, 110, 170, 170)):
+            self._table.setColumnWidth(column, width)
+        layout.addWidget(self._table, 1)
+        self._update_controls()
+
+    # ── Projekt ──────────────────────────────────────────────────────────
+
+    def set_project(self, project) -> None:
+        if project is not self._project and self._connection.running:
+            self._connection.stop()       # anderes Projekt = andere Anlage
+        self._project = project
+        self._context = MonitorContext(project) if project is not None else None
+        self._fill_filters()
+        self._update_controls()
+
+    def showEvent(self, event) -> None:
+        """Zuordnung zum Projekt beim Anzeigen auffrischen (GAs, Räume und
+        Topologie können sich inzwischen geändert haben)."""
+        super().showEvent(event)
+        if self._project is not None:
+            self._context = MonitorContext(self._project)
+            self._fill_filters()
+
+    def _fill_filters(self) -> None:
+        context = self._context
+        for combo, values, empty in (
+                (self._gewerk, context.gewerk.values() if context else [], "Alle Gewerke"),
+                (self._floor, context.floor.values() if context else [], "Alle Stockwerke")):
+            current = combo.currentData()
+            items = sorted({part.strip() for v in values for part in v.split(",") if part})
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(empty, "")
+            for item in items:
+                combo.addItem(item, item.split(" ")[0] if combo is self._gewerk else item)
+            combo.setCurrentIndex(max(0, combo.findData(current)))
+            combo.blockSignals(False)
+
+    # ── Verbindung ───────────────────────────────────────────────────────
+
+    def _connect(self) -> None:
+        if self._project is None:
+            return
+        from ..dialogs.bus_connection_dialog import BusConnectionDialog
+        settings = ConnectionSettings.from_dict(self._project.bus_connection)
+        dialog = BusConnectionDialog(settings, self)
+        if dialog.exec() != BusConnectionDialog.Accepted:
+            return
+        settings = dialog.settings()
+        if settings.to_dict() != self._project.bus_connection:
+            self._project.bus_connection = settings.to_dict()
+            self.settings_changed.emit()
+        try:
+            self._connection.start(settings, dialog.secrets())
+        except Exception as exc:     # z.B. Schlüsseldatei fehlt
+            QMessageBox.warning(self, "Verbinden", f"Verbindung nicht möglich:\n{exc}")
+            return
+        self._timer.start()
+        self._update_controls()
+
+    def _disconnect(self) -> None:
+        self._connection.stop()
+        self._on_state(STATE_DISCONNECTED, "")
+
+    def shutdown(self) -> None:
+        """Beim Schliessen des Programms."""
+        self._connection.stop(timeout=2.0)
+
+    def _on_state(self, state: str, text: str) -> None:
+        if state == STATE_DISCONNECTED and self._state == STATE_ERROR:
+            return          # Fehlermeldung stehen lassen
+        self._state = state
+        labels = {STATE_CONNECTING: ("Verbinde mit {} …", "#1565C0"),
+                  STATE_CONNECTED: ("Verbunden: {}", "#2E7D32"),
+                  STATE_DISCONNECTED: ("Nicht verbunden", TEXT_MUTED),
+                  STATE_ERROR: ("Fehler: {}", "#C62828")}
+        label, color = labels.get(state, ("{}", TEXT_MUTED))
+        self._status.setText(label.format(text))
+        self._status.setStyleSheet(f"color: {color};")
+        if state in (STATE_DISCONNECTED, STATE_ERROR) and not self._connection.running:
+            self._flush()
+            self._timer.stop()
+        self._update_controls()
+
+    def _update_controls(self) -> None:
+        running = self._connection.running
+        self._connect_btn.setEnabled(self._project is not None and not running)
+        self._disconnect_btn.setEnabled(running)
+        self._export_btn.setEnabled(bool(self._model.rows))
+        if not self._status.text():
+            self._status.setText("Nicht verbunden")
+            self._status.setStyleSheet(f"color: {TEXT_MUTED};")
+
+    # ── Anzeige ──────────────────────────────────────────────────────────
+
+    def _on_telegram(self, telegram) -> None:
+        self._pending.append(telegram)
+
+    def _flush(self) -> None:
+        if not self._pending or self._context is None:
+            return
+        telegrams, self._pending = self._pending, []
+        rows = [self._context.row(t) for t in telegrams]
+        if self._paused:
+            self._held.extend(rows)
+        else:
+            self._add(rows)
+        self._update_count()
+
+    def _add(self, rows: list[MonitorRow]) -> None:
+        bar = self._table.verticalScrollBar()
+        at_end = bar.value() >= bar.maximum() - 2
+        self._model.append(rows)
+        if at_end:
+            self._table.scrollToBottom()
+        self._update_controls()
+
+    def _toggle_pause(self, paused: bool) -> None:
+        self._paused = paused
+        self._pause_btn.setText("Fortsetzen" if paused else "Anhalten")
+        if not paused and self._held:
+            held, self._held = self._held, []
+            self._add(held)
+        self._update_count()
+
+    def _clear(self) -> None:
+        self._model.clear()
+        self._held = []
+        self._update_count()
+        self._update_controls()
+
+    def _apply_filter(self) -> None:
+        self._proxy.set_filter(self._search.text(), self._gewerk.currentData() or "",
+                               self._floor.currentData() or "")
+        self._update_count()
+
+    def _update_count(self) -> None:
+        total = len(self._model.rows)
+        shown = self._proxy.rowCount()
+        text = f"{shown} von {total}" if shown != total else f"{total} Telegramme"
+        if self._held:
+            text += f" · {len(self._held)} angehalten"
+        self._count.setText(text)
+
+    def _export(self) -> None:
+        from ..license_gate import get_save_file_name
+        path, _ = get_save_file_name(self, "Aufzeichnung speichern", "Live-Monitor.csv",
+                                     "CSV (*.csv)")
+        if not path:
+            return
+        rows = [self._model.rows[self._proxy.mapToSource(self._proxy.index(r, 0)).row()]
+                for r in range(self._proxy.rowCount())]
+        try:
+            count = export_csv(rows, path)
+        except OSError as exc:
+            QMessageBox.warning(self, "Speichern", f"Datei nicht speicherbar:\n{exc}")
+            return
+        QMessageBox.information(self, "Gespeichert", f"{count} Telegramme gespeichert.")

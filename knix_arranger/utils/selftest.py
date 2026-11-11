@@ -91,6 +91,26 @@ def _check_qr() -> None:
         raise RuntimeError("QR-Code in leerem Bild erkannt")
 
 
+def _check_bus_access() -> None:
+    """Buszugriff (xknx): erst beim Verbinden geladen. Verbindungsdaten für
+    einen Secure-Tunnel bauen und ein Telegramm umwandeln, ohne Netzwerk."""
+    from datetime import datetime
+    from xknx.dpt import DPTBinary
+    from xknx.telegram import Telegram
+    from xknx.telegram.address import GroupAddress, IndividualAddress
+    from xknx.telegram.apci import GroupValueWrite
+    from ..services.bus_access import (
+        TUNNEL_SECURE, ConnectionSettings, Secrets, connection_config, telegram_from_xknx,
+    )
+    connection_config(ConnectionSettings(kind=TUNNEL_SECURE, host="127.0.0.1", user_id=2),
+                      Secrets(user_password="selbsttest"))
+    live = telegram_from_xknx(Telegram(
+        destination_address=GroupAddress("1/0/1"), source_address=IndividualAddress("1.1.1"),
+        payload=GroupValueWrite(DPTBinary(1))), datetime.now())
+    if live is None or live.payload != "01":
+        raise RuntimeError("Telegramm nicht umgewandelt")
+
+
 def _check_main_window() -> None:
     """Hauptfenster aufbauen (ohne Anzeigen und ohne Startdialoge): 1.2.5
     stürzte mit Nuitka 4.3 schon dabei ab (Segmentation Fault), der übrige
@@ -111,6 +131,7 @@ CHECKS = [
     ("Kryptografie", _check_crypto),
     ("Excel", _check_excel),
     ("QR-Code und Kamera", _check_qr),
+    ("Buszugriff", _check_bus_access),
     ("Hauptfenster", _check_main_window),
 ]
 
