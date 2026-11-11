@@ -2,6 +2,25 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.59",
+      "date": "2026-11-11",
+      "verbessert": [
+        "Topologie: Bei fehlendem KNX Secure ist nur noch die Adresse rot, nicht die ganze Zeile; «[P]» kennzeichnet programmierte Geräte ohne Farbe. Gerätenamen sind ganz lesbar, die Spalte «Details» nimmt den Rest der Breite.",
+        "Materialliste: Positionen mit zugewiesenem Produkt stehen in normaler Schrift; orange sind nur Kanäle und Produkt bei einem Kanaldefizit.",
+        "Die Ansichten zählen wie die Berichte: Busteilnehmer ohne Spannungsversorgungen, Bereiche und Linien nur mit Geräten (Topologie, Übersicht, Gebäude).",
+        "Validierung zeigt beim Öffnen der Ansicht sofort die Meldungen, ohne «Erneut validieren».",
+        "Kleine Fenster (1280 × 720): Übersicht und Kundenofferte rollen, statt Knöpfe und Felder zu stauchen; Busanalyse mit den Aktionen zum markierten Absender in einer eigenen Zeile.",
+        "Anlagen-Check und Umbau-Varianten nutzen die ganze Breite; leere Tabellen sagen, was hier hingehört.",
+        "Je Ansicht eine grüne Hauptaktion, Hilfsknöpfe wie «Alle aufklappen» in Weiss. «KO-Verknüpfung» statt «CO-Verknüpfung».",
+        "Präsenzmelder (z.B. Theben compact office, Steinel pirios) und Binäreingänge heissen in Checkliste und Verknüpfungsmatrix nicht mehr nur «Sensor».",
+        "Bedienungsanleitung des Programms (Hilfe): neuer Abschnitt 8.5 zu Bestand & Umbau, Busanalyse und Live-Monitor."
+      ],
+      "behoben": [
+        "Korrekturen an früher eingelesenen Projekten wirkten beim Öffnen im Programm nicht: Präsenzmelder und Binäreingänge blieben als «Aktor» stehen (z.B. in der Materialliste), ein Gateway blieb als Bedienelement im Raum und mit seinen Prüfpunkten in der Checkliste. Sie laufen jetzt bei jedem Öffnen und stehen im Änderungsprotokoll.",
+        "Import-Ordner: Ein neuer Stand einer eingelesenen Datei mit gleicher Grösse und gleichem Zeitstempel wurde nicht abgelegt."
+      ]
+    },
+    {
       "version": "1.4.58",
       "date": "2026-11-11",
       "neu": [

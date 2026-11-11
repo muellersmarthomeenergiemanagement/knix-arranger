@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 4.14
+**Version:** 4.15
 **Datum:** 11.11.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -108,6 +108,7 @@
 | 4.12 | 11.11.2026 | M. Mueller / Claude AI | Live-Monitor: Aufzeichnung als Mitschnitt in die Busanalyse uebernehmen (FA-3103, FA-640) |
 | 4.13 | 11.11.2026 | M. Mueller / Claude AI | Live-Monitor: Zaehler je Verbindung (empfangen, verloren, gesichert ohne Schluessel, Neuverbindungen) und Hinweis auf GAs, die die Linie der Schnittstelle wegen der Filtertabellen nie erreichen (FA-3103) |
 | 4.14 | 11.11.2026 | M. Mueller / Claude AI | Buszugriff ueber USB-Schnittstellen inkl. Busmonitor mit Quittungen und Wiederholungen (FA-3101, FA-3103) |
+| 4.15 | 11.11.2026 | M. Mueller / Claude AI | Design-Durchsicht aller Ansichten: Korrekturen frueher eingelesener Projekte (Gateways, Sensoren, Checklisten) laufen jetzt auch beim Oeffnen im Programm; Validierung fuellt sich beim Oeffnen der Ansicht; Ansichten zaehlen Busteilnehmer, Bereiche und Linien wie die Berichte; Topologie faerbt bei fehlendem KNX Secure nur die Adresse, [P] ohne Zeilenfarbe; Materialliste ohne Farbe im Normalfall; Tabellen nutzen die Breite, leere Tabellen mit Hinweistext; kleines Fenster 1280x720 (Uebersicht und Kundenofferte rollen); je Ansicht eine Hauptaktion; "KO-Verknuepfung" statt "CO-Verknuepfung" |
 | 4.01 | 05.11.2026 | M. Mueller / Claude AI | Busanalyse wertet die Quittungen aus (FA-640a): ACK, NAK, BUSY je Rahmen, Ziele mit Empfaenger ohne Quittung, Hinweis auf von der Schnittstelle nicht weitergegebene Quittungen (Chalet ueber ise Remote Access: 52 ACK, 51 Rahmen ohne aufgezeichnete Quittung und ohne Wiederholung); Ansicht Busanalyse filterbar (FA-640b); Werte nach DPT und Datenlaenge gegen DPT (FA-640c), Lesen ohne Antwort und mehrere Antwortende (FA-640d), mehrere Sender (FA-640e), Messpunkt aus dem Routing-Zaehler und Weiterleitung ohne Empfaenger (FA-640f, Chalet: Messpunkt Linie 1.1, 18 GAs der Revox in Linie 1.2 ohne Empfaenger in 1.1), Buslast je Minute (FA-640g), Vergleich zweier Mitschnitte (FA-640h) |
 | 4.00 | 03.11.2026 | M. Mueller / Claude AI | Erweiterung im Bestand (FA-642): Adressen in der Mittelgruppe der Anlage, Namen nach ihrem Schema oder KNX Swiss, freie Aktorkanaele, GA-Liste (CSV) fuer die ETS und Bericht; Arbeitsweg und Anlagen-Check nennen die Erweiterungen |
 | 3.79 | 29.10.2026 | M. Mueller / Claude AI | Datenpunkttyp je KO: .knxproj (aktive Variante, Aenderung am KO) und Topologie-Report (Anzeigenamen ueber die DPT-Tabelle des KNX-Stamms, auch "Haupttyp, Untertyp", mehrdeutige Namen nach Groesse) liefern die DPT-Kennung, aeltere Projekte werden beim Laden uebersetzt (FA-522a); Anzeige "1.008 Auf/Ab"; neue Pruefung FA-638 Untertyp mit anderer Bedeutung des Werts; KO-Vorschlag bevorzugt den gleichen Untertyp |
