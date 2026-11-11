@@ -84,6 +84,11 @@ class CustomerQuoteView(QWidget):
         self._quote_table.horizontalHeader().setStretchLastSection(True)
         self._quote_table.setAlternatingRowColors(True)
         self._quote_table.currentCellChanged.connect(self._on_quote_selected)
+        from ..column_utils import EmptyHint
+        self._quote_hint = EmptyHint(
+            self._quote_table,
+            "Noch keine Kundenofferte. «+ Neue Offerte» legt eine an; die Positionen "
+            "kommen aus der Materialliste und der Kalkulation.")
         left.addWidget(self._quote_table)
 
         btn_layout = QHBoxLayout()

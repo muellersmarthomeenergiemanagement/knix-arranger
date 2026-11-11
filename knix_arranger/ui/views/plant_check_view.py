@@ -83,8 +83,21 @@ class PlantCheckView(QWidget):
                 if c == 0:
                     cell.setData(Qt.UserRole, item.nav_key)
                 self._table.setItem(r, c, cell)
-        fit_columns(self._table)
+        self._fit()
+
+    def _fit(self) -> None:
+        """«Empfehlung» nimmt die restliche Breite (vorher halbe Breite
+        genutzt und «Gruppena…» abgeschnitten)."""
+        fit_columns(self._table, flex=4)
         self._table.resizeRowsToContents()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._fit()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._fit()
 
     def _open(self, row: int, _column: int) -> None:
         key = self._table.item(row, 0).data(Qt.UserRole)

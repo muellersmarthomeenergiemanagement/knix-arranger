@@ -74,6 +74,11 @@ class RenovationView(QWidget):
         self._extensions.setHorizontalHeaderLabels(
             ["Erweiterung", "Erstellt", "Positionen", "Neue GAs", "Aktorkanäle"])
         self._extensions.verticalHeader().setVisible(False)
+        from ..column_utils import EmptyHint
+        self._extensions_hint = EmptyHint(
+            self._extensions,
+            "Noch keine Erweiterung geplant. «Erweiterung planen…» ergänzt Elemente in "
+            "bestehenden Räumen – mit GAs, Aktorkanälen und einer GA-Liste für die ETS.")
         self._extensions.setEditTriggers(QTableWidget.NoEditTriggers)
         self._extensions.setSelectionBehavior(QTableWidget.SelectRows)
         self._extensions.setSelectionMode(QTableWidget.SingleSelection)
@@ -107,6 +112,8 @@ class RenovationView(QWidget):
         self._external = QTableWidget(0, 4)
         self._external.setHorizontalHeaderLabels(["Adresse", "Bezeichnung", "Art", "Einbauort"])
         self._external.verticalHeader().setVisible(False)
+        self._external_hint = EmptyHint(
+            self._external, "Keine Geräte ausserhalb des ETS-Projekts erfasst.")
         self._external.setEditTriggers(QTableWidget.NoEditTriggers)
         self._external.setSelectionBehavior(QTableWidget.SelectRows)
         self._external.cellDoubleClicked.connect(self._edit_external)
@@ -123,6 +130,18 @@ class RenovationView(QWidget):
     def set_project(self, project) -> None:
         self._project = project
         self._refresh()
+
+    def _fit(self) -> None:
+        for table in (self._lines, self._external, self._extensions):
+            fit_columns(table, flex=table.columnCount() - 1)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._fit()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._fit()
 
     # ── Anzeige ──────────────────────────────────────────────────────────
 
@@ -164,7 +183,7 @@ class RenovationView(QWidget):
                 if c == 0:
                     item.setData(Qt.UserRole, key)
                 self._lines.setItem(r, c, item)
-        fit_columns(self._lines)
+        fit_columns(self._lines, flex=4)
 
         external = sorted((d for a in (self._project.topology.areas if self._project else [])
                            for l in a.lines for d in l.devices if d.external),
@@ -178,7 +197,7 @@ class RenovationView(QWidget):
                 if c == 0:
                     item.setData(Qt.UserRole, device)
                 self._external.setItem(r, c, item)
-        fit_columns(self._external)
+        fit_columns(self._external, flex=3)
 
         from ...services.extension_service import evaluate as evaluate_extension
         plans = self._project.extension_plans if self._project else []
@@ -197,7 +216,7 @@ class RenovationView(QWidget):
                 if c == 4 and missing:
                     item.setForeground(QColor(_ORANGE))
                 self._extensions.setItem(r, c, item)
-        fit_columns(self._extensions)
+        fit_columns(self._extensions, flex=4)
         self._update_buttons()
 
     @staticmethod

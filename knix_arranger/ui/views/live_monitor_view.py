@@ -247,6 +247,11 @@ class LiveMonitorView(QWidget):
         for column, width in enumerate((95, 220, 70, 300, 100, 110, 170, 140, 120)):
             self._table.setColumnWidth(column, width)
         layout.addWidget(self._table, 1)
+        from ..column_utils import EmptyHint
+        self._table_hint = EmptyHint(
+            self._table,
+            "Noch keine Telegramme. «Verbinden…» wählen – KNiX hört nur mit und sendet nichts. "
+            "Ohne Busverkehr bleibt die Liste leer: einen Taster drücken.")
         self._update_controls()
 
     # ── Projekt ──────────────────────────────────────────────────────────

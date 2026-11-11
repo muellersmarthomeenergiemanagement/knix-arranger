@@ -220,9 +220,10 @@ class MaterialListView(QWidget):
         layout.addLayout(toolbar)
 
         legend = QLabel(
-            "<span style='color:#1B5E20;'>&#9679;</span> Produkt zugewiesen&nbsp;&nbsp;"
-            "<span style='color:#BF360C;'>&#9679;</span> Kanaldefizit (zu wenig Kanäle zugewiesen)&nbsp;&nbsp;"
-            "<span style='color:#666666;'>&#9679;</span> Wizard-Platzhalter (noch kein Produkt zugewiesen)"
+            "<span style='color:#BF360C;'><b>Kanäle und Produkt orange</b></span>: Kanaldefizit "
+            "(zu wenig Kanäle zugewiesen)&nbsp;&nbsp;"
+            "<span style='color:#666666;'>grau</span>: Wizard-Platzhalter (noch kein Produkt "
+            "zugewiesen)"
         )
         legend.setStyleSheet("font-size: 12px; color: #666;")
         layout.addWidget(legend)
@@ -249,7 +250,7 @@ class MaterialListView(QWidget):
         hh.setSectionResizeMode(_COL_LINE,     QHeaderView.Interactive)
         hh.setSectionResizeMode(_COL_SOURCE,   QHeaderView.ResizeToContents)
         # Initiale Breiten für manuell anpassbare Spalten
-        self._table.setColumnWidth(_COL_QTY,       40)
+        self._table.setColumnWidth(_COL_QTY,       52)   # «Anz.» war abgeschnitten
         self._table.setColumnWidth(_COL_TYPE,     160)
         self._table.setColumnWidth(_COL_GEWERK,   200)
         self._table.setColumnWidth(_COL_MFR,      130)
@@ -694,13 +695,18 @@ class MaterialListView(QWidget):
                         f"Benötigt: {entry.required_channels}  |  "
                         f"Zugewiesen: {entry.quantity}×{entry.assigned_channels} = {total_assigned}"
                     )
+                    # nur Kanäle und Produkt einfärben, Hinweis auf der ganzen Zeile
                     for item in items:
-                        item.setForeground(color)
                         item.setToolTip(deficit_tooltip)
+                    for col in (_COL_CHANNELS, _COL_PRODNAME):
+                        items[col].setForeground(color)
+                        bold = items[col].font()
+                        bold.setBold(True)
+                        items[col].setFont(bold)
                 elif entry.manufacturer:
-                    color = QColor("#1B5E20")   # dunkelgrün = OK
+                    # Normalfall ohne Farbe: eine durchgehend grüne Tabelle
+                    # liest sich schlecht und sagt nichts
                     for item in items:
-                        item.setForeground(color)
                         item.setToolTip("Produkt zugewiesen, Kanalbedarf gedeckt.")
                 else:
                     color = QColor("#666666")   # grau = Platzhalter ohne Zuweisung

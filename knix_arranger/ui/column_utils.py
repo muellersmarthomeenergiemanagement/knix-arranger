@@ -105,3 +105,42 @@ def widen_popup(combo) -> None:
     widest = max((metrics.horizontalAdvance(combo.itemText(i))
                   for i in range(combo.count())), default=0)
     combo.view().setMinimumWidth(widest + 40)
+
+
+class EmptyHint:
+    """Hinweistext in einer leeren Tabelle oder Liste («Noch keine …»),
+    mittig im Anzeigebereich; verschwindet mit der ersten Zeile."""
+
+    def __init__(self, view, text: str):
+        from PySide6.QtCore import QEvent, QObject, Qt
+        from PySide6.QtWidgets import QLabel
+
+        self._view = view
+        self._label = QLabel(text, view.viewport())
+        self._label.setAlignment(Qt.AlignCenter)
+        self._label.setWordWrap(True)
+        self._label.setStyleSheet("color: #757575; background: transparent; padding: 24px;")
+        self._label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        model = view.model()
+        for signal in (model.rowsInserted, model.rowsRemoved, model.modelReset,
+                       model.layoutChanged):
+            signal.connect(self.update)
+
+        hint = self
+
+        class _Resize(QObject):
+            def eventFilter(self, _obj, event):
+                if event.type() in (QEvent.Resize, QEvent.Show):
+                    hint.update()
+                return False
+        self._filter = _Resize(view)
+        view.viewport().installEventFilter(self._filter)
+        self.update()
+
+    def update(self, *_args) -> None:
+        self._label.setGeometry(self._view.viewport().rect())
+        self._label.setVisible(self._view.model().rowCount() == 0)
+
+    def visible(self) -> bool:
+        return self._view.model().rowCount() == 0
+
