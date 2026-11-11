@@ -15,7 +15,9 @@ from PySide6.QtGui import (
     QColor, QPen, QBrush, QFont, QFontMetrics, QPainter, QPixmap,
 )
 from ...models.project import KnxProject
-from ...services.topology_diagram import build_topology_diagram
+from ...services.topology_diagram import (
+    build_topology_diagram, layout_topology_diagram,
+)
 from ..styles import COLOR_WARNING, COLOR_ERROR
 from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
 
@@ -34,10 +36,9 @@ _C_LINE_WIRE   = QColor("#78909C")   # Verbindungslinien
 BOX_W       = 160
 BOX_H_AREA  = 40
 BOX_H_NODE  = 34   # BK, LK, SV
-GAP_COL     = 50   # Abstand zwischen Bereichen
+MAX_WIDTH   = 1200  # Linien je Zeile unter der Hauptlinie: so breit
 GAP_ROW     = 18   # Abstand zwischen Zeilen innerhalb eines Bereichs
 MARGIN      = 30
-BUS_INDENT  = 18   # Abzweige von der Hauptlinie (Busleitung links)
 POWER_BAND_H = 18  # grünes SV-Band unten in einer Linie
 
 
@@ -136,96 +137,50 @@ class TopologyDiagramView(QWidget):
     # ── Zeichnen ──────────────────────────────────────────────────────────────
 
     def _draw_topology(self):
-        """Bereichslinie oben mit ihrer SV, je Bereich eine Spalte: Kopf,
-        Bereichskoppler, darunter die Hauptlinie als senkrechte Busleitung,
-        an der die SV der Hauptlinie und die Linien abzweigen; die SV einer
-        Linie als grünes Band in der Linie (T-06). Knoten aus demselben
-        Service wie der Topologie-Bericht (FA-904)."""
+        """Je Bereich ein Band: Kopf, Bereichskoppler, darunter die
+        Hauptlinie als waagrechte Busleitung, an der ihre SV und die Linien
+        nebeneinander hängen; die SV einer Linie als grünes Band in der Linie
+        (T-06). Mehrere Bereiche untereinander an der Bereichslinie links.
+        Knoten und Anordnung aus demselben Service wie der Topologie-Bericht
+        (FA-904)."""
         diagram = build_topology_diagram(self._project, include_empty_lines=True)
-        backbone = diagram["backbone"]
         node_colors = {"coupler": _C_COUPLER, "power": _C_POWER}
         status_colors = {"Warnung": _C_LINE_WARN, "Fehler": _C_LINE_ERROR}
-        col_w = BOX_W + BUS_INDENT
-
-        # ── Bereichslinie mit ihrer SV ──
-        y_top = MARGIN
-        header_y = y_top
-        backbone_y = None
-        centers = [MARGIN + i * (col_w + GAP_COL) + col_w / 2
-                   for i in range(len(diagram["areas"]))]
-        if backbone:
-            sv = diagram["backbone_power"]
-            if sv is not None:
-                sv_box = _Box(MARGIN, y_top, BOX_W, self._node_height(sv), sv["title"],
-                              "\n".join(sv["lines"]), _C_POWER)
-                self._draw_box(sv_box)
-                backbone_y = sv_box.bottom + 16
-                self._draw_wire(sv_box.cx, sv_box.bottom, sv_box.cx, backbone_y)
-                label_x = sv_box.x + sv_box.w + 12
-                centers.append(sv_box.cx)
-            else:
-                backbone_y = y_top + 20
-                label_x = MARGIN
-            self._add_label_item(label_x, backbone_y - 20, backbone, bold=True,
-                                 color=_C_BACKBONE)
-            self._draw_wire(min(centers), backbone_y, max(centers), backbone_y,
-                            thick=True, color=_C_BACKBONE)
-            header_y = backbone_y + 20
-
-        # ── Bereiche ──
-        for i, area in enumerate(diagram["areas"]):
-            x = MARGIN + i * (col_w + GAP_COL)
-            header = _Box(x, header_y, col_w, BOX_H_AREA, area["title"], "", _C_AREA)
-            self._draw_box(header)
-            if backbone_y is not None:
-                self._draw_wire(header.cx, backbone_y, header.cx, header.top)
-            prev = header
-            nodes = list(area["nodes"])
-            # Bereichskoppler zwischen Bereichs- und Hauptlinie
-            if nodes and nodes[0]["kind"] == "coupler":
-                node = nodes.pop(0)
-                bk = _Box(x, prev.bottom + GAP_ROW, col_w, self._node_height(node),
-                          node["title"], "\n".join(node["lines"]), _C_COUPLER)
-                self._draw_box(bk)
-                self._draw_wire(prev.cx, prev.bottom, bk.cx, bk.top)
-                prev = bk
-
-            if area["main_line"]:
-                # Hauptlinie: Busleitung links, Abzweige nach rechts
-                bus_x = x + BUS_INDENT / 2
-                bus_top = prev.bottom
-                if prev is not header:
-                    self._draw_wire(prev.x + BUS_INDENT / 2, prev.bottom, bus_x, bus_top)
-                self._add_label_item(bus_x + 4, bus_top + 1, area["main_line"],
-                                     color=_C_BACKBONE)
-                y = bus_top + GAP_ROW + 14
-                last_y = bus_top
-                for node in nodes:
-                    box = self._node_box(node, x + BUS_INDENT, y, node_colors, status_colors)
-                    self._draw_node(box, node)
-                    stub_y = box.y + min(box.h / 2, 17)
-                    self._draw_wire(bus_x, stub_y, box.x, stub_y)
-                    last_y = stub_y
-                    y = box.bottom + GAP_ROW
-                self._draw_wire(bus_x, bus_top, bus_x, last_y, thick=True,
-                                color=_C_BACKBONE)
-            else:
-                # Ohne Hauptlinie (eine Linie): direkt unter dem Bereich
-                for node in nodes:
-                    box = self._node_box(node, x + BUS_INDENT, prev.bottom + GAP_ROW,
+        bands = layout_topology_diagram(diagram, lambda n, _w: self._node_height(n),
+                                        BOX_W, MAX_WIDTH, head_h=BOX_H_AREA,
+                                        gap=GAP_ROW, label_h=16)
+        y0 = MARGIN
+        for band in bands:
+            for item in band["items"]:
+                kind = item["type"]
+                if kind == "wire":
+                    self._draw_wire(MARGIN + item["x1"], y0 + item["y1"],
+                                    MARGIN + item["x2"], y0 + item["y2"],
+                                    thick=item["bus"],
+                                    color=_C_BACKBONE if item["bus"] else _C_LINE_WIRE)
+                elif kind == "label":
+                    self._add_label_item(MARGIN + item["x"], y0 + item["y"] - 15,
+                                         item["text"], bold=True, color=_C_BACKBONE)
+                elif kind == "area":
+                    self._draw_box(_Box(MARGIN + item["x"], y0 + item["y"], item["w"],
+                                        item["h"], item["title"], "", _C_AREA))
+                elif kind == "node":
+                    box = self._node_box(item["node"], MARGIN + item["x"], y0 + item["y"],
                                          node_colors, status_colors)
-                    self._draw_node(box, node)
-                    self._draw_wire(prev.cx, prev.bottom, box.cx, box.top)
-                    prev = box
+                    self._draw_node(box, item["node"])
+            y0 += band["height"] + GAP_ROW
 
-        # Statistik
-        areas = self._project.topology.areas
-        total_areas = len(areas)
-        total_lines = sum(len(a.lines) for a in areas)
-        total_devices = sum(len(l.devices) for a in areas for l in a.lines)
+        # Statistik: was das Diagramm zeigt, Busteilnehmer nach der Zählregel
+        # der Berichte
+        from ...models.topology import count_bus_devices
+        total_areas = len(diagram["areas"])
+        total_lines = sum(1 for a in diagram["areas"] for n in a["nodes"]
+                          if n["kind"] == "line")
+        devices = [d for a in self._project.topology.areas
+                   for l in a.lines for d in l.devices]
         self._info.setText(
             f"{total_areas} Bereich(e)  |  {total_lines} Linie(n)  |  "
-            f"{total_devices} Gerät(e) in der Topologie"
+            f"Busteilnehmer: {count_bus_devices(devices).label()}"
         )
 
     @staticmethod
