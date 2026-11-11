@@ -1046,6 +1046,90 @@ def build_document() -> Document:
         "das auf.")
     doc.add_paragraph()
 
+    # ── 8.5  Bestand & Umbau: Busanalyse und Live-Monitor ─────────────────────
+    add_heading2(doc, "8.5  Bestand & Umbau: Busanalyse und Live-Monitor")
+    add_body(doc,
+        "Die Gruppe «Bestand & Umbau» in der Seitenleiste ist für bestehende Anlagen "
+        "gedacht: messen, beurteilen, Umbau planen. Bei importierten Projekten steht "
+        "sie direkt nach «Projekt».")
+    add_table_2col(doc, [
+        ("Anlagen-Check",
+         "Zustand der Anlage auf einen Blick: Teilnehmer und Busstrom je Linie, "
+         "Reserven an Aktorkanälen, GAs ohne Verknüpfung, Validierung, KNX Secure, "
+         "Dokumentation und Busanalyse – je Prüfpunkt mit Bewertung, Empfehlung und "
+         "Sprung zur Ansicht; Bericht «Anlagen-Check»."),
+        ("Busanalyse",
+         "Mitschnitt aus dem Bus- oder Gruppenmonitor der ETS (XML) einlesen oder aus "
+         "dem Live-Monitor übernehmen. KNiX gleicht die Telegramme mit dem Projekt ab: "
+         "unbekannte und externe Absender, fehlende KO-Verknüpfungen, GAs ausserhalb "
+         "des Projekts, Datenlänge gegen DPT, Lesen ohne Antwort, Wiederholungen, "
+         "Quittungen (ACK, NAK, BUSY), Buslast, Koppler und Filtertabellen. Zwei "
+         "Mitschnitte lassen sich vergleichen; Bericht «Busanalyse»."),
+        ("Live-Monitor",
+         "Telegramme der Anlage in Echtzeit, direkt aus KNiX – ohne ETS. Siehe unten."),
+        ("Umbau-Varianten",
+         "Alle geplanten Änderungen an einem Ort: je Linie Teilnehmer, Busstrom und "
+         "Umbau-Variante (Linie aufteilen mit Linienkoppler oder Linienverstärker, "
+         "Bericht «Linienumbau»), Erweiterungen im Bestand und externe Geräte am Bus. "
+         "Die Topologie bleibt der Ist-Stand."),
+    ], header=("Ansicht", "Wofür?"))
+    doc.add_paragraph()
+
+    add_body(doc, "Live-Monitor: verbinden", bold_parts=["Live-Monitor: verbinden"])
+    add_body(doc,
+        "«Verbinden…» öffnet den Verbindungsdialog. KNiX sendet nie etwas auf den Bus, "
+        "auch keine Leseanfragen. Die Angaben ohne Passwörter bleiben im Projekt; "
+        "Passwörter fragt KNiX bei jeder Verbindung neu ab. Beim Wechsel des Projekts "
+        "und beim Beenden wird getrennt.")
+    add_table_2col(doc, [
+        ("Tunnel (UDP)",
+         "IP-Schnittstelle oder Fernzugang. Über VPN oder NAT «Route back» ankreuzen."),
+        ("Tunnel (TCP)", "IP-Schnittstellen, die TCP anbieten – robuster über Internet."),
+        ("Secure-Tunnel (TCP)",
+         "Benutzer-ID und Passwort des Tunnels, oder die Schlüsseldatei der ETS "
+         "(.knxkeys) mit Passwort. Mit Schlüsseldatei entschlüsselt KNiX auch "
+         "gesicherte GAs (Data Secure) – das geht ebenso bei einem ungesicherten Tunnel."),
+        ("Routing / Secure-Routing", "IP-Router im lokalen Netz (Multicast)."),
+        ("USB-Schnittstelle", "Z. B. Siemens OCI702: Gruppentelegramme wie im Gruppenmonitor."),
+        ("USB-Busmonitor",
+         "Jeder Rahmen der Linie, an der die Schnittstelle steckt, mit Quittung und "
+         "Wiederholungen – wie der Busmonitor der ETS. Die Schnittstelle kann nur ein "
+         "Programm gleichzeitig nutzen: ETS vorher schliessen."),
+    ], header=("Verbindung", "Wann?"))
+    doc.add_paragraph()
+
+    add_body(doc, "Live-Monitor: lesen", bold_parts=["Live-Monitor: lesen"])
+    add_bullet(doc,
+        "Je Telegramm: Zeit, Absender mit Gerät, GA, Bezeichnung, Dienst (Schreiben, "
+        "Lesen, Antwort; «(Wdh.)» = Wiederholung), Wert nach DPT («Ein», «21.5 °C», "
+        "«50 %»), Gewerk, Raum, Stockwerk und – nur im USB-Busmonitor – die Quittung. "
+        "Orange: GA nicht im Projekt.")
+    add_bullet(doc,
+        "Filter nach Suchtext (GA, Adresse, Bezeichnung, Raum, Wert), Gewerk und "
+        "Stockwerk. «Anhalten» hält die Anzeige an, aufgezeichnet wird weiter. "
+        "«Als CSV speichern…» schreibt die gefilterte Liste.")
+    add_bullet(doc,
+        "Die Zählerzeile zeigt, was ankam und was fehlt: Gerätezugriffe (z. B. ETS "
+        "programmiert), gesichert ohne Schlüssel, nicht lesbar, verloren (Folgenummer) "
+        "und Neuverbindungen. Orange heisst: Telegramme gingen verloren – typisch "
+        "über Fernzugang oder VPN. Im Busmonitor zusätzlich ACK, NAK, BUSY, ohne "
+        "Quittung und Wiederholungen.")
+    add_bullet(doc,
+        "Nach dem Verbinden nennt KNiX die GAs, die über diese Schnittstelle nie "
+        "ankommen, weil ein Koppler sie sperrt (die ETS trägt eine GA nur in die "
+        "Filtertabelle ein, wenn sie auch ausserhalb der Linie verknüpft ist). "
+        "«Liste…» zeigt sie je Koppler. Abhilfe: Schnittstelle auf der anderen Linie, "
+        "Koppler zur Fehlersuche auf «weiterleiten», oder ein Dummy auf dieser Linie.")
+    add_bullet(doc,
+        "«In Busanalyse übernehmen» übergibt die ganze Aufzeichnung (ohne Filter) als "
+        "Mitschnitt an die Busanalyse. Aus dem USB-Busmonitor mit Quittungen und "
+        "Wiederholungen, sonst wie ein Gruppenmonitor-Mitschnitt.")
+    add_tip(doc,
+        "Quittungen sieht man nur auf der Linie, an der gemessen wird. Für ein Gerät mit "
+        "vielen Wiederholungen die USB-Schnittstelle auf dessen Linie stecken und den "
+        "USB-Busmonitor eine Weile laufen lassen.")
+    doc.add_paragraph()
+
     # ── 9  Tastenkürzel ───────────────────────────────────────────────────────
     add_heading1(doc, "9  Wichtige Tastenkürzel")
 
@@ -1142,6 +1226,14 @@ def build_document() -> Document:
              "Stellen Sie sicher, dass die Datei aus ETS6 exportiert wurde "
              "(nicht ETS5 oder älter). Geschütztes Projekt: das ETS6-Projektpasswort "
              "eingeben. Bei Fehlern: knxproj-Datei dem Feedback beilegen."),
+            ("Live-Monitor zeigt keine oder nicht alle Telegramme",
+             "Zählerzeile ansehen: «verloren» oder «neu verbunden» = Fernzugang/VPN, "
+             "lokal oder mit «Tunnel (TCP)» versuchen; «gesichert ohne Schlüssel» = "
+             "Schlüsseldatei angeben; sonst den Hinweis auf gesperrte GAs (Koppler) "
+             "beachten. Ohne Busverkehr kommt nichts – Taster drücken."),
+            ("USB-Schnittstelle nicht zu öffnen / nicht gefunden",
+             "ETS oder ein anderes Programm schliessen, das die Schnittstelle nutzt; "
+             "Schnittstelle neu einstecken und im Verbindungsdialog «Suchen» klicken."),
             ("Anzeigeprobleme / UI abgeschnitten",
              "Mindestauflösung 1280 × 768. Prüfen Sie die Windows-Skalierung "
              "(empfohlen: 100 % bei 1920 × 1080)."),
