@@ -2276,6 +2276,8 @@ class ReportService:
             for line in area.lines
             for d in line.devices
         }
+        from .position_numbers import PositionLabels
+        positions = PositionLabels(project)   # «E05-01» (FA-1404b)
         floor_by_room: dict[str, str] = {}
         zone_by_room: dict[str, str] = {}
         for building in project.areal.buildings:
@@ -2414,7 +2416,7 @@ class ReportService:
                     max(14, len(r.gas) * 10.5 + len(r.led_gas) * 9.5 + 2) for r in rows)
                 pdf.add_conditional_break(min_height=min(estimate, 600))
                 pdf.add_anchor(be.id)
-                title = (f"{be.participant_number or 'Ohne Adresse'}  ·  "
+                title = (f"{positions.reference(room, be)}  ·  "
                          f"{be.element_type or 'Bedienelement'}")
                 details = [" · ".join(p for p in (mfr, product, ordernr) if p)]
                 if location:

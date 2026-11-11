@@ -47,6 +47,7 @@
     "hint": "Nota",
     "no_floor": "Senza piano",
     "device_number": "N. apparecchio {pa}",
+    "position_number": "Posizione {pos}",
     "col_key": "Tasto",
     "col_operation": "Uso",
     "all_keys": "tutti i tasti",

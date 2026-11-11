@@ -48,6 +48,7 @@
     "hint": "Hinweis",
     "no_floor": "Ohne Stockwerk",
     "device_number": "Gerätenummer {pa}",
+    "position_number": "Position {pos}",
     "col_key": "Taste",
     "col_operation": "Bedienung",
     "all_keys": "alle Tasten",

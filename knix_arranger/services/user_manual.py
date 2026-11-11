@@ -872,6 +872,8 @@ class UserManualBuilder:
 
         # Kopf, Fuss und Datum in der Sprache des Bauherrn (FA-2006, NFA-156)
         t, p = self.t, self.p
+        from .position_numbers import PositionLabels
+        positions = PositionLabels(project)   # «E05-01» (FA-1404b)
         if hasattr(pdf, "labels"):
             # Kopf, Fuss und Deckblatt
             pdf.labels = {key: t(f"label_{key}") for key in
@@ -910,9 +912,12 @@ class UserManualBuilder:
                     title += f" – {location}"
                 if i:
                     pdf.add_conditional_break(min_height=min(120 + 34 * len(lines), 520))
+                position = positions.number(room, be)
                 pdf.add_card_header(
                     title,
-                    t("device_number", pa=be.participant_number) if be.participant_number else "",
+                    " · ".join(part for part in (
+                        t("device_number", pa=be.participant_number) if be.participant_number else "",
+                        t("position_number", pos=position) if position else "") if part),
                     bookmark=f"{room.name}: {title}",
                 )
                 plan = [{"number": row["number"],

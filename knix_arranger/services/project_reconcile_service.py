@@ -426,6 +426,7 @@ def _merge_bedienelemente(old_bes: list, fresh_bes: list, fresh_participants: se
         fresh.id = old.id
         fresh.datasheets = old.datasheets
         fresh.bauherr_annotation = old.bauherr_annotation
+        fresh.position_index = old.position_index
         fresh.suppressed = old.suppressed
         fresh.linked_product = old.linked_product
         merged.append(fresh)

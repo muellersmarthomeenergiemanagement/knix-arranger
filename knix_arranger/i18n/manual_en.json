@@ -47,6 +47,7 @@
     "hint": "Note",
     "no_floor": "No floor",
     "device_number": "Device number {pa}",
+    "position_number": "Position {pos}",
     "col_key": "Button",
     "col_operation": "Operation",
     "all_keys": "all buttons",

@@ -975,6 +975,7 @@ def _inherit(be: Bedienelement, old: Bedienelement) -> None:
     die ID, die Anmerkung und je Taste (gleiches Gewerk-Element) die ID."""
     be.id = old.id
     be.bauherr_annotation = be.bauherr_annotation or old.bauherr_annotation
+    be.position_index = be.position_index or old.position_index
     old_ids = {(sf.gewerk_code, sf.element_number, sf.source_room_id): sf.id
                for sf in old.funktionen if sf.gewerk_code and not sf.press_of}
     for sf in be.funktionen:
@@ -1166,6 +1167,9 @@ def refresh_bedienelemente(project) -> None:
     apply_function_buttons(project)
     SensorService().auto_assign_functions(project.all_rooms, project.group_addresses,
                                           topology=project.topology)
+    # Positionsnummern «E05-01» für neue Bedienelemente (FA-1404b)
+    from .position_numbers import assign_position_numbers
+    assign_position_numbers(project)
 
 
 def project_for_export(project):

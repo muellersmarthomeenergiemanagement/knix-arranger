@@ -608,6 +608,10 @@ class Bedienelement:
     # {"manufacturer": str, "order_number": str, "product_name": str,
     #  "com_objects": list[dict], "excluded_co_numbers": list[int]}
     linked_product: dict | None = None
+    # Laufende Nummer im Raum für die Positionsnummer «E05-01» (KNX-Swiss-
+    # Projektrichtlinien 10.7, FA-1404b), 0 = noch keine; einmal vergeben,
+    # rückt sie nicht nach (services/position_numbers.py)
+    position_index: int = 0
 
     def to_dict(self) -> dict:
         d = {
@@ -629,6 +633,8 @@ class Bedienelement:
             d["bauherr_annotation"] = self.bauherr_annotation
         if self.linked_product:
             d["linked_product"] = self.linked_product
+        if self.position_index:
+            d["position_index"] = self.position_index
         return d
 
     @classmethod
@@ -654,6 +660,7 @@ class Bedienelement:
             taster_index=data.get("taster_index", 1),
             bauherr_annotation=data.get("bauherr_annotation", ""),
             linked_product=data.get("linked_product"),
+            position_index=data.get("position_index", 0),
         )
         be.function_assignments = [
             FunctionAssignment.from_dict(f) for f in data.get("function_assignments", [])

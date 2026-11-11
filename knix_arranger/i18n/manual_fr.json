@@ -47,6 +47,7 @@
     "hint": "Remarque",
     "no_floor": "Sans étage",
     "device_number": "N° d'appareil {pa}",
+    "position_number": "Position {pos}",
     "col_key": "Touche",
     "col_operation": "Utilisation",
     "all_keys": "toutes les touches",

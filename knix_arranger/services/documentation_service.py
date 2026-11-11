@@ -366,6 +366,8 @@ class DocumentationService:
         builder = UserManualBuilder(project, snapshot=False)
         imported = project.topology.is_imported
         floor_by_room = self._floor_by_room(project)
+        from .position_numbers import PositionLabels
+        positions = PositionLabels(project)   # «E05-01» (FA-1404b)
 
         sections = []
         for room in sorted_rooms(project.areal):
@@ -425,7 +427,7 @@ class DocumentationService:
                         [key for r in funcs for key in r[3]])]
                 rows[1:1] = extra_rows
                 product = (device.product_name or device.product) if device else be.product_name
-                title = " · ".join(p for p in (be_num or "ohne Adresse",
+                title = " · ".join(p for p in (positions.reference(room, be, "ohne Adresse"),
                                                be.element_type or "Bedienelement", product) if p)
                 cards.append((title, rows))
             if cards:
