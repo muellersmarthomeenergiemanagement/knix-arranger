@@ -370,6 +370,57 @@ def connection_config(settings: ConnectionSettings, secrets: Secrets):
                             auto_reconnect=True, **kwargs)
 
 
+@dataclass
+class ConnectionStats:
+    """Wohin die Rahmen einer Verbindung gingen -- zeigt, ob und wo
+    Telegramme fehlen. Zähler werden im Verbindungs-Thread erhöht und im
+    Hauptthread gelesen (einzelne int-Zuweisungen, unter dem GIL sicher)."""
+    frames: int = 0             # rohe Rahmen von der Schnittstelle
+    group: int = 0              # Gruppentelegramme, an die Anzeige gegeben
+    secure_undecoded: int = 0   # gesichert (Data Secure), kein passender Schlüssel
+    unreadable: int = 0         # Rahmen, die xknx nicht lesen konnte
+    sequence_lost: int = 0      # verworfen wegen falscher Folgenummer (UDP-Verlust)
+    reconnects: int = 0         # Verbindung abgebrochen und neu aufgebaut
+
+    @property
+    def other(self) -> int:
+        """Gerätezugriffe (z.B. ETS programmiert) und übrige Rahmen ohne
+        Gruppentelegramm."""
+        return max(0, self.frames - self.group - self.secure_undecoded - self.unreadable)
+
+    @property
+    def lossy(self) -> bool:
+        return bool(self.secure_undecoded or self.unreadable or self.sequence_lost
+                    or self.reconnects)
+
+    def text(self) -> str:
+        parts = [f"{self.frames} Rahmen empfangen", f"{self.group} Gruppentelegramme"]
+        if self.other:
+            parts.append(f"{self.other} Gerätezugriffe/übrige")
+        if self.secure_undecoded:
+            parts.append(f"{self.secure_undecoded} gesichert ohne Schlüssel")
+        if self.unreadable:
+            parts.append(f"{self.unreadable} nicht lesbar")
+        if self.sequence_lost:
+            parts.append(f"{self.sequence_lost} verloren (Folgenummer)")
+        if self.reconnects:
+            parts.append(f"{self.reconnects}× neu verbunden")
+        return " · ".join(parts)
+
+
+class _SequenceLossCounter(logging.Handler):
+    """Zählt die Meldung von xknx, dass ein Tunnel-Rahmen mit falscher
+    Folgenummer verworfen wurde (Paket verloren, typisch über Internet/VPN)."""
+
+    def __init__(self, stats: ConnectionStats):
+        super().__init__(level=logging.WARNING)
+        self.stats = stats
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if "sequence number not equal" in record.getMessage():
+            self.stats.sequence_lost += 1
+
+
 class BusConnection:
     """Verbindung im eigenen Thread. on_telegram(LiveTelegram),
     on_state(Zustand, Text) und on_raw(Hex, Zeit) werden aus diesem Thread
@@ -382,6 +433,7 @@ class BusConnection:
         self._on_telegram = on_telegram
         self._on_state = on_state
         self._on_raw = on_raw
+        self.stats = ConnectionStats()
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stop: asyncio.Event | None = None
@@ -394,6 +446,7 @@ class BusConnection:
         if self.running:
             return
         config = connection_config(settings, secrets)
+        self.stats = ConnectionStats()
         self._thread = threading.Thread(target=self._run, args=(config, settings.label()),
                                         name="knx-bus", daemon=True)
         self._thread.start()
@@ -428,42 +481,70 @@ class BusConnection:
                   XknxConnectionState.CONNECTING: STATE_CONNECTING,
                   XknxConnectionState.DISCONNECTED: STATE_DISCONNECTED}
 
+        stats = self.stats
+        connected_once = False
+
         def received(telegram) -> None:
             live = telegram_from_xknx(telegram)
             if live is not None:
+                stats.group += 1
                 self._on_telegram(live)
 
         def changed(state) -> None:
+            nonlocal connected_once
+            if state is XknxConnectionState.CONNECTED:
+                if connected_once:
+                    stats.reconnects += 1
+                connected_once = True
             self._on_state(states.get(state, STATE_DISCONNECTED), label)
 
         xknx = XKNX(connection_config=config, telegram_received_cb=received,
                     connection_state_changed_cb=changed, state_updater=False)
-        if self._on_raw is not None:
-            # rohe Rahmen mitlesen, bevor xknx sie auswertet: die Schnittstelle
-            # ruft bei jedem Rahmen xknx.cemi_handler.handle_raw_cemi auf (der
-            # Handler hat __slots__, darum eine Unterklasse statt Ersetzen der
-            # Methode; vor dem Start, Data Secure richtet xknx beim Start ein)
-            xknx.cemi_handler = _tapping_handler(xknx, self._on_raw)
-        self._on_state(STATE_CONNECTING, label)
-        await xknx.start()
+        # rohe Rahmen mitlesen und zählen, bevor xknx sie auswertet: die
+        # Schnittstelle ruft bei jedem Rahmen xknx.cemi_handler.handle_raw_cemi
+        # auf (der Handler hat __slots__, darum eine Unterklasse statt Ersetzen
+        # der Methode; vor dem Start, Data Secure richtet xknx beim Start ein)
+        xknx.cemi_handler = _tapping_handler(xknx, self._on_raw, stats)
+        loss_counter = _SequenceLossCounter(stats)
+        xknx_log = logging.getLogger("xknx.log")
+        xknx_log.addHandler(loss_counter)
         try:
-            await self._stop.wait()
+            self._on_state(STATE_CONNECTING, label)
+            await xknx.start()
+            try:
+                await self._stop.wait()
+            finally:
+                await xknx.stop()
+                self._on_state(STATE_DISCONNECTED, label)
         finally:
-            await xknx.stop()
-            self._on_state(STATE_DISCONNECTED, label)
+            xknx_log.removeHandler(loss_counter)
 
 
-def _tapping_handler(xknx, on_raw: Callable[[str, datetime], None]):
-    """CEMIHandler von xknx, der jeden rohen Rahmen zuerst an on_raw gibt."""
+def _tapping_handler(xknx, on_raw: Callable[[str, datetime], None] | None,
+                     stats: ConnectionStats | None = None):
+    """CEMIHandler von xknx, der jeden rohen Rahmen zuerst an on_raw gibt und
+    in stats zählt, was xknx damit tut (nicht lesbar, Schlüssel fehlt)."""
     from xknx.cemi import CEMIHandler
 
     class TappingCEMIHandler(CEMIHandler):
         def handle_raw_cemi(self, raw_cemi: bytes) -> None:
-            try:
-                on_raw(raw_cemi.hex().upper(), datetime.now())
-            except Exception:
-                logger.exception("Rohen Rahmen nicht aufgezeichnet")
+            if stats is not None:
+                stats.frames += 1
+            if on_raw is not None:
+                try:
+                    on_raw(raw_cemi.hex().upper(), datetime.now())
+                except Exception:
+                    logger.exception("Rohen Rahmen nicht aufgezeichnet")
+            manager = self.xknx.connection_manager
+            errors = manager.cemi_count_incoming_error
             super().handle_raw_cemi(raw_cemi)
+            if stats is not None and manager.cemi_count_incoming_error > errors:
+                stats.unreadable += 1
+
+        def handle_data_secure_key_issue(self, cemi_data, received_data_secure) -> None:
+            if stats is not None:
+                stats.secure_undecoded += 1
+            super().handle_data_secure_key_issue(cemi_data, received_data_secure)
 
     return TappingCEMIHandler(xknx)
 

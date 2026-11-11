@@ -370,3 +370,98 @@ def test_live_monitor_hands_recording_to_bus_analysis(monkeypatch):
     assert [p.dst for p in analysis.missing_gas] == ["5/5/5"]           # GA nicht im Projekt
     view._clear()
     assert not view._raw and not view._analysis_btn.isEnabled()
+
+
+def _mixed_tunnel_server(sock, stop):
+    """Schein-Tunnelserver, der einmal je Art einen Rahmen schickt: Gruppen-
+    telegramm, Gerätezugriff, unlesbaren Rahmen, falsche Folgenummer."""
+    import socket
+    import time
+    from xknx.knxip import (
+        HPAI, ConnectionStateResponse, ConnectResponse, ConnectResponseData,
+        DisconnectResponse, KNXIPFrame, KNXIPServiceType, TunnellingRequest,
+    )
+    from xknx.telegram.address import IndividualAddress
+
+    sent = False
+    while not stop.is_set():
+        try:
+            data, addr = sock.recvfrom(1024)
+        except socket.timeout:
+            continue
+        frame, _ = KNXIPFrame.from_knx(data)
+        service = frame.header.service_type_ident
+        if service == KNXIPServiceType.CONNECT_REQUEST:
+            client = (addr[0], frame.body.data_endpoint.port or addr[1])
+            sock.sendto(KNXIPFrame.init_from_body(ConnectResponse(
+                communication_channel=7, data_endpoint=HPAI("127.0.0.1", sock.getsockname()[1]),
+                crd=ConnectResponseData(individual_address=IndividualAddress("1.1.250")),
+            )).to_knx(), client)
+            if sent:
+                continue
+            sent = True
+            time.sleep(0.2)
+            group = bytes.fromhex(_raw_frame())
+            # Gerätezugriff: Gerätebeschreibung lesen an 1.1.5 (wie die ETS)
+            management = bytes.fromhex("2900B06011FA1105010300")
+            for counter, raw in ((0, group), (1, management), (2, b"\x29\x00\x01"),
+                                 (9, group)):
+                sock.sendto(KNXIPFrame.init_from_body(TunnellingRequest(
+                    communication_channel_id=7, sequence_counter=counter, raw_cemi=raw,
+                )).to_knx(), client)
+                time.sleep(0.05)
+        elif service == KNXIPServiceType.CONNECTIONSTATE_REQUEST:
+            sock.sendto(KNXIPFrame.init_from_body(
+                ConnectionStateResponse(communication_channel_id=7)).to_knx(), addr)
+        elif service == KNXIPServiceType.DISCONNECT_REQUEST:
+            sock.sendto(KNXIPFrame.init_from_body(
+                DisconnectResponse(communication_channel_id=7)).to_knx(), addr)
+
+
+def test_connection_stats_show_where_frames_went():
+    import socket
+    import threading
+    import time
+    from knix_arranger.services.bus_access import BusConnection
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(0.1)
+    stop = threading.Event()
+    server = threading.Thread(target=_mixed_tunnel_server, args=(sock, stop), daemon=True)
+    server.start()
+    connection = BusConnection(lambda t: None, lambda s, t: None)
+    try:
+        connection.start(ConnectionSettings(host="127.0.0.1", port=sock.getsockname()[1]),
+                         Secrets())
+        for _ in range(50):
+            if connection.stats.sequence_lost:
+                break
+            time.sleep(0.1)
+    finally:
+        connection.stop()
+        stop.set()
+        server.join(2)
+        sock.close()
+    stats = connection.stats
+    # der Rahmen mit falscher Folgenummer erreicht den Handler nicht
+    assert (stats.frames, stats.group, stats.unreadable, stats.sequence_lost) == (3, 1, 1, 1)
+    assert stats.other == 1 and stats.lossy
+    text = stats.text()
+    assert "3 Rahmen empfangen" in text and "1 verloren (Folgenummer)" in text
+
+
+def test_stats_count_secure_without_key():
+    from xknx import XKNX
+    from xknx.cemi import CEMILData
+    from xknx.telegram import Telegram
+    from xknx.telegram.address import GroupAddress
+    from xknx.telegram.apci import GroupValueWrite
+    from xknx.dpt import DPTBinary
+    from knix_arranger.services.bus_access import ConnectionStats, _tapping_handler
+    stats = ConnectionStats()
+    handler = _tapping_handler(XKNX(), None, stats)
+    data = CEMILData.init_from_telegram(Telegram(destination_address=GroupAddress("1/0/1"),
+                                                 payload=GroupValueWrite(DPTBinary(1))))
+    handler.handle_data_secure_key_issue(data, True)
+    assert stats.secure_undecoded == 1 and "1 gesichert ohne Schlüssel" in stats.text()

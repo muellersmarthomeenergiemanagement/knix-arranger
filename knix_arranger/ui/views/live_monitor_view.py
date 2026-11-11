@@ -163,6 +163,17 @@ class LiveMonitorView(QWidget):
         row.addWidget(self._status, 1)
         row.addWidget(self._analysis_btn)
         layout.addLayout(row)
+        # Zähler der Verbindung: wohin die Rahmen gingen (fehlende Telegramme)
+        self._stats = QLabel()
+        self._stats.setStyleSheet(f"color: {TEXT_MUTED};")
+        self._stats.setToolTip(
+            "Rahmen von der Schnittstelle und was daraus wurde. Gerätezugriffe (z.B. "
+            "ETS programmiert) zeigt der Gruppenmonitor nicht. Gesichert ohne Schlüssel: "
+            "Schlüsseldatei der ETS beim Verbinden angeben. Verloren (Folgenummer) und "
+            "Neuverbindungen: Pakete auf dem Weg verloren, typisch über Internet/VPN. "
+            "Telegramme anderer Linien sieht die Schnittstelle nur, wenn der "
+            "Linienkoppler sie durchlässt.")
+        layout.addWidget(self._stats)
 
         filters = QHBoxLayout()
         self._search = QLineEdit()
@@ -316,7 +327,15 @@ class LiveMonitorView(QWidget):
         if len(self._raw) > MAX_RAW_FRAMES:
             del self._raw[:len(self._raw) - MAX_RAW_FRAMES]
 
+    def _show_stats(self) -> None:
+        stats = self._connection.stats
+        if not stats.frames and not stats.reconnects:
+            return
+        self._stats.setText(stats.text())
+        self._stats.setStyleSheet(f"color: {'#E65100' if stats.lossy else TEXT_MUTED};")
+
     def _flush(self) -> None:
+        self._show_stats()
         if not self._pending or self._context is None:
             return
         telegrams, self._pending = self._pending, []
