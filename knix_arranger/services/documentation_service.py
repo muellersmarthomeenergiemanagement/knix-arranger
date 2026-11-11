@@ -1017,6 +1017,10 @@ class DocumentationService:
         include_scenes bleibt für bestehende Aufrufe erhalten."""
         from .user_manual import UserManualBuilder
         pdf = self._make_pdf("Bedienungsanleitung")
+        # Deckblatt mit Bauherrschaft und Objektfoto wie die Berichte; Titel
+        # und Beschriftungen setzt der Builder in der Sprache des Bauherrn
+        if self.project.client_profile is not None:
+            pdf.set_client_profile(self.project.client_profile)
         UserManualBuilder(self.project, self._company_profile,
                           language=language).build(pdf, custom_intro)
         pdf.save(filepath)

@@ -88,6 +88,31 @@ def test_manual_in_language(tmp_path, lang, expected):
     assert "Wohnen" in text          # Raumname aus dem Projekt bleibt
 
 
+def test_cover_page_in_language(tmp_path):
+    """Deckblatt wie die Berichte, Beschriftungen in der Sprache des
+    Bauherrn; ohne Kundendaten keine leere Spalte «Bauherrschaft»."""
+    project = _project()
+    project.client_profile.name = "Familie Muster"
+    path = tmp_path / "anleitung.pdf"
+    DocumentationService(project).generate_user_manual(str(path), language="fr")
+    with fitz.open(path) as doc:
+        cover = " ".join(doc[0].get_text().split())
+        footer_page_1 = doc[1].get_text()
+    for part in ("Mode d'emploi", "MAÎTRE D'OUVRAGE", "Familie Muster",
+                 "DONNÉES DU PROJET", "Confidentiel"):
+        assert part in cover, part
+    for german in ("AUFTRAGGEBER", "PROJEKTDATEN", "Vertraulich"):
+        assert german not in cover, german
+    assert "Page 1 /" in footer_page_1          # Deckblatt zählt nicht mit
+
+    project.client_profile.name = ""
+    path = tmp_path / "ohne_kunde.pdf"
+    DocumentationService(project).generate_user_manual(str(path), language="de")
+    with fitz.open(path) as doc:
+        cover = doc[0].get_text()
+    assert "Bedienungsanleitung" in cover and "BAUHERRSCHAFT" not in cover
+
+
 def test_language_from_project_settings(tmp_path):
     project = _project()
     project.manual_settings.language = "en"

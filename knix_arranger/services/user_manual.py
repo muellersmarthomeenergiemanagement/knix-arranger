@@ -873,8 +873,12 @@ class UserManualBuilder:
         # Kopf, Fuss und Datum in der Sprache des Bauherrn (FA-2006, NFA-156)
         t, p = self.t, self.p
         if hasattr(pdf, "labels"):
+            # Kopf, Fuss und Deckblatt
             pdf.labels = {key: t(f"label_{key}") for key in
-                          ("customer", "object", "date", "page", "continued")}
+                          ("customer", "object", "date", "page", "continued",
+                           "cover_client", "name", "cover_object", "postal", "phone",
+                           "email", "cover_project", "project_name", "project_number",
+                           "editor", "confidential")}
             pdf.title = t("title")
             pdf.project_date = self.lang.date()
 

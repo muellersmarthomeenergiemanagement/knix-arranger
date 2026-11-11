@@ -61,7 +61,18 @@
     "label_object": "Objekt",
     "label_date": "Datum",
     "label_page": "Seite",
-    "label_continued": "Fortsetzung"
+    "label_continued": "Fortsetzung",
+    "label_cover_client": "Bauherrschaft",
+    "label_name": "Name",
+    "label_cover_object": "Objekt",
+    "label_postal": "Postadresse",
+    "label_phone": "Telefon",
+    "label_email": "E-Mail",
+    "label_cover_project": "Projektdaten",
+    "label_project_name": "Projekt",
+    "label_project_number": "Projektnummer",
+    "label_editor": "Bearbeiter",
+    "label_confidential": "Vertraulich"
   },
   "phrases": {}
 }

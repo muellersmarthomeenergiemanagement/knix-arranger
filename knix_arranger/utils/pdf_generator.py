@@ -85,6 +85,19 @@ def _cell_text(cell) -> str:
     return str(cell)
 
 
+# Beschriftungen von Kopf, Fuss und Deckblatt; die Bedienungsanleitung setzt
+# sie in der Sprache des Bauherrn (FA-2006)
+_DEFAULT_LABELS = {"customer": "Kunde", "object": "Objekt", "date": "Datum",
+    "page": "Seite", "continued": "Fortsetzung",
+    # Deckblatt
+    "cover_client": "Auftraggeber", "name": "Name",
+    "cover_object": "Objekt / Bauvorhaben",
+    "postal": "Postadresse", "phone": "Telefon", "email": "E-Mail",
+    "cover_project": "Projektdaten", "project_name": "Projektname",
+    "project_number": "Projektnummer", "editor": "Bearbeiter",
+    "confidential": "Vertraulich / Konfidentiell"}
+
+
 class PdfGenerator:
     """Erzeugt PDF-Dokumente für Berichte (FA-855–857)."""
 
@@ -145,10 +158,7 @@ class PdfGenerator:
         self.landscape = False
         # Untertitel im Titelband des Deckblatts (optional)
         self.subtitle = ""
-        # Beschriftungen von Kopf und Fuss; die Bedienungsanleitung setzt sie
-        # in der Sprache des Bauherrn (FA-2006)
-        self.labels = {"customer": "Kunde", "object": "Objekt", "date": "Datum",
-                       "page": "Seite", "continued": "Fortsetzung"}
+        self.labels = dict(_DEFAULT_LABELS)
 
         # Laufender Abschnitt beim Rendern (Akzentbalken, Fortsetzungstitel)
         self._sec_title = ""
@@ -1438,6 +1448,9 @@ class PdfGenerator:
           Bottom (800–842): Grüner Footer-Streifen
         """
         cp   = self._client_profile   # ClientProfile
+        # Beschriftungen übersetzbar (Bedienungsanleitung, FA-2006)
+        def L(key):
+            return self.labels.get(key) or _DEFAULT_LABELS[key]
         W    = self.PAGE_W
         H    = self.PAGE_H
         M    = self.MARGIN
@@ -1591,41 +1604,42 @@ class PdfGenerator:
 
         # Linke Spalte – Kundendaten
         y_l = info_top
-        if cp:
-            self._txt(page, fitz.Point(col_left, y_l), "AUFTRAGGEBER",
+        # ohne Kundendaten keine leere Spalte mit Überschrift
+        if cp and any((cp.name, cp.object_address, cp.contact_address, cp.phone, cp.email)):
+            self._txt(page, fitz.Point(col_left, y_l), L("cover_client").upper(),
                       7, bold=True, color=(0.37, 0.63, 0.15))
             y_l += 12
             page.draw_line(fitz.Point(col_left, y_l),
                            fitz.Point(col_left + (W / 2 - M - 15), y_l),
                            color=(0.37, 0.63, 0.15), width=0.8)
             y_l += 8
-            y_l = _info_label(col_left, y_l, "Name", cp.name)
-            y_l = _info_label(col_left, y_l, "Objekt / Bauvorhaben", cp.object_address)
-            y_l = _info_label(col_left, y_l, "Postadresse", cp.contact_address)
-            y_l = _info_label(col_left, y_l, "Telefon", cp.phone)
-            y_l = _info_label(col_left, y_l, "E-Mail", cp.email)
+            y_l = _info_label(col_left, y_l, L("name"), cp.name)
+            y_l = _info_label(col_left, y_l, L("cover_object"), cp.object_address)
+            y_l = _info_label(col_left, y_l, L("postal"), cp.contact_address)
+            y_l = _info_label(col_left, y_l, L("phone"), cp.phone)
+            y_l = _info_label(col_left, y_l, L("email"), cp.email)
 
         # Rechte Spalte – Projektdaten
         y_r = info_top
-        self._txt(page, fitz.Point(col_right, y_r), "PROJEKTDATEN",
+        self._txt(page, fitz.Point(col_right, y_r), L("cover_project").upper(),
                   7, bold=True, color=(0.37, 0.63, 0.15))
         y_r += 12
         page.draw_line(fitz.Point(col_right, y_r),
                        fitz.Point(W - M, y_r),
                        color=(0.37, 0.63, 0.15), width=0.8)
         y_r += 8
-        y_r = _info_label(col_right, y_r, "Projektname", self.project_name)
-        y_r = _info_label(col_right, y_r, "Projektnummer", self.project_number)
-        y_r = _info_label(col_right, y_r, "Datum", self.project_date)
+        y_r = _info_label(col_right, y_r, L("project_name"), self.project_name)
+        y_r = _info_label(col_right, y_r, L("project_number"), self.project_number)
+        y_r = _info_label(col_right, y_r, L("date"), self.project_date)
         if self.user_name:
             user_val = self.user_name + (f", {self.user_role}" if self.user_role else "")
-            y_r = _info_label(col_right, y_r, "Bearbeiter", user_val)
+            y_r = _info_label(col_right, y_r, L("editor"), user_val)
 
         # ── Grüner Footer-Streifen ───────────────────────────────────────────
         footer_top = H - 30
         page.draw_rect(fitz.Rect(0, footer_top, W, H),
                        color=None, fill=(0.37, 0.63, 0.15))
-        conf_text = "KNiX Arranger  ·  Vertraulich / Konfidentiell"
+        conf_text = f"KNiX Arranger  ·  {L('confidential')}"
         tw = self._tw(conf_text, 8)
         self._txt(page, fitz.Point((W - tw) / 2, footer_top + 18),
                   conf_text, 8, color=(1.0, 1.0, 1.0))

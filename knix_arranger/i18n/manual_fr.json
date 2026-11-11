@@ -60,7 +60,18 @@
     "label_object": "Objet",
     "label_date": "Date",
     "label_page": "Page",
-    "label_continued": "suite"
+    "label_continued": "suite",
+    "label_cover_client": "Maître d'ouvrage",
+    "label_name": "Nom",
+    "label_cover_object": "Objet",
+    "label_postal": "Adresse postale",
+    "label_phone": "Téléphone",
+    "label_email": "E-mail",
+    "label_cover_project": "Données du projet",
+    "label_project_name": "Projet",
+    "label_project_number": "Numéro de projet",
+    "label_editor": "Responsable",
+    "label_confidential": "Confidentiel"
   },
   "phrases": {
     "gedrückt halten: Ein, loslassen: Aus": "maintenir appuyé : marche, relâcher : arrêt",
