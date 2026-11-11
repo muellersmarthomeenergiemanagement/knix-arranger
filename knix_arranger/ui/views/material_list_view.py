@@ -546,6 +546,8 @@ class MaterialListView(QWidget):
         index = self._type_filter_combo.findData(current) if current else 0
         self._type_filter_combo.setCurrentIndex(max(index, 0))
         self._type_filter_combo.blockSignals(False)
+        from ..column_utils import widen_popup
+        widen_popup(self._type_filter_combo)   # lange Produktnamen
 
     def _populate_line_filter(self) -> None:
         """Befüllt den Linien-Filter aus der aktuellen Topologie."""

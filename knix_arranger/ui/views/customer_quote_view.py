@@ -57,7 +57,8 @@ class CustomerQuoteView(QWidget):
 
         # Tabs: Offerten | Kalkulation | Nachkalkulation
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._create_quotes_tab(), "Offerten")
+        from ..column_utils import scrollable
+        self._tabs.addTab(scrollable(self._create_quotes_tab()), "Offerten")
         self._tabs.addTab(self._create_calculation_tab(), "Kalkulation")
         self._tabs.addTab(self._create_postcalc_tab(), "Nachkalkulation")
         layout.addWidget(self._tabs)
@@ -101,10 +102,10 @@ class CustomerQuoteView(QWidget):
             "Offerte als professionellen PDF-Brief exportieren"
         )
         self._btn_create_letter.clicked.connect(self._create_letter)
-        btn_layout.addWidget(self._btn_add)
-        btn_layout.addWidget(self._btn_remove)
-        btn_layout.addWidget(self._btn_export_quote)
-        btn_layout.addWidget(self._btn_create_letter)
+        for button in (self._btn_add, self._btn_remove, self._btn_export_quote,
+                       self._btn_create_letter):
+            button.setMinimumWidth(button.sizeHint().width())   # nie abschneiden
+            btn_layout.addWidget(button)
         btn_layout.addStretch()
         left.addLayout(btn_layout)
 
@@ -150,10 +151,11 @@ class CustomerQuoteView(QWidget):
         self._btn_edit_client.setToolTip("Bauherr, Objekt- und Postadresse, Anrede "
                                          "(auch unter Datei → Kundenprofil)")
         self._btn_edit_client.clicked.connect(self._edit_client)
-        client_row = QHBoxLayout()
-        client_row.addWidget(self._btn_from_client)
-        client_row.addWidget(self._btn_edit_client)
-        form.addRow("", client_row)
+        # Nebenaktionen: untereinander und als Sekundärknöpfe (nebeneinander
+        # machten sie das Formular breiter als ein kleines Fenster)
+        for button in (self._btn_from_client, self._btn_edit_client):
+            button.setObjectName("secondary")
+            form.addRow("", button)
 
         self._quote_status = QComboBox()
         # Anzeige mit Umlaut, gespeichert wird der bisherige Wert (Kompatibilität

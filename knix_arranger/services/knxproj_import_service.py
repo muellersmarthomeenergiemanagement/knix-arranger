@@ -1514,6 +1514,13 @@ class KnxprojImportService:
             return "Tastereinheit"
         if KnxprojImportService._count_taste_buttons(communication_objects) > 0:
             return "Tastereinheit"
+        # Produktklassierer kennt weitere Familien am Namen (Theben «compact
+        # office», Steinel «pirios» = Präsenzmelder; BE/S, US/U = Binäreingang)
+        from .product_classifier import classify
+        known = {"Praesenzmelder": "Präsenzmelder", "Binäreingang": "Binäreingang"}
+        named = known.get(classify(product_name, "").device_type)
+        if named:
+            return named
         return "Sensor"  # Neutraler Fallback statt pauschal "Tastereinheit"
 
     @staticmethod

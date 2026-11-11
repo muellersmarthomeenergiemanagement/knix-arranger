@@ -129,3 +129,12 @@ def test_main_window_applies_corrections_on_open(tmp_path, monkeypatch):
     finally:
         window._live_monitor_view.shutdown()
         window.deleteLater()
+
+
+def test_presence_detector_families_get_their_name():
+    """Nicht nur «Sensor»: Checkliste, Matrix und Anleitung nennen den Typ."""
+    infer = KnxprojImportService._infer_element_type
+    assert infer("compact office EIB", []) == "Präsenzmelder"
+    assert infer("pirios 360P KNX", []) == "Präsenzmelder"
+    assert infer("BE/S8.20.1 Binary Input,8-fold,Cont.Sc.,MDRC", []) == "Binäreingang"
+    assert infer("Salva KNX TH", []) == "Sensor"

@@ -284,6 +284,8 @@ class LiveMonitorView(QWidget):
                 combo.addItem(item, item.split(" ")[0] if combo is self._gewerk else item)
             combo.setCurrentIndex(max(0, combo.findData(current)))
             combo.blockSignals(False)
+            from ..column_utils import widen_popup
+            widen_popup(combo)
 
     # ── Verbindung ───────────────────────────────────────────────────────
 

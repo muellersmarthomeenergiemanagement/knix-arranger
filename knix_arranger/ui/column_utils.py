@@ -61,3 +61,36 @@ def fit_columns(widget, min_col_width: int = 50, stretch_to_fit: bool = True) ->
         min_w = max(min_col_width, header.sectionSizeHint(i) + 16)
         new_w = max(min_w, int(widget.columnWidth(i) * scale))
         widget.setColumnWidth(i, new_w)
+
+
+def scrollable(widget):
+    """Widget in einen Rollbereich legen, der es nie unter seine
+    Wunschgrösse staucht: bei kleinem Fenster (1280 x 720) rollen statt
+    Felder zu überlappen und Knöpfe abzuschneiden."""
+    from PySide6.QtWidgets import QFrame, QScrollArea
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setFrameShape(QFrame.NoFrame)
+    # nur die Höhe halten: in der Breite passt sich der Inhalt an
+    widget.setMinimumHeight(widget.sizeHint().height())
+    area.setWidget(widget)
+    plain_background(area)
+    return area
+
+
+def plain_background(area) -> None:
+    """Rollbereich ohne eigenen (grauen) Hintergrund -- wie die übrigen
+    Ansichten auf dem Hintergrund des Fensters."""
+    area.setStyleSheet("QScrollArea { background: transparent; }")
+    area.viewport().setAutoFillBackground(False)
+    if area.widget() is not None:
+        area.widget().setAutoFillBackground(False)
+
+
+def widen_popup(combo) -> None:
+    """Auswahlliste so breit wie ihr längster Eintrag, auch wenn das Feld
+    selbst schmaler ist (lange Einträge wurden abgeschnitten)."""
+    metrics = combo.fontMetrics()
+    widest = max((metrics.horizontalAdvance(combo.itemText(i))
+                  for i in range(combo.count())), default=0)
+    combo.view().setMinimumWidth(widest + 40)

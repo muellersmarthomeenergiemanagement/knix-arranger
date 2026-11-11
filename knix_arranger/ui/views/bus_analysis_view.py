@@ -72,11 +72,23 @@ class BusAnalysisView(QWidget):
         self._report_btn = QPushButton("Bericht Busanalyse…")
         self._report_btn.setObjectName("secondary")
         self._report_btn.clicked.connect(self._report)
-        for widget in (self._import_btn, self._recordings, self._remove_btn,
-                       self._external_btn, self._tunnel_btn, self._report_btn):
-            row.addWidget(widget)
-        row.addStretch()
+        # zwei Zeilen: sechs Elemente nebeneinander wurden bei 1280 px
+        # abgeschnitten. Oben der Mitschnitt, unten die Aktionen zum
+        # markierten Absender.
+        self._recordings.setMinimumWidth(220)
+        row.addWidget(self._import_btn)
+        row.addWidget(self._recordings, 1)
+        row.addWidget(self._remove_btn)
+        row.addWidget(self._report_btn)
         layout.addLayout(row)
+        selection_row = QHBoxLayout()
+        selection_label = QLabel("Markierter Absender:")
+        selection_label.setStyleSheet(f"color: {TEXT_MUTED};")
+        selection_row.addWidget(selection_label)
+        selection_row.addWidget(self._external_btn)
+        selection_row.addWidget(self._tunnel_btn)
+        selection_row.addStretch()
+        layout.addLayout(selection_row)
 
         self._summary = QLabel()
         self._summary.setWordWrap(True)

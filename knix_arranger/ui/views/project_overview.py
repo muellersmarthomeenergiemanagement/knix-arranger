@@ -70,6 +70,8 @@ class ProjectOverview(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
         content = QWidget()
         scroll.setWidget(content)
+        from ..column_utils import plain_background
+        plain_background(scroll)
         outer.addWidget(scroll)
         layout = QVBoxLayout(content)
         layout.setSpacing(15)
