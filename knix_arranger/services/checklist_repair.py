@@ -19,7 +19,7 @@ import copy
 import re
 import uuid
 
-from ..models.documentation import RESULT_OPEN
+from ..models.documentation import ITEM_KIND_DEVICE, RESULT_OPEN
 
 
 def is_special(room_id: str) -> bool:
@@ -136,6 +136,40 @@ def adopt_orphan_checklists(project) -> tuple[int, int]:
             project.checklists.remove(cl)
             removed += 1
     return moved, removed
+
+
+def drop_device_items(project, addresses: set[str]) -> int:
+    """Prüfpunkte von Bedienelementen entfernen, die es im Raum nicht mehr
+    gibt, weil das Gerät kein Bedienelement ist (Gateway: Chalet Vitogate
+    1.1.32 stand vor 1.4.38 als «Wassermelder» mit 72 Prüfpunkten in der
+    Checkliste von «01 Technik»). Nur Raum-Checklisten; die Prüfung des
+    Geräts steht in der Verteiler-Checkliste. Abgezeichnete Geräteprüfungen
+    gehen dorthin über, wenn der Punkt dort noch offen ist; andere
+    abgezeichnete Punkte bleiben stehen. Gibt die Zahl entfernter Punkte zurück."""
+    if not addresses or not project.checklists:
+        return 0
+    verteiler = {(i.be_number, i.check_type): i for cl in project.checklists
+                 if cl.room_id.startswith("__verteiler__") for i in cl.items}
+    removed = 0
+    for cl in project.checklists:
+        if not cl.room_id or is_special(cl.room_id):
+            continue
+        kept = []
+        for item in cl.items:
+            if item.be_number not in addresses:
+                kept.append(item)
+                continue
+            if item.result != RESULT_OPEN:
+                target = verteiler.get((item.be_number, item.check_type))
+                if target is None or target.result != RESULT_OPEN \
+                        or item.item_kind != ITEM_KIND_DEVICE:
+                    kept.append(item)
+                    continue
+                target.result, target.notes = item.result, item.notes
+                target.checked_date, target.checked_by = item.checked_date, item.checked_by
+            removed += 1
+        cl.items = kept
+    return removed
 
 
 def _find(project, checklist_id: str):

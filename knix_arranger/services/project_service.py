@@ -60,6 +60,10 @@ def correct_gateway_types(project) -> list[str]:
     for room in project.all_rooms:
         room.bedienelemente = [be for be in room.bedienelemente
                                if be.participant_number not in gateways]
+    # ebenso die Prüfpunkte dieses Elements in gespeicherten Checklisten
+    # (der Abgleich ergänzt nur, er entfernt nichts)
+    from .checklist_repair import drop_device_items
+    drop_device_items(project, gateways)
     return fixed
 
 

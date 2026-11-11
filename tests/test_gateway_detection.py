@@ -54,6 +54,31 @@ def test_saved_project_corrected_on_load():
     assert correct_gateway_types(project) == []          # einmal genügt
 
 
+def test_saved_checklist_loses_gateway_items():
+    """Gespeicherte Checkliste vor der Korrektur: Vitogate als «Wassermelder»
+    mit Prüfpunkten im Raum. Offene Punkte fallen weg, ein abgezeichneter
+    Geräte-Punkt geht in die Verteiler-Checkliste über."""
+    from knix_arranger.models.documentation import (
+        ITEM_KIND_FUNCTION, ChecklistItem, CommissioningChecklist)
+    project, _gate, _taster, technik = _project()
+
+    def item(number, check, result="", kind="device", ga=""):
+        return ChecklistItem(be_type="Wassermelder" if number == "1.1.32" else "Tastereinheit",
+                             be_number=number, check_type=check, result=result,
+                             item_kind=kind, function_ga=ga, checked_by="MM" if result else "")
+    room_cl = CommissioningChecklist(room_id=technik.id, items=[
+        item("1.1.32", "Montage", "OK"), item("1.1.32", "Applikation"),
+        item("1.1.32", "", kind=ITEM_KIND_FUNCTION, ga="0/2/101"),
+        item("1.1.50", "Montage")])
+    verteiler = CommissioningChecklist(room_id="__verteiler__UV1", items=[
+        ChecklistItem(be_type="Vitogate", be_number="1.1.32", check_type="Montage")])
+    project.checklists = [room_cl, verteiler]
+
+    correct_gateway_types(project)
+    assert [(i.be_number, i.check_type) for i in room_cl.items] == [("1.1.50", "Montage")]
+    assert (verteiler.items[0].result, verteiler.items[0].checked_by) == ("OK", "MM")
+
+
 def test_planned_project_untouched():
     project, gate, _taster, _technik = _project(imported=False)
     assert correct_gateway_types(project) == [] and gate.device_type == "sensor"
