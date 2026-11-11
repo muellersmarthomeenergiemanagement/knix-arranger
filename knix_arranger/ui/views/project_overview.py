@@ -4,7 +4,7 @@ Projektuebersicht / Dashboard (FA-010)
 from __future__ import annotations
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QGridLayout,
-    QFrame, QPushButton,
+    QFrame, QPushButton, QScrollArea,
 )
 from PySide6.QtCore import Qt, Signal
 from ..styles import (
@@ -13,25 +13,36 @@ from ..styles import (
 from ..dialogs.project_properties_dialog import ProjectPropertiesDialog, knx_secure_summary
 
 
+def _display_date(iso: str) -> str:
+    """Gespeichertes Datum JJJJ-MM-TT als TT.MM.JJJJ (sonst unverändert)."""
+    from datetime import date
+    try:
+        return date.fromisoformat((iso or "")[:10]).strftime("%d.%m.%Y")
+    except ValueError:
+        return iso or "-"
+
+
 class StatCard(QFrame):
     """Statistik-Karte für das Dashboard."""
 
     def __init__(self, title: str, value: str = "0", parent=None):
         super().__init__(parent)
         self.setFrameStyle(QFrame.StyledPanel)
+        self.setObjectName("statCard")
         self.setStyleSheet(
-            "QFrame { background: white; border: 1px solid #C0C0C0; "
-            "border-radius: 6px; padding: 10px; }"
+            "QFrame#statCard { background: white; border: 1px solid #C0C0C0; "
+            "border-radius: 6px; }"
         )
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
         self._title = QLabel(title)
-        self._title.setStyleSheet("font-size: 12px; color: #666666;")
+        self._title.setStyleSheet("font-size: 12px; color: #666666; border: none;")
         layout.addWidget(self._title)
 
         self._value = QLabel(value)
         self._value.setStyleSheet(
-            f"font-size: 24px; font-weight: bold; color: {KNX_DARK_GREEN};"
+            f"font-size: 24px; font-weight: bold; color: {KNX_DARK_GREEN}; border: none;"
         )
         layout.addWidget(self._value)
 
@@ -50,7 +61,17 @@ class ProjectOverview(QWidget):
         super().__init__(parent)
         self._project = None
 
-        layout = QVBoxLayout(self)
+        # Inhalt in einem Rollbereich: bei kleinem Fenster rollen statt die
+        # Knöpfe und Texte des Arbeitswegs zu stauchen (1280 x 720)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+        layout = QVBoxLayout(content)
         layout.setSpacing(15)
 
         # Titel
@@ -149,10 +170,9 @@ class ProjectOverview(QWidget):
         ga_count = len(project.group_addresses.all_addresses())
         self._card_gas.set_value(str(ga_count))
 
-        line_count = sum(
-            len(a.lines) for a in project.topology.areas
-        )
-        self._card_lines.set_value(str(line_count))
+        # wie Topologie-Ansicht und Berichte: nur Linien mit Geräten
+        from ...models.topology import used_lines
+        self._card_lines.set_value(str(len(used_lines(project.topology))))
 
         self._info_labels["name"].setText(project.name or "-")
         self._info_labels["number"].setText(project.project_number or "-")
@@ -160,8 +180,8 @@ class ProjectOverview(QWidget):
         self._info_labels["topo"].setText(project.config.topology_mode)
         self._info_labels["backbone"].setText(project.config.backbone_type)
         self._info_labels["secure"].setText(knx_secure_summary(project.knx_secure))
-        self._info_labels["created"].setText(project.created or "-")
-        self._info_labels["modified"].setText(project.modified or "-")
+        self._info_labels["created"].setText(_display_date(project.created))
+        self._info_labels["modified"].setText(_display_date(project.modified))
         self._show_workflow()
 
     def set_problem_counts(self, counts: tuple[int, int] | None) -> None:

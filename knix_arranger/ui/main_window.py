@@ -706,6 +706,7 @@ class MainWindow(QMainWindow):
         refreshers = {key: (lambda v=view: v.set_project(p)) for key, view in views.items()}
         refreshers.update({
             "overview": lambda: self._overview.update_from_project(p),
+            "validation": self._run_validation,
             "building": building,
             "addresses": self._set_address_views,
             "addresses_table": self._set_address_views,
@@ -2382,14 +2383,22 @@ class MainWindow(QMainWindow):
             if offer_ets_transferred(self, self._project):
                 self._status_bar.set_status("Projekt als «in ETS übertragen» markiert.")
 
+    def _run_validation(self) -> list:
+        """Validieren und die Ansicht füllen, ohne dorthin zu wechseln. Auch
+        beim Öffnen der Ansicht (sonst leer, obwohl die Übersicht Probleme
+        zählt) und nach Projektänderungen (_view_refreshers)."""
+        validator = ValidationEngine(self._project.gewerk_catalog)
+        issues = validator.validate(self._project.group_addresses, project=self._project)
+        self._validation_view.set_issues(issues)
+        return issues
+
     def _validate(self):
         if not self._project:
             self._status_bar.set_status("Kein Projekt zum Validieren.")
             return
 
-        validator = ValidationEngine(self._project.gewerk_catalog)
-        issues = validator.validate(self._project.group_addresses, project=self._project)
-        self._validation_view.set_issues(issues)
+        issues = self._run_validation()
+        getattr(self, "_stale_views", set()).discard("validation")
 
         self._overview.update_from_project(self._project)
         self._sidebar.select("validation")

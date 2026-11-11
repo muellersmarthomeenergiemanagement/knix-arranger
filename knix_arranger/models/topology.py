@@ -508,6 +508,23 @@ def count_bus_devices(devices) -> BusDeviceCount:
     return BusDeviceCount(len(bus) - external, external)
 
 
+def used_lines(topology) -> list:
+    """[(Bereich, Linie)] mit Geräten -- leere Bereiche/Linien aus dem
+    ETS-Import (Bereich 0, Linie B.0) zählen in Ansichten und Berichten nicht."""
+    return [(area, line) for area in topology.areas for line in area.lines if line.devices]
+
+
+def topology_summary(topology) -> str:
+    """«1 Bereich, 2 Linien, 71 + 1 nicht im ETS-Projekt Busteilnehmer» --
+    eine Zählung für Topologie-Ansicht, Übersicht und Berichte."""
+    lines = used_lines(topology)
+    areas = len({id(area) for area, _line in lines})
+    count = count_bus_devices(d for _area, line in lines for d in line.devices)
+    return (f"{areas} {'Bereich' if areas == 1 else 'Bereiche'}, "
+            f"{len(lines)} {'Linie' if len(lines) == 1 else 'Linien'}, "
+            f"{count.label()} Busteilnehmer")
+
+
 # ── Koppler und Spannungsversorgungen (einheitlich für Ansichten und Berichte) ──
 # Angezeigt wird nur, was als Gerät vorhanden ist. Line.coupler_address bzw.
 # Area.coupler_address allein genügen nicht: der knxproj-Import setzt dort

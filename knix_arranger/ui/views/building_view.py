@@ -156,13 +156,27 @@ class BuildingView(QWidget):
     def _devices_for_building(self, building: Building) -> int:
         if not self._topology:
             return 0
+        # Busteilnehmer der Linien des Gebäudes, gezählt wie in Topologie
+        # und Berichten (ohne Spannungsversorgungen)
+        from ...models.topology import count_bus_devices
         room_ids = {r.id for r in building.all_rooms}
-        count = 0
-        for area in self._topology.areas:
-            for line in area.lines:
-                if any(rid in room_ids for rid in line.assigned_room_ids):
-                    count += line.device_count
-        return count
+        devices = [d for area in self._topology.areas for line in area.lines
+                   if any(rid in room_ids for rid in line.assigned_room_ids)
+                   or any(d.room_id in room_ids for d in line.devices)
+                   for d in line.devices]
+        return count_bus_devices(devices).total
+
+    def _devices_for_floor(self, floor) -> int | None:
+        """Busteilnehmer in den Räumen des Stockwerks; None ohne Topologie
+        (dann gilt die Schätzung aus den Gewerken)."""
+        if not self._topology or not any(
+                line.devices for area in self._topology.areas for line in area.lines):
+            return None
+        from ...models.topology import count_bus_devices
+        room_ids = {r.id for r in floor.all_rooms}
+        return count_bus_devices(
+            d for area in self._topology.areas for line in area.lines
+            for d in line.devices if d.room_id in room_ids).total
 
     def _devices_for_room(self, room) -> list:
         """Geräte mit direkter room_id-Zuweisung (Sensoren, manuell, Import)."""
@@ -284,7 +298,7 @@ class BuildingView(QWidget):
             bld_devices = self._devices_for_building(building)
             bld_item = QTreeWidgetItem(
                 areal_item,
-                [building.name, "Gebäude", "", f"{bld_devices} Geräte"],
+                [building.name, "Gebäude", "", f"{bld_devices} Busteilnehmer"],
             )
             bld_item.setData(0, Qt.UserRole, ("building", building))
             bld_item.setExpanded(True)
@@ -295,8 +309,11 @@ class BuildingView(QWidget):
                 wing_item.setExpanded(True)
 
                 for floor in wing.floors:
-                    devices = floor.total_devices()
-                    detail = f"HG {floor.main_group_number}, {devices} Geräte"
+                    devices = self._devices_for_floor(floor)
+                    detail = (f"HG {floor.main_group_number}, {devices} Busteilnehmer in Räumen"
+                              if devices is not None else
+                              f"HG {floor.main_group_number}, ca. {floor.total_devices()} "
+                              "Geräte (geschätzt)")
                     floor_item = QTreeWidgetItem(
                         wing_item,
                         [f"{floor.short_code} – {floor.name}", "Stockwerk", "", detail],

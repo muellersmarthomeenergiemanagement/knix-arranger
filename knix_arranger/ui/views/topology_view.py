@@ -412,15 +412,12 @@ class TopologyView(QWidget):
             self._tree.setUpdatesEnabled(True)
             return
 
-        total_areas   = len(self._topology.areas)
-        total_lines   = sum(len(a.lines) for a in self._topology.areas)
-        total_devices = sum(
-            l.device_count for a in self._topology.areas for l in a.lines
-        )
+        total_areas = len(self._topology.areas)
+        # Zählung wie Berichte und Anlagen-Check (topology_summary)
+        from ...models.topology import topology_summary
         self._info.setText(
             f"Modus: {self._topology.topology_mode} | "
-            f"{total_areas} Bereiche, {total_lines} Linien, "
-            f"{total_devices} Geräte  –  Rechtsklick zum Bearbeiten"
+            f"{topology_summary(self._topology)}  –  Rechtsklick zum Bearbeiten"
         )
 
         ga_by_address = (
