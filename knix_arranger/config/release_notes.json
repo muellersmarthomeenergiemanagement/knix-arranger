@@ -2,6 +2,18 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.58",
+      "date": "2026-11-11",
+      "neu": [
+        "Live-Monitor über USB-Schnittstellen (z.B. Siemens OCI702): «USB-Schnittstelle» zeigt die Gruppentelegramme, «USB-Busmonitor» jeden Rahmen der Linie, an der die Schnittstelle steckt – mit Quittung (ACK, NAK, BUSY) und Wiederholungen in einer eigenen Spalte und als Zähler.",
+        "Live-Monitor: «In Busanalyse übernehmen» übernimmt die Aufzeichnung als Mitschnitt in die Busanalyse – mit allen Befunden, Bericht und Vergleich, ohne Umweg über die ETS. Aus dem USB-Busmonitor mit Quittungen und Wiederholungen.",
+        "Live-Monitor: Nach dem Verbinden nennt KNiX die GAs, die über diese Schnittstelle nie ankommen, weil ein Koppler sie sperrt (Filtertabelle), mit Liste je Koppler."
+      ],
+      "verbessert": [
+        "Live-Monitor: Zähler unter der Statuszeile zeigen, was ankam und was verloren ging – Gerätezugriffe, gesichert ohne Schlüssel, nicht lesbar, verlorene Pakete über Fernzugang/VPN, Neuverbindungen."
+      ]
+    },
+    {
       "version": "1.4.57",
       "date": "2026-11-11",
       "neu": [
