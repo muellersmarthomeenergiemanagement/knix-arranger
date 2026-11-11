@@ -72,7 +72,8 @@
     "label_project_name": "Progetto",
     "label_project_number": "Numero di progetto",
     "label_editor": "Responsabile",
-    "label_confidential": "Confidenziale"
+    "label_confidential": "Confidenziale",
+    "label_number_abbr": "N."
   },
   "phrases": {
     "gedrückt halten: Ein, loslassen: Aus": "tenere premuto: acceso, rilasciare: spento",

@@ -140,6 +140,8 @@ def add_bedienelement(room, element_type: str, channels: int) -> Bedienelement:
     be = Bedienelement(element_type=element_type, channels=channels, is_auto=False,
                        taster_index=next_taster_index(room))
     room.bedienelemente.append(be)
+    from .position_numbers import assign_in_room
+    assign_in_room(room)          # Positionsnummer sofort (FA-1404b)
     return be
 
 
@@ -160,6 +162,8 @@ def move_to_own_device(room, src_be: Bedienelement, sf: SensorFunktion,
     new_be = Bedienelement(element_type=element_type, channels=1, is_auto=False,
                            taster_index=next_taster_index(room))
     room.bedienelemente.append(new_be)
+    from .position_numbers import assign_in_room
+    assign_in_room(room)          # Positionsnummer sofort (FA-1404b)
     move_button(src_be, sf, new_be, labels=labels)
     fit_sensor_channels(src_be)
     return new_be

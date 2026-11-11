@@ -46,6 +46,10 @@ version_info.txt
 *.zpro
 nul
 nuitka-crash-report.xml
+# Projektordner, ETS-CSV-Exporte und Präsentationsmaterial im Arbeitsordner
+Chalet Franziska 2005/
+Test Siemens.csv
+_deck/
 
 # Revisionspakete
 Revisionspaket*/

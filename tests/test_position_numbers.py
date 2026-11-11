@@ -105,3 +105,11 @@ def test_views_always_show_the_position():
     imported, korridor, _ = _project(imported=True)
     assert PositionLabels(imported).reference(
         korridor, korridor.bedienelemente[2], always=True) == "1.1.13"
+
+
+def test_numbered_when_added_by_hand():
+    from knix_arranger.services.button_move import add_bedienelement
+    _project_, korridor, _ = _project()
+    assign_position_numbers(_project_)
+    be = add_bedienelement(korridor, "Tastereinheit", 4)
+    assert be.position_index == 4

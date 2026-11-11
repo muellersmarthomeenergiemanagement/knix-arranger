@@ -95,7 +95,7 @@ _DEFAULT_LABELS = {"customer": "Kunde", "object": "Objekt", "date": "Datum",
     "postal": "Postadresse", "phone": "Telefon", "email": "E-Mail",
     "cover_project": "Projektdaten", "project_name": "Projektname",
     "project_number": "Projektnummer", "editor": "Bearbeiter",
-    "confidential": "Vertraulich / Konfidentiell"}
+    "confidential": "Vertraulich / Konfidentiell", "number_abbr": "Nr."}
 
 
 class PdfGenerator:
@@ -1581,7 +1581,7 @@ class PdfGenerator:
 
         proj_sub = self.project_name
         if self.project_number:
-            proj_sub += f"  ·  Nr. {self.project_number}"
+            proj_sub += f"  ·  {L('number_abbr')} {self.project_number}"
         if proj_sub:
             tw2 = self._tw(proj_sub, 9)
             self._txt(page,

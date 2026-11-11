@@ -73,7 +73,8 @@
     "label_project_name": "Projekt",
     "label_project_number": "Projektnummer",
     "label_editor": "Bearbeiter",
-    "label_confidential": "Vertraulich"
+    "label_confidential": "Vertraulich",
+    "label_number_abbr": "Nr."
   },
   "phrases": {}
 }

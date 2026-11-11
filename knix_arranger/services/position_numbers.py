@@ -46,26 +46,30 @@ def assign_position_numbers(project) -> int:
     erhalten eine neue. Gibt die Zahl neu vergebener Nummern zurück."""
     if project.topology.is_imported:
         return 0
-    assigned = 0
-    for room in project.all_rooms:
-        used: set[int] = set()
-        pending = []
-        for be in room.bedienelemente:
-            if be.suppressed:
-                # Tombstones behalten ihre Nummer (nicht wiederverwenden)
-                if be.position_index:
-                    used.add(be.position_index)
-                continue
-            if be.position_index and be.position_index not in used:
+    return sum(assign_in_room(room) for room in project.all_rooms)
+
+
+def assign_in_room(room) -> int:
+    """Fehlende bzw. im Raum doppelte Nummern eines Raums vergeben -- auch
+    gleich beim Anlegen von Hand (button_move.add_bedienelement), damit die
+    Ansicht die Nummer sofort zeigt."""
+    used: set[int] = set()
+    pending = []
+    for be in room.bedienelemente:
+        if be.suppressed:
+            # Tombstones behalten ihre Nummer (nicht wiederverwenden)
+            if be.position_index:
                 used.add(be.position_index)
-            else:
-                pending.append(be)
-        next_index = max(used, default=0)
-        for be in pending:
-            next_index += 1
-            be.position_index = next_index
-            assigned += 1
-    return assigned
+            continue
+        if be.position_index and be.position_index not in used:
+            used.add(be.position_index)
+        else:
+            pending.append(be)
+    next_index = max(used, default=0)
+    for be in pending:
+        next_index += 1
+        be.position_index = next_index
+    return len(pending)
 
 
 class PositionLabels:

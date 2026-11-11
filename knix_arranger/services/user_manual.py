@@ -880,7 +880,7 @@ class UserManualBuilder:
                           ("customer", "object", "date", "page", "continued",
                            "cover_client", "name", "cover_object", "postal", "phone",
                            "email", "cover_project", "project_name", "project_number",
-                           "editor", "confidential")}
+                           "editor", "confidential", "number_abbr")}
             pdf.title = t("title")
             pdf.project_date = self.lang.date()
 

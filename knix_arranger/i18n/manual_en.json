@@ -72,7 +72,8 @@
     "label_project_name": "Project",
     "label_project_number": "Project number",
     "label_editor": "Prepared by",
-    "label_confidential": "Confidential"
+    "label_confidential": "Confidential",
+    "label_number_abbr": "No."
   },
   "phrases": {
     "gedrückt halten: Ein, loslassen: Aus": "hold: on, release: off",
