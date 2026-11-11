@@ -227,8 +227,16 @@ VALIDATION_RULES = {
         "Summe der Stromaufnahme aller Busteilnehmer gegen die Spannungsversorgung "
         "der Linie. Strom je Gerät aus den Herstellerdaten (Höchstwert), ohne "
         "Angabe 10 mA. Warnung über 80 % (zu wenig Reserve), Fehler über 100 %.",
-        "Stärkere oder zweite Spannungsversorgung vorsehen, oder Geräte auf eine "
+        "Stärkere Spannungsversorgung (höchstens 1280 mA) vorsehen oder Geräte auf eine "
         "andere Linie verschieben.",
+    ),
+    "FA-613c": (
+        "Spannungsversorgungen parallel",
+        "Mehrere Spannungsversorgungen einer Linie liefern zusammen mehr als "
+        "1280 mA. Zwei 1280-mA-Geräte parallel sind nicht erlaubt: der "
+        "Kurzschlussstrom überschreitet SELV max. 3 A (KNX-Swiss-Projektrichtlinien "
+        "8.2.1).",
+        "Linie aufteilen. In verschiedenen Segmenten (Linienverstärker) zulässig.",
     ),
     "FA-614": (
         "Verknüpfung: mehrere sendende GAs an einem Sensorkanal",
@@ -300,6 +308,20 @@ VALIDATION_RULES = {
         "Wird ein IP-Router auf KNX IP Secure umgestellt, müssen alle IP-Router "
         "der Anlage umgestellt werden.",
         "IP-Router ohne IP Secure ersetzen oder IP Secure nicht verwenden.",
+    ),
+    "FA-645d": (
+        "IP-Router ohne KNX Secure",
+        "KNX IP soll stets mit IP-Routern ausgeführt werden, die KNX Secure "
+        "unterstützen (KNX-Swiss-Projektrichtlinien 4.1).",
+        "Bei Ersatz oder Erweiterung Secure-fähige IP-Router einsetzen.",
+    ),
+    "FA-646": (
+        "IP-Koppler unter IP-Bereichskoppler",
+        "Nach einem KNX-IP-Bereichskoppler kann im selben Bereich kein weiterer "
+        "IP-Koppler eingesetzt werden; der Bereich wird in TP aufgebaut "
+        "(KNX-Swiss-Projektrichtlinien 4.2).",
+        "TP-Linienkoppler einsetzen oder die IP-Router als Linienkoppler am "
+        "IP-Backbone führen.",
     ),
     "FA-620": (
         "GA-Generierung",

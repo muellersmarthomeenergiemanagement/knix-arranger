@@ -11,6 +11,8 @@ KNX-Secure-Prüfungen der Validierung (FA-645), nach dem KNX-Swiss-Leitfaden
   Koppler muss die längeren Secure-Telegramme (Extended Frames) weiterleiten.
 - FA-645c: KNX IP Secure: wird ein IP-Router umgestellt, müssen alle
   IP-Router der Anlage umgestellt werden -- alle müssen IP Secure können.
+- FA-645d: KNX IP soll stets mit IP-Routern ausgeführt werden, die KNX
+  Secure unterstützen (KNX-Swiss-Projektrichtlinien 4.1) -- Hinweis.
 
 Secure-fähig ist ein Gerät laut Produktdaten (Device.secure_supported), dem
 Zugangsdaten-Archiv oder -- bei XLSX-Importen ohne Produktdaten -- «secure»
@@ -42,13 +44,13 @@ def is_secure_device(device, project) -> bool:
 _IP_ROUTER_RE = re.compile(r"\bIP\b|\bIPR\b|\bIPR/", re.IGNORECASE)
 
 
-def _is_ip_router(device) -> bool:
+def is_ip_router(device) -> bool:
     return device.device_type == "coupler" and bool(
         _IP_ROUTER_RE.search(f"{device.product_name} {device.product}"))
 
 
 def check_secure(project) -> list[ValidationIssue]:
-    issues = _check_secure_gas(project)
+    issues = _check_secure_gas(project) + _check_ip_routers_secure_capable(project)
     config = project.knx_secure
     if config is not None and config.enabled:
         if config.secure_mode in ("data_secure", "both"):
@@ -117,7 +119,7 @@ def _check_couplers(project) -> list[ValidationIssue]:
 def _check_ip_routers(project) -> list[ValidationIssue]:
     """FA-645c: IP Secure nur, wenn alle IP-Router es können."""
     routers = [d for area in project.topology.areas for line in area.lines
-               for d in line.devices if _is_ip_router(d)]
+               for d in line.devices if is_ip_router(d)]
     plain = [d for d in routers if not is_secure_device(d, project)]
     if len(routers) < 2 or not plain or len(plain) == len(routers):
         return []
@@ -128,4 +130,21 @@ def _check_ip_routers(project) -> list[ValidationIssue]:
         plain[0].physical_address,
         "Wird ein IP-Router auf IP Secure umgestellt, müssen alle umgestellt "
         "werden: die übrigen IP-Router ersetzen.",
+        details={"routers": [_label(d) for d in plain]})]
+
+
+def _check_ip_routers_secure_capable(project) -> list[ValidationIssue]:
+    """FA-645d: IP-Router ohne KNX Secure (Hinweis, einer für alle)."""
+    plain = [d for area in project.topology.areas for line in area.lines
+             for d in line.devices
+             if is_ip_router(d) and not d.external and not is_secure_device(d, project)]
+    if not plain:
+        return []
+    return [ValidationIssue(
+        "info", "FA-645d",
+        f"{len(plain)} IP-Router ohne KNX Secure: "
+        + ", ".join(_label(d) for d in plain[:4]) + (" …" if len(plain) > 4 else ""),
+        plain[0].physical_address,
+        "KNX IP mit Secure-fähigen IP-Routern ausführen (bei Ersatz oder "
+        "Erweiterung berücksichtigen).",
         details={"routers": [_label(d) for d in plain]})]

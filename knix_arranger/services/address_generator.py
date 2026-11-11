@@ -455,7 +455,7 @@ class AddressGenerator:
                             logger.warning(f"Unbekanntes Gewerk: {ga.gewerk_code}")
                             continue
                         home_mg = (CENTRAL_GEWERK_MIDDLE_GROUPS[ga.gewerk_code]
-                                   if central else gewerk.middle_group)
+                                   if central else gewerk.home_middle_group(self.variant))
                         mg_data.setdefault(home_mg, []).append(
                             (room, ga, gewerk, room_number_ga, room_desc)
                         )

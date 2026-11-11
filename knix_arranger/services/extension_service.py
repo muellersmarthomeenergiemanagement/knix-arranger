@@ -223,7 +223,7 @@ def evaluate(project, plan: ExtensionPlan) -> ExtensionResult:
         if candidates:
             key = max(candidates, key=lambda c: c[1])[0]
         elif hg is not None:
-            key = (hg, gewerk.middle_group)
+            key = (hg, gewerk.home_middle_group(project.config.mg_variant))
         else:
             result.problems.append(f"Keine Hauptgruppe für Stockwerk {floor.name} – "
                                    "Adresse in der ETS von Hand wählen.")

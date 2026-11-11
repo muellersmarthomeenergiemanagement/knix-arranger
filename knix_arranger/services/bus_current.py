@@ -77,6 +77,7 @@ class LineCurrent:
     consumer_count: int = 0
     supply_ma: int = 0            # Summe der Spannungsversorgungen (0 = keine)
     supply_assumed: bool = False  # mind. eine SV ohne erkennbare Grösse
+    supply_count: int = 0         # Anzahl Spannungsversorgungen der Linie
 
     @property
     def total_ma(self) -> float:
@@ -117,6 +118,7 @@ def line_current(line, catalog=None) -> LineCurrent:
         if is_power_supply(device):
             capacity, known = supply_capacity(device)
             result.supply_ma += capacity
+            result.supply_count += 1
             result.supply_assumed |= not known
             continue
         if not is_consumer(device):

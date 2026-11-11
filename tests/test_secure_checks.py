@@ -78,7 +78,8 @@ def test_ip_secure_braucht_alle_ip_router():
     project.topology.areas[0].lines.append(Line(line_number=2, devices=[r2]))
     project.knx_secure = KnxSecureConfig(enabled=True, secure_mode="ip_secure")
     issues = check_secure(project)
-    assert [(i.rule_id, i.address) for i in issues] == [("FA-645c", "1.2.0")]
+    assert [(i.rule_id, i.address) for i in issues] == [("FA-645d", "1.2.0"),
+                                                         ("FA-645c", "1.2.0")]
     # Data Secure allein: IP-Router nicht betroffen
     project.knx_secure.secure_mode = "data_secure"
     assert all(i.rule_id != "FA-645c" for i in check_secure(project))

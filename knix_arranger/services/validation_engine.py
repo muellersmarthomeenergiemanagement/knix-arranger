@@ -126,7 +126,7 @@ class ValidationEngine:
         issues.extend(self._check_duplicates(all_gas))
         issues.extend(self._check_dpt(all_gas, _actor_dpts(project)))
         issues.extend(self._check_naming(all_gas, self._planned_room_numbers(project)))
-        issues.extend(self._check_middle_group_assignment(all_gas))
+        issues.extend(self._check_middle_group_assignment(all_gas, structure.variant))
         issues.extend(self._check_block_integrity(structure))
         issues.extend(self._check_generation_warnings(structure))
 
@@ -1177,12 +1177,12 @@ class ValidationEngine:
                         ))
         return issues
 
-    def _check_middle_group_assignment(self, addresses: list[GroupAddress]) -> list[ValidationIssue]:
-        """FA-607: Prüft Mittelgruppen-Zuordnung."""
+    def _check_middle_group_assignment(self, addresses: list[GroupAddress],
+                                       variant: str = "A") -> list[ValidationIssue]:
+        """FA-607: Prüft Mittelgruppen-Zuordnung. Rückmeldungen von Licht und
+        Jalousie dürfen in MG 6 bzw. 7 liegen; andere Gewerke in MG 6/7
+        nur in Variante A (Variante B: dort nur Rückmeldungen)."""
         issues = []
-        category_to_mg = {
-            "licht": 0, "jalousie": 1, "heizung": 2, "alarm": 3,
-        }
         if not self.catalog:
             return issues
 
@@ -1191,21 +1191,27 @@ class ValidationEngine:
                 continue
             if ga.gewerk_code:
                 gewerk = self.catalog.get(ga.gewerk_code)
-                if gewerk and gewerk.middle_group != ga.middle_group:
-                    # Pruefen ob es eine Rueckmeldungs-MG ist (6 oder 7)
-                    if ga.middle_group not in (6, 7):
-                        issues.append(ValidationIssue(
-                            "warning", "FA-607",
-                            f"Gewerk {ga.gewerk_code} in falscher MG: "
-                            f"{ga.middle_group} (erwartet: {gewerk.middle_group})",
-                            ga.address,
-                            f"GA nach MG {gewerk.middle_group} verschieben "
-                            f"oder Gewerk korrigieren",
-                            designation=ga.designation,
-                            details={"gewerk": ga.gewerk_code,
-                                     "actual": ga.middle_group,
-                                     "expected": gewerk.middle_group},
-                        ))
+                if gewerk is None:
+                    continue
+                expected = gewerk.home_middle_group(variant)
+                # Rückmeldungen von Licht/Jalousie: MG 6 oder 7 (importierte
+                # Anlagen tauschen sie teils, Chalet: Licht-RM in MG 7)
+                if ga.middle_group == expected or (
+                        gewerk.feedback_middle_group() is not None
+                        and ga.middle_group in (6, 7)):
+                    continue
+                issues.append(ValidationIssue(
+                    "warning", "FA-607",
+                    f"Gewerk {ga.gewerk_code} in falscher MG: "
+                    f"{ga.middle_group} (erwartet: {expected})",
+                    ga.address,
+                    f"GA nach MG {expected} verschieben "
+                    f"oder Gewerk korrigieren",
+                    designation=ga.designation,
+                    details={"gewerk": ga.gewerk_code,
+                             "actual": ga.middle_group,
+                             "expected": expected},
+                ))
         return issues
 
     def _check_block_integrity(self, structure: GroupAddressStructure) -> list[ValidationIssue]:

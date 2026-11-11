@@ -11,6 +11,8 @@ Topologie-Prüfungen der Validierung (FA-609, FA-611 bis FA-613).
 - FA-612: Physikalische Adressen: gültiges Format, passend zu Bereich und
   Linie, nicht doppelt, Teilnehmer 0 nur für Koppler (FA-223).
 - FA-613: Jede Linie mit Busteilnehmern hat eine Spannungsversorgung.
+- FA-646: IP-Linienkoppler unter einem IP-Bereichskoppler (Richtlinien 4.2).
+- FA-613c: Mehrere SVs einer Linie zusammen über 1280 mA (Projektrichtlinien 8.2.1).
 - FA-613b: Busstrom der Teilnehmer je Linie gegen die Spannungsversorgung
   (Warnung über 80 %, Fehler über 100 %), siehe services.bus_current.
 """
@@ -47,6 +49,8 @@ def check_topology(project) -> list[ValidationIssue]:
     issues += _check_physical_addresses(topology)
     issues += _check_power_supplies(topology)
     issues += _check_bus_current(topology)
+    issues += _check_parallel_supplies(topology)
+    issues += _check_ip_below_ip_area_coupler(topology)
     issues += _check_co_links(project)
     return issues
 
@@ -76,8 +80,8 @@ def _check_bus_current(topology) -> list[ValidationIssue]:
             if lc.overloaded:
                 issues.append(ValidationIssue(
                     "error", "FA-613b", text, where,
-                    "Stärkere Spannungsversorgung oder zweite Spannungsversorgung "
-                    "vorsehen, oder Geräte auf eine andere Linie verschieben",
+                    "Stärkere Spannungsversorgung (höchstens 1280 mA) vorsehen oder "
+                    "Geräte auf eine andere Linie verschieben",
                     details=details))
             else:
                 issues.append(ValidationIssue(
@@ -85,6 +89,34 @@ def _check_bus_current(topology) -> list[ValidationIssue]:
                     f"Über {RESERVE_LIMIT * 100:.0f} % ausgelastet: Reserve für "
                     "Erweiterungen fehlt",
                     details=details))
+    return issues
+
+
+# Grösste KNX-Spannungsversorgung; mehr in einem Segment ist nicht erlaubt
+# (KNX-Swiss-Projektrichtlinien 8.2.1: zwei 1280-mA-SVs parallel überschreiten
+# den zulässigen Kurzschlussstrom, SELV max. 3 A)
+MAX_SUPPLY_MA = 1280
+
+
+def _check_parallel_supplies(topology) -> list[ValidationIssue]:
+    """FA-613c: mehrere Spannungsversorgungen einer Linie zusammen über
+    1280 mA. In verschiedenen Segmenten (Linienverstärker) zulässig."""
+    from .bus_current import line_current
+    issues = []
+    for area in topology.areas:
+        for line in area.lines:
+            lc = line_current(line)
+            if lc.supply_count < 2 or lc.supply_ma <= MAX_SUPPLY_MA:
+                continue
+            issues.append(ValidationIssue(
+                "warning", "FA-613c",
+                f"{_line_label(area, line)}: {lc.supply_count} Spannungsversorgungen, "
+                f"zusammen {lc.supply_ma} mA",
+                f"{area.area_number}.{line.line_number}",
+                "Parallel höchstens 1280 mA (SELV max. 3 A Kurzschlussstrom): Linie "
+                "aufteilen. Stehen die SVs in verschiedenen Segmenten "
+                "(Linienverstärker), kann der Hinweis bleiben.",
+                details={"supplies": lc.supply_count, "supply_ma": lc.supply_ma}))
     return issues
 
 
@@ -260,4 +292,29 @@ def _check_co_links(project) -> list[ValidationIssue]:
                     "info", "FA-611", "mit keinem Kommunikationsobjekt verknüpft",
                     addr, "Verknüpfen oder als Reserve belassen",
                     designation=ga.designation))
+    return issues
+
+
+def _check_ip_below_ip_area_coupler(topology) -> list[ValidationIssue]:
+    """FA-646: Nach einem KNX-IP-Bereichskoppler kann im selben Bereich kein
+    weiterer IP-Koppler eingesetzt werden; der Bereich ist in TP aufgebaut
+    (KNX-Swiss-Projektrichtlinien 4.2)."""
+    from ..models.topology import area_coupler, line_coupler
+    from .secure_checks import is_ip_router
+    issues = []
+    for area in topology.areas:
+        bk = area_coupler(area)
+        if bk is None or not is_ip_router(bk):
+            continue
+        for line in area.lines:
+            lk = line_coupler(area, line)
+            if lk is not None and line.line_number > 0 and is_ip_router(lk):
+                issues.append(ValidationIssue(
+                    "warning", "FA-646",
+                    f"{_line_label(area, line)}: IP-Linienkoppler {lk.physical_address} "
+                    f"unter IP-Bereichskoppler {bk.physical_address}",
+                    lk.physical_address,
+                    "Unter einem IP-Bereichskoppler TP-Linienkoppler einsetzen "
+                    "oder die IP-Router als Linienkoppler am IP-Backbone führen.",
+                    details={"area_coupler": bk.physical_address}))
     return issues

@@ -24,6 +24,20 @@ class Gewerk:
     #   "system_sensor" – Gewerkeuebergreifender Sensor ohne Raumzuordnung; W (Wetterstation)
     interface_type: str = "actor"
 
+    def home_middle_group(self, variant: str = "A") -> int:
+        """Mittelgruppe der GAs dieses Gewerks. In Variante B gehören MG 6
+        und 7 den Rückmeldungen von Licht und Jalousie (KNX-Swiss-
+        Projektrichtlinien 13.2); Gewerke, die im Katalog dort stehen (PV,
+        EV, SP), weichen auf MG 5 aus."""
+        if variant == "B" and self.middle_group in (6, 7):
+            return 5
+        return self.middle_group
+
+    def feedback_middle_group(self) -> int | None:
+        """Variante B: MG der Rückmeldungen (Licht 6, Jalousie 7), sonst None
+        (Gewerk ohne Rückmeldungs-MG)."""
+        return {0: 6, 1: 7}.get(self.middle_group)
+
     def to_dict(self) -> dict:
         return {
             "code": self.code,
