@@ -90,6 +90,24 @@ def correct_sensor_types(project) -> list[str]:
     return fixed
 
 
+def correct_loaded_project(project) -> list[str]:
+    """Korrekturen an früher eingelesenen Projekten nach dem Laden; gibt
+    Texte fürs Änderungsprotokoll zurück. Aufgerufen von jedem Ladeweg
+    (ProjectService.load_project und MainWindow.open_file)."""
+    notes = []
+    stale = sum(1 for cl in project.checklists for _ in cl.items)
+    fixed = correct_gateway_types(project)
+    if fixed:
+        notes.append(f"als Gateway eingeordnet: {', '.join(fixed)}")
+    stale -= sum(1 for cl in project.checklists for _ in cl.items)
+    if stale:
+        notes.append(f"{stale} Prüfpunkte von Gateways aus den Raum-Checklisten entfernt")
+    fixed = correct_sensor_types(project)
+    if fixed:
+        notes.append(f"als Sensor eingeordnet: {', '.join(fixed)}")
+    return notes
+
+
 class ProjectService:
     """Service für Projekt-Verwaltung."""
 
@@ -123,12 +141,8 @@ class ProjectService:
     def load_project(self, filepath: str) -> KnxProject:
         """Lädt ein Projekt aus einer .knxarr-Datei."""
         project = KnxProject.load(filepath)
-        fixed = correct_gateway_types(project)
-        if fixed:
-            logger.info(f"Als Gateway eingeordnet: {', '.join(fixed)}")
-        fixed = correct_sensor_types(project)
-        if fixed:
-            logger.info(f"Als Sensor eingeordnet: {', '.join(fixed)}")
+        for note in correct_loaded_project(project):
+            logger.info(f"Korrektur beim Laden: {note}")
         logger.info(f"Projekt geladen: {filepath}")
         return project
 

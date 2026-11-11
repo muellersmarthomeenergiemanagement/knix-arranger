@@ -88,3 +88,44 @@ def test_technical_prefix_only_for_codes():
     assert _strip_common_prefix(["1_1_CU401B_G__ / (2000) Raumtemperatur Soll",
                                  "Auf / Beschattung"]) == [
         "(2000) Raumtemperatur Soll", "Auf / Beschattung"]
+
+
+def test_main_window_applies_corrections_on_open(tmp_path, monkeypatch):
+    """Der Ladeweg des Programms (MainWindow.open_file), nicht nur
+    ProjectService.load_project: bis 1.4.58 liefen die Korrekturen dort nie
+    (Chalet: Präsenzmelder blieben Aktor, Vitogate blieb «Wassermelder»)."""
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    QApplication.instance() or QApplication([])
+    from knix_arranger.models.documentation import ChecklistItem, CommissioningChecklist
+    from knix_arranger.services.project_service import ProjectService
+    from knix_arranger.ui.main_window import MainWindow
+
+    project, _gate, _taster, technik = _project()
+    project.topology.areas[0].lines[0].devices.append(
+        Device(device_type="actor", physical_address="1.1.29", product="compact office EIB",
+               manufacturer="Theben HTS"))
+    project.checklists = [CommissioningChecklist(room_id=technik.id, items=[
+        ChecklistItem(be_type="Wassermelder", be_number="1.1.32", check_type="Montage")])]
+    path = tmp_path / "chalet.knxarr"
+    project.save(str(path))
+
+    for name in ("information", "warning", "critical", "question"):
+        monkeypatch.setattr(QMessageBox, name, staticmethod(lambda *a, **k: QMessageBox.Ok))
+    monkeypatch.setattr(ProjectService, "add_to_recent", lambda self, p: None)
+    window = MainWindow()
+    try:
+        window.open_file(str(path))
+        loaded = window._project
+        types = {d.physical_address: d.device_type for a in loaded.topology.areas
+                 for line in a.lines for d in line.devices}
+        assert types["1.1.32"] == "gateway" and types["1.1.29"] == "sensor"
+        room = next(r for r in loaded.all_rooms if r.name == "Technik")
+        assert "1.1.32" not in [be.participant_number for be in room.bedienelemente]
+        assert not any(i.be_number == "1.1.32" for cl in loaded.checklists for i in cl.items)
+        assert any("als Sensor eingeordnet: 1.1.29" in e.message
+                   for e in loaded.changelog)
+    finally:
+        window._live_monitor_view.shutdown()
+        window.deleteLater()

@@ -1277,7 +1277,12 @@ class MainWindow(QMainWindow):
             self._project = KnxProject.load(path)
             from ..services import import_folder
             import_folder.import_dir(self._project)   # Ordnerstruktur ergänzen
-            from ..services.project_service import ProjectService
+            from ..services.project_service import ProjectService, correct_loaded_project
+            # Korrekturen an früher eingelesenen Projekten (Gateways, Sensoren,
+            # Checklisten) -- vor dem Abgleich der Bedienelemente. Bis 1.4.58
+            # liefen sie nur in ProjectService.load_project, das dieses
+            # Fenster nie aufrief.
+            corrected = correct_loaded_project(self._project)
             ProjectService().add_to_recent(path)
             self._undo_manager.clear()
             self._set_dirty(False)
@@ -1296,7 +1301,7 @@ class MainWindow(QMainWindow):
             self._refresh_bedienelemente()
             # Tote Verweise aus früheren Versionen bereinigen (FA-624)
             from ..services.reference_cleanup import clean_references
-            cleaned = clean_references(self._project)
+            cleaned = corrected + clean_references(self._project)
             # Bezeichnungen bis 1.4.27: ZENTRAL…/Szenenaufruf… -> BZ-07
             from ..services.scene_addressing import adopt_bz07_designations
             renamed = adopt_bz07_designations(self._project)
