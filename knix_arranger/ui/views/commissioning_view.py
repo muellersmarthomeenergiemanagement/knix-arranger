@@ -64,6 +64,8 @@ class CommissioningView(QWidget):
     """Hauptansicht für Inbetriebnahme-Checklisten (FA-1901)."""
 
     checklist_changed = Signal()
+    # Live-Monitor mit der Busverbindung (Funktionstest), vom Hauptfenster gesetzt
+    bus_monitor = None
 
     def __init__(self, project: KnxProject, parent=None,
                  visum_provider: Callable[[], str] | None = None):
@@ -120,6 +122,16 @@ class CommissioningView(QWidget):
             "unverändert")
         self._btn_import.clicked.connect(self._import_excel)
         hdr.addWidget(self._btn_import)
+
+        # Geführter Funktionstest über den Bus (FA-3104)
+        self._btn_test = QPushButton("Funktionstest…")
+        self._btn_test.setObjectName("secondary")
+        self._btn_test.setToolTip(
+            "Elemente der markierten Räume (ohne Markierung: aller Räume) über den Bus "
+            "auslösen und die Rückmeldung abwarten; Ergebnis mit Datum und Visum in die "
+            "Checkliste. Braucht eine Verbindung im Live-Monitor.")
+        self._btn_test.clicked.connect(lambda: self._function_test(self._selected_room_ids()))
+        hdr.addWidget(self._btn_test)
 
         layout.addLayout(hdr)
 
@@ -394,8 +406,15 @@ class CommissioningView(QWidget):
             label = "Zurücksetzen (offen)" if r == RESULT_OPEN else f"Alle auf „{_RESULT_DISPLAY[r]}“ setzen"
             act = menu.addAction(label)
             action_map[act] = r
+        menu.addSeparator()
+        room_ids = {node.data(0, Qt.UserRole)[1] for node in nodes
+                    if node.data(0, Qt.UserRole)}
+        test_action = menu.addAction("Funktionstest über den Bus…")
 
         chosen = menu.exec(self._tree.viewport().mapToGlobal(pos))
+        if chosen is test_action:
+            self._function_test(room_ids)
+            return
         if chosen not in action_map:
             return
         result = action_map[chosen]
@@ -421,6 +440,48 @@ class CommissioningView(QWidget):
         self._tree.setCurrentItem(nodes[0])
         self._on_tree_selection(nodes[0], None)
 
+        self._update_progress()
+        self.checklist_changed.emit()
+
+    # ── Funktionstest (FA-3104) ───────────────────────────────────────────────
+
+    def _selected_room_ids(self) -> set[str] | None:
+        """Räume der markierten Knoten; None = keine Markierung (alle)."""
+        ids = {node.data(0, Qt.UserRole)[1] for node in self._tree.selectedItems()
+               if node.data(0, Qt.UserRole)}
+        return ids or None
+
+    def _function_test(self, room_ids: set[str] | None) -> None:
+        monitor = self.bus_monitor
+        if monitor is None or not monitor.connected:
+            QMessageBox.information(
+                self, "Funktionstest",
+                "Für den Funktionstest zuerst im Live-Monitor (Bestand & Umbau) mit der "
+                "Anlage verbinden. Über USB als «USB-Schnittstelle (Gruppenmonitor)» – "
+                "der Busmonitor sendet nicht.")
+            return
+        from ...services.function_test import plan_steps
+        from ..dialogs.function_test_dialog import FunctionTestDialog
+        steps = plan_steps(self._project, room_ids)
+        if not steps:
+            QMessageBox.information(
+                self, "Funktionstest",
+                "In der Auswahl gibt es keine Elemente, die KNiX über den Bus prüfen kann "
+                "(Licht, Steckdosen, Schaltfunktionen, Storen).")
+            return
+        dialog = FunctionTestDialog(self._project, monitor, steps, self._visum(), self)
+        dialog.recorded.connect(self._after_function_test)
+        dialog.exec()
+
+    def _after_function_test(self) -> None:
+        for i in range(self._tree.topLevelItemCount()):
+            node = self._tree.topLevelItem(i)
+            cl = self._cl_by_room(node.data(0, Qt.UserRole)[1])
+            if cl:
+                self._recolor_room_node(node, cl)
+        current = self._tree.currentItem()
+        if current is not None:
+            self._on_tree_selection(current, None)
         self._update_progress()
         self.checklist_changed.emit()
 

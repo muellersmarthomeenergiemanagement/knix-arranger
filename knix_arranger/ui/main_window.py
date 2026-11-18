@@ -472,6 +472,8 @@ class MainWindow(QMainWindow):
         # Ergebnis von «Wert senden» und «Lesen» auch in der Statusleiste (FA-3102b)
         self._live_monitor_view.message_sink = (
             lambda text: self._status_bar.showMessage(text, 15000))
+        # Funktionstest aus der Checkliste über dieselbe Verbindung (FA-3104)
+        self._commissioning_view.bus_monitor = self._live_monitor_view
         self._changelog_view.changed.connect(
             lambda: self._bus.any_change.emit("changelog")
         )

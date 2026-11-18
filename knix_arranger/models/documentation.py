@@ -12,6 +12,10 @@ import uuid
 ITEM_KIND_DEVICE   = "device"     # Geräte-Grundprüfung (Montage, Adresse …)
 ITEM_KIND_FUNCTION = "function"   # GA-Funktionsprüfung (Kanal → GA)
 
+# Prüfpunkte der Aktorkanäle eines Raums (je Element, FA-3104): eigene Gruppe
+# neben den Bedienelementen (be_type), check_type = Elementcode "L_OG_02_01"
+ACTUATOR_GROUP = "Aktorkanäle"
+
 RESULT_OPEN   = ""
 RESULT_OK     = "OK"
 RESULT_DEFECT = "Mangel"

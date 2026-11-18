@@ -88,8 +88,12 @@ class DocumentationService:
         """
         all_rooms = self._checklist_rooms()
         checklists = []
+        actuators = self._actuator_steps()
         for room in all_rooms:
             checklist = self._create_room_checklist(room)
+            # Aktorkanäle je Element (Funktionstest FA-3104), auch ohne Taster
+            from .function_test import actuator_item
+            checklist.items.extend(actuator_item(s) for s in actuators.get(room.id, []))
             checklists.append(checklist)
 
         # DALI-Notlicht-Prüfpunkte anhängen (FA-2804)
@@ -218,6 +222,18 @@ class DocumentationService:
                 ))
         return checklist
 
+    def _actuator_steps(self) -> dict:
+        """Raum-ID -> Elemente (Licht, Storen, Steckdosen ...) für die Gruppe
+        «Aktorkanäle»; eine einmalige Auswertung für alle Räume."""
+        if getattr(self, "_actuator_cache", None) is None:
+            from .function_test import steps_by_room
+            try:
+                self._actuator_cache = steps_by_room(self.project)
+            except Exception:
+                logger.exception("Aktorkanäle für die Checkliste nicht ermittelbar")
+                self._actuator_cache = {}
+        return self._actuator_cache
+
     def _function_check_texts(self, be) -> dict[str, str]:
         """SensorFunktion.id -> "Funktion Balkon (J 02, 03, 04)" für Tasten,
         die eine Funktion bedienen."""
@@ -270,6 +286,13 @@ class DocumentationService:
                 (i.be_type, i.be_number, i.check_type, i.function_ga)
                 for i in existing_cl.items
             }
+            # Aktorkanäle: Text nachführen (Objekt, Aktor), Ergebnis bleibt
+            from ..models.documentation import ACTUATOR_GROUP
+            texts = {(i.check_type, i.function_ga): i.description
+                     for i in fresh_cl.items if i.be_type == ACTUATOR_GROUP}
+            for i in existing_cl.items:
+                if i.be_type == ACTUATOR_GROUP and (i.check_type, i.function_ga) in texts:
+                    i.description = texts[(i.check_type, i.function_ga)]
             # be_id-Lookup: vorhandene UUID für (be_type, be_number) übernehmen
             # (bis 2026-10-16 vergab auto_assign_functions bei jedem Aufruf
             # neue UUIDs; ältere Prüfpunkte verbindet reference_cleanup neu).
@@ -430,6 +453,18 @@ class DocumentationService:
                 title = " · ".join(p for p in (positions.reference(room, be, "ohne Adresse"),
                                                be.element_type or "Bedienelement", product) if p)
                 cards.append((title, rows))
+            # Aktorkanäle je Element (Funktionstest FA-3104)
+            from ..models.documentation import ACTUATOR_GROUP
+            actuator_rows = [
+                ("\n".join(p for p in (step.code, step.place) if p),
+                 step.what() if step.testable else "vor Ort prüfen",
+                 "\n".join(p for p in (step.ga_line,
+                                       f"Aktor {step.actuator}" if step.actuator else "")
+                           if p) or "–",
+                 [(room.id, ACTUATOR_GROUP, "", step.code, step.ga_line)])
+                for step in self._actuator_steps().get(room.id, [])]
+            if actuator_rows:
+                cards.append((f"{ACTUATOR_GROUP} (Funktionstest)", actuator_rows))
             if cards:
                 floor = floor_by_room.get(room.id, "") or "Ohne Stockwerk"
                 sections.append((floor, f"{room.number} {room.name}".strip(), cards))

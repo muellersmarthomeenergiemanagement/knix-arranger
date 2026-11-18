@@ -859,7 +859,8 @@ def build_document() -> Document:
              "Checkliste und Protokoll für die Projektübergabe "
              "(siehe auch Abnahmeprotokoll, Schritt 13). Jeder Prüfpunkt wird mit "
              "Datum und Visum abgezeichnet (Visum unter Einstellungen → Bearbeiter); "
-             "die Excel-Checkliste nimmt beides beim Einlesen mit."),
+             "die Excel-Checkliste nimmt beides beim Einlesen mit. «Funktionstest…» "
+             "prüft die markierten Räume über den Bus (siehe 8.5)."),
             ("Änderungsprotokoll",
              "Automatische Checkpoints und manuelle Notizen zur Änderungshistorie "
              "des Projekts."),
@@ -1148,6 +1149,47 @@ def build_document() -> Document:
         "Eigene Telegramme stehen im Monitor mit «KNiX (gesendet)» und gehen mit in die "
         "Busanalyse. Der USB-Busmonitor sendet nicht – zum Senden als "
         "«USB-Schnittstelle (Gruppenmonitor)» verbinden.")
+    doc.add_paragraph()
+
+    add_body(doc, "Funktionstest", bold_parts=["Funktionstest"])
+    add_body(doc,
+        "In der Inbetriebnahme-Checkliste Räume markieren (ohne Markierung: alle) und "
+        "«Funktionstest…» wählen, oder Rechtsklick im Baum. Die Verbindung kommt aus "
+        "dem Live-Monitor. KNiX zeigt je Element, was es tut und woran es die Reaktion "
+        "erkennt; nach einer Rückfrage läuft der Test Element für Element.")
+    add_table_2col(doc, [
+        ("Licht, Steckdosen, Schaltfunktionen", "Ein – Rückmeldung abwarten – Aus."),
+        ("Dimmer", "50 % – Rückmeldung abwarten – 0 %."),
+        ("Storen, Rollladen, Markisen, Vorhänge",
+         "Ab – 2 s – Stopp – Rückmeldung abwarten – Auf – 2 s – Stopp. Der Behang "
+         "steht danach ungefähr wie vorher."),
+        ("Alarm, Kontakte, Wetterstation, Tor, Türe, Fenster",
+         "Nie automatisch – vor Ort prüfen."),
+    ], header=("Gewerk", "Ablauf"))
+    add_bullet(doc,
+        "Reaktion erkannt: Der Aktor meldet auf seiner Rückmelde-GA innerhalb von 3 s "
+        "den passenden Zustand. Kommt nichts (z. B. Licht war schon an), liest KNiX die "
+        "Rückmelde-GA. Ohne Rückmelde-GA fragt KNiX «Hat … reagiert?».")
+    add_bullet(doc,
+        "«Objekt» nennt, was vor Ort reagieren muss (Klartext des Elements, sonst der "
+        "Ort aus der GA-Bezeichnung, z. B. «Balkon Bibliothek»), «Aktor» den Kanal "
+        "(z. B. «1.1.5 Motor 3»). Die Rückmeldung zeigt nur, dass der Kanal schaltet; "
+        "vertauschte Lasten sieht man nur vor Ort. Darum fragt KNiX standardmässig bei "
+        "jedem Objekt nach («Jedes Objekt vor Ort bestätigen»); hat ein anderes Objekt "
+        "reagiert, «Nein» wählen – das ergibt einen Mangel.")
+    add_bullet(doc,
+        "Das Ergebnis (OK oder Mangel) steht mit Datum, Visum und Notiz in der Gruppe "
+        "«Aktorkanäle» des Raums – je Element ein Prüfpunkt, auch für Licht, das nur "
+        "über Szenen bedient wird. Die Tasten prüft man am Taster; ihre Prüfpunkte "
+        "bleiben unberührt. Ältere Checklisten erhalten die Gruppe mit «Abgleichen»; "
+        "ohne Checkliste zuerst «Checkliste erstellen».")
+    add_bullet(doc,
+        "«Anhalten» setzt das laufende Element noch zurück (Aus, Stopp) und trägt "
+        "dafür nichts ein.")
+    add_tip(doc,
+        "Der Test geht auch über einen Fernzugang, weil er die Rückmeldung auswertet "
+        "und nicht die Quittung. Storen fahren dann ohne Aufsicht: Bewohner vorher "
+        "informieren.")
     doc.add_paragraph()
 
     # ── 9  Tastenkürzel ───────────────────────────────────────────────────────

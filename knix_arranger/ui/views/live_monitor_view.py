@@ -148,6 +148,8 @@ class LiveMonitorView(QWidget):
                                          self._bridge.raw.emit)
         # Leseanfragen, die auf Antwort warten (GA lesen)
         self._reads = PendingReads()
+        # weitere Empfänger jedes Telegramms (Funktionstest), im Hauptthread
+        self._listeners: list = []
         self._timer = QTimer(self)
         self._timer.setInterval(200)
         self._timer.timeout.connect(self._flush)
@@ -388,6 +390,8 @@ class LiveMonitorView(QWidget):
 
     def _on_telegram(self, telegram) -> None:
         self._pending.append(telegram)
+        for listener in list(self._listeners):
+            listener(telegram)
         if len(self._reads):
             for callback in self._reads.answered(telegram):
                 callback(self._read_text(telegram))
@@ -569,6 +573,28 @@ class LiveMonitorView(QWidget):
                 callback(f"{self._ga_text(address)}: nicht gelesen – {error}")
         self._reads.add(address, answered, time.monotonic())
         return self._send(address, "Read", "", None, sent)
+
+    def add_listener(self, listener) -> None:
+        """listener(LiveTelegram) für jedes Telegramm, im Hauptthread."""
+        self._listeners.append(listener)
+
+    def remove_listener(self, listener) -> None:
+        if listener in self._listeners:
+            self._listeners.remove(listener)
+
+    def value_text(self, telegram) -> str:
+        """Wert eines Telegramms nach dem DPT seiner GA ("Ein", "50 %")."""
+        if self._context is None:
+            return telegram.payload
+        return self._context.row(telegram).value or telegram.payload
+
+    def send_telegram(self, destination: str, service: str, payload: str,
+                      size: int | None, on_done) -> bool:
+        """Telegramm ohne Dialog senden (Funktionstest); on_done(Fehlertext
+        oder "") im Hauptthread, sobald die Schnittstelle bestätigt hat."""
+        if self._project is not None and self._context is None:
+            self._context = MonitorContext(self._project)
+        return self._send(destination, service, payload, size, on_done)
 
     def _send(self, destination, service, payload, size, on_done) -> bool:
         try:
