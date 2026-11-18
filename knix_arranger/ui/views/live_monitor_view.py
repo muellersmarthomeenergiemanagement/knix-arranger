@@ -505,6 +505,11 @@ class LiveMonitorView(QWidget):
         """Verbunden und sendebereit (nicht im USB-Busmonitor)."""
         return self._connection.can_send
 
+    @property
+    def listening(self) -> bool:
+        """Verbunden, Telegramme kommen an (auch USB-Busmonitor)."""
+        return bool(self._connection.connected)
+
     def _selected_address(self) -> str:
         index = self._table.currentIndex()
         if not index.isValid():

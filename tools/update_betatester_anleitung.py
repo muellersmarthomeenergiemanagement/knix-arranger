@@ -1190,6 +1190,25 @@ def build_document() -> Document:
         "Der Test geht auch über einen Fernzugang, weil er die Rückmeldung auswertet "
         "und nicht die Quittung. Storen fahren dann ohne Aufsicht: Bewohner vorher "
         "informieren.")
+
+    add_body(doc, "Tastentest", bold_parts=["Tastentest"])
+    add_body(doc,
+        "Einen Raum markieren und «Tastentest…» wählen. Sie drücken vor Ort die Tasten, "
+        "KNiX hört mit und sendet nichts – Mithören genügt, auch über den USB-Busmonitor. "
+        "Je Taste und GA eine Zeile mit der Anweisung («Taste 1 lang drücken»), der "
+        "Funktion und den Aktorkanälen; die Reihenfolge ist frei.")
+    add_table_2col(doc, [
+        ("Telegramm vom richtigen Taster auf der geplanten GA", "gesendet"),
+        ("danach Status des Aktors", "OK"),
+        ("kein Status (Szene, Storen ohne Status)",
+         "Sie entscheiden: «Reagiert – OK» oder «Mangel»"),
+        ("Taster sendet auf einer nicht geplanten GA, geplante GA von einem anderen "
+         "Gerät", "Befund in der Liste unten"),
+    ], header=("KNiX sieht", "Ergebnis"))
+    add_bullet(doc,
+        "Das Ergebnis steht auf dem Prüfpunkt der Taste. Das erste Telegramm eines "
+        "Tasters hakt auch Physik. Adresse, Applikation und Kommunikation ab; die "
+        "Montage prüfen Sie selbst.")
     doc.add_paragraph()
 
     # ── 9  Tastenkürzel ───────────────────────────────────────────────────────

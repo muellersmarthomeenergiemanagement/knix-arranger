@@ -133,6 +133,15 @@ class CommissioningView(QWidget):
         self._btn_test.clicked.connect(lambda: self._function_test(self._selected_room_ids()))
         hdr.addWidget(self._btn_test)
 
+        # Tastentest: im Raum drücken, KNiX hört mit (FA-3106)
+        self._btn_keys = QPushButton("Tastentest…")
+        self._btn_keys.setObjectName("secondary")
+        self._btn_keys.setToolTip(
+            "Im markierten Raum die Tasten drücken: KNiX hört am Bus mit und prüft "
+            "Taster, GA und Reaktion des Aktors. Ein Raum, weil jemand vor Ort drückt.")
+        self._btn_keys.clicked.connect(lambda: self._key_test(self._selected_room_ids()))
+        hdr.addWidget(self._btn_keys)
+
         layout.addLayout(hdr)
 
         # ── Fortschrittsleiste ────────────────────────────────────────────────
@@ -410,10 +419,15 @@ class CommissioningView(QWidget):
         room_ids = {node.data(0, Qt.UserRole)[1] for node in nodes
                     if node.data(0, Qt.UserRole)}
         test_action = menu.addAction("Funktionstest über den Bus…")
+        key_action = menu.addAction("Tastentest…")
+        key_action.setEnabled(len(room_ids) == 1)
 
         chosen = menu.exec(self._tree.viewport().mapToGlobal(pos))
         if chosen is test_action:
             self._function_test(room_ids)
+            return
+        if chosen is key_action:
+            self._key_test(room_ids)
             return
         if chosen not in action_map:
             return
@@ -470,6 +484,37 @@ class CommissioningView(QWidget):
                 "(Licht, Steckdosen, Schaltfunktionen, Storen).")
             return
         dialog = FunctionTestDialog(self._project, monitor, steps, self._visum(), self)
+        dialog.recorded.connect(self._after_function_test)
+        dialog.exec()
+
+    # ── Tastentest (FA-3106) ──────────────────────────────────────────────────
+
+    def _key_test(self, room_ids: set[str] | None) -> None:
+        if not room_ids or len(room_ids) != 1:
+            QMessageBox.information(
+                self, "Tastentest",
+                "Bitte genau einen Raum markieren – den, in dem Sie die Tasten drücken.")
+            return
+        monitor = self.bus_monitor
+        if monitor is None or not getattr(monitor, "listening", monitor.connected):
+            QMessageBox.information(
+                self, "Tastentest",
+                "Für den Tastentest zuerst im Live-Monitor (Bestand & Umbau) mit der "
+                "Anlage verbinden. Mithören genügt, auch über den USB-Busmonitor.")
+            return
+        room_id = next(iter(room_ids))
+        from ...services.key_test import plan_key_checks, room_addresses
+        from ..dialogs.key_test_dialog import KeyTestDialog
+        checks = plan_key_checks(self._project, room_id)
+        room = next((r for r in self._project.all_rooms if r.id == room_id), None)
+        if not checks or room is None:
+            QMessageBox.information(
+                self, "Tastentest",
+                "In diesem Raum gibt es keine Taste mit geplanter Befehls-GA.")
+            return
+        name = f"{room.number} {room.name}".strip()
+        dialog = KeyTestDialog(self._project, monitor, name, checks, self._visum(),
+                               room_addresses(self._project, room_id), self)
         dialog.recorded.connect(self._after_function_test)
         dialog.exec()
 
