@@ -2,6 +2,17 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.61",
+      "date": "2026-11-18",
+      "neu": [
+        "Inbetriebnahme: «Sensorprüfung…» – KNiX hört mit, ob Temperatur-, Feuchte-, Helligkeits-, Rauch- und Wassermelder, Präsenzmelder und Binäreingänge senden und ob die Messwerte plausibel sind (z.B. Wohnraum 5–40 °C, Garage -20–45 °C, Sauna/Hamam bis 110 °C). Niemand muss vor Ort sein; was der Live-Monitor seit dem Verbinden empfangen hat, zählt mit. «Werte abfragen» liest die übrigen GAs. Das Ergebnis steht auf dem Prüfpunkt des Sensors."
+      ],
+      "verbessert": [
+        "Inbetriebnahme: Funktionstest, Tastentest und Sensorprüfung unter einem Knopf «Über den Bus prüfen» (auch im Kontextmenü des Baums).",
+        "Bedienungsanleitung (Hilfe), Abschnitt 8.5: Sensorprüfung."
+      ]
+    },
+    {
       "version": "1.4.60",
       "date": "2026-11-18",
       "neu": [
