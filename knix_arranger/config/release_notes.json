@@ -2,6 +2,20 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.60",
+      "date": "2026-11-18",
+      "neu": [
+        "Live-Monitor: «Wert senden…» schreibt einen Wert auf eine GA – Eingabe im Klartext nach Datenpunkttyp («Ein», «50 %», «21,5»), mit Vorschau und zweiter Rückfrage bei Alarm, Wetterstation, Tor und Türe. «Lesen» fragt eine GA ab und zeigt die Antwort. Auch per Rechtsklick in GA-Baum, GA-Tabelle und Verknüpfungsmatrix, solange eine Verbindung besteht.",
+        "Inbetriebnahme: «Funktionstest…» löst die Elemente der markierten Räume über den Bus aus – Licht Ein/Aus, Dimmer 50 %/0 %, Storen kurz ab und wieder auf – und wartet auf die Rückmeldung des Aktors. Je Element zeigt KNiX das Objekt («Balkon Bibliothek») und den Aktorkanal («1.1.5 Motor 3»); auf Wunsch bestätigen Sie jedes Objekt vor Ort, so fallen vertauschte Lasten auf. Alarm, Wetterstation, Tor, Türe und Fenster löst KNiX nie aus.",
+        "Inbetriebnahme: «Tastentest…» für einen Raum – Sie drücken die Tasten, KNiX hört mit und prüft, ob der richtige Taster auf der geplanten GA sendet und der Aktor seinen Status meldet. Ohne Status entscheiden Sie mit «OK» oder «Mangel». Befunde bei ungeplanten GAs oder fremdem Absender. Mithören genügt, auch über den USB-Busmonitor."
+      ],
+      "verbessert": [
+        "Checkliste: neue Gruppe «Aktorkanäle» je Raum mit einem Prüfpunkt je Element, auch für Licht, das nur über Szenen bedient wird; in PDF und Excel als eigene Karte. Bestehende Checklisten erhalten sie mit «Abgleichen».",
+        "Tastentest hakt Physik. Adresse, Applikation und Kommunikation des Tasters mit ab, sobald er auf einer geplanten GA sendet.",
+        "Bedienungsanleitung (Hilfe), Abschnitt 8.5: Senden, Funktionstest und Tastentest."
+      ]
+    },
+    {
       "version": "1.4.59",
       "date": "2026-11-11",
       "verbessert": [
