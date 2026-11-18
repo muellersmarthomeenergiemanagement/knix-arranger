@@ -579,6 +579,11 @@ class LiveMonitorView(QWidget):
         self._reads.add(address, answered, time.monotonic())
         return self._send(address, "Read", "", None, sent)
 
+    def history(self) -> list:
+        """Bisher empfangene Telegramme (Anzeige seit dem Verbinden bzw.
+        Leeren, dazu die noch nicht angezeigten)."""
+        return [row.telegram for row in self._model.rows] + list(self._pending)
+
     def add_listener(self, listener) -> None:
         """listener(LiveTelegram) für jedes Telegramm, im Hauptthread."""
         self._listeners.append(listener)

@@ -155,6 +155,36 @@ def _long(main: int, sub: int, b: bytes) -> str:
     return ""
 
 
+def numeric_value(dpt: str, payload: str, size: int | None) -> float | None:
+    """Messwert als Zahl (Sensorprüfung): 5.x, 7.x, 8.x, 9.x, 12.x-14.x;
+    None für andere Typen oder unpassende Länge."""
+    main, sub = dpt_parts(dpt)
+    if main not in (5, 7, 8, 9, 12, 13, 14) or not payload:
+        return None
+    expected = expected_size(dpt)
+    if size is None:
+        size = len(payload) // 2
+    if size != expected:
+        return None
+    try:
+        b = bytes.fromhex(payload)
+        if main == 5:
+            return b[0] * 100 / 255 if sub == 1 else float(b[0])
+        if main == 7:
+            return float(struct.unpack(">H", b[:2])[0])
+        if main == 8:
+            return float(struct.unpack(">h", b[:2])[0])
+        if main == 9:
+            return _float16(b)
+        if main == 12:
+            return float(struct.unpack(">I", b[:4])[0])
+        if main == 13:
+            return float(struct.unpack(">i", b[:4])[0])
+        return float(struct.unpack(">f", b[:4])[0])
+    except (ValueError, struct.error, IndexError):
+        return None
+
+
 # ── Wert eingeben -> Telegrammdaten (Senden, FA-3102b) ─────────────────────
 
 _SENDABLE = (1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 20, 232)

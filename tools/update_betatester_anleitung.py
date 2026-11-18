@@ -1154,7 +1154,8 @@ def build_document() -> Document:
     add_body(doc, "Funktionstest", bold_parts=["Funktionstest"])
     add_body(doc,
         "In der Inbetriebnahme-Checkliste Räume markieren (ohne Markierung: alle) und "
-        "«Funktionstest…» wählen, oder Rechtsklick im Baum. Die Verbindung kommt aus "
+        "«Über den Bus prüfen» → «Funktionstest…» wählen, oder Rechtsklick im Baum. "
+        "Die Verbindung kommt aus "
         "dem Live-Monitor. KNiX zeigt je Element, was es tut und woran es die Reaktion "
         "erkennt; nach einer Rückfrage läuft der Test Element für Element.")
     add_table_2col(doc, [
@@ -1193,7 +1194,8 @@ def build_document() -> Document:
 
     add_body(doc, "Tastentest", bold_parts=["Tastentest"])
     add_body(doc,
-        "Einen Raum markieren und «Tastentest…» wählen. Sie drücken vor Ort die Tasten, "
+        "Einen Raum markieren und «Über den Bus prüfen» → «Tastentest…» wählen. Sie "
+        "drücken vor Ort die Tasten, "
         "KNiX hört mit und sendet nichts – Mithören genügt, auch über den USB-Busmonitor. "
         "Je Taste und GA eine Zeile mit der Anweisung («Taste 1 lang drücken»), der "
         "Funktion und den Aktorkanälen; die Reihenfolge ist frei.")
@@ -1209,6 +1211,28 @@ def build_document() -> Document:
         "Das Ergebnis steht auf dem Prüfpunkt der Taste. Das erste Telegramm eines "
         "Tasters hakt auch Physik. Adresse, Applikation und Kommunikation ab; die "
         "Montage prüfen Sie selbst.")
+
+    add_body(doc, "Sensorprüfung", bold_parts=["Sensorprüfung"])
+    add_body(doc,
+        "«Über den Bus prüfen» → «Sensorprüfung…» für die markierten Räume (ohne "
+        "Markierung: alle). Niemand muss vor Ort sein: KNiX hört mit, ob Temperatur-, "
+        "Feuchte-, Helligkeits- und Rauchmelder, Präsenzmelder und Binäreingänge senden. "
+        "Mitgezählt wird auch, was der Live-Monitor seit dem Verbinden empfangen hat.")
+    add_table_2col(doc, [
+        ("Messwert im plausiblen Bereich (Raum 5–40 °C, Garage/Keller -20–45 °C, "
+         "aussen -40–60 °C, Sauna/Hamam bis 110 °C, Feuchte 1–100 % …)", "OK"),
+        ("Messwert ausserhalb (z. B. 0 °C im Wohnzimmer)",
+         "Mangel – bleibt, auch wenn später ein plausibler Wert kommt"),
+        ("Meldung (Alarm, Störung, Kontakt, Präsenz)", "OK, der Wert wird angezeigt"),
+        ("noch keine Meldung", "offen"),
+    ], header=("KNiX sieht", "Ergebnis"))
+    add_bullet(doc,
+        "Viele Sensoren senden nur bei Änderung oder alle paar Minuten. «Werte abfragen» "
+        "liest die übrigen GAs (mit L-Flag) nacheinander; dafür braucht es eine "
+        "sendefähige Verbindung.")
+    add_bullet(doc,
+        "Das Ergebnis steht auf dem Prüfpunkt des Sensors, mit Wert und Anzahl "
+        "Meldungen in der Notiz; dazu Physik. Adresse, Applikation und Kommunikation.")
     doc.add_paragraph()
 
     # ── 9  Tastenkürzel ───────────────────────────────────────────────────────

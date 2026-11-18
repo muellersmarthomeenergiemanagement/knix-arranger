@@ -123,24 +123,30 @@ class CommissioningView(QWidget):
         self._btn_import.clicked.connect(self._import_excel)
         hdr.addWidget(self._btn_import)
 
-        # Geführter Funktionstest über den Bus (FA-3104)
-        self._btn_test = QPushButton("Funktionstest…")
-        self._btn_test.setObjectName("secondary")
-        self._btn_test.setToolTip(
-            "Elemente der markierten Räume (ohne Markierung: aller Räume) über den Bus "
-            "auslösen und die Rückmeldung abwarten; Ergebnis mit Datum und Visum in die "
-            "Checkliste. Braucht eine Verbindung im Live-Monitor.")
-        self._btn_test.clicked.connect(lambda: self._function_test(self._selected_room_ids()))
-        hdr.addWidget(self._btn_test)
-
-        # Tastentest: im Raum drücken, KNiX hört mit (FA-3106)
-        self._btn_keys = QPushButton("Tastentest…")
-        self._btn_keys.setObjectName("secondary")
-        self._btn_keys.setToolTip(
-            "Im markierten Raum die Tasten drücken: KNiX hört am Bus mit und prüft "
-            "Taster, GA und Reaktion des Aktors. Ein Raum, weil jemand vor Ort drückt.")
-        self._btn_keys.clicked.connect(lambda: self._key_test(self._selected_room_ids()))
-        hdr.addWidget(self._btn_keys)
+        # Prüfungen über den Bus, Verbindung aus dem Live-Monitor:
+        # Funktionstest (FA-3104), Tastentest (FA-3106), Sensorprüfung (FA-3107)
+        self._btn_bus = QPushButton("Über den Bus prüfen")
+        self._btn_bus.setObjectName("secondary")
+        self._btn_bus.setToolTip("Funktionstest, Tastentest und Sensorprüfung über die "
+                                 "Verbindung des Live-Monitors")
+        bus_menu = QMenu(self._btn_bus)
+        for text, tip, slot in (
+            ("Funktionstest…",
+             "Elemente der markierten Räume (ohne Markierung: aller) auslösen und die "
+             "Rückmeldung abwarten.", self._function_test),
+            ("Tastentest…",
+             "Im markierten Raum die Tasten drücken: KNiX hört mit und prüft Taster, GA "
+             "und Reaktion des Aktors. Ein Raum, weil jemand vor Ort drückt.",
+             self._key_test),
+            ("Sensorprüfung…",
+             "Sensoren der markierten Räume (ohne Markierung: alle): senden sie, sind die "
+             "Messwerte plausibel? Niemand muss vor Ort sein.", self._sensor_test)):
+            action = bus_menu.addAction(text)
+            action.setToolTip(tip)
+            action.triggered.connect(lambda _c=False, s=slot: s(self._selected_room_ids()))
+        bus_menu.setToolTipsVisible(True)
+        self._btn_bus.setMenu(bus_menu)
+        hdr.addWidget(self._btn_bus)
 
         layout.addLayout(hdr)
 
@@ -421,8 +427,12 @@ class CommissioningView(QWidget):
         test_action = menu.addAction("Funktionstest über den Bus…")
         key_action = menu.addAction("Tastentest…")
         key_action.setEnabled(len(room_ids) == 1)
+        sensor_action = menu.addAction("Sensorprüfung…")
 
         chosen = menu.exec(self._tree.viewport().mapToGlobal(pos))
+        if chosen is sensor_action:
+            self._sensor_test(room_ids or None)
+            return
         if chosen is test_action:
             self._function_test(room_ids)
             return
@@ -515,6 +525,29 @@ class CommissioningView(QWidget):
         name = f"{room.number} {room.name}".strip()
         dialog = KeyTestDialog(self._project, monitor, name, checks, self._visum(),
                                room_addresses(self._project, room_id), self)
+        dialog.recorded.connect(self._after_function_test)
+        dialog.exec()
+
+    # ── Sensorprüfung (FA-3107) ───────────────────────────────────────────────
+
+    def _sensor_test(self, room_ids: set[str] | None) -> None:
+        monitor = self.bus_monitor
+        if monitor is None or not getattr(monitor, "listening", monitor.connected):
+            QMessageBox.information(
+                self, "Sensorprüfung",
+                "Für die Sensorprüfung zuerst im Live-Monitor (Bestand & Umbau) mit der "
+                "Anlage verbinden. Mithören genügt; «Werte abfragen» braucht eine "
+                "sendefähige Verbindung.")
+            return
+        from ...services.sensor_test import plan_sensor_points
+        from ..dialogs.sensor_test_dialog import SensorTestDialog
+        points = plan_sensor_points(self._project, room_ids)
+        if not points:
+            QMessageBox.information(
+                self, "Sensorprüfung",
+                "In der Auswahl gibt es keine Sensoren mit sendenden KOs.")
+            return
+        dialog = SensorTestDialog(self._project, monitor, points, self._visum(), self)
         dialog.recorded.connect(self._after_function_test)
         dialog.exec()
 

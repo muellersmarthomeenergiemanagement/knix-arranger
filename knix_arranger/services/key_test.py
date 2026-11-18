@@ -355,8 +355,8 @@ def record_key_result(project, check: KeyCheck, ok: bool, note: str, visum: str 
     return count
 
 
-def record_device_proven(project, check: KeyCheck, visum: str = "",
-                         day: date | None = None) -> int:
+def record_device_proven(project, check, visum: str = "", day: date | None = None,
+                         test: str = "Tastentest") -> int:
     """Taster hat auf geplanter GA gesendet: Physik. Adresse, Applikation,
     Kommunikation OK, wenn noch offen."""
     checklist = next((c for c in project.checklists if c.room_id == check.room_id), None)
@@ -368,6 +368,6 @@ def record_device_proven(project, check: KeyCheck, visum: str = "",
                 and item.check_type in PROVEN_DEVICE_CHECKS
                 and item.result == RESULT_OPEN):
             item.set_result(RESULT_OK, visum, day)
-            item.notes = f"Tastentest: Telegramm von {check.be_number} auf {check.address}"
+            item.notes = f"{test}: Telegramm von {check.be_number} auf {check.address}"
             count += 1
     return count
