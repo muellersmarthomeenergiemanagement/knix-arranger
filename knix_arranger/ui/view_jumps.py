@@ -70,6 +70,19 @@ class ViewJumps:
 
     # ── Ziele ──
 
+    # ── Am Bus (FA-3102b), über die Verbindung des Live-Monitors ──
+
+    def bus_connected(self) -> bool:
+        monitor = getattr(self._w, "_live_monitor_view", None)
+        return bool(monitor is not None and monitor.connected)
+
+    def bus_send(self, address: str) -> None:
+        self._w._live_monitor_view.send_to(address)
+
+    def bus_read(self, address: str) -> None:
+        self._w._live_monitor_view.read(
+            address, lambda text: self._w._status_bar.showMessage(text, 15000))
+
     def ga(self, address: str) -> None:
         """GA in der Baumansicht der Gruppenadressen (FA-1011a)."""
         self._open("addresses")

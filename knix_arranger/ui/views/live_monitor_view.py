@@ -1,22 +1,26 @@
 """
 Live-Monitor (FA-3102a, FA-3103): Gruppentelegramme der Anlage in Echtzeit,
 mit Bezeichnung, Wert nach DPT, Gewerk, Raum und Stockwerk aus dem Projekt;
-filtern, anhalten, als CSV speichern. Liest nur (services/bus_access).
+filtern, anhalten, als CSV speichern. Senden nur auf Befehl: Wert senden und
+GA lesen (FA-3102b), auch aus anderen Ansichten über send_to und read.
 """
 from __future__ import annotations
+
+import time
 
 from PySide6.QtCore import (
     QAbstractTableModel, QModelIndex, QObject, QSortFilterProxyModel, Qt, QTimer, Signal,
 )
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
     QTableView, QVBoxLayout, QWidget,
 )
 
 from ...services.bus_access import (
     COLUMNS, MAX_ROWS, STATE_CONNECTED, STATE_CONNECTING, STATE_DISCONNECTED, STATE_ERROR,
-    BusConnection, ConnectionSettings, MonitorContext, MonitorRow, export_csv, row_matches,
+    BusConnection, BusSendError, ConnectionSettings, MonitorContext, MonitorRow, PendingReads,
+    export_csv, row_matches,
 )
 from ..styles import TEXT_MUTED
 
@@ -32,6 +36,8 @@ class _Bridge(QObject):
     telegram = Signal(object)
     state = Signal(str, str)
     raw = Signal(str, object)
+    # gesendet: (Future, Rückruf mit Fehlertext oder "")
+    sent = Signal(object, object)
 
 
 class MonitorModel(QAbstractTableModel):
@@ -115,6 +121,8 @@ class LiveMonitorView(QWidget):
     settings_changed = Signal()
     # Aufzeichnung als Mitschnitt in die Busanalyse übernommen
     recording_added = Signal()
+    # Meldungen zusätzlich hierhin (Statusleiste des Hauptfensters), Text
+    message_sink = None
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -135,8 +143,11 @@ class LiveMonitorView(QWidget):
         self._bridge.telegram.connect(self._on_telegram)
         self._bridge.state.connect(self._on_state)
         self._bridge.raw.connect(self._on_raw)
+        self._bridge.sent.connect(self._on_sent)
         self._connection = BusConnection(self._bridge.telegram.emit, self._bridge.state.emit,
                                          self._bridge.raw.emit)
+        # Leseanfragen, die auf Antwort warten (GA lesen)
+        self._reads = PendingReads()
         self._timer = QTimer(self)
         self._timer.setInterval(200)
         self._timer.timeout.connect(self._flush)
@@ -148,8 +159,10 @@ class LiveMonitorView(QWidget):
         intro = QLabel(
             "Gruppentelegramme der Anlage in Echtzeit, mit Bezeichnung, Wert, Gewerk, Raum "
             "und Stockwerk aus dem Projekt. KNiX verbindet sich über KNXnet/IP (Tunnel, "
-            "Secure-Tunnel, Routing) oder eine USB-Schnittstelle und sendet nichts. Der "
-            "USB-Busmonitor zeigt zusätzlich Quittungen und Wiederholungen. Orange: GA "
+            "Secure-Tunnel, Routing) oder eine USB-Schnittstelle. Gesendet wird nur auf "
+            "Befehl: «Wert senden…» oder Rechtsklick auf eine Zeile (auch in den "
+            "Gruppenadressen und der Verknüpfungsmatrix). Der USB-Busmonitor zeigt "
+            "zusätzlich Quittungen und Wiederholungen, sendet aber nicht. Orange: GA "
             "nicht im Projekt.")
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color: {TEXT_MUTED};")
@@ -169,9 +182,14 @@ class LiveMonitorView(QWidget):
             "Absender, fehlende Verknüpfungen, unbekannte GAs, Datenlänge, Buslast usw. "
             "Wiederholungen und Quittungen enthält nur ein Busmonitor-Mitschnitt.")
         self._analysis_btn.clicked.connect(self._to_analysis)
+        self._send_btn = QPushButton("Wert senden…")
+        self._send_btn.setObjectName("secondary")
+        self._send_btn.setToolTip("Wert auf eine Gruppenadresse schreiben, mit Bestätigung")
+        self._send_btn.clicked.connect(lambda: self.send_to(self._selected_address()))
         row.addWidget(self._connect_btn)
         row.addWidget(self._disconnect_btn)
         row.addWidget(self._status, 1)
+        row.addWidget(self._send_btn)
         row.addWidget(self._analysis_btn)
         layout.addLayout(row)
         # Zähler der Verbindung: wohin die Rahmen gingen (fehlende Telegramme)
@@ -185,6 +203,12 @@ class LiveMonitorView(QWidget):
             "Telegramme anderer Linien sieht die Schnittstelle nur, wenn der "
             "Linienkoppler sie durchlässt.")
         layout.addWidget(self._stats)
+        # Ergebnis von «Wert senden» und «Lesen»
+        self._message = QLabel()
+        self._message.setWordWrap(True)
+        self._message.setStyleSheet("color: #1565C0;")
+        self._message.hide()
+        layout.addWidget(self._message)
         # GAs, die über diese Schnittstelle nie ankommen (Koppler sperrt)
         hidden_row = QHBoxLayout()
         self._hidden = QLabel()
@@ -246,12 +270,14 @@ class LiveMonitorView(QWidget):
         header.setStretchLastSection(True)
         for column, width in enumerate((95, 220, 70, 300, 100, 110, 170, 140, 120)):
             self._table.setColumnWidth(column, width)
+        self._table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._show_menu)
         layout.addWidget(self._table, 1)
         from ..column_utils import EmptyHint
         self._table_hint = EmptyHint(
             self._table,
-            "Noch keine Telegramme. «Verbinden…» wählen – KNiX hört nur mit und sendet nichts. "
-            "Ohne Busverkehr bleibt die Liste leer: einen Taster drücken.")
+            "Noch keine Telegramme. «Verbinden…» wählen – KNiX hört mit und sendet nur auf "
+            "Befehl. Ohne Busverkehr bleibt die Liste leer: einen Taster drücken.")
         self._update_controls()
 
     # ── Projekt ──────────────────────────────────────────────────────────
@@ -339,12 +365,19 @@ class LiveMonitorView(QWidget):
         if state in (STATE_DISCONNECTED, STATE_ERROR) and not self._connection.running:
             self._flush()
             self._timer.stop()
+        if state in (STATE_DISCONNECTED, STATE_ERROR) and len(self._reads):
+            for address, callback in self._reads.expired(float("inf")):
+                callback(f"{self._ga_text(address)}: keine Antwort – Verbindung getrennt.")
         self._update_controls()
 
     def _update_controls(self) -> None:
         running = self._connection.running
         self._connect_btn.setEnabled(self._project is not None and not running)
         self._disconnect_btn.setEnabled(running)
+        self._send_btn.setEnabled(self.connected)
+        self._send_btn.setToolTip(
+            "Wert auf eine Gruppenadresse schreiben, mit Bestätigung" if self.connected
+            or not running else "Im Busmonitor-Modus sendet die Schnittstelle nicht")
         self._export_btn.setEnabled(bool(self._model.rows))
         self._analysis_btn.setEnabled(bool(self._raw))
         if not self._status.text():
@@ -355,6 +388,9 @@ class LiveMonitorView(QWidget):
 
     def _on_telegram(self, telegram) -> None:
         self._pending.append(telegram)
+        if len(self._reads):
+            for callback in self._reads.answered(telegram):
+                callback(self._read_text(telegram))
 
     def _on_raw(self, raw: str, when) -> None:
         self._raw.append((raw, when))
@@ -371,6 +407,10 @@ class LiveMonitorView(QWidget):
     def _flush(self) -> None:
         self._show_stats()
         self._model.refresh_tail()
+        if len(self._reads):
+            for address, callback in self._reads.expired(time.monotonic()):
+                callback(f"{self._ga_text(address)}: keine Antwort – kein Gerät mit "
+                         "Lesen-Flag an dieser GA oder Gerät nicht erreichbar.")
         if not self._pending or self._context is None:
             return
         telegrams, self._pending = self._pending, []
@@ -453,6 +493,111 @@ class LiveMonitorView(QWidget):
             self, "In Busanalyse übernommen",
             f"{summary['telegrams']} Telegramme als Mitschnitt «{summary['file']}» übernommen. "
             "Die Auswertung steht unter Bestand & Umbau › Busanalyse.")
+
+    # ── Senden und Lesen (FA-3102b) ──────────────────────────────────────
+
+    @property
+    def connected(self) -> bool:
+        """Verbunden und sendebereit (nicht im USB-Busmonitor)."""
+        return self._connection.can_send
+
+    def _selected_address(self) -> str:
+        index = self._table.currentIndex()
+        if not index.isValid():
+            return ""
+        row = self._model.rows[self._proxy.mapToSource(index).row()]
+        return row.telegram.destination
+
+    def _show_menu(self, pos) -> None:
+        index = self._table.indexAt(pos)
+        if not index.isValid() or not self.connected:
+            return
+        address = self._model.rows[self._proxy.mapToSource(index).row()].telegram.destination
+        menu = QMenu(self)
+        menu.addAction(f"Wert auf {address} senden…", lambda: self.send_to(address))
+        menu.addAction(f"{address} lesen", lambda: self.read(address, self._show_read))
+        menu.exec(self._table.viewport().mapToGlobal(pos))
+
+    def _ga_text(self, address: str) -> str:
+        ga = self._context.gas.get(address) if self._context else None
+        name = " ".join((ga.designation or "").split()) if ga else ""
+        return f"{address} {name}".strip()
+
+    def _read_text(self, telegram) -> str:
+        row = self._context.row(telegram) if self._context else None
+        value = row.value if row else telegram.payload
+        sender = row.sender if row else telegram.source
+        return f"{self._ga_text(telegram.destination)}: {value or '–'} (Antwort von {sender})"
+
+    def _not_connected(self) -> bool:
+        if self.connected:
+            return False
+        text = ("Im Busmonitor-Modus sendet die Schnittstelle nicht – als «USB-Schnittstelle "
+                "(Gruppenmonitor)» verbinden." if self._connection.running else
+                "Nicht mit der Anlage verbunden – im Live-Monitor «Verbinden…» wählen.")
+        QMessageBox.information(self, "Am Bus", text)
+        return True
+
+    def send_to(self, address: str = "") -> bool:
+        """Dialog «Wert senden» und Telegramm schreiben (mit Bestätigung).
+        False, wenn nichts gesendet wurde."""
+        if self._not_connected():
+            return False
+        from ..dialogs.bus_send_dialog import BusSendDialog
+        if self._project is not None and self._context is None:
+            self._context = MonitorContext(self._project)
+        dialog = BusSendDialog(self._context, address, self._connection_label, self)
+        if dialog.exec() != BusSendDialog.Accepted or dialog.values is None:
+            return False
+        destination, payload, size, value = dialog.values
+        return self._send(destination, "Write", payload, size,
+                          lambda error: self._show_send_result(destination, value, error))
+
+    def read(self, address: str, on_result=None) -> bool:
+        """Leseanfrage auf die GA; on_result(Text) mit dem Wert der Antwort
+        oder dem Hinweis, dass keine kam."""
+        if self._not_connected():
+            return False
+        callback = on_result or self._show_read
+
+        def answered(text: str) -> None:
+            callback(text)
+
+        def sent(error: str) -> None:
+            # nur melden, wenn die Antwort nicht schon da ist
+            if error and self._reads.cancel(address, answered):
+                callback(f"{self._ga_text(address)}: nicht gelesen – {error}")
+        self._reads.add(address, answered, time.monotonic())
+        return self._send(address, "Read", "", None, sent)
+
+    def _send(self, destination, service, payload, size, on_done) -> bool:
+        try:
+            future = self._connection.send(destination, service, payload, size)
+        except BusSendError as exc:
+            on_done(str(exc))
+            return False
+        future.add_done_callback(lambda f: self._bridge.sent.emit(f, on_done))
+        return True
+
+    def _on_sent(self, future, on_done) -> None:
+        error = future.exception()
+        on_done(str(error) if error else "")
+
+    def _show_send_result(self, address: str, value: str, error: str) -> None:
+        if error:
+            QMessageBox.warning(self, "Wert senden", f"{address} nicht gesendet:\n{error}")
+        else:
+            self._status_message(f"Gesendet: {value} auf {self._ga_text(address)}")
+
+    def _show_read(self, text: str) -> None:
+        self._status_message(text)
+
+    def _status_message(self, text: str) -> None:
+        """Ergebnis unter den Zählern (und im Hauptfenster, falls gesetzt)."""
+        self._message.setText(text)
+        self._message.show()
+        if self.message_sink is not None:
+            self.message_sink(text)
 
     # ── Nicht sichtbare GAs ──────────────────────────────────────────────
 

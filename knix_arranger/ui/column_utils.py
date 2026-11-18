@@ -138,8 +138,12 @@ class EmptyHint:
         self.update()
 
     def update(self, *_args) -> None:
-        self._label.setGeometry(self._view.viewport().rect())
-        self._label.setVisible(self._view.model().rowCount() == 0)
+        try:
+            self._label.setGeometry(self._view.viewport().rect())
+            self._label.setVisible(self._view.model().rowCount() == 0)
+        except RuntimeError:
+            # Tabelle schon abgebaut (Programmende): Modell meldet sich noch
+            pass
 
     def visible(self) -> bool:
         return self._view.model().rowCount() == 0

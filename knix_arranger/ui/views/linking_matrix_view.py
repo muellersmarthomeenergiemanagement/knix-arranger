@@ -392,6 +392,15 @@ class LinkingMatrixView(QWidget):
         if be_id:
             entries += [("", None), ("Tastenbelegung bearbeiten…",
                                      lambda: self.jumps.keys(be_id))]
+        # am Bus (FA-3102b), solange der Live-Monitor verbunden ist
+        if self.jumps.bus_connected():
+            bus = []
+            for address in dict.fromkeys(a for a in addresses if a):
+                bus += [(f"{address} am Bus lesen", lambda a=address: self.jumps.bus_read(a)),
+                        (f"Wert auf {address} senden…",
+                         lambda a=address: self.jumps.bus_send(a))]
+            if bus:
+                entries += [("", None)] + bus
         return entries
 
     def _jump_menu(self, table, pos, *args) -> None:

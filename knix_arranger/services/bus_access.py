@@ -3,8 +3,9 @@ Buszugriff (FA-3101 ff.): KNiX verbindet sich selbst mit der Anlage, ohne ETS.
 
 Etappe 1a: Live-Gruppenmonitor über KNXnet/IP (FA-3102a, FA-3103) --
 Tunnel (UDP/TCP), Secure-Tunnel (Benutzer + Passwort oder Schlüsseldatei der
-ETS, .knxkeys), Routing (auch Secure). Der Zugriff liest nur; gesendet wird
-nichts (auch keine Leseanfragen).
+ETS, .knxkeys), Routing (auch Secure). Gesendet wird nur auf ausdrücklichen
+Befehl des Anwenders: Wert schreiben oder GA lesen (FA-3102b,
+BusConnection.send); Gerätezugriffe (Adressen, Applikationen) nie.
 
 Aufbau:
 - ConnectionSettings: Verbindung ohne Passwörter, im Projekt gespeichert
@@ -21,9 +22,12 @@ Ohne Qt; die Netzwerkverbindung selbst lässt sich nur an einer Anlage testen.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import csv
 import logging
+import queue
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable
@@ -163,6 +167,8 @@ class LiveTelegram:
     repeat: bool = False
     ack: str = ""
     busmonitor: bool = False
+    # von KNiX gesendet (FA-3102b), von der Schnittstelle bestätigt
+    sent: bool = False
 
 
 def telegram_from_xknx(telegram, now: datetime | None = None) -> LiveTelegram | None:
@@ -264,10 +270,14 @@ class MonitorContext:
             logger.exception("Räume je GA nicht ermittelbar")
             rooms_text = {}
         self.gewerk: dict[str, str] = {}
+        # GA -> Gewerk-Codes (Vorsicht beim Senden)
+        self.gewerk_codes: dict[str, list[str]] = {}
+        self._catalog = catalog
         self.room: dict[str, str] = dict(rooms_text)
         self.floor: dict[str, str] = {}
         for address, entries in index.items():
             codes = list(dict.fromkeys(code for _r, code, _e in entries if code))
+            self.gewerk_codes[address] = codes
             self.gewerk[address] = ", ".join(_gewerk_text(catalog, c) for c in codes)
             floors = list(dict.fromkeys(floor_of_room[r] for r, _c, _e in entries
                                         if r in floor_of_room))
@@ -281,8 +291,29 @@ class MonitorContext:
         for address, ga in self.gas.items():
             if address not in self.gewerk and ga.gewerk_code:
                 self.gewerk[address] = _gewerk_text(catalog, ga.gewerk_code)
+                self.gewerk_codes[address] = [ga.gewerk_code]
             if address not in self.floor and ga.room_id in floor_of_room:
                 self.floor[address] = floor_of_room[ga.room_id]
+
+    def caution(self, address: str) -> str:
+        """Warum Senden auf diese GA besondere Vorsicht braucht ("" = keine
+        besondere): Alarm, Wetteralarm, Tore und Türen (FA-3102b)."""
+        ga = self.gas.get(address)
+        catalog = self._catalog
+        reasons = []
+        for code in self.gewerk_codes.get(address, []):
+            gewerk = catalog.get(code) if catalog else None
+            category = getattr(gewerk, "category", "") if gewerk else ""
+            if category == "alarm" or code in CAUTION_GEWERKE:
+                reasons.append(_gewerk_text(catalog, code))
+        name = (ga.designation or "") if ga else ""
+        if not reasons and "alarm" in name.lower():
+            reasons.append(f"«{' '.join(name.split())}»")
+        if not reasons:
+            return ""
+        return (f"{', '.join(reasons)}: Ein Telegramm kann Alarme auslösen oder "
+                "zurücksetzen, Antriebe bewegen oder Schutzfunktionen aufheben. Nur senden, "
+                "wenn vor Ort niemand gefährdet ist und die Betroffenen Bescheid wissen.")
 
     def row(self, telegram: LiveTelegram) -> MonitorRow:
         from .dpt_values import decode_value
@@ -296,6 +327,8 @@ class MonitorContext:
                 value += " (Secure)"
         device = self.devices.get(telegram.source)
         name = (device.product_name or device.product or "") if device else ""
+        if telegram.sent:
+            name = "KNiX (gesendet)"
         return MonitorRow(
             telegram=telegram,
             sender=" ".join(p for p in (telegram.source, name) if p),
@@ -402,6 +435,109 @@ def live_recording(frames: list[tuple[str, datetime]], label: str = "",
     if rec.busmon:
         rec.mode = "Busmonitor (KNiX Live-Monitor)"
     return summarize(rec)
+
+
+# ── Senden und Lesen (FA-3102b) ────────────────────────────────────────────
+
+# Gewerke, bei denen ein Telegramm mehr als Licht oder Storen bewegt: neben
+# der Kategorie "alarm" (A, FK, RK, TK) die Wetterstation (Wind-/Regenalarm
+# schützt die Storen), Garagentor und Türe
+CAUTION_GEWERKE = ("W", "G", "TE")
+# so lange wartet "GA lesen" auf die Antwort
+READ_TIMEOUT = 3.0
+# Bestätigung der Schnittstelle (L_Data.con) nach dem Senden
+CONFIRM_TIMEOUT = 3.0
+SERVICES = ("Write", "Read", "Response")
+_APCI = {"Read": 0x00, "Response": 0x40, "Write": 0x80}
+_MSG_DATA_REQ, _MSG_DATA_CON, _MSG_DATA_IND = 0x11, 0x2E, 0x29
+
+
+class BusSendError(RuntimeError):
+    """Senden nicht möglich oder von der Schnittstelle nicht bestätigt."""
+
+
+def group_address_raw(address: str) -> int:
+    """"1/2/3" (dreistufig) bzw. "1/515" (zweistufig) -> 16-Bit-Adresse."""
+    parts = address.strip().split("/")
+    try:
+        numbers = [int(p) for p in parts]
+    except ValueError:
+        numbers = []
+    if len(numbers) == 3 and numbers[0] <= 31 and numbers[1] <= 7 and numbers[2] <= 255:
+        return numbers[0] << 11 | numbers[1] << 8 | numbers[2]
+    if len(numbers) == 2 and numbers[0] <= 31 and numbers[1] <= 2047:
+        return numbers[0] << 11 | numbers[1]
+    raise BusSendError(f"«{address}» ist keine Gruppenadresse (H/M/U).")
+
+
+def group_cemi(destination: str, service: str, payload: str = "",
+               size: int | None = None) -> bytes:
+    """cEMI L_Data.req für ein Gruppentelegramm (Standardrahmen, Priorität
+    niedrig, Routing-Zähler 6). Quelladresse 0.0.0: die Schnittstelle setzt
+    ihre eigene ein."""
+    if service not in _APCI:
+        raise BusSendError(f"Dienst «{service}» unbekannt.")
+    data = bytes.fromhex(payload) if payload and service != "Read" else b""
+    if service == "Read" or size == 0:
+        value = data[0] & 0x3F if data else 0
+        tpdu = bytes([0x00, _APCI[service] | value])
+    else:
+        tpdu = bytes([0x00, _APCI[service]]) + data
+    dst = group_address_raw(destination)
+    return bytes([_MSG_DATA_REQ, 0x00, 0xBC, 0xE0, 0x00, 0x00, dst >> 8, dst & 0xFF,
+                  len(tpdu) - 1]) + tpdu
+
+
+def _confirmed_as_indication(raw: bytes) -> bytes | None:
+    """Positive Bestätigung (L_Data.con) -> derselbe Rahmen als L_Data.ind,
+    damit das eigene Telegramm in die Aufzeichnung für die Busanalyse kommt;
+    None bei negativer Bestätigung."""
+    if len(raw) < 3 or raw[0] != _MSG_DATA_CON:
+        return None
+    ctrl1 = raw[2 + raw[1]] if len(raw) > 2 + raw[1] else 0x01
+    if ctrl1 & 0x01:
+        return None
+    return bytes([_MSG_DATA_IND]) + raw[1:]
+
+
+class PendingReads:
+    """Leseanfragen, die auf ihre Antwort warten (GA lesen). Die Antwort
+    kommt als Response-Telegramm auf dieselbe GA; ohne Antwort innerhalb
+    READ_TIMEOUT gilt die Anfrage als unbeantwortet. Zeiten in Sekunden
+    (time.monotonic)."""
+
+    def __init__(self, timeout: float = READ_TIMEOUT):
+        self.timeout = timeout
+        self._waiting: list[tuple[str, float, Callable]] = []
+
+    def __len__(self) -> int:
+        return len(self._waiting)
+
+    def add(self, address: str, callback: Callable, now: float) -> None:
+        """Vor dem Senden vormerken: eine schnelle Antwort kann eintreffen,
+        bevor die Bestätigung der eigenen Anfrage verarbeitet ist."""
+        self._waiting.append((address, now + self.timeout, callback))
+
+    def cancel(self, address: str, callback: Callable) -> bool:
+        """Vormerkung zurücknehmen (Anfrage nicht gesendet)."""
+        before = len(self._waiting)
+        self._waiting = [w for w in self._waiting
+                         if not (w[0] == address and w[2] == callback)]
+        return len(self._waiting) < before
+
+    def answered(self, telegram: LiveTelegram) -> list[Callable]:
+        """Rückrufe, deren Anfrage dieses Telegramm beantwortet (und
+        entfernen). Die eigene Leseanfrage zählt nicht."""
+        if telegram.service != "Response" or telegram.sent:
+            return []
+        hit = [w for w in self._waiting if w[0] == telegram.destination]
+        self._waiting = [w for w in self._waiting if w[0] != telegram.destination]
+        return [callback for _a, _d, callback in hit]
+
+    def expired(self, now: float) -> list[tuple[str, Callable]]:
+        gone = [(a, c) for a, deadline, c in self._waiting if deadline <= now]
+        self._waiting = [w for w in self._waiting if w[1] > now]
+        return gone
 
 
 # ── Verbindung ─────────────────────────────────────────────────────────────
@@ -521,24 +657,88 @@ class BusConnection:
                  on_state: Callable[[str, str], None],
                  on_raw: Callable[[str, datetime], None] | None = None):
         self._on_telegram = on_telegram
-        self._on_state = on_state
+        self._report_state = on_state
         self._on_raw = on_raw
         self.stats = ConnectionStats()
         # eigene Adresse am Bus (Tunneladresse, z.B. "1.1.72"), sobald verbunden
         self.local_address = ""
+        self.connected = False
+        self._settings: ConnectionSettings | None = None
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stop: asyncio.Event | None = None
+        self._xknx = None
+        # USB: zu sendende Rahmen (cEMI, Telegramm, Future), vom Lese-Thread verschickt
+        self._usb_out: queue.Queue = queue.Queue()
 
     @property
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    def _on_state(self, state: str, text: str) -> None:
+        self.connected = state == STATE_CONNECTED
+        self._report_state(state, text)
+
+    @property
+    def can_send(self) -> bool:
+        return (self.connected and self._settings is not None
+                and self._settings.kind != USB_BUSMONITOR)
+
+    def send(self, destination: str, service: str = "Write", payload: str = "",
+             size: int | None = None) -> concurrent.futures.Future:
+        """Gruppentelegramm senden (FA-3102b): Wert schreiben ("Write",
+        payload/size wie dpt_values.encode_value) oder GA lesen ("Read").
+        Das Future liefert das gesendete LiveTelegram, sobald die Schnittstelle
+        es bestätigt hat (dann geht es auch an on_telegram), sonst
+        BusSendError. Aufruf aus jedem Thread."""
+        if service not in SERVICES:
+            raise BusSendError(f"Dienst «{service}» unbekannt.")
+        group_address_raw(destination)          # prüft die Adresse
+        if not self.connected or self._settings is None:
+            raise BusSendError("Nicht verbunden.")
+        if self._settings.kind == USB_BUSMONITOR:
+            raise BusSendError("Im Busmonitor-Modus sendet die Schnittstelle nicht – "
+                               "als «USB-Schnittstelle (Gruppenmonitor)» verbinden.")
+        live = LiveTelegram(time=datetime.now(), source=self.local_address or "",
+                            destination=destination.strip(), service=service,
+                            payload=payload if service != "Read" else "",
+                            size=size if service != "Read" else None, sent=True)
+        result: concurrent.futures.Future = concurrent.futures.Future()
+        if self._settings.is_usb:
+            frame = group_cemi(destination, service, payload, size)
+            self._usb_out.put((frame, live, result))
+            return result
+        loop, xknx = self._loop, self._xknx
+        if loop is None or xknx is None or loop.is_closed():
+            raise BusSendError("Nicht verbunden.")
+        telegram = _xknx_telegram(live)
+
+        async def send_and_report() -> None:
+            await xknx.cemi_handler.send_telegram(telegram)
+            # gleich nach der Bestätigung melden, vor einer Antwort darauf
+            live.secure = telegram.data_secure is True
+            live.time = datetime.now()
+            self._on_telegram(live)
+
+        future = asyncio.run_coroutine_threadsafe(send_and_report(), loop)
+
+        def done(f: concurrent.futures.Future) -> None:
+            exc = f.exception() if not f.cancelled() else BusSendError("abgebrochen")
+            if exc is not None:
+                result.set_exception(BusSendError(_send_error_text(exc)))
+            else:
+                result.set_result(live)
+        future.add_done_callback(done)
+        return result
 
     def start(self, settings: ConnectionSettings, secrets: Secrets) -> None:
         if self.running:
             return
         self.stats = ConnectionStats()
         self.local_address = ""
+        self.connected = False
+        self._settings = settings
+        self._usb_out = queue.Queue()
         if settings.is_usb:
             self._usb_stop = threading.Event()
             self._thread = threading.Thread(target=self._run_usb, args=(settings,),
@@ -571,7 +771,8 @@ class BusConnection:
             logger.warning("Busverbindung %s: %s", label, exc)
             self._on_state(STATE_ERROR, _error_text(exc))
         finally:
-            self._loop = self._stop = None
+            self._loop = self._stop = self._xknx = None
+            self.connected = False
 
     def _run_usb(self, settings: ConnectionSettings) -> None:
         label = settings.label()
@@ -590,6 +791,8 @@ class BusConnection:
             self._on_state(STATE_ERROR, str(exc))
             return
         finally:
+            self.connected = False
+            _fail_pending(self._usb_out, "Verbindung getrennt")
             if session is not None:
                 session.close()
         self._on_state(STATE_DISCONNECTED, label)
@@ -627,6 +830,7 @@ class BusConnection:
 
         xknx = XKNX(connection_config=config, telegram_received_cb=received,
                     connection_state_changed_cb=changed, state_updater=False)
+        self._xknx = xknx
         # rohe Rahmen mitlesen und zählen, bevor xknx sie auswertet: die
         # Schnittstelle ruft bei jedem Rahmen xknx.cemi_handler.handle_raw_cemi
         # auf (der Handler hat __slots__, darum eine Unterklasse statt Ersetzen
@@ -668,11 +872,22 @@ def _usb_loop(connection: "BusConnection", settings: ConnectionSettings, session
     stats = connection.stats
     busmonitor = settings.kind == USB_BUSMONITOR
     last: LiveTelegram | None = None
+    # gesendet, Bestätigung (L_Data.con) ausstehend: (Frist, Telegramm, Future)
+    awaiting: list[tuple[float, LiveTelegram, concurrent.futures.Future]] = []
     while not stop.is_set():
-        raw = session.frames(200)
+        _usb_send_queued(connection, session, awaiting)
+        raw = session.frames(50 if awaiting else 200)
+        clock = time.monotonic()
+        while awaiting and awaiting[0][0] <= clock:
+            _deadline, _live, future = awaiting.pop(0)
+            future.set_exception(BusSendError(
+                "Die Schnittstelle hat das Telegramm nicht bestätigt."))
         if raw is None:
             continue
         hexraw, now = raw.hex().upper(), datetime.now()
+        if raw[:1] == bytes([_MSG_DATA_CON]):
+            _usb_confirmed(connection, raw, now, awaiting)
+            continue
         result = decode(hexraw, now)
         if result is None:
             # Bestätigungen der Schnittstelle (M_Prop…) gehören nicht dazu;
@@ -720,6 +935,81 @@ def _usb_loop(connection: "BusConnection", settings: ConnectionSettings, session
         connection._on_telegram(live)
 
 
+def _usb_send_queued(connection: "BusConnection", session,
+                     awaiting: list) -> None:
+    """Wartende Telegramme an die USB-Schnittstelle (aus dem Lese-Thread,
+    damit Lesen und Schreiben des HID-Geräts nicht gleichzeitig laufen)."""
+    from .knx_usb import CEMI, PROTOCOL_TUNNEL
+    while True:
+        try:
+            frame, live, future = connection._usb_out.get_nowait()
+        except queue.Empty:
+            return
+        if not future.set_running_or_notify_cancel():
+            continue
+        try:
+            session.link.send(PROTOCOL_TUNNEL, CEMI, frame)
+        except Exception as exc:
+            future.set_exception(BusSendError(f"Senden fehlgeschlagen: {exc}"))
+            continue
+        awaiting.append((time.monotonic() + CONFIRM_TIMEOUT, live, future))
+
+
+def _usb_confirmed(connection: "BusConnection", raw: bytes, now: datetime,
+                   awaiting: list) -> None:
+    """L_Data.con der USB-Schnittstelle: Bestätigung des ältesten
+    gesendeten Telegramms (sie bestätigt der Reihe nach)."""
+    if not awaiting:
+        return
+    _deadline, live, future = awaiting.pop(0)
+    indication = _confirmed_as_indication(raw)
+    if indication is None:
+        future.set_exception(BusSendError(
+            "Die Schnittstelle meldet einen Fehler beim Senden (keine Quittung vom Bus?)."))
+        return
+    live.time = now
+    if connection._on_raw is not None:
+        connection._on_raw(indication.hex().upper(), now)
+    connection._on_telegram(live)
+    future.set_result(live)
+
+
+def _fail_pending(out: queue.Queue, reason: str) -> None:
+    while True:
+        try:
+            _frame, _live, future = out.get_nowait()
+        except queue.Empty:
+            return
+        if future.set_running_or_notify_cancel():
+            future.set_exception(BusSendError(reason))
+
+
+def _xknx_telegram(live: LiveTelegram):
+    """LiveTelegram -> xknx-Telegramm zum Senden."""
+    from xknx.dpt import DPTArray, DPTBinary
+    from xknx.telegram import Telegram
+    from xknx.telegram.address import GroupAddress
+    from xknx.telegram.apci import GroupValueRead, GroupValueResponse, GroupValueWrite
+
+    address = GroupAddress(group_address_raw(live.destination))
+    if live.service == "Read":
+        return Telegram(destination_address=address, payload=GroupValueRead())
+    data = bytes.fromhex(live.payload or "00")
+    value = DPTBinary(data[0] & 0x3F) if live.size == 0 else DPTArray(data)
+    apci = GroupValueResponse if live.service == "Response" else GroupValueWrite
+    return Telegram(destination_address=address, payload=apci(value))
+
+
+def _send_error_text(exc: BaseException) -> str:
+    text = str(exc) or exc.__class__.__name__
+    lowered = text.lower()
+    if "confirmation" in lowered or "timed out" in lowered:
+        return f"Die Schnittstelle hat das Telegramm nicht bestätigt ({text})"
+    if "not connected" in lowered or "no connection" in lowered:
+        return "Nicht verbunden – Verbindung abgebrochen?"
+    return text
+
+
 def _tapping_handler(xknx, on_raw: Callable[[str, datetime], None] | None,
                      stats: ConnectionStats | None = None):
     """CEMIHandler von xknx, der jeden rohen Rahmen zuerst an on_raw gibt und
@@ -731,8 +1021,10 @@ def _tapping_handler(xknx, on_raw: Callable[[str, datetime], None] | None,
             if stats is not None:
                 stats.frames += 1
             if on_raw is not None:
+                # eigenes Telegramm (bestätigt) wie empfangen aufzeichnen
+                recorded = _confirmed_as_indication(raw_cemi) or raw_cemi
                 try:
-                    on_raw(raw_cemi.hex().upper(), datetime.now())
+                    on_raw(recorded.hex().upper(), datetime.now())
                 except Exception:
                     logger.exception("Rohen Rahmen nicht aufgezeichnet")
             manager = self.xknx.connection_manager

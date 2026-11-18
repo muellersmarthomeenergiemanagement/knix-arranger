@@ -26,8 +26,8 @@ class BusConnectionDialog(QDialog):
             "KNiX verbindet sich über KNXnet/IP mit einer IP-Schnittstelle, einem "
             "IP-Router oder einem Fernzugang oder direkt mit einer USB-Schnittstelle "
             "und zeigt die Gruppentelegramme; der USB-Busmonitor zeigt dazu Quittungen "
-            "und Wiederholungen der Linie, an der die Schnittstelle steckt. Es wird nichts "
-            "gesendet. Passwörter werden nicht gespeichert.")
+            "und Wiederholungen der Linie, an der die Schnittstelle steckt. Gesendet wird nur "
+            "auf Befehl (Wert senden, GA lesen). Passwörter werden nicht gespeichert.")
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color: {TEXT_MUTED};")
         layout.addWidget(intro)

@@ -469,6 +469,9 @@ class MainWindow(QMainWindow):
         self._live_monitor_view.settings_changed.connect(lambda: self._set_dirty(True))
         self._live_monitor_view.recording_added.connect(
             lambda: self._mark_stale("bus_analysis", "plant_check", "renovation", "overview"))
+        # Ergebnis von «Wert senden» und «Lesen» auch in der Statusleiste (FA-3102b)
+        self._live_monitor_view.message_sink = (
+            lambda text: self._status_bar.showMessage(text, 15000))
         self._changelog_view.changed.connect(
             lambda: self._bus.any_change.emit("changelog")
         )

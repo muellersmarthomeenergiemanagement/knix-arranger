@@ -65,3 +65,14 @@ def add_ga_jump_menus(menu: QMenu, jumps, ga) -> None:
                   lambda tp: jumps.time_program(tp, ga), "in keinem Zeitprogramm")
     add_jump_menu(menu, "In ETS-Funktionen zeigen", lambda: jumps.functions_with(ga),
                   jumps.ets_function, "in keiner Funktion")
+    add_bus_actions(menu, jumps, address)
+
+
+def add_bus_actions(menu: QMenu, jumps, address: str) -> None:
+    """«Am Bus lesen» und «Wert senden…» (FA-3102b), nur solange der
+    Live-Monitor mit der Anlage verbunden ist."""
+    if jumps is None or not address or not jumps.bus_connected():
+        return
+    menu.addSeparator()
+    menu.addAction(f"{address} am Bus lesen", lambda: jumps.bus_read(address))
+    menu.addAction(f"Wert auf {address} senden…", lambda: jumps.bus_send(address))

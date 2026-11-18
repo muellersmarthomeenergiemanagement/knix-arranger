@@ -1077,8 +1077,8 @@ def build_document() -> Document:
 
     add_body(doc, "Live-Monitor: verbinden", bold_parts=["Live-Monitor: verbinden"])
     add_body(doc,
-        "«Verbinden…» öffnet den Verbindungsdialog. KNiX sendet nie etwas auf den Bus, "
-        "auch keine Leseanfragen. Die Angaben ohne Passwörter bleiben im Projekt; "
+        "«Verbinden…» öffnet den Verbindungsdialog. KNiX hört mit und sendet nur auf "
+        "Befehl (siehe «Live-Monitor: senden»). Die Angaben ohne Passwörter bleiben im Projekt; "
         "Passwörter fragt KNiX bei jeder Verbindung neu ab. Beim Wechsel des Projekts "
         "und beim Beenden wird getrennt.")
     add_table_2col(doc, [
@@ -1128,6 +1128,26 @@ def build_document() -> Document:
         "Quittungen sieht man nur auf der Linie, an der gemessen wird. Für ein Gerät mit "
         "vielen Wiederholungen die USB-Schnittstelle auf dessen Linie stecken und den "
         "USB-Busmonitor eine Weile laufen lassen.")
+    doc.add_paragraph()
+
+    add_body(doc, "Live-Monitor: senden", bold_parts=["Live-Monitor: senden"])
+    add_bullet(doc,
+        "«Wert senden…» oder Rechtsklick auf ein Telegramm: GA, DPT und Wert eingeben "
+        "(«Ein», «50 %», «21.5», «Szene 3», «heller 25 %»). KNiX zeigt die Daten des "
+        "Telegramms und sendet erst mit «Senden». Bei Alarm, Fensterkontakten, "
+        "Wetterstation, Tor und Türe fragt KNiX ein zweites Mal nach.")
+    add_bullet(doc,
+        "«Lesen» schickt eine Leseanfrage; die Antwort steht im Monitor und in der "
+        "Statusleiste. Kommt innerhalb von 3 s keine, hat kein Gerät das L-Flag an "
+        "dieser GA oder es ist nicht erreichbar.")
+    add_bullet(doc,
+        "Solange verbunden ist, gibt es «am Bus lesen» und «Wert senden…» auch per "
+        "Rechtsklick in den Gruppenadressen (Baum und Tabelle) und in der "
+        "Verknüpfungsmatrix.")
+    add_bullet(doc,
+        "Eigene Telegramme stehen im Monitor mit «KNiX (gesendet)» und gehen mit in die "
+        "Busanalyse. Der USB-Busmonitor sendet nicht – zum Senden als "
+        "«USB-Schnittstelle (Gruppenmonitor)» verbinden.")
     doc.add_paragraph()
 
     # ── 9  Tastenkürzel ───────────────────────────────────────────────────────
