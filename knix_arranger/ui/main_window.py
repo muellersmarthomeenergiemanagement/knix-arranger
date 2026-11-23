@@ -113,6 +113,8 @@ class MainWindow(QMainWindow):
         # Bisheriges Projekt während "Projekt neu aus ETS aufbauen" (FA-527),
         # siehe _rebuild_project/_import_knxproj
         self._rebuild_id_source: KnxProject | None = None
+        # Bisheriges Projekt, wenn der Neuaufbau die geplanten Funktionen behält
+        self._rebuild_functions_source: KnxProject | None = None
         # Validierungsmeldungen vor dem laufenden Import (_issue_keys), für
         # «Nur neue seit dem letzten Einlesen»
         self._issues_before_import: list[str] | None = None
@@ -1697,6 +1699,9 @@ class MainWindow(QMainWindow):
         self._project = build_fresh_project(old_project, keep)
         if "knx_secure" in keep:
             self._rebuild_id_source = old_project
+        # Geplante Funktionen an die neue Gebäudestruktur hängen, bevor der
+        # Import ihre GAs einsetzt (_import_knxproj, vor finalize)
+        self._rebuild_functions_source = old_project if "functions" in keep else None
         try:
             self._import_knxproj(filepath)
         except Exception as e:
@@ -1710,6 +1715,7 @@ class MainWindow(QMainWindow):
             return
         finally:
             self._rebuild_id_source = None
+            self._rebuild_functions_source = None
         if not self._project.topology.areas and not self._project.group_addresses.all_addresses():
             # Import abgebrochen (z.B. Passwortabfrage) – bisherigen Stand behalten
             self._project = old_project
@@ -2430,6 +2436,14 @@ class MainWindow(QMainWindow):
         self._project.ets_project_id = importer.read_project_id(filepath)
         pipeline.project = self._project
 
+        # Neuaufbau mit behaltenen Funktionen (FA-530): Raum, Zone und
+        # Elemente über ihre Schlüssel umhängen, bevor finalize die GAs setzt
+        dropped_functions: list[str] = []
+        functions_source = getattr(self, "_rebuild_functions_source", None)
+        if functions_source is not None:
+            from ..services.rebuild_service import adopt_functions
+            dropped_functions = adopt_functions(functions_source, self._project)
+
         # KNX Secure: Gerätezertifikate (FDSK) und das beim Import eingegebene
         # ETS6-Projektpasswort ins Secure-Archiv übernehmen -- nur bei
         # entsperrtem Archiv, ein gesperrtes wird nicht angefasst. Ohne
@@ -2524,6 +2538,13 @@ class MainWindow(QMainWindow):
 
         from .dialogs.import_summary_dialog import ImportNote
         extra = []
+        if dropped_functions:
+            extra.append(ImportNote(
+                "Funktionen ohne Raum entfallen",
+                "Den Raum bzw. die Zone dieser in KNiX geplanten Funktionen gibt es im "
+                "ETS-Projekt nicht mehr (Raumnummer oder Zonenname geändert?). Sie sind "
+                "entfallen; der bisherige Stand liegt unter «Sicherungen»:\n\n"
+                + "\n".join(f"• {name}" for name in dropped_functions), True))
         if secure_notice:
             extra.append(ImportNote("KNX Secure: Schlüssel nicht übernommen", secure_notice, True))
         if cert_conflicts:

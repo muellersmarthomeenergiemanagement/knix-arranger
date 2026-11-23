@@ -55,6 +55,59 @@ def test_optionen_verweisen_auf_projektfelder():
     assert "material_list" not in {a for o in REBUILD_OPTIONS for a in o.attributes}
 
 
+def _areal_with_rooms():
+    """EG mit Zone «Wohnung», Raum 08 mit zwei Jalousie-Zuweisungen und Raum 09."""
+    from knix_arranger.models.building import (
+        Apartment, Floor, GewerkAssignment, Room, Wing,
+    )
+    wohnen = Room(name="Wohnen", number="08", gewerk_assignments=[
+        GewerkAssignment(gewerk_code="J", count=2), GewerkAssignment(gewerk_code="J", count=1)])
+    kueche = Room(name="Küche", number="09")
+    floor = Floor(name="Erdgeschoss", short_code="EG",
+                  apartments=[Apartment(name="Wohnung", rooms=[wohnen, kueche])])
+    return Areal(buildings=[Building(wings=[Wing(floors=[floor])])])
+
+
+def test_geplante_funktionen_ueberleben_neuaufbau():
+    from knix_arranger.models.ets_function import FunctionMember, KnixFunction
+    from knix_arranger.services.rebuild_service import adopt_functions
+    old = KnxProject()
+    old.areal = _areal_with_rooms()
+    wohnen, kueche = old.areal.all_rooms
+    zone = old.areal.all_floors[0].apartments[0]
+    j1, j2 = wohnen.gewerk_assignments
+    front = KnixFunction(name="Fensterfront", room_id=wohnen.id, members=[
+        FunctionMember(j1.id, 1), FunctionMember(j1.id, 2), FunctionMember(j2.id, 1)],
+        status_member=FunctionMember(j2.id, 1))
+    alle = KnixFunction(name="Alle Storen", zone_id=zone.id,
+                        members=[FunctionMember(j1.id, 1)])
+    weg = KnixFunction(name="Küche weg", room_id=kueche.id)
+    old.functions = [front, alle, weg]
+
+    fresh = build_fresh_project(old, {"functions"})
+    fresh.areal = _areal_with_rooms()          # wie frisch aus der ETS: neue IDs
+    fresh.areal.all_floors[0].apartments[0].rooms.pop()   # Raum 09 gibt es nicht mehr
+    new_wohnen = fresh.areal.all_rooms[0]
+    n1, n2 = new_wohnen.gewerk_assignments
+    new_zone = fresh.areal.all_floors[0].apartments[0]
+
+    assert adopt_functions(old, fresh) == ["Küche weg"]
+    kept = {f.name: f for f in fresh.functions}
+    assert set(kept) == {"Fensterfront", "Alle Storen"}
+    assert kept["Fensterfront"].room_id == new_wohnen.id
+    assert [(m.assignment_id, m.element_number) for m in kept["Fensterfront"].members] == \
+        [(n1.id, 1), (n1.id, 2), (n2.id, 1)]
+    assert kept["Fensterfront"].status_member.assignment_id == n2.id
+    assert kept["Alle Storen"].zone_id == new_zone.id
+    # das alte Projekt bleibt unverändert (Abbruch stellt es wieder her)
+    assert front.room_id == wohnen.id and front.members[0].assignment_id == j1.id
+
+
+def test_funktionen_als_option_standardmaessig_behalten():
+    option = next(o for o in REBUILD_OPTIONS if o.key == "functions")
+    assert option.default and option.attributes == ("functions",)
+
+
 def test_geraete_ids_fuer_secure_archiv_uebernommen():
     from knix_arranger.models.topology import Area, Line, Device
     from knix_arranger.services.rebuild_service import adopt_device_ids

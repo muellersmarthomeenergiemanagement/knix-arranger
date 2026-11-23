@@ -75,6 +75,11 @@ REBUILD_OPTIONS: tuple[RebuildOption, ...] = (
         "(über Raumnummer bzw. physikalische Adresse wiedererkannt)",
         True, ()),
     RebuildOption(
+        "functions", "In KNiX geplante Funktionen",
+        "Gruppenbedienungen mit eigenen GAs (über Raumnummer, Zone und Gewerk "
+        "wiedererkannt; ihre GAs setzt der Import wieder ein)",
+        True, ("functions",)),
+    RebuildOption(
         "manual_settings", "Anpassungen der Bedienungsanleitung",
         "Eigene Texte, Fotos und Sprache", True, ("manual_settings",)),
     RebuildOption(
@@ -194,6 +199,69 @@ def adopt_bauherr_notes(old: KnxProject, fresh: KnxProject) -> int:
             be.datasheets = be.datasheets or list(old_be.datasheets)
             adopted += 1
     return adopted
+
+
+def _structure_keys(project) -> tuple[dict, dict, dict]:
+    """IDs -> fachliche Schlüssel, die einen Neuaufbau überleben: Raum
+    ("EG|08"), Zone ("EG|Wohnung 1" bzw. "EG|#2"), Gewerk-Zuweisung (Raum,
+    Gewerk, n-te Zuweisung dieses Gewerks im Raum)."""
+    from .ets_corrections import room_key
+    rooms, zones, assignments = {}, {}, {}
+    for building in project.areal.buildings:
+        for floor in building.all_floors:
+            code = floor.short_code or floor.name
+            for index, apartment in enumerate(floor.apartments):
+                zones[apartment.id] = f"{code}|{apartment.name or f'#{index}'}"
+                for room in apartment.rooms:
+                    key = room_key(floor, room)
+                    rooms[room.id] = key
+                    seen: dict[str, int] = {}
+                    for assignment in room.gewerk_assignments:
+                        n = seen.get(assignment.gewerk_code, 0)
+                        seen[assignment.gewerk_code] = n + 1
+                        assignments[assignment.id] = (key, assignment.gewerk_code, n)
+    return rooms, zones, assignments
+
+
+def adopt_functions(old: KnxProject, fresh: KnxProject) -> list[str]:
+    """In KNiX geplante Funktionen (FA-530) nach dem Neuaufbau an die frisch
+    eingelesene Gebäudestruktur hängen: Raum, Zone und Elemente über ihre
+    fachlichen Schlüssel statt über die IDs, die der Neuaufbau neu vergibt.
+    Muss vor ImportPipeline.finalize laufen (setzt die Funktions-GAs). Die
+    Funktionen werden kopiert -- bricht der Neuaufbau ab, bleibt das alte
+    Projekt unverändert. Gibt die Namen der Funktionen zurück, deren Raum
+    bzw. Zone es nicht mehr gibt (entfallen)."""
+    import copy
+    old_rooms, old_zones, old_assignments = _structure_keys(old)
+    new_rooms, new_zones, new_assignments = (
+        {v: k for k, v in m.items()} for m in _structure_keys(fresh))
+    kept, dropped = [], []
+    for function in copy.deepcopy(list(fresh.functions)):
+        if function.room_id:
+            function.room_id = new_rooms.get(old_rooms.get(function.room_id), "")
+            located = bool(function.room_id)
+        else:
+            function.zone_id = new_zones.get(old_zones.get(function.zone_id), "")
+            located = bool(function.zone_id)
+        if not located:
+            dropped.append(function.name or f"F{function.number}")
+            continue
+        members = []
+        for member in function.members:
+            new_id = new_assignments.get(old_assignments.get(member.assignment_id))
+            if new_id:
+                member.assignment_id = new_id
+                members.append(member)
+        function.members = members
+        if function.status_member is not None:
+            new_id = new_assignments.get(old_assignments.get(function.status_member.assignment_id))
+            if new_id:
+                function.status_member.assignment_id = new_id
+            else:
+                function.status_member = None
+        kept.append(function)
+    fresh.functions = kept
+    return dropped
 
 
 def kept_content(option: RebuildOption, project) -> str:

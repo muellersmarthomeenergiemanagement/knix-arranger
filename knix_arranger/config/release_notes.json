@@ -11,6 +11,7 @@
         "Neue GA in einem eingelesenen Projekt (Wizard Schritt 9): KNiX weist einmal darauf hin, dass sie nur in KNiX steht – beim Abgleich bleibt sie, beim Neuaufbau aus der ETS geht sie verloren – und führt zur «Erweiterung planen…». Der Neuaufbau-Dialog nennt solche GAs unter «Geht verloren»."
       ],
       "behoben": [
+        "Projekt neu aus ETS aufbauen: In KNiX geplante Funktionen (Gruppenbedienungen) gingen ohne Hinweis verloren. Sie bleiben jetzt standardmässig erhalten – mit ihren Elementen und GAs, wiedererkannt über Raumnummer, Zone und Gewerk. Gibt es den Raum nicht mehr, nennt die Import-Zusammenfassung die entfallenen Funktionen.",
         "Änderungen an GAs eines aus der ETS eingelesenen Projekts (Name, Beschreibung, DPT, Funktion, Raum …) gingen beim nächsten Einlesen kommentarlos verloren. Sie bleiben jetzt als Korrektur erhalten."
       ]
     },
