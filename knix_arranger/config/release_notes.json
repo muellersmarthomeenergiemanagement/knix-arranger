@@ -7,7 +7,12 @@
       "verbessert": [
         "ETS6 Import öffnet direkt die Dateiauswahl – ohne Zwischendialog. Die Typ-Auswahl nennt .knxproj (empfohlen), die Excel-Reports und den CSV-Export.",
         "Neues Projekt: Der Dialog erklärt die Mittelgruppen-Variante A/B und startet auf Wunsch gleich den Wizard («Danach den Wizard starten», vorgewählt).",
-        "Wizard: Schritt 3 (Räume) ist grün, sobald jede Zone einen Raum hat, Schritt 9 (Gruppenadressen), sobald GAs erzeugt sind – bisher erst ab zwei Räumen bzw. zehn GAs."
+        "Wizard: Schritt 3 (Räume) ist grün, sobald jede Zone einen Raum hat, Schritt 9 (Gruppenadressen), sobald GAs erzeugt sind – bisher erst ab zwei Räumen bzw. zehn GAs.",
+        "Mehr Platz für die Ansichten: Rückgängig und Wiederholen stehen rechts in der Menüzeile statt in einer eigenen Zeile.",
+        "Statusleiste gegliedert: links die letzte Meldung (lange Meldungen gekürzt, ganzer Text im Tooltip), rechts Projekt, Variante und Anzahl Gruppenadressen."
+      ],
+      "behoben": [
+        "Meldungen des Live-Monitors («Wert senden», «Lesen») lagen in der Statusleiste über dem Projektnamen."
       ]
     },
     {

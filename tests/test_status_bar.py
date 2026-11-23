@@ -30,3 +30,28 @@ def test_status_only_in_permanent_label():
     assert bar._status_label.text() == "Projekt 'Chalet' geladen."
     assert bar.currentMessage() == ""
     assert bar._project_label.text() == "Projekt: Chalet"
+
+
+def test_show_message_lands_in_status_field():
+    """Live-Monitor rief showMessage auf: Qt zeichnete die Meldung über die
+    anderen Felder. Jetzt landet sie im Meldungsfeld."""
+    bar = KnxStatusBar()
+    bar.showMessage("1/1/5 gelesen – Ein", 15000)
+    assert bar._status_label.text() == "1/1/5 gelesen – Ein"
+    assert bar.currentMessage() == ""
+
+
+def test_long_message_full_text_in_tooltip():
+    bar = KnxStatusBar()
+    long_text = "KNXPROJ importiert: " + "sehr lange Meldung " * 20
+    bar.set_status(long_text)
+    assert bar._status_label.text() == long_text
+    assert bar._status_label.toolTip() == long_text
+
+
+def test_separators_only_with_content():
+    bar = KnxStatusBar()
+    assert not bar._variant_separator.isVisibleTo(bar)
+    bar.set_variant("B")
+    bar.set_ga_count(12)
+    assert bar._variant_separator.isVisibleTo(bar) and bar._ga_separator.isVisibleTo(bar)

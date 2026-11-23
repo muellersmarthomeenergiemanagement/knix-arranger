@@ -271,12 +271,19 @@ class MainWindow(QMainWindow):
         self._redo_action.setIcon(style.standardIcon(QStyle.SP_ArrowForward))
         self._undo_action.setIconText("Rückgängig")
         self._redo_action.setIconText("Wiederholen")
-        edit_toolbar = self.addToolBar("Bearbeiten")
+        # Rechts in der Menüzeile statt als eigene Werkzeugleiste: die belegte
+        # eine ganze Zeile über jeder Ansicht (Design-Durchsicht, Befund 13)
+        from PySide6.QtWidgets import QToolBar
+        edit_toolbar = QToolBar("Bearbeiten", self)
         edit_toolbar.setObjectName("edit_toolbar")
         edit_toolbar.setMovable(False)
+        edit_toolbar.setFloatable(False)
         edit_toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        edit_toolbar.setStyleSheet("QToolBar { border: none; background: transparent; }")
         edit_toolbar.addAction(self._undo_action)
         edit_toolbar.addAction(self._redo_action)
+        menubar.setCornerWidget(edit_toolbar, Qt.TopRightCorner)
+        self._edit_toolbar = edit_toolbar
 
         edit_menu.addSeparator()
 
