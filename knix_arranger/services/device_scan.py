@@ -35,6 +35,8 @@ DETAIL_TIMEOUT = 4.0
 # gleichzeitig angefragte Adressen: fehlende hinter einem Koppler kosten die
 # volle Wartezeit, 4 parallel ergibt rund 3 min je Linie bei wenig Buslast
 PARALLEL = 4
+# quittiert ohne Antwort: so viele je Linie fragt der zweite Durchgang nach
+MAX_MAYBE_PER_LINE = 30
 
 # Eigenschaften (KNX Resources 03.05.01)
 OBJ_DEVICE = 0
@@ -115,6 +117,9 @@ class ScanFinding:
     refused: bool = False            # Verbindung abgelehnt (Adresse belegt)
     own: bool = False                # eigene Adresse der Schnittstelle
     unloaded: bool = False           # ohne geladene Applikation (Werkszustand)
+    # Verbindungsaufbau quittiert, aber keine Antwort: da ist vermutlich ein
+    # Gerät (auf der eigenen Linie quittiert sonst niemand)
+    acknowledged: bool = False
     errors: list[str] = field(default_factory=list)
 
     @property
@@ -425,6 +430,7 @@ async def scan_line(xknx, lines: list[tuple[int, int]],
     findings: list[ScanFinding] = []
     semaphore = asyncio.Semaphore(max(1, parallel))
     done = 0
+    maybe: list[str] = []      # quittiert, aber keine Antwort
 
     async def one(address: str) -> None:
         nonlocal done
@@ -440,6 +446,8 @@ async def scan_line(xknx, lines: list[tuple[int, int]],
                 findings.append(finding)
                 if on_found is not None:
                     on_found(finding)
+            elif finding.acknowledged:
+                maybe.append(address)
             if on_progress is not None:
                 on_progress(ScanProgress(done, len(targets), len(findings), address))
 
@@ -455,8 +463,20 @@ async def scan_line(xknx, lines: list[tuple[int, int]],
         # (Chalet 1.1.6 fehlte beim ersten Lauf)
         # Ebenso «gesperrte»: Hager 1.1.15 gab einmal keine Kennung, beim
         # nächsten Lauf schon
+        # Zweiter Versuch auch ohne Projekt: gesperrte (Siemens 1.1.18 gab
+        # einmal keine Kennung) und Adressen, deren Verbindungsaufbau quittiert
+        # wurde, die aber nicht antworteten (DALI-Gateway 1.1.8 fehlte in
+        # RekChalet2) – Letztere nur, wenn es je Linie wenige sind: hinter
+        # einem Koppler quittiert der Koppler jede Adresse
         answered = {f.address for f in findings if not f.locked}
-        for address in sorted(set(retry or ()) & set(targets) - answered - {own},
+        again = set(retry or ()) | {f.address for f in findings if f.locked}
+        per_line: dict[str, list[str]] = {}
+        for address in maybe:
+            per_line.setdefault(address.rsplit(".", 1)[0], []).append(address)
+        for addresses_of_line in per_line.values():
+            if len(addresses_of_line) <= MAX_MAYBE_PER_LINE:
+                again.update(addresses_of_line)
+        for address in sorted(again & set(targets) - answered - {own},
                               key=_address_key):
             if stop is not None and stop.is_set():
                 break
@@ -493,6 +513,7 @@ async def probe_device(xknx, address: str, timeout: float = PROBE_TIMEOUT,
     conn = None
     try:
         conn = await asyncio.wait_for(management.connect(target), timeout)
+        finding.acknowledged = True
         finding.mask = await asyncio.wait_for(dmp_connect_r_co(conn), timeout)
         finding.answered = True
     except ManagementConnectionRefused:
@@ -559,7 +580,8 @@ async def _read_details(conn, finding: ScanFinding, timeout: float) -> None:
     # Zufall (Chalet 1.1.21 «RTS Automation», 0001-01). Der Ladezustand des
     # Applikationsobjekts taugt nicht dafür: Hager 1.1.15 meldet 0 und
     # arbeitet mit 30 Verknüpfungen
-    garbage_order = len(raw_order) >= 4 and set(raw_order) <= {0xFB, 0xFF}
+    # nur FB/FF gemischt: lauter FF ist eine leere Bestellnummer (Feller)
+    garbage_order = len(raw_order) >= 4 and set(raw_order) == {0xFB, 0xFF}
     unloaded = raw_serial[2:] == b"\xff" * 4 or garbage_order
     if unloaded:
         finding.program = finding.program_manufacturer = ""

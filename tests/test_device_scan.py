@@ -187,6 +187,11 @@ _DEVICES = {
     "1.1.25": {"mask": 0x0701, "flaky_props": 1, "props": {
         (0, 12): bytes.fromhex("0009"), (3, 1): bytes.fromhex("0003"),
         (3, 13): bytes.fromhex("0009123410")}},
+    # Feller: Bestellnummer leer (lauter FF), Seriennummer aus Nullen
+    "1.1.27": {"mask": 0x0021, "props": {
+        (0, 12): bytes.fromhex("001E"), (0, 11): bytes.fromhex("001E00000000"),
+        (0, 15): bytes.fromhex("FFFFFFFFFFFFFFFFFFFF"),
+        (3, 1): bytes.fromhex("0003"), (3, 13): bytes.fromhex("001E370810")}},
     # schweigt beim ersten Mal (Buslast), antwortet beim zweiten Versuch
     "1.1.23": {"mask": 0x07B0, "flaky": 1, "props": {(0, 12): bytes.fromhex("0083")}},
     # Adresse vergeben, Applikation entladen
@@ -815,3 +820,38 @@ def test_view_offers_adoption_after_reading_links(monkeypatch):
     # nochmals gelesen: nichts mehr anzubieten
     view._on_links_finished([ds.LinkTables("1.1.5", ["1/0/1"], {0: ["1/0/1"]})], "")
     assert len(asked) == 1
+
+
+def test_empty_project_retry_and_feller_order():
+    """RekChalet2 (leeres Projekt): ein Gerät, das beim ersten Mal schweigt,
+    kommt über den zweiten Durchgang (quittiert, keine Antwort); Feller mit
+    leerer Bestellnummer (FF) gilt nicht als entladen."""
+    import copy
+    from tests.test_bus_send import _wait
+    saved = copy.deepcopy(_DEVICES)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(0.1)
+    stop, log = threading.Event(), []
+    server = threading.Thread(target=_device_tunnel_server, args=(sock, stop, log),
+                              daemon=True)
+    server.start()
+    connection = BusConnection(lambda t: None, lambda s, t: None)
+    try:
+        connection.start(ConnectionSettings(kind=TUNNEL_UDP, host="127.0.0.1",
+                                            port=sock.getsockname()[1]), Secrets())
+        assert _wait(lambda: connection.connected)
+        findings = connection.run_on_bus(lambda x: ds.scan_line(
+            x, [(1, 1)], addresses=[23, 27, 28], timeout=1.0)).result(timeout=60)
+    finally:
+        connection.stop()
+        stop.set()
+        server.join(2)
+        sock.close()
+        _DEVICES.clear()
+        _DEVICES.update(saved)
+    found = {f.address: f for f in findings}
+    assert set(found) == {"1.1.23", "1.1.27"}          # 1.1.28: niemand quittiert
+    feller = found["1.1.27"]
+    assert (feller.unloaded, feller.program, feller.order_info, feller.serial_number) == (
+        False, "3708-10", "", "")
