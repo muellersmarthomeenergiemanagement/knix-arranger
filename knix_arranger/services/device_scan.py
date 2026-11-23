@@ -316,8 +316,19 @@ def _link_cells(row: ScanRow, table, device) -> None:
         row.links = (f"stimmt ({count})" if not diff
                      else f"{len(diff)} Abweichungen ({count} in der Anlage)")
         row.link_details = [f"KO {n} – {ga}: {kind}" for _a, n, ga, kind in diff]
+        flags = flag_differences(device, table)
+        if flags:
+            row.links += f"; Flags {len(flags)}× anders"
+            row.link_details += [f"KO {n} Flags: Anlage {plant}, Projekt {own}"
+                                 for n, plant, own in flags]
+        elif table.flags:
+            row.links += "; Flags stimmen"
+        elif table.flags_error:
+            row.links += f"; Flags: {table.flags_error}"
         return
     row.links = f"{len(table.group_addresses)} GAs, {count} Verknüpfungen – noch nicht übernommen"
+    if table.flags_error:
+        row.links += f"; Flags: {table.flags_error}"
 
 
 def _row(address: str, finding: ScanFinding | None, device, secure_project: bool) -> ScanRow:
@@ -905,6 +916,12 @@ class LinkTables:
     error: str = ""
     # nicht lesbar: Lage und erste Bytes der Tabellen (für die Fehlersuche)
     detail: str = ""
+    # Flags der verknüpften KOs aus der KO-Tabelle (FA-3108d): KO -> «K-SÜ--»
+    flags: dict[int, str] = field(default_factory=dict)
+    flags_error: str = ""
+    # Ende der Zuordnungstabelle im Speicher (0 = unbekannt): dahinter liegt
+    # meist die KO-Tabelle
+    association_end: int = 0
 
     @property
     def ok(self) -> bool:
@@ -994,53 +1011,240 @@ def _uses_fixed_tables(mask: int | None) -> bool:
 
 async def read_links(xknx, address: str, mask: int | None,
                      timeout: float = DETAIL_TIMEOUT) -> LinkTables:
-    """GA- und Zuordnungstabelle eines Geräts lesen (eigene Verbindung)."""
+    """GA- und Zuordnungstabelle eines Geräts lesen (eigene Verbindung), dazu
+    die Flags der verknüpften KOs aus der KO-Tabelle (FA-3108d)."""
     from xknx.telegram import IndividualAddress
     management = xknx.management
     target = IndividualAddress(address)
-    conn = None
+    holder = {"conn": None}
     try:
-        conn = await asyncio.wait_for(management.connect(target), timeout)
+        holder["conn"] = await asyncio.wait_for(management.connect(target), timeout)
         if mask is None:
             from xknx.management.procedures import dmp_connect_r_co
-            mask = await asyncio.wait_for(dmp_connect_r_co(conn), timeout)
-        if _uses_fixed_tables(mask):
-            return await _read_bcu(conn, address, timeout)
-        try:
-            result = await _read_by_reference(conn, address, mask, timeout)
-        except Exception as exc:
-            result = LinkTables(address=address, error=_link_error(exc))
-            # nach einer Zeitüberschreitung ist die Verbindung nicht mehr sauber
-            await _close(management, target, conn)
-            conn = None
-            conn = await asyncio.wait_for(management.connect(target), timeout)
-        if result.ok or "nicht geladen" in result.error:
-            return result
-        # Tabellen als Eigenschaft PID_TABLE, ohne Speicherzugriff
-        try:
-            by_property = await _read_property_tables(conn, address, timeout)
-        except Exception as exc:
-            by_property = LinkTables(address=address, error=_link_error(exc))
-        if by_property.ok:
-            return by_property
-        result.error += f"; Eigenschaft: {by_property.error}"
-        if _is_system_b(mask):
-            return _with_detail(result)
-        # System 7 mit Tabellen an der BCU-2-Lage; prüft sich selbst wie immer
-        try:
-            fixed = await _read_bcu(conn, address, timeout)
-        except Exception as exc:
-            result.error += f"; feste Lage: {_link_error(exc)}"
-            return _with_detail(result)
-        if fixed.ok:
-            fixed.table_format = "BCU (feste Lage)"
-            return fixed
-        result.error += f"; feste Lage: {fixed.error}"
-        return _with_detail(result)
+            mask = await asyncio.wait_for(dmp_connect_r_co(holder["conn"]), timeout)
+        result = await _read_tables(management, target, address, mask, timeout, holder)
+        if result.ok and result.links:
+            try:
+                await _read_flags(holder["conn"], address, mask, result, timeout)
+            except Exception as exc:
+                result.flags_error = _link_error(exc)
+        return result
     except Exception as exc:
         return LinkTables(address=address, error=_link_error(exc))
     finally:
+        await _close(management, target, holder["conn"])
+
+
+async def _read_tables(management, target, address: str, mask: int | None,
+                       timeout: float, holder: dict) -> LinkTables:
+    """Adress- und Zuordnungstabelle auf allen bekannten Wegen; holder["conn"]
+    ist die Verbindung (wird nach einer Zeitüberschreitung erneuert)."""
+    conn = holder["conn"]
+    if _uses_fixed_tables(mask):
+        return await _read_bcu(conn, address, timeout)
+    try:
+        result = await _read_by_reference(conn, address, mask, timeout)
+    except Exception as exc:
+        result = LinkTables(address=address, error=_link_error(exc))
+        # nach einer Zeitüberschreitung ist die Verbindung nicht mehr sauber
         await _close(management, target, conn)
+        holder["conn"] = None
+        conn = holder["conn"] = await asyncio.wait_for(management.connect(target),
+                                                       timeout)
+    if result.ok or "nicht geladen" in result.error:
+        return result
+    # Tabellen als Eigenschaft PID_TABLE, ohne Speicherzugriff
+    try:
+        by_property = await _read_property_tables(conn, address, timeout)
+    except Exception as exc:
+        by_property = LinkTables(address=address, error=_link_error(exc))
+    if by_property.ok:
+        return by_property
+    result.error += f"; Eigenschaft: {by_property.error}"
+    if _is_system_b(mask):
+        return _with_detail(result)
+    # System 7 mit Tabellen an der BCU-2-Lage; prüft sich selbst wie immer
+    try:
+        fixed = await _read_bcu(conn, address, timeout)
+    except Exception as exc:
+        result.error += f"; feste Lage: {_link_error(exc)}"
+        return _with_detail(result)
+    if fixed.ok:
+        fixed.table_format = "BCU (feste Lage)"
+        return fixed
+    result.error += f"; feste Lage: {fixed.error}"
+    return _with_detail(result)
+
+
+# ── Flags aus der KO-Tabelle (FA-3108d) ───────────────────────────────────
+#
+# Je KO ein Konfigurationsbyte: Bit 2 Kommunikation, 3 Lesen, 4 Schreiben,
+# 6 Übertragen, 7 Aktualisieren; bei System B Bit 5 Lesen bei Init (bei
+# BCU 2 die Speicherwahl). BCU 1/2: Tabelle über den Zeiger in 0x0112
+# (+0x0100): Anzahl, RAM-Zeiger, je KO 3 Byte (Wert-Zeiger, Konfiguration,
+# Typ). System 7/B: Objekt Typ 9 (KO-Tabelle) als PID_TABLE oder über
+# PID_TABLE_REFERENCE. Lage, Zählweise (KO 0 oder 1 zuerst) und Stelle des
+# Konfigurationsbytes prüfen sich an den verknüpften KOs: sie müssen fast
+# alle kommunizieren und schreiben oder senden.
+
+OBJECT_TYPE_GROUP_OBJECT_TABLE = 9
+BCU_OBJECT_POINTER = 0x0112
+MAX_OBJECT_TABLE = 2000
+FLAG_PLAUSIBLE = 0.9
+
+
+def flags_from_config(config: int, read_on_init: bool = False) -> str:
+    """Konfigurationsbyte -> Flags wie im Projekt («K-SÜ--»: K L S Ü A I)."""
+    return "".join((
+        "K" if config & 0x04 else "-",
+        "L" if config & 0x08 else "-",
+        "S" if config & 0x10 else "-",
+        "Ü" if config & 0x40 else "-",
+        "A" if config & 0x80 else "-",
+        "I" if read_on_init and config & 0x20 else "-",
+    ))
+
+
+def choose_flags(entries: list[bytes], linked: list[int],
+                 read_on_init: bool = False) -> dict[int, str] | None:
+    """Deutung der KO-Tabelle, die zu den verknüpften KOs passt: Zählweise
+    (Eintrag n = KO n oder KO n+1) und Stelle des Konfigurationsbytes im
+    Eintrag. None, wenn keine Deutung plausibel ist."""
+    return score_flags(entries, linked, read_on_init)[0]
+
+
+def score_flags(entries: list[bytes], linked: list[int],
+                read_on_init: bool = False) -> tuple[dict[int, str] | None, str]:
+    """Wie choose_flags, dazu ein Kurztext für die Diagnose («12 Einträge,
+    KO bis 20, 85 %»)."""
+    if not entries or not linked:
+        return None, f"{len(entries)} Einträge"
+    width = min(len(e) for e in entries)
+    best = None
+    for shift in (0, -1):                # KO 0 zuerst bzw. KO 1 zuerst
+        for position in range(width):
+            hits = total = 0
+            for number in linked:
+                index = number + shift
+                if not 0 <= index < len(entries):
+                    continue
+                total += 1
+                config = entries[index][position]
+                hits += bool(config & 0x04 and config & 0x50)
+            if total and (best is None or hits / total > best[0]):
+                best = (hits / total, shift, position, total)
+    info = (f"{len(entries)} Einträge, KO bis {max(linked)}"
+            + (f", {best[0]:.0%} von {best[3]} passend" if best else ""))
+    if best is None or best[0] < FLAG_PLAUSIBLE or best[3] < len(linked) * 0.8:
+        return None, info
+    _score, shift, position, _total = best
+    return ({number: flags_from_config(entries[number + shift][position], read_on_init)
+             for number in linked if 0 <= number + shift < len(entries)}, info)
+
+
+def _chunks(data: bytes, size: int) -> list[bytes]:
+    return [data[i:i + size] for i in range(0, len(data) - size + 1, size)]
+
+
+async def _read_flags(conn, address: str, mask: int | None, result: LinkTables,
+                      timeout: float) -> None:
+    from xknx.management.procedures import dmp_interface_object_read_r
+    linked = sorted(result.links)
+    top = max(linked)
+    if top > MAX_OBJECT_TABLE:
+        result.flags_error = "KO-Tabelle zu gross"
+        return
+    system_b = _is_system_b(mask)
+    notes: list[str] = []          # Diagnose je Versuch
+
+    def take(label: str, entries: list[bytes]) -> bool:
+        flags, info = score_flags(entries, linked, read_on_init=system_b)
+        if flags:
+            result.flags, result.flags_error = flags, ""
+            return True
+        sample = " ".join(e.hex().upper() for e in entries[:4])
+        notes.append(f"{label}: {info} [{sample}]")
+        return False
+
+    async def table_at(label: str, start: int, strides: tuple[int, ...]) -> bool:
+        """Tabelle ab start: Kopf (Anzahl …) 2 Byte, dann je KO stride Byte."""
+        try:
+            data = await _memory(conn, start + 2, max(strides) * (top + 2), timeout)
+        except Exception as exc:
+            notes.append(f"{label} {start:#x}: {_link_error(exc)}")
+            return False
+        return any(take(f"{label} {start:#x} ({stride} Byte)", _chunks(data, stride))
+                   for stride in strides)
+
+    # 1) KO-Tabelle als Objekt (Typ 9): Eigenschaft PID_TABLE, sonst Lage
+    if not _uses_fixed_tables(mask):
+        index = None
+        for candidate in range(1, 13):
+            try:
+                kind = await asyncio.wait_for(
+                    dmp_interface_object_read_r(conn, candidate, PID_OBJECT_TYPE), timeout)
+            except Exception:
+                break
+            if int.from_bytes(kind, "big") == OBJECT_TYPE_GROUP_OBJECT_TABLE:
+                index = candidate
+                break
+        if index is not None:
+            try:
+                raw = await asyncio.wait_for(dmp_interface_object_read_r(
+                    conn, index, PID_TABLE, count=1, start_index=0), timeout)
+                count = min(int.from_bytes(raw, "big"), top + 2)
+                if count:
+                    data = await asyncio.wait_for(dmp_interface_object_read_r(
+                        conn, index, PID_TABLE, count=count, start_index=1),
+                        timeout * 4 + count * 0.5)
+                    if take("Eigenschaft", _chunks(data, len(data) // count)):
+                        return
+            except Exception as exc:
+                notes.append(f"Eigenschaft: {_link_error(exc)}")
+            try:
+                reference = int.from_bytes(await asyncio.wait_for(
+                    dmp_interface_object_read_r(conn, index, PID_TABLE_REFERENCE),
+                    timeout), "big")
+                # System B: 2 Byte Anzahl, je KO 2 Byte; System 7: Anzahl,
+                # RAM-Zeiger, je KO 3 Byte – beide ab Lage + 2
+                if await table_at("Lage", reference, (2, 3)):
+                    return
+            except Exception as exc:
+                notes.append(f"Lage: {_link_error(exc)}")
+        else:
+            notes.append("kein KO-Tabellen-Objekt")
+    # 2) BCU-Zeiger in 0x0112, nur wenn er hinter die Adresstabelle zeigt
+    if not system_b:
+        try:
+            header = await _memory(conn, 0x0110, 6, timeout)
+            start = 0x0100 + header[2]
+            if start >= BCU_ADDRESS_TABLE + 3:
+                if await table_at("Zeiger", start, (3,)):
+                    return
+            else:
+                notes.append(f"Zeiger 0x0112 = {header[2]:#04x} unplausibel "
+                             f"[0110: {header.hex(' ').upper()}]")
+        except Exception as exc:
+            notes.append(f"Zeiger: {_link_error(exc)}")
+    # 3) direkt hinter der Zuordnungstabelle (dort liegt sie meist)
+    if result.association_end:
+        if await table_at("nach Zuordnung", result.association_end,
+                          (2, 3) if system_b else (3, 2)):
+            return
+    result.flags_error = "Flags nicht deutbar – " + " | ".join(notes) if notes \
+        else "KO-Tabelle nicht gefunden"
+
+
+def flag_differences(device, table: LinkTables) -> list[tuple[int, str, str]]:
+    """Flags laut Gerät gegen Projekt: (KO, Anlage, Projekt) bei Unterschied."""
+    from .ko_links import parse_flags
+    result = []
+    for number, plant in sorted(table.flags.items()):
+        co = next((c for c in device.communication_objects
+                   if c.object_number == number and c.connected_gas), None)
+        if co is not None and parse_flags(plant) != parse_flags(co.flags):
+            result.append((number, plant, co.flags or "–"))
+    return result
 
 
 def _link_error(exc: Exception) -> str:
@@ -1104,7 +1308,9 @@ async def _read_bcu(conn, address: str, timeout: float) -> LinkTables:
     start = 0x0100 + pointer
     pairs = (await _memory(conn, start, 1, timeout))[0]
     associations = bytes([pairs]) + await _memory(conn, start + 1, 2 * pairs, timeout)
-    return parse_bcu_tables(address, address_table, associations)
+    result = parse_bcu_tables(address, address_table, associations)
+    result.association_end = start + 1 + 2 * pairs
+    return result
 
 
 async def _table_objects(conn, timeout: float) -> dict[int, int]:
@@ -1169,6 +1375,7 @@ async def _read_by_reference(conn, address: str, mask: int | None,
                 continue
             links = head + await _memory(conn, association_start + 2, 4 * pairs, timeout)
             result = parse_system_b_tables(address, table, links)
+            result.association_end = association_start + 2 + 4 * pairs
         else:
             count = (await _memory(conn, address_start, 1, timeout))[0]
             table = bytes([count]) + await _memory(conn, address_start + 1, 2 * count, timeout)
@@ -1176,6 +1383,7 @@ async def _read_by_reference(conn, address: str, mask: int | None,
             links = bytes([pairs]) + await _memory(conn, association_start + 1,
                                                    2 * pairs, timeout)
             result = parse_bcu_tables(address, table, links)
+            result.association_end = association_start + 1 + 2 * pairs
         if result.ok:
             return result
         errors.append(f"{result.table_format}: {result.error}")
@@ -1300,12 +1508,14 @@ class LinkAdoptResult:
     links_added: int = 0
     unknown_objects: int = 0          # KO-Nummer ohne KO im Produkt
     variants_chosen: int = 0          # KO-Variante nach den Partnern gewählt
+    flags_from_device: int = 0        # KOs mit Flags aus der KO-Tabelle
+    flags_catalog: list[str] = field(default_factory=list)   # Flags aus Herstellerdaten
     # Vergleich bei Geräten mit Verknüpfungen: (Adresse, KO, GA, Art)
     differences: list[tuple[str, int, str, str]] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
-        return bool(self.gas_added or self.links_added)
+        return bool(self.gas_added or self.links_added or self.flags_from_device)
 
     def text(self) -> str:
         lines = []
@@ -1322,6 +1532,11 @@ class LinkAdoptResult:
                          "mehrere Bedeutungen, wählt KNiX die, die zu den Partnern an derselben "
                          f"GA passt ({self.variants_chosen}× angepasst) – Parameter liest KNiX "
                          "nicht, im Zweifel vor Ort prüfen.")
+        if self.flags_from_device:
+            lines.append(f"Flags von {self.flags_from_device} KOs aus den Geräten gelesen.")
+        if self.flags_catalog:
+            lines.append(f"Flags aus den Herstellerdaten, nicht aus dem Gerät: "
+                         f"{_short_list(self.flags_catalog)} – Standardwerte, nicht geprüft.")
         if self.unknown_objects:
             lines.append(f"{self.unknown_objects} KO-Nummern stehen nicht im Produkt – als "
                          "«KO n» angelegt (Produkt fehlt oder andere Applikationsversion).")
@@ -1405,7 +1620,12 @@ def adopt_links(project, tables: list[LinkTables]) -> LinkAdoptResult:
             continue
         if any(co.connected_gas for co in device.communication_objects):
             result.devices_kept.append(table.address)
-            result.differences.extend(_differences(device, table))
+            link_diff = _differences(device, table)
+            result.differences.extend(link_diff)
+            # schon übernommene Rekonstruktion (kein ETS-Projekt), Verknüpfungen
+            # wie in der Anlage: Flags aus dem Gerät statt aus den Herstellerdaten
+            if not link_diff and not getattr(project, "ets_project_id", ""):
+                result.flags_from_device += _apply_flags(device, table)
             continue
         linked = False
         for number, gas in sorted(table.links.items()):
@@ -1427,6 +1647,15 @@ def adopt_links(project, tables: list[LinkTables]) -> LinkAdoptResult:
             result.devices_linked.append(table.address)
     result.variants_chosen = _choose_variants(
         [devices[a] for a in result.devices_linked], project)
+    # Flags aus dem Gerät, erst nach der Variantenwahl (sie legt fest, welches
+    # KO die Verknüpfung trägt)
+    by_address = {t.address: t for t in tables}
+    for address in result.devices_linked:
+        table = by_address[address]
+        if table.flags:
+            result.flags_from_device += _apply_flags(devices[address], table)
+        else:
+            result.flags_catalog.append(address)
     for address in new_gas:
         main, middle, sub = (int(p) for p in address.split("/"))
         name, dpt = _ga_name(project, address)
@@ -1487,6 +1716,23 @@ def _words_common(variants: list) -> set[str]:
     """Wörter, die alle Varianten tragen (meist der Kanal), zählen nicht."""
     sets = [_words(co) for co in variants]
     return set.intersection(*sets) if sets else set()
+
+
+def differences(device, table: LinkTables) -> list[tuple[str, int, str, str]]:
+    """Verknüpfungen Projekt gegen Anlage (öffentlich, siehe _differences)."""
+    return _differences(device, table)
+
+
+def _apply_flags(device, table: LinkTables) -> int:
+    """Flags aus der KO-Tabelle an die verknüpften KOs; Anzahl geänderter."""
+    changed = 0
+    for number, flags in table.flags.items():
+        co = next((c for c in device.communication_objects
+                   if c.object_number == number and c.connected_gas), None)
+        if co is not None and co.flags != flags:
+            co.flags = flags
+            changed += 1
+    return changed
 
 
 def _differences(device, table: LinkTables) -> list[tuple[str, int, str, str]]:

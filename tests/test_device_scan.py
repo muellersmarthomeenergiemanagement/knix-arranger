@@ -130,18 +130,24 @@ _DEVICES = {
         # Tabellen-Objekte: Typ, geladen, Lage im Speicher
         (1, 1): bytes.fromhex("0001"), (2, 1): bytes.fromhex("0002"),
         (1, 5): bytes([1]), (2, 5): bytes([1]),
-        (1, 7): bytes.fromhex("00004000"), (2, 7): bytes.fromhex("00005000")},
+        (1, 7): bytes.fromhex("00004000"), (2, 7): bytes.fromhex("00005000"),
+        (4, 1): bytes.fromhex("0009")},
         "memory": {
             # 3 GAs: 1/0/1, 1/0/2, 2/1/5 (ohne eigene Adresse)
             0x4000: bytes.fromhex("0003" "0801" "0802" "1105"),
             # KO 0 an 1/0/1 und 2/1/5, KO 4 an 1/0/2 (je TSAP, ASAP 2 Byte)
-            0x5000: bytes.fromhex("0003" "00010000" "00030000" "00020004")}},
+            0x5000: bytes.fromhex("0003" "00010000" "00030000" "00020004")},
+        # KO-Tabelle (Typ 9) als PID_TABLE: KO 0 K S Ü, KO 4 K S
+        "tables": {4: [bytes([0x54, 0x00]), bytes([0x00, 0x00]), bytes([0x00, 0x00]),
+                       bytes([0x00, 0x00]), bytes([0x14, 0x07]), bytes([0x00, 0x00])]}},
     "1.1.7": {"mask": 0x0012, "memory": {
         0x0104: bytes.fromhex("1E102205"),
         # Anzahl 3 inkl. eigener Adresse 1.1.7, GAs 1/0/1 und 1/0/3
         0x0111: bytes([0x50]), 0x0116: bytes.fromhex("03" "1107" "0801" "0803"),
         # KO 0 an 1/0/1, KO 1 an 1/0/3
-        0x0150: bytes.fromhex("02" "0100" "0201")}},
+        0x0150: bytes.fromhex("02" "0100" "0201"),
+        # KO-Tabelle: Anzahl, RAM-Zeiger, je KO Wert-Zeiger, Konfiguration, Typ
+        0x0112: bytes([0x70]), 0x0170: bytes.fromhex("02" "C0" "205400" "211C00")}},
     "1.1.9": {"mask": 0x07B0, "props": {}},          # gibt nichts preis
     "1.1.11": {"silent": True},                      # quittiert, antwortet nie
     # System B mit Tabellen über 0xFFFF (Elsner Salva 0x13000): erweitertes Lesen
@@ -194,6 +200,14 @@ _DEVICES = {
         (3, 1): bytes.fromhex("0003"), (3, 13): bytes.fromhex("001E370810")}},
     # schweigt beim ersten Mal (Buslast), antwortet beim zweiten Versuch
     "1.1.23": {"mask": 0x07B0, "flaky": 1, "props": {(0, 12): bytes.fromhex("0083")}},
+    # BCU 2 (ABB, Chalet): Zeiger 0x0112 = 0x0C unbrauchbar, KO-Tabelle direkt
+    # hinter der Zuordnungstabelle
+    "1.1.29": {"mask": 0x0021, "props": {(0, 12): bytes.fromhex("0002")}, "memory": {
+        0x0104: bytes.fromhex("02470111"),
+        0x0110: bytes.fromhex("00" "50" "0C" "00" "00" "00"),
+        0x0116: bytes.fromhex("02" "111D" "0801"),
+        0x0150: bytes.fromhex("01" "0100"),
+        0x0153: bytes.fromhex("01" "C0" "201400")}},
     # Adresse vergeben, Applikation entladen
     "1.1.17": {"mask": 0x0701, "props": {
         (0, 12): bytes.fromhex("0000"), (0, 11): bytes.fromhex("FFFBFFFFFFFF"),
@@ -386,6 +400,9 @@ def test_scan_over_tunnel():
     assert by_table["1.1.5"].links == {0: ["1/0/1", "2/1/5"], 4: ["1/0/2"]}
     assert by_table["1.1.7"].table_format == "BCU"
     assert by_table["1.1.7"].links == {0: ["1/0/1"], 1: ["1/0/3"]}
+    # Flags aus der KO-Tabelle (FA-3108d)
+    assert by_table["1.1.5"].flags == {0: "K-SÜ--", 4: "K-S---"}
+    assert by_table["1.1.7"].flags == {0: "K-SÜ--", 1: "KLS---"}
     # auch beim Tabellenlesen nichts Schreibendes
     assert not {p for _t, _tp, p in log if "Write" in p}
 
@@ -855,3 +872,83 @@ def test_empty_project_retry_and_feller_order():
     feller = found["1.1.27"]
     assert (feller.unloaded, feller.program, feller.order_info, feller.serial_number) == (
         False, "3708-10", "", "")
+
+
+def test_flags_from_config_and_choice():
+    assert ds.flags_from_config(0x54) == "K-SÜ--"
+    assert ds.flags_from_config(0xDC) == "KLSÜA-"
+    assert ds.flags_from_config(0x2C, read_on_init=True) == "KL---I"
+    assert ds.flags_from_config(0x2C) == "KL----"
+    # Konfiguration an zweiter Stelle, KO 1 zuerst (Eintrag 0 = KO 1)
+    entries = [bytes([0x07, 0x54]), bytes([0x00, 0x14]), bytes([0x07, 0x00])]
+    assert ds.choose_flags(entries, [1, 2]) == {1: "K-SÜ--", 2: "K-S---"}
+    # nichts plausibel: verknüpfte KOs ohne Kommunikation
+    assert ds.choose_flags([bytes([0x00, 0x00])] * 4, [0, 1, 2]) is None
+
+
+def test_adopt_links_takes_device_flags():
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.models.topology import Area, CommunicationObject, Device, Line
+    project = KnxProject()
+    actor = Device(physical_address="1.1.6", device_type="actor", communication_objects=[
+        CommunicationObject(object_number=0, name="Ausgang 1", object_function="Schalten",
+                            flags="KLS---")])
+    project.topology.areas.append(Area(area_number=1, lines=[Line(line_number=1,
+                                                                  devices=[actor])]))
+    table = ds.LinkTables("1.1.6", ["3/0/70"], {0: ["3/0/70"]}, flags={0: "K-S---"})
+    result = ds.adopt_links(project, [table])
+    assert actor.communication_objects[0].flags == "K-S---"
+    assert result.flags_from_device == 1 and "Flags von 1 KOs" in result.text()
+    # schon übernommen, Flags danach geändert: erneut übernehmen holt die
+    # Geräte-Flags (Rekonstruktion ohne ETS-Projekt)
+    actor.communication_objects[0].flags = "KLS---"
+    rows = {r.address: r for r in ds.compare(project, [ds.ScanFinding("1.1.6", True)],
+                                             [(1, 1)], {"1.1.6": table})}
+    assert "Flags 1× anders" in rows["1.1.6"].links
+    assert "KO 0 Flags: Anlage K-S---, Projekt KLS---" in rows["1.1.6"].link_details
+    again = ds.adopt_links(project, [table])
+    assert again.flags_from_device == 1 and actor.communication_objects[0].flags == "K-S---"
+    # ETS-Projekt: Flags der ETS bleiben
+    project.ets_project_id = "P-0001"
+    actor.communication_objects[0].flags = "KLS---"
+    ds.adopt_links(project, [table])
+    assert actor.communication_objects[0].flags == "KLS---"
+    # ohne lesbare Flags: Herstellerdaten, gekennzeichnet
+    other = Device(physical_address="1.1.8", communication_objects=[
+        CommunicationObject(object_number=0, name="X")])
+    project.topology.areas[0].lines[0].devices.append(other)
+    plain = ds.adopt_links(project, [ds.LinkTables("1.1.8", ["3/0/1"], {0: ["3/0/1"]})])
+    assert plain.flags_catalog == ["1.1.8"] and "Herstellerdaten" in plain.text()
+
+
+def test_flags_behind_association_table():
+    """BCU 2 mit unbrauchbarem Zeiger 0x0112: KO-Tabelle hinter der
+    Zuordnungstabelle; die Diagnose nennt den Zeiger."""
+    import copy
+    from tests.test_bus_send import _wait
+    saved = copy.deepcopy(_DEVICES)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(0.1)
+    stop, log = threading.Event(), []
+    server = threading.Thread(target=_device_tunnel_server, args=(sock, stop, log),
+                              daemon=True)
+    server.start()
+    connection = BusConnection(lambda t: None, lambda s, t: None)
+    try:
+        connection.start(ConnectionSettings(kind=TUNNEL_UDP, host="127.0.0.1",
+                                            port=sock.getsockname()[1]), Secrets())
+        assert _wait(lambda: connection.connected)
+        tables = connection.run_on_bus(lambda x: ds.read_all_links(
+            x, [ds.ScanFinding("1.1.29", True, 0x0021, "M-0002", program="4701-11")],
+            timeout=1.0)).result(timeout=60)
+    finally:
+        connection.stop()
+        stop.set()
+        server.join(2)
+        sock.close()
+        _DEVICES.clear()
+        _DEVICES.update(saved)
+    table = tables[0]
+    assert table.ok and table.links == {0: ["1/0/1"]}
+    assert table.flags == {0: "K-S---"}, table.flags_error

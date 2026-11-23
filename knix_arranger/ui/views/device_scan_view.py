@@ -371,17 +371,19 @@ class DeviceScanView(QWidget):
                 self, "GAs und Verknüpfungen lesen",
                 f"Gelesen: {gas} GAs von {len(pending)} Geräten. Sie stehen erst im Projekt, "
                 "wenn sie übernommen werden.\n\nJetzt ins Projekt übernehmen (fehlende "
-                "Geräte, GAs und Verknüpfungen)? Geräte mit Verknüpfungen im Projekt bleiben "
-                "unverändert.")
+                "Geräte, GAs, Verknüpfungen und die Flags aus den Geräten)? Verknüpfungen "
+                "im Projekt bleiben unverändert.")
             if answer == QMessageBox.Yes:
                 self._adopt(confirmed=True)
 
     def _tables_to_adopt(self) -> list:
-        """Gelesene Tabellen, die das Projekt noch nicht hat: Gerät fehlt oder
-        hat keine Verknüpfungen."""
+        """Gelesene Tabellen, die das Projekt noch nicht hat: Gerät fehlt, hat
+        keine Verknüpfungen oder (Rekonstruktion ohne ETS-Projekt) andere Flags
+        bei gleichen Verknüpfungen."""
         if self._project is None:
             return []
         devices = {d.physical_address: d for d in ds.project_devices(self._project)}
+        from_ets = bool(getattr(self._project, "ets_project_id", ""))
         result = []
         for table in self._tables.values():
             if not table.ok or not table.links:
@@ -389,6 +391,9 @@ class DeviceScanView(QWidget):
             device = devices.get(table.address)
             if device is None or not any(co.connected_gas
                                          for co in device.communication_objects):
+                result.append(table)
+            elif (not from_ets and table.flags and not ds.differences(device, table)
+                  and ds.flag_differences(device, table)):
                 result.append(table)
         return result
 
