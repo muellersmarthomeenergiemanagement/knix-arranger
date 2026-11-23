@@ -731,6 +731,26 @@ class BusConnection:
         future.add_done_callback(done)
         return result
 
+    @property
+    def can_access_devices(self) -> bool:
+        """Gerätezugriff (Teilnehmer suchen) geht über KNXnet/IP, nicht USB."""
+        return (self.connected and self._settings is not None
+                and not self._settings.is_usb)
+
+    def run_on_bus(self, factory: Callable) -> concurrent.futures.Future:
+        """Gerätezugriff (Teilnehmer suchen, FA-3108): factory(xknx) liefert
+        eine Coroutine, die im Loop der Verbindung läuft. Das Future liefert
+        ihr Ergebnis; cancel() bricht sie ab. Aufruf aus jedem Thread."""
+        if not self.connected or self._settings is None:
+            raise BusSendError("Nicht verbunden.")
+        if self._settings.is_usb:
+            raise BusSendError("Über die USB-Schnittstelle sucht KNiX keine Teilnehmer – "
+                               "über KNXnet/IP (Tunnel) verbinden.")
+        loop, xknx = self._loop, self._xknx
+        if loop is None or xknx is None or loop.is_closed():
+            raise BusSendError("Nicht verbunden.")
+        return asyncio.run_coroutine_threadsafe(factory(xknx), loop)
+
     def start(self, settings: ConnectionSettings, secrets: Secrets) -> None:
         if self.running:
             return

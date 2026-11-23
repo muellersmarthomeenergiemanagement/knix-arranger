@@ -4,6 +4,9 @@
     {
       "version": "1.4.64",
       "date": "2026-11-23",
+      "neu": [
+        "Teilnehmer suchen (Bestand & Umbau): KNiX sucht über die Verbindung des Live-Monitors (KNXnet/IP) die Linien der Anlage ab und liest von jedem Gerät Hersteller, Seriennummer, Bestellnummer und Applikation – nur lesend. Der Vergleich mit dem Projekt zeigt fehlende, zusätzliche und getauschte Geräte, andere Applikationsversionen und Geräte, die nichts preisgeben (Secure ohne Schlüssel). Rund 3 Minuten je Linie, Ergebnis als CSV."
+      ],
       "verbessert": [
         "ETS6 Import öffnet direkt die Dateiauswahl – ohne Zwischendialog. Die Typ-Auswahl nennt .knxproj (empfohlen), die Excel-Reports und den CSV-Export.",
         "Neues Projekt: Der Dialog erklärt die Mittelgruppen-Variante A/B und startet auf Wunsch gleich den Wizard («Danach den Wizard starten», vorgewählt).",

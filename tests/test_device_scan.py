@@ -1,0 +1,313 @@
+"""
+Teilnehmer suchen (FA-3108): Kennungen lesen, Vergleich mit dem Projekt
+und die Suche über einen Schein-Tunnelserver mit simulierten Geräten
+(System B, BCU 1, gesperrt, stumm, fehlend).
+"""
+from __future__ import annotations
+
+import os
+import socket
+import threading
+from types import SimpleNamespace
+
+import pytest
+
+from knix_arranger.services import device_scan as ds
+from knix_arranger.services.bus_access import (
+    TUNNEL_UDP, BusConnection, BusSendError, ConnectionSettings, Secrets,
+)
+
+xknx = pytest.importorskip("xknx")
+
+
+# ── Kennungen ──────────────────────────────────────────────────────────────
+
+def test_parse_lines():
+    assert ds.parse_lines("1.1, 1.2;1.1 2.3") == [(1, 1), (1, 2), (2, 3)]
+    for wrong, message in (("", "Keine Linie"), ("1.1.5", "keine Linie"),
+                           ("16.1", "bis 15"), ("a", "keine Linie")):
+        with pytest.raises(ValueError, match=message):
+            ds.parse_lines(wrong)
+
+
+def test_identity_bytes():
+    assert ds.program_from_bytes(bytes.fromhex("0002470111")) == ("M-0002", "4701-11")
+    assert ds.program_from_bytes(b"\x00") == ("", "")
+    assert ds.serial_from_bytes(bytes.fromhex("000211223344")) == "0002:11223344"
+    assert ds.bcu1_identity(bytes.fromhex("1E102205")) == ("M-001E", "1022-05")
+    assert ds.order_text(b"GH Q631\x00\x00\x00") == "GH Q631"
+    assert ds.order_text(b"\x00" * 10) == ""
+    assert ds.order_text(b"\x01\x02") == "0102"
+    assert ds.mask_text(0x07B0) == "07B0 System B"
+    assert ds.mask_text(0x0012) == "0012 BCU 1"
+    assert ds.mask_text(0x091A) == "091A Koppler"
+    assert ds.mask_text(None) == ""
+
+
+def test_expected_program_from_hw2prog():
+    device = SimpleNamespace(
+        manufacturer_id="M-0002",
+        hw2prog_id="M-0002_H-GH.20Q631.200047.20R0111-1_HP-4701-11-952C")
+    assert ds.expected_program(device) == ("M-0002", "4701-11")
+    assert ds.expected_program(SimpleNamespace(hw2prog_id="")) == ("", "")
+
+
+# ── Vergleich ──────────────────────────────────────────────────────────────
+
+def _device(address, mfr="M-0002", hp="4701-11", serial="", secure=False, **extra):
+    return SimpleNamespace(
+        physical_address=address, manufacturer_id=mfr, manufacturer="",
+        hw2prog_id=f"{mfr}_H-X-1_HP-{hp}-952C" if hp else "",
+        serial_number=serial, secure_supported=secure, external=False,
+        product=f"Produkt {address}", product_name="", order_number="",
+        application_program="App", **extra)
+
+
+def _project(devices, secure=False):
+    line = SimpleNamespace(devices=devices)
+    return SimpleNamespace(topology=SimpleNamespace(areas=[SimpleNamespace(lines=[line])]),
+                           knx_secure=SimpleNamespace(enabled=secure))
+
+
+def test_compare_with_project():
+    project = _project([
+        _device("1.1.1"),                                    # stimmt
+        _device("1.1.2", serial="0002:AAAAAAAA"),            # getauscht
+        _device("1.1.3", hp="4701-12"),                      # andere Version
+        _device("1.1.4", mfr="M-0083"),                      # anderer Hersteller
+        _device("1.1.5", secure=True),                       # stumm, Secure
+        _device("1.1.6"),                                    # stumm
+        _device("1.1.8", secure=True),                       # gesperrt
+        _device("1.2.1"),                                    # andere Linie: nicht gesucht
+        _device("1.1.-"),                                    # ohne Adresse
+    ], secure=True)
+    found = [
+        ds.ScanFinding("1.1.1", True, 0x07B0, "M-0002", "0002:11111111", program="4701-11",
+                       program_manufacturer="M-0002"),
+        ds.ScanFinding("1.1.2", True, 0x07B0, "M-0002", "0002:BBBBBBBB", program="4701-11"),
+        ds.ScanFinding("1.1.3", True, 0x07B0, "M-0002", program="4701-11"),
+        ds.ScanFinding("1.1.4", True, 0x07B0, "M-0002", program="4701-11"),
+        ds.ScanFinding("1.1.8", True, 0x07B0),
+        ds.ScanFinding("1.1.9", True, 0x0012, "M-001E", program="1022-05"),
+        ds.ScanFinding("1.1.250", True, own=True),
+    ]
+    rows = {r.address: r for r in ds.compare(project, found, [(1, 1)])}
+    assert set(rows) == {"1.1.1", "1.1.2", "1.1.3", "1.1.4", "1.1.5", "1.1.6", "1.1.8",
+                         "1.1.9", "1.1.250"}
+    assert rows["1.1.1"].status == ds.STATUS_OK
+    assert "Seriennummer im Projekt leer" in rows["1.1.1"].note
+    assert rows["1.1.2"].status == ds.STATUS_DIFFERENT and "getauscht" in rows["1.1.2"].note
+    assert "Applikationsversion (11 statt 12)" in rows["1.1.3"].note
+    assert "Hersteller ABB statt MDT" in rows["1.1.4"].note
+    assert rows["1.1.5"].status == ds.STATUS_MISSING and "Secure" in rows["1.1.5"].note
+    assert rows["1.1.6"].status == ds.STATUS_MISSING and "Secure" not in rows["1.1.6"].note
+    assert rows["1.1.8"].status == ds.STATUS_LOCKED and "Secure" in rows["1.1.8"].note
+    assert rows["1.1.9"].status == ds.STATUS_EXTRA
+    assert (rows["1.1.9"].manufacturer, rows["1.1.9"].application) == ("Feller", "1022-05")
+    assert rows["1.1.250"].status == ds.STATUS_OWN
+    assert ds.summary(list(rows.values())) == (
+        "1 stimmt, 3 abweichend, 1 nicht im Projekt, 1 Daten gesperrt, 2 antwortet nicht")
+    # ohne Projekt: alles Gefundene ist neu
+    assert {r.status for r in ds.compare(None, found[:1], [(1, 1)])} == {ds.STATUS_EXTRA}
+
+
+def test_export_csv(tmp_path):
+    rows = ds.compare(_project([_device("1.1.1")]), [], [(1, 1)])
+    path = tmp_path / "t.csv"
+    assert ds.export_csv(rows, str(path)) == 1
+    text = path.read_text(encoding="utf-8-sig")
+    assert text.splitlines()[0].startswith("Adresse;Ergebnis") and "antwortet nicht" in text
+
+
+# ── Suche über einen Schein-Tunnelserver ───────────────────────────────────
+
+# simulierte Geräte auf Linie 1.1
+_DEVICES = {
+    "1.1.5": {"mask": 0x07B0, "props": {
+        (0, 12): bytes.fromhex("0002"), (0, 11): bytes.fromhex("000211223344"),
+        (0, 78): bytes.fromhex("000000000047"), (0, 15): b"GH Q631\x00\x00\x00",
+        (3, 1): bytes.fromhex("0003"), (3, 13): bytes.fromhex("0002470111")}},
+    "1.1.7": {"mask": 0x0012, "memory": {0x0104: bytes.fromhex("1E102205")}},
+    "1.1.9": {"mask": 0x07B0, "props": {}},          # gibt nichts preis
+    "1.1.11": {"silent": True},                      # quittiert, antwortet nie
+}
+
+
+def _device_tunnel_server(sock, stop, log):
+    """Tunnelserver mit Geräten: L_Data.con negativ für Adressen ohne Gerät
+    (niemand quittiert), sonst Transportschicht wie ein Gerät (T_ACK,
+    Antwort mit eigener Folgenummer)."""
+    from xknx.cemi import CEMIFrame, CEMILData, CEMIMessageCode
+    from xknx.knxip import (
+        HPAI, ConnectionStateResponse, ConnectResponse, ConnectResponseData,
+        DisconnectResponse, KNXIPFrame, KNXIPServiceType, TunnellingAck, TunnellingRequest,
+    )
+    from xknx.telegram import Telegram, TelegramDirection
+    from xknx.telegram import apci
+    from xknx.telegram.address import IndividualAddress
+    from xknx.telegram.tpci import TAck, TDataConnected
+
+    client, counter = None, 0
+    sequence: dict[str, int] = {}
+
+    def tunnel(raw: bytes) -> None:
+        nonlocal counter
+        sock.sendto(KNXIPFrame.init_from_body(TunnellingRequest(
+            communication_channel_id=7, sequence_counter=counter, raw_cemi=raw)).to_knx(),
+            client)
+        counter = (counter + 1) % 256
+
+    def send_from(device: str, tpci, payload=None) -> None:
+        telegram = Telegram(destination_address=IndividualAddress("1.1.250"),
+                            source_address=IndividualAddress(device),
+                            direction=TelegramDirection.INCOMING, tpci=tpci, payload=payload)
+        tunnel(CEMIFrame(code=CEMIMessageCode.L_DATA_IND,
+                         data=CEMILData.init_from_telegram(telegram)).to_knx())
+
+    def answer(device: str, request):
+        spec = _DEVICES[device]
+        if isinstance(request, apci.DeviceDescriptorRead):
+            return apci.DeviceDescriptorResponse(descriptor=0, value=spec["mask"])
+        if isinstance(request, apci.PropertyValueRead):
+            data = spec.get("props", {}).get((request.object_index, request.property_id))
+            return apci.PropertyValueResponse(
+                object_index=request.object_index, property_id=request.property_id,
+                count=1 if data else 0, start_index=request.start_index, data=data or b"")
+        if isinstance(request, apci.MemoryRead):
+            data = spec.get("memory", {}).get(request.address, b"")
+            return apci.MemoryResponse(address=request.address, data=data[:request.count])
+        return None
+
+    while not stop.is_set():
+        try:
+            data, addr = sock.recvfrom(1024)
+        except socket.timeout:
+            continue
+        frame, _ = KNXIPFrame.from_knx(data)
+        service = frame.header.service_type_ident
+        if service == KNXIPServiceType.CONNECT_REQUEST:
+            client = (addr[0], frame.body.data_endpoint.port or addr[1])
+            sock.sendto(KNXIPFrame.init_from_body(ConnectResponse(
+                communication_channel=7, data_endpoint=HPAI("127.0.0.1", sock.getsockname()[1]),
+                crd=ConnectResponseData(individual_address=IndividualAddress("1.1.250")),
+            )).to_knx(), client)
+        elif service == KNXIPServiceType.TUNNELLING_REQUEST:
+            sock.sendto(KNXIPFrame.init_from_body(TunnellingAck(
+                communication_channel_id=7,
+                sequence_counter=frame.body.sequence_counter)).to_knx(), addr)
+            raw = bytes(frame.body.raw_cemi)
+            telegram = CEMIFrame.from_knx(raw).data.telegram()
+            target = str(telegram.destination_address)
+            log.append((target, type(telegram.tpci).__name__,
+                        type(telegram.payload).__name__ if telegram.payload else ""))
+            confirm = bytearray(raw)
+            confirm[0] = 0x2E
+            if target not in _DEVICES:
+                confirm[2] |= 0x01                     # L_Data.con negativ
+            tunnel(bytes(confirm))
+            spec = _DEVICES.get(target)
+            if spec is None or spec.get("silent") or not isinstance(telegram.tpci,
+                                                                     TDataConnected):
+                continue
+            send_from(target, TAck(sequence_number=telegram.tpci.sequence_number))
+            response = answer(target, telegram.payload)
+            if response is not None:
+                number = sequence.get(target, 0)
+                sequence[target] = (number + 1) % 16
+                send_from(target, TDataConnected(sequence_number=number), response)
+        elif service == KNXIPServiceType.CONNECTIONSTATE_REQUEST:
+            sock.sendto(KNXIPFrame.init_from_body(
+                ConnectionStateResponse(communication_channel_id=7)).to_knx(), addr)
+        elif service == KNXIPServiceType.DISCONNECT_REQUEST:
+            sock.sendto(KNXIPFrame.init_from_body(
+                DisconnectResponse(communication_channel_id=7)).to_knx(), addr)
+
+
+def test_scan_over_tunnel():
+    from tests.test_bus_send import _wait
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(0.1)
+    stop, log = threading.Event(), []
+    server = threading.Thread(target=_device_tunnel_server, args=(sock, stop, log),
+                              daemon=True)
+    server.start()
+    connection = BusConnection(lambda t: None, lambda s, t: None)
+    with pytest.raises(BusSendError, match="Nicht verbunden"):
+        connection.run_on_bus(lambda x: None)
+    progress, found = [], []
+    try:
+        connection.start(ConnectionSettings(kind=TUNNEL_UDP, host="127.0.0.1",
+                                            port=sock.getsockname()[1]), Secrets())
+        assert _wait(lambda: connection.connected)
+        assert connection.can_access_devices
+        future = connection.run_on_bus(lambda x: ds.scan_line(
+            x, [(1, 1)], on_progress=progress.append, on_found=found.append,
+            addresses=[3, 5, 7, 9, 11, 250], timeout=1.0))
+        findings = future.result(timeout=60)
+    finally:
+        connection.stop()
+        stop.set()
+        server.join(2)
+        sock.close()
+    by_address = {f.address: f for f in findings}
+    assert set(by_address) == {"1.1.5", "1.1.7", "1.1.9", "1.1.250"}
+    system_b = by_address["1.1.5"]
+    assert (system_b.mask, system_b.manufacturer_id, system_b.serial_number,
+            system_b.program, system_b.order_info) == (
+        0x07B0, "M-0002", "0002:11223344", "4701-11", "GH Q631")
+    assert system_b.hardware_type == "000000000047"
+    bcu1 = by_address["1.1.7"]
+    assert (bcu1.manufacturer_id, bcu1.program) == ("M-001E", "1022-05")
+    assert by_address["1.1.9"].locked and by_address["1.1.9"].errors
+    assert by_address["1.1.250"].own
+    assert progress[-1].done == 6 and progress[-1].found == 4 and len(found) == 4
+    # nur gelesen: an die Geräte ging nichts Schreibendes
+    written = {p for _t, _tp, p in log if "Write" in p}
+    assert not written
+    # Verbindungen sauber abgebaut
+    assert ("1.1.5", "TDisconnect", "") in log
+
+
+def test_usb_does_not_scan():
+    connection = BusConnection(lambda t: None, lambda s, t: None)
+    connection.connected = True
+    connection._settings = ConnectionSettings(kind="usb")
+    assert not connection.can_access_devices
+    with pytest.raises(BusSendError, match="USB"):
+        connection.run_on_bus(lambda x: None)
+
+
+# ── Ansicht ────────────────────────────────────────────────────────────────
+
+def test_view_without_connection_and_with_rows():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QObject, Signal
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from knix_arranger.ui.views.device_scan_view import FILTER_PROBLEMS, DeviceScanView
+
+    class Monitor(QObject):
+        state_changed = Signal(str)
+        can_access_devices = False
+        listening = False
+        connection_label = ""
+
+    view = DeviceScanView()
+    monitor = Monitor()
+    view.set_bus_monitor(monitor)
+    project = _project([_device("1.1.1"), _device("1.2.4")])
+    project.name = "Test"
+    view.set_project(project)
+    assert view._lines_edit.text() == "1.1, 1.2"
+    assert not view._start_btn.isEnabled() and "Nicht verbunden" in view._connection.text()
+    monitor.can_access_devices, monitor.connection_label = True, "Tunnel 1.2.3.4"
+    monitor.state_changed.emit("connected")
+    assert view._start_btn.isEnabled() and "Tunnel" in view._connection.text()
+    # Ergebnis wie nach einer Suche
+    view._lines = [(1, 1), (1, 2)]
+    view._findings = [ds.ScanFinding("1.1.1", True, 0x07B0, "M-0002", program="4701-11")]
+    view._compare()
+    assert view._table.rowCount() == 2 and "1 stimmt" in view._summary.text()
+    view._filter.setCurrentIndex(view._filter.findData(FILTER_PROBLEMS))
+    assert view._table.rowCount() == 1 and view._table.item(0, 0).text() == "1.2.4"

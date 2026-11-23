@@ -489,6 +489,11 @@ class MainWindow(QMainWindow):
             lambda text: self._status_bar.showMessage(text, 15000))
         # Funktionstest aus der Checkliste über dieselbe Verbindung (FA-3104)
         self._commissioning_view.bus_monitor = self._live_monitor_view
+        # Teilnehmer suchen (FA-3108) über dieselbe Verbindung
+        from .views.device_scan_view import DeviceScanView
+        self._device_scan_view = DeviceScanView()
+        self._device_scan_view.set_bus_monitor(self._live_monitor_view)
+        self._device_scan_view.navigate_requested.connect(self._navigate_from_overview)
         self._changelog_view.changed.connect(
             lambda: self._bus.any_change.emit("changelog")
         )
@@ -525,6 +530,7 @@ class MainWindow(QMainWindow):
             "renovation": self._renovation_view,
             "bus_analysis": self._bus_analysis_view,
             "live_monitor": self._live_monitor_view,
+            "device_scan": self._device_scan_view,
             "plant_check": self._plant_check_view,
             "help": self._help_view,
             "wizard": self._wizard_widget,
@@ -721,6 +727,7 @@ class MainWindow(QMainWindow):
             "renovation": self._renovation_view,
             "bus_analysis": self._bus_analysis_view,
             "live_monitor": self._live_monitor_view,
+            "device_scan": self._device_scan_view,
             "plant_check": self._plant_check_view,
         }
         refreshers = {key: (lambda v=view: v.set_project(p)) for key, view in views.items()}
@@ -3149,4 +3156,5 @@ class MainWindow(QMainWindow):
         else:
             event.accept()
         if event.isAccepted():
+            self._device_scan_view.shutdown()    # laufende Suche beenden
             self._live_monitor_view.shutdown()   # Busverbindung trennen

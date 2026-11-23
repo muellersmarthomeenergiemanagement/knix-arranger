@@ -1,0 +1,308 @@
+"""
+Teilnehmer suchen (FA-3108): Linien der Anlage über die Verbindung des
+Live-Monitors absuchen und das Gefundene mit dem Projekt vergleichen.
+Nur lesend (services/device_scan).
+"""
+from __future__ import annotations
+
+import threading
+
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar,
+    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+)
+
+from ...services import device_scan as ds
+from ...services.bus_access import BusSendError
+from ..styles import COLOR_ERROR, COLOR_INFO, COLOR_OK, COLOR_WARNING, TEXT_MUTED
+
+_STATUS_COLORS = {
+    ds.STATUS_OK: COLOR_OK,
+    ds.STATUS_DIFFERENT: COLOR_WARNING,
+    ds.STATUS_EXTRA: COLOR_INFO,
+    ds.STATUS_LOCKED: "#6A1B9A",
+    ds.STATUS_MISSING: COLOR_ERROR,
+    ds.STATUS_OWN: TEXT_MUTED,
+}
+
+FILTER_ALL = "all"
+FILTER_PROBLEMS = "problems"
+
+
+class _Bridge(QObject):
+    """Rückrufe aus dem Loop der Busverbindung in den Hauptthread."""
+    progress = Signal(object)
+    found = Signal(object)
+    finished = Signal(object, str)
+
+
+class DeviceScanView(QWidget):
+    navigate_requested = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._project = None
+        # Live-Monitor: hält die Verbindung (setzt das Hauptfenster)
+        self.bus_monitor = None
+        self._findings: list[ds.ScanFinding] = []
+        self._lines: list[tuple[int, int]] = []
+        self._rows: list[ds.ScanRow] = []
+        self._future = None
+        self._stop: threading.Event | None = None
+        self._bridge = _Bridge()
+        self._bridge.progress.connect(self._on_progress)
+        self._bridge.found.connect(self._on_found)
+        self._bridge.finished.connect(self._on_finished)
+
+        layout = QVBoxLayout(self)
+        title = QLabel("Teilnehmer suchen")
+        title.setObjectName("title")
+        layout.addWidget(title)
+        intro = QLabel(
+            "Sucht auf den angegebenen Linien jede physikalische Adresse (0–255) ab und "
+            "liest von den Geräten, die antworten, Hersteller, Seriennummer, Bestellnummer "
+            "und Applikation. Nur lesend: an den Geräten ändert sich nichts. Das Ergebnis "
+            "wird mit dem Projekt verglichen. Secure-Geräte geben ohne Schlüssel meist "
+            "keine Daten preis. Dauer: rund 3 Minuten je Linie.")
+        intro.setWordWrap(True)
+        intro.setStyleSheet(f"color: {TEXT_MUTED};")
+        layout.addWidget(intro)
+
+        connection = QHBoxLayout()
+        self._connection = QLabel()
+        self._monitor_btn = QPushButton("Zum Live-Monitor")
+        self._monitor_btn.setObjectName("secondary")
+        self._monitor_btn.setToolTip("Verbunden wird im Live-Monitor (KNXnet/IP-Tunnel)")
+        self._monitor_btn.clicked.connect(lambda: self.navigate_requested.emit("live_monitor"))
+        connection.addWidget(self._connection, 1)
+        connection.addWidget(self._monitor_btn)
+        layout.addLayout(connection)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Linien:"))
+        self._lines_edit = QLineEdit()
+        self._lines_edit.setPlaceholderText("z.B. 1.1, 1.2")
+        self._lines_edit.setToolTip("Bereich.Linie, mehrere mit Komma")
+        self._lines_edit.returnPressed.connect(self._start)
+        self._start_btn = QPushButton("Suchen")
+        self._start_btn.clicked.connect(self._start)
+        self._stop_btn = QPushButton("Abbrechen")
+        self._stop_btn.setObjectName("secondary")
+        self._stop_btn.clicked.connect(self._cancel)
+        self._progress = QProgressBar()
+        self._progress.setTextVisible(True)
+        self._progress.hide()
+        row.addWidget(self._lines_edit, 1)
+        row.addWidget(self._start_btn)
+        row.addWidget(self._stop_btn)
+        row.addWidget(self._progress, 1)
+        layout.addLayout(row)
+
+        filters = QHBoxLayout()
+        self._filter = QComboBox()
+        self._filter.addItem("Alle Geräte", FILTER_ALL)
+        self._filter.addItem("Nur Abweichungen", FILTER_PROBLEMS)
+        self._filter.currentIndexChanged.connect(self._fill_table)
+        self._summary = QLabel()
+        self._summary.setStyleSheet(f"color: {TEXT_MUTED};")
+        self._export_btn = QPushButton("Als CSV speichern…")
+        self._export_btn.setObjectName("secondary")
+        self._export_btn.clicked.connect(self._export)
+        filters.addWidget(self._filter)
+        filters.addWidget(self._summary, 1)
+        filters.addWidget(self._export_btn)
+        layout.addLayout(filters)
+
+        self._table = QTableWidget(0, len(ds.COLUMNS))
+        self._table.setHorizontalHeaderLabels(ds.COLUMNS)
+        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectRows)
+        self._table.setAlternatingRowColors(True)
+        self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(22)
+        self._table.horizontalHeader().setStretchLastSection(True)
+        # Hinweis (letzte Spalte) nimmt den Rest der Breite
+        for column, width in enumerate((60, 110, 85, 200, 180, 125, 100)):
+            self._table.setColumnWidth(column, width)
+        layout.addWidget(self._table, 1)
+        from ..column_utils import EmptyHint
+        self._hint = EmptyHint(
+            self._table,
+            "Noch keine Suche. Im Live-Monitor über KNXnet/IP verbinden, Linien angeben "
+            "und «Suchen» wählen.")
+        self._update_controls()
+
+    # ── Projekt und Verbindung ───────────────────────────────────────────
+
+    def set_project(self, project) -> None:
+        if project is not self._project:
+            self._cancel()
+            self._findings, self._lines, self._rows = [], [], []
+            lines = ds.project_lines(project) if project is not None else []
+            self._lines_edit.setText(", ".join(ds.line_text(line) for line in lines))
+        self._project = project
+        self._compare()
+        self._update_controls()
+
+    def set_bus_monitor(self, monitor) -> None:
+        self.bus_monitor = monitor
+        monitor.state_changed.connect(lambda _state: self._update_controls())
+        self._update_controls()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._update_controls()
+
+    @property
+    def scanning(self) -> bool:
+        return self._future is not None
+
+    def _update_controls(self) -> None:
+        monitor = self.bus_monitor
+        usable = monitor is not None and monitor.can_access_devices
+        if usable:
+            self._connection.setText(f"Verbunden: {monitor.connection_label}")
+            self._connection.setStyleSheet(f"color: {COLOR_OK};")
+        elif monitor is not None and monitor.listening:
+            self._connection.setText("Über die USB-Schnittstelle sucht KNiX keine Teilnehmer – "
+                                     "im Live-Monitor über KNXnet/IP (Tunnel) verbinden.")
+            self._connection.setStyleSheet(f"color: {COLOR_WARNING};")
+        else:
+            self._connection.setText("Nicht verbunden – im Live-Monitor über KNXnet/IP "
+                                     "verbinden, dann hier suchen.")
+            self._connection.setStyleSheet(f"color: {TEXT_MUTED};")
+        self._monitor_btn.setVisible(not usable)
+        self._start_btn.setEnabled(usable and not self.scanning)
+        self._stop_btn.setEnabled(self.scanning)
+        self._lines_edit.setEnabled(not self.scanning)
+        self._export_btn.setEnabled(bool(self._rows))
+
+    # ── Suche ────────────────────────────────────────────────────────────
+
+    def _start(self) -> None:
+        if self.scanning or self.bus_monitor is None:
+            return
+        try:
+            lines = ds.parse_lines(self._lines_edit.text())
+        except ValueError as exc:
+            QMessageBox.information(self, "Teilnehmer suchen", str(exc))
+            return
+        stop = threading.Event()
+        bridge = self._bridge
+
+        def factory(xknx):
+            return ds.scan_line(xknx, lines, on_progress=bridge.progress.emit,
+                                on_found=bridge.found.emit, stop=stop)
+        try:
+            future = self.bus_monitor.run_on_bus(factory)
+        except BusSendError as exc:
+            QMessageBox.information(self, "Teilnehmer suchen", str(exc))
+            return
+        self._future, self._stop = future, stop
+        self._lines, self._findings = lines, []
+        self._compare()
+        self._progress.setRange(0, len(lines) * 256)
+        self._progress.setValue(0)
+        self._progress.setFormat("%v von %m Adressen")
+        self._progress.show()
+
+        def done(f) -> None:
+            if f.cancelled():
+                bridge.finished.emit(None, "abgebrochen")
+                return
+            exc = f.exception()
+            if exc is not None:
+                bridge.finished.emit(None, str(exc) or exc.__class__.__name__)
+            else:
+                bridge.finished.emit(f.result(), "")
+        future.add_done_callback(done)
+        self._update_controls()
+
+    def _cancel(self) -> None:
+        if self._stop is not None:
+            self._stop.set()     # laufende Anfragen enden nach ihrer Wartezeit
+
+    def _on_progress(self, progress: ds.ScanProgress) -> None:
+        if not self.scanning:
+            return
+        self._progress.setValue(progress.done)
+        self._summary.setText(f"Sucht {progress.address} … {progress.found} gefunden")
+
+    def _on_found(self, finding: ds.ScanFinding) -> None:
+        if not self.scanning:
+            return
+        self._findings.append(finding)
+        self._compare(final=False)
+
+    def _on_finished(self, findings, error: str) -> None:
+        stopped = self._stop is not None and self._stop.is_set()
+        self._future = self._stop = None
+        self._progress.hide()
+        if findings is not None:
+            self._findings = list(findings)
+        self._compare()
+        if error and error != "abgebrochen":
+            QMessageBox.warning(self, "Teilnehmer suchen",
+                                f"Suche nicht abgeschlossen: {error}")
+        elif stopped:
+            self._summary.setText(self._summary.text() + " – abgebrochen, Ergebnis unvollständig")
+        self._update_controls()
+
+    # ── Ergebnis ─────────────────────────────────────────────────────────
+
+    def _compare(self, final: bool = True) -> None:
+        if not self._lines:
+            self._rows = []
+        elif final:
+            self._rows = ds.compare(self._project, self._findings, self._lines)
+        else:
+            # während der Suche nur Gefundenes, «antwortet nicht» erst am Schluss
+            self._rows = [r for r in ds.compare(self._project, self._findings, self._lines)
+                          if r.status != ds.STATUS_MISSING]
+        if not self.scanning or final:
+            self._summary.setText(ds.summary(self._rows) if self._lines else "")
+        self._fill_table()
+
+    def _visible_rows(self) -> list[ds.ScanRow]:
+        if self._filter.currentData() == FILTER_PROBLEMS:
+            return [r for r in self._rows if r.status not in (ds.STATUS_OK, ds.STATUS_OWN)]
+        return self._rows
+
+    def _fill_table(self) -> None:
+        rows = self._visible_rows()
+        self._table.setRowCount(len(rows))
+        for index, row in enumerate(rows):
+            color = QColor(_STATUS_COLORS.get(row.status, TEXT_MUTED))
+            for column, text in enumerate(row.cells()):
+                item = QTableWidgetItem(text)
+                if column == 1:
+                    item.setForeground(color)
+                if column == len(ds.COLUMNS) - 1:
+                    item.setToolTip(text)
+                self._table.setItem(index, column, item)
+            if row.finding is not None and row.finding.errors:
+                self._table.item(index, 1).setToolTip("Nicht lesbar: " + ", ".join(
+                    row.finding.errors[:6]))
+        self._export_btn.setEnabled(bool(self._rows))
+
+    def _export(self) -> None:
+        if not self._rows:
+            return
+        name = (self._project.name if self._project is not None else "Anlage") or "Anlage"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Teilnehmer als CSV speichern", f"{name}_Teilnehmer.csv", "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            count = ds.export_csv(self._rows, path)
+        except OSError as exc:
+            QMessageBox.warning(self, "Als CSV speichern", f"Nicht gespeichert: {exc}")
+            return
+        self._summary.setText(f"{count} Zeilen gespeichert: {path}")
+
+    def shutdown(self) -> None:
+        self._cancel()
+        if self._future is not None:
+            self._future.cancel()

@@ -121,6 +121,8 @@ class LiveMonitorView(QWidget):
     settings_changed = Signal()
     # Aufzeichnung als Mitschnitt in die Busanalyse übernommen
     recording_added = Signal()
+    # Zustand der Verbindung geändert (Teilnehmer suchen), Zustand
+    state_changed = Signal(str)
     # Meldungen zusätzlich hierhin (Statusleiste des Hauptfensters), Text
     message_sink = None
 
@@ -371,6 +373,7 @@ class LiveMonitorView(QWidget):
             for address, callback in self._reads.expired(float("inf")):
                 callback(f"{self._ga_text(address)}: keine Antwort – Verbindung getrennt.")
         self._update_controls()
+        self.state_changed.emit(state)
 
     def _update_controls(self) -> None:
         running = self._connection.running
@@ -509,6 +512,19 @@ class LiveMonitorView(QWidget):
     def listening(self) -> bool:
         """Verbunden, Telegramme kommen an (auch USB-Busmonitor)."""
         return bool(self._connection.connected)
+
+    @property
+    def can_access_devices(self) -> bool:
+        """Verbunden über KNXnet/IP: Teilnehmer suchen möglich (FA-3108)."""
+        return self._connection.can_access_devices
+
+    @property
+    def connection_label(self) -> str:
+        return self._connection_label if self.listening else ""
+
+    def run_on_bus(self, factory):
+        """Gerätezugriff über diese Verbindung (BusConnection.run_on_bus)."""
+        return self._connection.run_on_bus(factory)
 
     def _selected_address(self) -> str:
         index = self._table.currentIndex()

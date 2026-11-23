@@ -96,6 +96,7 @@ NAV_GROUPS: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("plant_check",    "Anlagen-Check",       "stethoscope"),
         ("bus_analysis",   "Busanalyse",          "activity"),
         ("live_monitor",   "Live-Monitor",        "plug-connected"),
+        ("device_scan",    "Teilnehmer suchen",   "radar-2"),
         ("renovation",     "Umbau-Varianten",     "hammer"),
     ]),
     ("Angebot", [
