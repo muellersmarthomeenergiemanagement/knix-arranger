@@ -136,10 +136,18 @@ class DeviceScanView(QWidget):
             "und KOs aus dem Katalog), gelesene GAs und Verknüpfungen dazu; bestehende "
             "Geräte und Verknüpfungen nur ergänzen, nie überschreiben")
         self._adopt_btn.clicked.connect(self._adopt)
+        self._meaning_btn = QPushButton("Bedeutung ergänzen…")
+        self._meaning_btn.setObjectName("secondary")
+        self._meaning_btn.setToolTip(
+            "Gelesene GAs mit vorläufigem Namen: Gewerk, Funktion und Name nach dem "
+            "Namensschema aus den KOs (z.B. «J_1.1.4_03 AUF/AB (Motor C)»), Mittelgruppen "
+            "nach Gewerk benennen, Szenen erkennen. Änderbar, mit Rückgängig.")
+        self._meaning_btn.clicked.connect(self._add_meaning)
         filters.addWidget(self._filter)
         filters.addWidget(self._summary, 1)
         filters.addWidget(self._export_btn)
         filters.addWidget(self._adopt_btn)
+        filters.addWidget(self._meaning_btn)
         layout.addLayout(filters)
 
         self._table = QTableWidget(0, len(ds.COLUMNS))
@@ -210,6 +218,12 @@ class DeviceScanView(QWidget):
         self._export_btn.setEnabled(bool(self._rows))
         self._adopt_btn.setEnabled(self._project is not None and not self.scanning
                                    and any(f.answered and not f.own for f in self._findings))
+        from ...services.ga_meaning import is_provisional
+        structure = getattr(self._project, "group_addresses", None)
+        self._meaning_btn.setEnabled(
+            structure is not None and not self.scanning
+            and any(is_provisional(ga) and ga.designation
+                    for ga in structure.all_addresses()))
 
     def set_bus(self, bus) -> None:
         self._bus = bus
@@ -464,7 +478,39 @@ class DeviceScanView(QWidget):
         message = result.text()
         if links is not None:
             message += "\n\n" + links.text()
+            if links.gas_added:
+                message += ("\n\nNächster Schritt: «Bedeutung ergänzen…» gibt den GAs Gewerk "
+                            "und Namen nach dem Namensschema.")
         QMessageBox.information(self, "Ins Projekt übernehmen", message)
+
+    def _add_meaning(self) -> None:
+        """Bedeutung der gelesenen GAs ergänzen (FA-3105b), mit Vorschau,
+        Rückfrage und Rückgängig."""
+        if self._project is None or self.scanning:
+            return
+        from ...services import ga_meaning
+        proposals = [m for m in ga_meaning.propose(self._project) if m.designation]
+        if not proposals:
+            QMessageBox.information(self, "Bedeutung ergänzen",
+                                    "Keine GAs mit vorläufigem Namen.")
+            return
+        sample = "\n".join(f"  {m.address}  {m.designation}" for m in proposals[:8])
+        counts = ga_meaning.Counter(m.gewerk or "SF" for m in proposals)
+        text = (f"{len(proposals)} GAs mit vorläufigem Namen bekommen Gewerk, Funktion und "
+                "einen Namen nach dem Namensschema – an Stelle des Raums steht vorerst die "
+                f"Geräteadresse. Beispiele:\n\n{sample}\n\nGewerke: "
+                + ", ".join(f"{c} {n}" for c, n in counts.most_common())
+                + "\n\nDazu: Mittelgruppen nach Gewerk benennen, Szenen erkennen. "
+                "Namen aus der ETS bleiben unverändert.")
+        if QMessageBox.question(self, "Bedeutung ergänzen", text) != QMessageBox.Yes:
+            return
+        if self._bus is not None:
+            self._bus.begin_change("Bedeutung der GAs ergänzt")
+        result = ga_meaning.apply(self._project, proposals)
+        if self._bus is not None:
+            self._bus.emit_addresses_changed()
+        self._update_controls()
+        QMessageBox.information(self, "Bedeutung ergänzen", result.text())
 
     def _export(self) -> None:
         if not self._rows:

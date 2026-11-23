@@ -1349,6 +1349,13 @@ def _ga_group(project, main: int, middle: int):
     return mg
 
 
+def clean_dpt(text: str) -> str:
+    """Ein DPT aus dem KO: manche Katalog-KOs führen mehrere («DPT-1
+    DPST-1-3»); der genaueste (DPST) gilt."""
+    tokens = re.findall(r"DPS?T-\d+(?:-\d+)?", text or "")
+    return next((t for t in tokens if t.startswith("DPST-")), tokens[0] if tokens else "")
+
+
 def _ga_name(project, address: str) -> tuple[str, str]:
     """Vorläufiger Name und DPT einer gelesenen GA aus dem KO, das sie
     empfängt (Aktor, Gateway), sonst dem ersten: «Ausgang A Schalten
@@ -1359,8 +1366,8 @@ def _ga_name(project, address: str) -> tuple[str, str]:
         for co in device.communication_objects:
             if address not in co.connected_gas:
                 continue
-            if (co.data_type or "").startswith(("DPST-", "DPT-")):
-                dpts.append(co.data_type)
+            if clean_dpt(co.data_type):
+                dpts.append(clean_dpt(co.data_type))
             rank = 0 if device.device_type in ("actor", "gateway") else 1
             if re.fullmatch(r"KO \d+", co.name or ""):
                 rank += 2          # ohne Produkt: Name eines Partners vorziehen
@@ -1371,7 +1378,7 @@ def _ga_name(project, address: str) -> tuple[str, str]:
     _rank, device, co = best
     text = " ".join(t for t in (co.name, co.object_function) if t) or f"KO {co.object_number}"
     # DPT des empfangenden KOs, sonst eines Partners (genauer: DPST vor DPT)
-    own = co.data_type if (co.data_type or "").startswith(("DPST-", "DPT-")) else ""
+    own = clean_dpt(co.data_type)
     dpt = own or next((d for d in dpts if d.startswith("DPST-")), "") or next(iter(dpts), "")
     if not dpt and (co.object_size or "").strip().lower() == "1 bit":
         dpt = "DPT-1"          # 1 Bit ist immer Hauptgruppe 1
