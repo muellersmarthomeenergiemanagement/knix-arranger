@@ -6,7 +6,7 @@ import os
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QGroupBox, QFormLayout, QPushButton, QRadioButton,
-    QButtonGroup,
+    QButtonGroup, QCheckBox,
 )
 from PySide6.QtCore import Qt
 
@@ -82,9 +82,25 @@ class NewProjectDialog(QDialog):
         self._variant_group.addButton(self._variant_b)
         variant_layout.addWidget(self._variant_a)
         variant_layout.addWidget(self._variant_b)
+        # Erklärung: die Wahl prägt alle Adressen (KNX Swiss Richtlinien)
+        variant_hint = QLabel(
+            "A: Rückmeldungen in derselben Mittelgruppe wie die Befehle, im Block "
+            "des Elements.\n"
+            "B: Rückmeldungen getrennt in den Mittelgruppen 6/7, unter derselben "
+            "Untergruppe wie ihr Befehl.\n"
+            "Änderbar im Wizard (Schritt 9), solange das Projekt nicht in die ETS "
+            "übertragen ist.")
+        variant_hint.setWordWrap(True)
+        variant_hint.setObjectName("hint")
+        variant_layout.addWidget(variant_hint)
 
         variant_group.setLayout(variant_layout)
         layout.addWidget(variant_group)
+
+        # Nächster Schritt: meist die Grundplanung im Wizard
+        self._start_wizard = QCheckBox("Danach den Wizard starten")
+        self._start_wizard.setChecked(True)
+        layout.addWidget(self._start_wizard)
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -138,6 +154,10 @@ class NewProjectDialog(QDialog):
     def template_key(self) -> str:
         btn = self._template_group.checkedButton()
         return btn.property("template_key") if btn else "empty"
+
+    @property
+    def start_wizard(self) -> bool:
+        return self._start_wizard.isChecked()
 
     @property
     def variant(self) -> str:

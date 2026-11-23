@@ -1,6 +1,6 @@
 # Pflichtenheft: KNX Arranger
 
-**Version:** 4.25
+**Version:** 4.26
 **Datum:** 23.11.2026
 **Projekt:** KNX Arranger
 **Rechteinhaber:** Michael Mueller SmartHome&EnergieManagement
@@ -119,6 +119,7 @@
 | 4.23 | 23.11.2026 | M. Mueller / Claude AI | Erkennung einer anderen Anlage auch bei Projekten ohne gemerkte ETS-Kennung: Vergleich mit den frueher eingelesenen .knxproj im Ordner Import/ (FA-527b) |
 | 4.24 | 23.11.2026 | M. Mueller / Claude AI | In KNiX bearbeitete Felder importierter GAs (Name, Beschreibung, DPT, Zentral, Funktion, Raum, Element, Reserve) als Korrektur statt still ueberschriebener ETS-Daten: bleiben bei jedem Einlesen, entfallen bei Nachfuehrung in der ETS, Abweichung zur ETS und Aufgabe in der ETS-Arbeitsliste; Adresse importierter GAs nur in der ETS aenderbar; Hinweis beim Anlegen neuer GAs, Neuaufbau nennt in KNiX angelegte GAs als Verlust (FA-616c) |
 | 4.25 | 23.11.2026 | M. Mueller / Claude AI | Neuaufbau behaelt die in KNiX geplanten Funktionen (Standard): Raum, Zone und Elemente ueber Raumnummer, Zonenname und Gewerk wiedererkannt, Funktions-GAs wieder eingesetzt; Funktionen ohne Raum entfallen mit Hinweis (FA-527) |
+| 4.26 | 23.11.2026 | M. Mueller / Claude AI | ETS6 Import oeffnet direkt die Dateiauswahl (FA-500a); Neues Projekt erklaert die Mittelgruppen-Variante und startet auf Wunsch den Wizard (FA-3404a); Wizard-Status: Raeume vollstaendig, wenn jede Zone einen Raum hat, Gruppenadressen, sobald erzeugt (FA-3211c) |
 | 4.01 | 05.11.2026 | M. Mueller / Claude AI | Busanalyse wertet die Quittungen aus (FA-640a): ACK, NAK, BUSY je Rahmen, Ziele mit Empfaenger ohne Quittung, Hinweis auf von der Schnittstelle nicht weitergegebene Quittungen (Chalet ueber ise Remote Access: 52 ACK, 51 Rahmen ohne aufgezeichnete Quittung und ohne Wiederholung); Ansicht Busanalyse filterbar (FA-640b); Werte nach DPT und Datenlaenge gegen DPT (FA-640c), Lesen ohne Antwort und mehrere Antwortende (FA-640d), mehrere Sender (FA-640e), Messpunkt aus dem Routing-Zaehler und Weiterleitung ohne Empfaenger (FA-640f, Chalet: Messpunkt Linie 1.1, 18 GAs der Revox in Linie 1.2 ohne Empfaenger in 1.1), Buslast je Minute (FA-640g), Vergleich zweier Mitschnitte (FA-640h) |
 | 4.00 | 03.11.2026 | M. Mueller / Claude AI | Erweiterung im Bestand (FA-642): Adressen in der Mittelgruppe der Anlage, Namen nach ihrem Schema oder KNX Swiss, freie Aktorkanaele, GA-Liste (CSV) fuer die ETS und Bericht; Arbeitsweg und Anlagen-Check nennen die Erweiterungen |
 | 3.79 | 29.10.2026 | M. Mueller / Claude AI | Datenpunkttyp je KO: .knxproj (aktive Variante, Aenderung am KO) und Topologie-Report (Anzeigenamen ueber die DPT-Tabelle des KNX-Stamms, auch "Haupttyp, Untertyp", mehrdeutige Namen nach Groesse) liefern die DPT-Kennung, aeltere Projekte werden beim Laden uebersetzt (FA-522a); Anzeige "1.008 Auf/Ab"; neue Pruefung FA-638 Untertyp mit anderer Bedeutung des Werts; KO-Vorschlag bevorzugt den gleichen Untertyp |
@@ -643,6 +644,7 @@ Der Planungsprozess folgt einem kausalen Datenfluss von der physischen Gebaeude-
 | ID | Anforderung |
 |----|-------------|
 | FA-500 | Das System muss folgende ETS6-Exportformate einlesen koennen: a) Gruppenadress-Export (CSV), b) Gruppenadress-Report (XLSX, FA-519b), c) Topologie-Report mit Zusatzwahl "Objekte" (XLSX) und d) Natives ETS-Projektformat (.knxproj). Fuer Gruppenadressen ist der XLSX-Report (b) das empfohlene Format, da er reichhaltigere Metadaten liefert als der CSV-Export (a); dieser bleibt aus Kompatibilitaetsgruenden weiterhin unterstuetzt. |
+| FA-500a | "ETS6 Import" (Seitenleiste, Menue, Willkommens-Dialog) oeffnet direkt die Dateiauswahl, Startordner `Import/` des Projekts; die Typ-Auswahl nennt die Formate .knxproj (vollstaendiger Import, empfohlen), XLSX-Reports und CSV. Der Dateityp folgt der Endung. |
 
 #### 3.5.2 CSV-Import (Gruppenadressen)
 
@@ -1803,6 +1805,7 @@ Ist das ETS-Projekt einer Anlage verloren, liefert Mithoeren allein kein Projekt
 |----|-------------|
 | FA-3211a | Die Schritt-Buttons im Wizard-Navigator muessen dynamische Tooltips anzeigen, die den aktuellen Bearbeitungsstatus des jeweiligen Schritts zusammenfassen. **(C)** |
 | FA-3211b | Beispielhafte Tooltip-Inhalte: Schritt 1: Anzahl Stockwerke; Schritt 2: Anzahl Zonen; Schritt 3: Anzahl Raeume; Schritt 5: Anzahl Gewerk-Zuweisungen; Schritt 7: Anzahl generierte GAs. **(C)** |
+| FA-3211c | Farbe der Schritt-Buttons: Schritt 3 (Raeume) vollstaendig, wenn jede Zone mindestens einen Raum hat, teilweise bei Zonen ohne Raum; Schritt 9 (Gruppenadressen) vollstaendig, sobald GAs erzeugt sind (bis 1.4.63 erst ab 2 Raeumen bzw. 10 GAs). Ob die GAs zu jeder Gewerk-Zuweisung passen, ist bei aelteren Projekten nicht ablesbar (GAs ohne Zuweisungs-Kennung); Schritt 9 erzeugt sie beim Betreten neu, wenn sich etwas aenderte. |
 
 ---
 
@@ -1906,6 +1909,7 @@ Ab Version 1.1.0 legt das System neue Projekte verbindlich in einem zentralen Ar
 | FA-3402b | Wird ein ETS-Projekt ohne offenes Projekt eingelesen, muss das System es nach dem Import sofort wie ein neues Projekt im Arbeitsverzeichnis ablegen (`{Arbeitsverzeichnis}/{Name}/{Name}.knxarr`, Name aus dem ETS-Projekt, sonst aus dem Dateinamen; besteht der Ordner schon, mit "(2)", "(3)" ...) und speichern, damit automatisches Speichern und "Projekt neu aus ETS aufbauen" sofort verfuegbar sind. Im Lesemodus ohne Lizenz (NFA-066) wird nicht abgelegt. |
 | FA-3403 | Der Projektname muss beim Anlegen bereinigt werden (unzulaessige Dateisystemzeichen entfernt) und auf Kollisionen mit bestehenden Projektordnern sowie auf reservierte Windows-Namen (z.B. CON, NUL, PRN) geprueft werden; bei einer Kollision oder einem reservierten Namen muss eine verstaendliche Fehlermeldung erscheinen. |
 | FA-3404 | Der Dialog "Neues Projekt erstellen" muss eine Live-Vorschau des resultierenden Projektordnerpfads anzeigen, die sich bei Eingabe des Projektnamens sofort aktualisiert. |
+| FA-3404a | Der Dialog "Neues Projekt erstellen" erklaert die Mittelgruppen-Variante (A: Rueckmeldungen in derselben Mittelgruppe im Block des Elements; B: Rueckmeldungen getrennt in den Mittelgruppen 6/7 unter derselben Untergruppe wie ihr Befehl; aenderbar in Schritt 9 bis zur Uebertragung in die ETS) und bietet "Danach den Wizard starten" (Standard: ein). Startet der Anwender den Wizard ohne offenes Projekt, legt er zuerst das Projekt an und oeffnet den Wizard genau einmal. |
 | FA-3405 | Berichte (FA-900) und Revisionspakete (FA-2101) muessen ohne erneute Ordnerauswahl automatisch in den Unterordnern `Berichte/` bzw. `Revisionen/` neben der `.knxarr`-Datei des aktuellen Projekts abgelegt werden. |
 | FA-3406 | Das Arbeitsverzeichnis muss nachtraeglich in den Einstellungen (Allgemein-Tab) geaendert werden koennen; die Aenderung wirkt sich nur auf zukuenftig neu angelegte Projekte aus. |
 | FA-3407 | Der Willkommens-Dialog muss eine Liste der zuletzt verwendeten Projekte als klickbare Eintraege anzeigen (Projektname als Beschriftung, vollstaendiger Pfad als Tooltip), ueber die ein Projekt direkt geoeffnet werden kann. |

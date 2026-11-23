@@ -44,7 +44,7 @@ from .views.bauherr_form_view import BauherrFormView
 from .views.changelog_view import ChangelogView
 from .dialogs.new_project_dialog import NewProjectDialog
 from .dialogs.about_dialog import AboutDialog
-from .dialogs.import_dialog import ImportDialog
+from .dialogs.import_dialog import choose_import_file
 from .dialogs.export_dialog import ExportDialog
 from .dialogs.settings_dialog import SettingsDialog
 from .dialogs.reports_dialog import ReportsDialog
@@ -174,7 +174,7 @@ class MainWindow(QMainWindow):
 
         new_action = QAction("&Neues Projekt", self)
         new_action.setShortcut(QKeySequence.New)
-        new_action.triggered.connect(self._new_project)
+        new_action.triggered.connect(lambda: self._new_project())   # ohne checked-Argument
         file_menu.addAction(new_action)
 
         open_action = QAction("&Öffnen...", self)
@@ -1221,7 +1221,9 @@ class MainWindow(QMainWindow):
 
     # -- Projekt-Aktionen --
 
-    def _new_project(self):
+    def _new_project(self, offer_wizard: bool = True):
+        """offer_wizard=False: der Aufrufer startet den Wizard selbst (Knopf
+        «Wizard» ohne offenes Projekt) -- sonst liefe er zweimal."""
         from ..services.project_service import ProjectService
 
         if not license_gate.save_allowed(self):  # NFA-066
@@ -1286,6 +1288,8 @@ class MainWindow(QMainWindow):
         )
         self._sidebar.select("overview")
         self._navigate("overview")
+        if offer_wizard and dialog.start_wizard:
+            self._start_wizard()
 
     def open_file(self, path: str):
         """Öffnet eine .knxarr-Datei direkt (z.B. per Doppelklick im Explorer)."""
@@ -1497,12 +1501,9 @@ class MainWindow(QMainWindow):
     def _import_file(self):
         """Importiert ETS6-Dateien: KNXPROJ, XLSX (Topologie/GA-Report) oder CSV."""
         from ..services import import_folder
-        dialog = ImportDialog(self, start_dir=import_folder.start_dir(self._project))
-        if not dialog.exec():
+        source, file_type = choose_import_file(self, import_folder.start_dir(self._project))
+        if not source:
             return
-
-        file_type = dialog.file_type
-        source = dialog.filepath
         self._new_import = ""
 
         if file_type == "knxproj":
@@ -2639,7 +2640,7 @@ class MainWindow(QMainWindow):
 
     def _start_wizard(self, start_step: int = 0, focus: tuple = ()):
         if not self._project:
-            self._new_project()
+            self._new_project(offer_wizard=False)
             if not self._project:
                 return
 

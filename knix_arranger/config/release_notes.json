@@ -2,6 +2,15 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.64",
+      "date": "2026-11-23",
+      "verbessert": [
+        "ETS6 Import öffnet direkt die Dateiauswahl – ohne Zwischendialog. Die Typ-Auswahl nennt .knxproj (empfohlen), die Excel-Reports und den CSV-Export.",
+        "Neues Projekt: Der Dialog erklärt die Mittelgruppen-Variante A/B und startet auf Wunsch gleich den Wizard («Danach den Wizard starten», vorgewählt).",
+        "Wizard: Schritt 3 (Räume) ist grün, sobald jede Zone einen Raum hat, Schritt 9 (Gruppenadressen), sobald GAs erzeugt sind – bisher erst ab zwei Räumen bzw. zehn GAs."
+      ]
+    },
+    {
       "version": "1.4.63",
       "date": "2026-11-23",
       "verbessert": [

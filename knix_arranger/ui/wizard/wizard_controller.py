@@ -417,9 +417,11 @@ class WizardController(QDialog):
                 if total == 0:
                     return "empty"
                 return "complete" if zones >= total else ("partial" if zones > 0 else "empty")
-            elif step_index == 2:    # Räume
-                n = len(p.all_rooms)
-                return "complete" if n >= 2 else ("partial" if n > 0 else "empty")
+            elif step_index == 2:    # Räume: jede Zone hat mindestens einen Raum
+                zones = [apt for f in p.all_floors for apt in f.apartments]
+                if not p.all_rooms:
+                    return "empty"
+                return "complete" if all(apt.rooms for apt in zones) else "partial"
             elif step_index == 3:    # Verteiler
                 n = sum(len(r.verteiler) for r in p.all_rooms)
                 return "complete" if n >= 1 else "empty"
@@ -453,9 +455,11 @@ class WizardController(QDialog):
                     for line in area.lines
                 )
                 return "complete" if devs >= 1 else "empty"
-            elif step_index == 8:    # Gruppenadressen
-                n = len(p.group_addresses.all_addresses())
-                return "complete" if n >= 10 else ("partial" if n > 0 else "empty")
+            elif step_index == 8:    # Gruppenadressen: erzeugt (vorher erst ab 10)
+                # Ob sie zu jeder Zuweisung passen, lässt sich bei älteren
+                # Projekten nicht ablesen (GAs ohne assignment_id) -- Schritt 9
+                # erzeugt sie beim Betreten ohnehin neu, wenn sich etwas änderte
+                return "complete" if p.group_addresses.all_addresses() else "empty"
             elif step_index == 9:    # Szenen
                 return "complete" if p.scenes else "partial"  # optional
             elif step_index == 10:   # Funktionszuordnung
