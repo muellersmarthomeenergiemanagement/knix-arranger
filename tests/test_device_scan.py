@@ -311,3 +311,147 @@ def test_view_without_connection_and_with_rows():
     assert view._table.rowCount() == 2 and "1 stimmt" in view._summary.text()
     view._filter.setCurrentIndex(view._filter.findData(FILTER_PROBLEMS))
     assert view._table.rowCount() == 1 and view._table.item(0, 0).text() == "1.2.4"
+
+
+# ── Ins Projekt übernehmen (FA-3108a) ──────────────────────────────────────
+
+class _Catalog:
+    """Katalog mit drei Produkten: eindeutig, zwei mit derselben Applikation."""
+
+    def __init__(self):
+        from knix_arranger.services.product_search_service import ProductSuggestion
+        cos = [{"number": 0, "name": "Ausgang A", "function_text": "Schalten",
+                "flags": "C-W---", "dpt": "DPST-1-1", "size": "1 Bit"}]
+        self.products = [
+            ProductSuggestion(manufacturer="ABB", manufacturer_id="M-0002",
+                              hw2prog_id="M-0002_H-1_HP-4701-11-952C",
+                              order_number="SA/S8.16.5", product_name="Schaltaktor 8-fach",
+                              category="actor", com_objects=cos, co_count=1),
+            ProductSuggestion(manufacturer="Feller", manufacturer_id="M-001E",
+                              application_program_id="M-001E_A-1022-05-AAAA",
+                              order_number="3401-4.FMI", product_name="EDIZIOdue 4-fach",
+                              category="sensor"),
+            ProductSuggestion(manufacturer="Feller", manufacturer_id="M-001E",
+                              application_program_id="M-001E_A-1022-05-AAAA",
+                              order_number="3401-8.FMI", product_name="EDIZIOdue 8-fach",
+                              category="sensor"),
+        ]
+
+    def search_all(self, query="", include_hidden=False):
+        return list(self.products)
+
+
+def test_match_product():
+    index = ds.catalog_index(_Catalog())
+    abb = ds.ScanFinding("1.1.5", True, manufacturer_id="M-0002", program="4701-11")
+    prod, unsure = ds.match_product(index, abb)
+    assert prod.order_number == "SA/S8.16.5" and not unsure
+    # gelesene Bestellnummer passt nicht zum einzigen Produkt: prüfen
+    abb.order_info = "GH Q631 0074"
+    assert ds.match_product(index, abb)[1]
+    # unlesbare Bestellnummer (Hex) zählt nicht
+    abb.order_info = "00112233445566778899"
+    assert not ds.match_product(index, abb)[1]
+    feller = ds.ScanFinding("1.1.7", True, manufacturer_id="M-001E", program="1022-05",
+                            order_info="3401-8.FMI")
+    prod, unsure = ds.match_product(index, feller)
+    assert prod.product_name == "EDIZIOdue 8-fach" and not unsure
+    feller.order_info = ""
+    assert ds.match_product(index, feller)[1]                      # mehrdeutig
+    assert ds.match_product(index, ds.ScanFinding("1.1.9", True, manufacturer_id="M-0002",
+                                                  program="9999-01")) == (None, False)
+
+
+def test_adopt_into_empty_project(tmp_path):
+    from knix_arranger.models.project import KnxProject
+    project = KnxProject()
+    findings = [
+        ds.ScanFinding("1.1.0", True, 0x091A, "M-0002", program="", order_info="LK"),
+        ds.ScanFinding("1.1.5", True, 0x07B0, "M-0002", "0002:11223344", program="4701-11",
+                       program_manufacturer="M-0002"),
+        ds.ScanFinding("1.1.7", True, 0x0012, "M-001E", program="1022-05"),
+        ds.ScanFinding("1.2.3", True, 0x07B0, "M-00C9", program="0101-10"),
+        ds.ScanFinding("1.1.9", True, 0x07B0),                     # gesperrt
+        ds.ScanFinding("1.1.250", True, own=True),                 # eigene Adresse
+        ds.ScanFinding("1.1.11", False),
+    ]
+    result = ds.adopt_findings(project, findings, _Catalog())
+    assert result.added == ["1.1.0", "1.1.5", "1.1.7", "1.1.9", "1.2.3"]
+    assert result.lines_added == ["1.1", "1.2"]
+    assert result.with_product == ["1.1.5", "1.1.7"] and result.ambiguous == ["1.1.7"]
+    assert result.without_product == ["1.1.0", "1.2.3"] and result.locked == ["1.1.9"]
+    assert project.topology.is_imported
+    devices = {d.physical_address: d for d in ds.project_devices(project)}
+    actor = devices["1.1.5"]
+    assert (actor.manufacturer, actor.order_number, actor.product, actor.device_type,
+            actor.serial_number, actor.is_programmed) == (
+        "ABB", "SA/S8.16.5", "Schaltaktor 8-fach", "actor", "0002:11223344", True)
+    assert [co.name for co in actor.communication_objects] == ["Ausgang A"]
+    assert devices["1.1.0"].device_type == "coupler"
+    assert devices["1.1.9"].product.startswith("Unbekannt")
+    assert devices["1.2.3"].manufacturer == "Elsner"
+    assert "Herstellerdatei" in result.text() and "1.2.3" in result.text()
+    # gespeichert und wieder geladen: der Vergleich stimmt
+    path = tmp_path / "rek.knxarr"
+    project.save(str(path))
+    again = KnxProject.load(str(path))
+    rows = {r.address: r.status for r in ds.compare(again, findings, [(1, 1), (1, 2)])}
+    assert rows["1.1.5"] == ds.STATUS_OK and rows["1.1.9"] == ds.STATUS_LOCKED
+
+
+def test_adopt_completes_but_never_overwrites():
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.models.topology import Area, Device, Line
+    project = KnxProject()
+    kept = Device(physical_address="1.1.5", manufacturer="MDT", manufacturer_id="M-0083",
+                  order_number="AKS-0816", hw2prog_id="M-0083_H-1_HP-0001-01-AAAA",
+                  serial_number="0083:00000001")
+    empty = Device(physical_address="1.1.6")
+    project.topology.areas.append(Area(area_number=1, lines=[
+        Line(line_number=1, devices=[kept, empty])]))
+    findings = [
+        ds.ScanFinding("1.1.5", True, 0x07B0, "M-0002", "0002:11223344", program="4701-11"),
+        ds.ScanFinding("1.1.6", True, 0x07B0, "M-0002", "0002:55667788", program="4701-11"),
+    ]
+    result = ds.adopt_findings(project, findings, _Catalog())
+    assert result.added == [] and result.completed == ["1.1.6"]
+    assert (kept.order_number, kept.serial_number) == ("AKS-0816", "0083:00000001")
+    assert (empty.order_number, empty.serial_number) == ("SA/S8.16.5", "0002:55667788")
+    assert not project.topology.is_imported          # war nicht leer
+
+
+def test_view_adopts_with_confirmation(monkeypatch):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    QApplication.instance() or QApplication([])
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.ui.views.device_scan_view import DeviceScanView
+    asked, shown, adopted = [], [], []
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or QMessageBox.Yes)
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
+    view = DeviceScanView()
+    view.catalog = _Catalog()
+    view.adopted.connect(lambda: adopted.append(True))
+    project = KnxProject()
+    view.set_project(project)
+    assert not view._adopt_btn.isEnabled()
+    view._lines = [(1, 1)]
+    view._findings = [ds.ScanFinding("1.1.5", True, 0x07B0, "M-0002", program="4701-11")]
+    view._compare()
+    view._update_controls()
+    assert view._adopt_btn.isEnabled()
+    view._adopt_btn.click()
+    assert "1 Geräte neu anlegen" in asked[0] and "bestehende Anlage" in asked[0]
+    assert adopted and "1 Geräte angelegt" in shown[0]
+    assert view._rows[0].status == ds.STATUS_OK
+
+
+def test_adopt_switches_to_256_participants():
+    from knix_arranger.models.project import KnxProject
+    project = KnxProject()
+    project.topology.topology_mode = "TP-64"
+    ds.adopt_findings(project, [ds.ScanFinding("1.1.5", True, 0x07B0)], None)
+    assert project.topology.topology_mode == "TP-64"
+    ds.adopt_findings(project, [ds.ScanFinding("1.1.200", True, 0x07B0)], None)
+    assert project.topology.topology_mode == "TP-256"

@@ -494,6 +494,10 @@ class MainWindow(QMainWindow):
         self._device_scan_view = DeviceScanView()
         self._device_scan_view.set_bus_monitor(self._live_monitor_view)
         self._device_scan_view.navigate_requested.connect(self._navigate_from_overview)
+        # übernommene Geräte: leeres Projekt wird zur bestehenden Anlage
+        self._device_scan_view.adopted.connect(
+            lambda: self._project and self._sidebar.set_imported(
+                self._project.topology.is_imported))
         self._changelog_view.changed.connect(
             lambda: self._bus.any_change.emit("changelog")
         )
@@ -570,6 +574,7 @@ class MainWindow(QMainWindow):
         self._renovation_view.set_bus(self._bus)
         self._bus_analysis_view.set_bus(self._bus)
         self._live_monitor_view.set_bus(self._bus)
+        self._device_scan_view.set_bus(self._bus)
         # Matrix = Übersicht, bearbeitet wird in der Bauherrenberatung
         self._linking_matrix_view.open_in_bauherr.connect(self._open_in_bauherr)
 

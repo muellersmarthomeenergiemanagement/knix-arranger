@@ -40,10 +40,15 @@ class _Bridge(QObject):
 
 class DeviceScanView(QWidget):
     navigate_requested = Signal(str)
+    # Geräte ins Projekt übernommen (Topologie geändert)
+    adopted = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._project = None
+        self._bus = None
+        # Produktkatalog für die Übernahme (None = gemeinsamer Katalog)
+        self.catalog = None
         # Live-Monitor: hält die Verbindung (setzt das Hauptfenster)
         self.bus_monitor = None
         self._findings: list[ds.ScanFinding] = []
@@ -110,9 +115,15 @@ class DeviceScanView(QWidget):
         self._export_btn = QPushButton("Als CSV speichern…")
         self._export_btn.setObjectName("secondary")
         self._export_btn.clicked.connect(self._export)
+        self._adopt_btn = QPushButton("Ins Projekt übernehmen…")
+        self._adopt_btn.setToolTip(
+            "Gefundene Geräte im Projekt anlegen (Linien, Hersteller, Seriennummer, Produkt "
+            "und KOs aus dem Katalog); bestehende Geräte nur ergänzen, nie überschreiben")
+        self._adopt_btn.clicked.connect(self._adopt)
         filters.addWidget(self._filter)
         filters.addWidget(self._summary, 1)
         filters.addWidget(self._export_btn)
+        filters.addWidget(self._adopt_btn)
         layout.addLayout(filters)
 
         self._table = QTableWidget(0, len(ds.COLUMNS))
@@ -178,6 +189,11 @@ class DeviceScanView(QWidget):
         self._stop_btn.setEnabled(self.scanning)
         self._lines_edit.setEnabled(not self.scanning)
         self._export_btn.setEnabled(bool(self._rows))
+        self._adopt_btn.setEnabled(self._project is not None and not self.scanning
+                                   and any(f.answered and not f.own for f in self._findings))
+
+    def set_bus(self, bus) -> None:
+        self._bus = bus
 
     # ── Suche ────────────────────────────────────────────────────────────
 
@@ -286,6 +302,38 @@ class DeviceScanView(QWidget):
                 self._table.item(index, 1).setToolTip("Nicht lesbar: " + ", ".join(
                     row.finding.errors[:6]))
         self._export_btn.setEnabled(bool(self._rows))
+
+    def _adopt(self) -> None:
+        """Gefundene Geräte ins Projekt (FA-3108a), mit Rückfrage und Rückgängig."""
+        if self._project is None or self.scanning:
+            return
+        found = [f for f in self._findings if f.answered and not f.own]
+        existing = {d.physical_address for d in ds.project_devices(self._project)}
+        new = [f for f in found if f.address not in existing]
+        text = (f"{len(new)} Geräte neu anlegen, {len(found) - len(new)} bestehende "
+                "ergänzen (nur leere Seriennummer oder fehlendes Produkt).\n\n"
+                "Produkt und Kommunikationsobjekte kommen aus dem Produktkatalog, wenn die "
+                "gelesene Applikation dort steht. Bestehende Angaben werden nicht "
+                "überschrieben; Abweichungen bleiben in der Liste stehen.")
+        if not existing:
+            text += ("\n\nDas Projekt gilt danach als bestehende Anlage (wie aus der ETS "
+                     "eingelesen).")
+        if QMessageBox.question(self, "Ins Projekt übernehmen", text) != QMessageBox.Yes:
+            return
+        catalog = self.catalog
+        if catalog is None:
+            from ...services.product_sync import shared_catalog
+            catalog = shared_catalog()
+        if self._bus is not None:
+            self._bus.begin_change("Teilnehmer ins Projekt übernommen")
+        result = ds.adopt_findings(self._project, found, catalog)
+        if result.changed:
+            if self._bus is not None:
+                self._bus.emit_topology_changed()
+            self.adopted.emit()
+        self._compare()
+        self._update_controls()
+        QMessageBox.information(self, "Ins Projekt übernehmen", result.text())
 
     def _export(self) -> None:
         if not self._rows:

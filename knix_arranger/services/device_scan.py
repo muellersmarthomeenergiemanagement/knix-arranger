@@ -507,3 +507,222 @@ async def _close(management, target, conn) -> None:
     connections = getattr(management, "_connections", None)
     if isinstance(connections, dict):
         connections.pop(target, None)
+
+
+# ── Ins Projekt übernehmen (FA-3108a) ─────────────────────────────────────
+
+@dataclass
+class AdoptResult:
+    """Was «Ins Projekt übernehmen» getan hat (Adressen)."""
+    added: list[str] = field(default_factory=list)
+    completed: list[str] = field(default_factory=list)
+    with_product: list[str] = field(default_factory=list)
+    without_product: list[str] = field(default_factory=list)
+    ambiguous: list[str] = field(default_factory=list)
+    locked: list[str] = field(default_factory=list)
+    lines_added: list[str] = field(default_factory=list)
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.added or self.completed)
+
+    def text(self) -> str:
+        parts = []
+        if self.added:
+            parts.append(f"{len(self.added)} Geräte angelegt")
+        if self.completed:
+            parts.append(f"{len(self.completed)} ergänzt (Seriennummer, Produkt)")
+        if self.lines_added:
+            parts.append("neue Linien " + ", ".join(self.lines_added))
+        lines = ["; ".join(parts) + "." if parts else "Nichts zu übernehmen."]
+        if self.with_product:
+            lines.append(f"{len(self.with_product)} mit Produkt und Kommunikationsobjekten "
+                         "aus dem Produktkatalog.")
+        if self.without_product:
+            lines.append(f"Ohne Produkt aus dem Katalog: {_short_list(self.without_product)} – "
+                         "Herstellerdatei (.knxprod) importieren, dann erneut übernehmen.")
+        if self.ambiguous:
+            lines.append("Produkt unsicher (Applikation passt, Bestellnummer nicht eindeutig): "
+                         f"{_short_list(self.ambiguous)} – in der Materialliste prüfen.")
+        if self.locked:
+            lines.append(f"Ohne Daten (Secure ohne Schlüssel?): {_short_list(self.locked)} – "
+                         "als Platzhalter angelegt.")
+        return "\n".join(lines)
+
+
+def _short_list(addresses: list[str], limit: int = 8) -> str:
+    shown = ", ".join(addresses[:limit])
+    more = len(addresses) - limit
+    return shown + (f" und {more} weitere" if more > 0 else "")
+
+
+def _program_key(prod) -> tuple[str, str] | None:
+    text = " ".join((getattr(prod, "hw2prog_id", "") or "",
+                     getattr(prod, "application_program_id", "") or ""))
+    match = re.search(r"_(?:HP|A)-([0-9A-Fa-f]{4})-([0-9A-Fa-f]{2})", text)
+    mfr = (getattr(prod, "manufacturer_id", "") or "").upper()
+    if not match or not mfr:
+        return None
+    return mfr, f"{match.group(1).upper()}-{match.group(2).upper()}"
+
+
+def catalog_index(catalog) -> dict[tuple[str, str], list]:
+    """Katalogprodukte nach (Hersteller-ID, Applikation "4701-11")."""
+    index: dict[tuple[str, str], list] = {}
+    if catalog is None:
+        return index
+    for prod in catalog.search_all("", include_hidden=True):
+        key = _program_key(prod)
+        if key is not None:
+            index.setdefault(key, []).append(prod)
+    return index
+
+
+def match_product(index: dict, finding: ScanFinding):
+    """Katalogprodukt zur gelesenen Applikation: (Produkt, mehrdeutig).
+    Mehrere Geräte mit derselben Applikation: die Bestellnummer entscheidet,
+    sonst das erste mit Kommunikationsobjekten."""
+    from ..utils.manufacturers import normalize_order_number
+    mfr = (finding.program_manufacturer or finding.manufacturer_id or "").upper()
+    candidates = index.get((mfr, finding.program), []) if finding.program else []
+    if not candidates:
+        return None, False
+    # nicht als Text lesbare Bestellnummer (Hex) taugt nicht zum Vergleich
+    readable = not re.fullmatch(r"[0-9A-F]{16,}", finding.order_info or "")
+    order = normalize_order_number(finding.order_info) if readable else ""
+
+    def fits(prod) -> bool:
+        number = normalize_order_number(prod.order_number)
+        return bool(number) and (number in order or order in number)
+
+    if len({normalize_order_number(p.order_number) for p in candidates}) == 1:
+        # nur ein Produkt mit dieser Applikation; nennt das Gerät eine andere
+        # Bestellnummer (gleiche Applikation in anderer Hardware), prüfen
+        return candidates[0], bool(order) and not fits(candidates[0])
+    if order:
+        hits = [prod for prod in candidates if fits(prod)]
+        if len({normalize_order_number(p.order_number) for p in hits}) == 1:
+            return hits[0], False
+    with_cos = [p for p in candidates if getattr(p, "co_count", 0)]
+    return (with_cos or candidates)[0], True
+
+
+def _kind(prod, address: str) -> str:
+    if address.endswith(".0"):
+        return "coupler"
+    if prod is None:
+        return "other"
+    category = getattr(prod, "category", "")
+    if category in ("actor", "sensor"):
+        return category
+    text = f"{getattr(prod, 'device_type', '')} {getattr(prod, 'product_name', '')}".lower()
+    if "koppler" in text or "coupler" in text:
+        return "coupler"
+    if "gateway" in text or "schnittstelle" in text or "interface" in text:
+        return "gateway"
+    if "spannungsversorgung" in text or "netzteil" in text or "power supply" in text:
+        return "power_supply"
+    return "other"
+
+
+def _line_of(project, area_number: int, line_number: int, result: AdoptResult):
+    from ..models.topology import Area, Line
+    topology = project.topology
+    area = next((a for a in topology.areas if a.area_number == area_number), None)
+    if area is None:
+        area = Area(area_number=area_number, name=f"Bereich {area_number}")
+        topology.areas.append(area)
+        topology.areas.sort(key=lambda a: a.area_number)
+    line = next((ln for ln in area.lines if ln.line_number == line_number), None)
+    if line is None:
+        line = Line(line_number=line_number, name=f"Linie {line_number}",
+                    coupler_address=f"{area_number}.{line_number}.0" if line_number else "")
+        area.lines.append(line)
+        area.lines.sort(key=lambda ln: ln.line_number)
+        result.lines_added.append(f"{area_number}.{line_number}")
+    return line
+
+
+def _apply_product(device, prod) -> None:
+    from .product_capabilities import apply_catalog_product
+    apply_catalog_product(device, prod)
+    device.product = prod.product_name or device.product
+
+
+def adopt_findings(project, findings: list[ScanFinding], catalog=None) -> AdoptResult:
+    """Gefundene Geräte ins Projekt übernehmen: fehlende Bereiche, Linien und
+    Geräte anlegen (Hersteller, Seriennummer, Bestellnummer, Applikation;
+    Produkt und KOs aus dem Katalog, wenn die Applikation dort steht),
+    bestehende Geräte nur ergänzen (leere Seriennummer, fehlendes Produkt) –
+    nie überschreiben. Ein leeres Projekt gilt danach als bestehende Anlage
+    (Topologie importiert)."""
+    from ..models.topology import Device
+    result = AdoptResult()
+    existing = {d.physical_address: d for d in project_devices(project)}
+    was_empty = not existing
+    index = catalog_index(catalog)
+    for finding in sorted(findings, key=lambda f: _address_key(f.address)):
+        if not finding.answered or finding.own:
+            continue
+        parts = finding.address.split(".")
+        if len(parts) != 3 or not all(p.isdigit() for p in parts):
+            continue
+        prod, ambiguous = match_product(index, finding)
+        device = existing.get(finding.address)
+        if device is not None:
+            done = False
+            if finding.serial_number and not device.serial_number:
+                device.serial_number = finding.serial_number
+                done = True
+            same_mfr = (prod is None or not device.manufacturer_id
+                        or device.manufacturer_id.upper() == prod.manufacturer_id.upper())
+            if prod is not None and not device.hw2prog_id and same_mfr:
+                _apply_product(device, prod)
+                if device.device_type in ("", "other", "unknown"):
+                    device.device_type = _kind(prod, finding.address)
+                result.with_product.append(finding.address)
+                done = True
+            if done:
+                result.completed.append(finding.address)
+            continue
+        area_number, line_number, _ = (int(p) for p in parts)
+        line = _line_of(project, area_number, line_number, result)
+        mfr = finding.manufacturer_id or finding.program_manufacturer
+        device = Device(
+            physical_address=finding.address,
+            manufacturer_id=mfr,
+            manufacturer=_manufacturer_name(mfr),
+            serial_number=finding.serial_number,
+            order_number=finding.order_info,
+            application_program=f"Applikation {finding.program}" if finding.program else "",
+            device_type=_kind(prod, finding.address),
+            # die Adresse steht schon im Gerät
+            is_programmed=True,
+            manually_added=True,
+        )
+        if finding.locked or finding.refused:
+            device.product = "Unbekannt – Daten gesperrt"
+            result.locked.append(finding.address)
+        elif prod is not None:
+            _apply_product(device, prod)
+            result.with_product.append(finding.address)
+            if ambiguous:
+                result.ambiguous.append(finding.address)
+        else:
+            device.product = finding.order_info or (
+                f"{device.manufacturer} {finding.program}".strip())
+            result.without_product.append(finding.address)
+        line.devices.append(device)
+        line.devices.sort(key=lambda d: _address_key(d.physical_address))
+        if hasattr(line, "update_device_count"):
+            line.update_device_count()
+        existing[finding.address] = device
+        result.added.append(finding.address)
+    if was_empty and result.added:
+        project.topology.is_imported = True
+    # Teilnehmernummern über 63 gibt es nur mit Linien für 256 Teilnehmer:
+    # die Anlage hat sie, also nicht mit 64 rechnen (sonst «Linie voll»)
+    if any(int(a.rsplit(".", 1)[1]) > 63 for a in result.added) \
+            and project.topology.topology_mode == "TP-64":
+        project.topology.topology_mode = "TP-256"
+    return result
