@@ -1010,7 +1010,8 @@ def _uses_fixed_tables(mask: int | None) -> bool:
 
 
 async def read_links(xknx, address: str, mask: int | None,
-                     timeout: float = DETAIL_TIMEOUT) -> LinkTables:
+                     timeout: float = DETAIL_TIMEOUT,
+                     table_hint: int | None = None) -> LinkTables:
     """GA- und Zuordnungstabelle eines Geräts lesen (eigene Verbindung), dazu
     die Flags der verknüpften KOs aus der KO-Tabelle (FA-3108d)."""
     from xknx.telegram import IndividualAddress
@@ -1025,7 +1026,8 @@ async def read_links(xknx, address: str, mask: int | None,
         result = await _read_tables(management, target, address, mask, timeout, holder)
         if result.ok and result.links:
             try:
-                await _read_flags(holder["conn"], address, mask, result, timeout)
+                await _read_flags(holder["conn"], address, mask, result, timeout,
+                                  table_hint)
             except Exception as exc:
                 result.flags_error = _link_error(exc)
         return result
@@ -1147,7 +1149,7 @@ def _chunks(data: bytes, size: int) -> list[bytes]:
 
 
 async def _read_flags(conn, address: str, mask: int | None, result: LinkTables,
-                      timeout: float) -> None:
+                      timeout: float, table_hint: int | None = None) -> None:
     from xknx.management.procedures import dmp_interface_object_read_r
     linked = sorted(result.links)
     top = max(linked)
@@ -1189,6 +1191,20 @@ async def _read_flags(conn, address: str, mask: int | None, result: LinkTables,
         return any(take(f"{label} {start:#x} ({stride} Byte)", _chunks(data, stride))
                    for stride in strides)
 
+    # 0) Lage laut Herstellerdatei (so schreibt die ETS): Kopf 1-3 Byte
+    # (Anzahl, RAM-Zeiger 1 oder 2 Byte), je KO 3 Byte (BCU: Wert-Zeiger,
+    # Konfiguration, Typ), 4 Byte (System 7: Wert-Zeiger 2 Byte) oder 2 Byte
+    if table_hint is not None:
+        data = await _memory_tolerant(conn, table_hint, 3 + 4 * (top + 2), timeout)
+        system7 = mask is not None and mask & 0xFF00 == 0x0700
+        layouts = ([(3, 4), (2, 4), (2, 3), (1, 3), (2, 2)] if system7
+                   else [(2, 3), (1, 3), (3, 4), (2, 4), (2, 2)])
+        for header, stride in layouts:
+            if take(f"Herstellerdatei {table_hint:#x} ({header}+{stride} Byte)",
+                    _chunks(data[header:], stride)):
+                return
+        if not data:
+            notes.append(f"Herstellerdatei {table_hint:#x}: nicht lesbar")
     # 1) KO-Tabelle als Objekt (Typ 9): Eigenschaft PID_TABLE, sonst Lage
     if not _uses_fixed_tables(mask):
         index = None
@@ -1532,9 +1548,13 @@ async def read_all_links(xknx, findings: list[ScanFinding],
                          on_progress: Callable[[ScanProgress], None] | None = None,
                          on_read: Callable[[LinkTables], None] | None = None,
                          stop: threading.Event | None = None,
-                         timeout: float = DETAIL_TIMEOUT) -> list[LinkTables]:
+                         timeout: float = DETAIL_TIMEOUT,
+                         table_hints: dict[str, int] | None = None) -> list[LinkTables]:
     """Tabellen aller lesbaren Geräte nacheinander (eine Verbindung zur Zeit:
-    grosse Tabellen brauchen viele Anfragen, parallel bringt wenig)."""
+    grosse Tabellen brauchen viele Anfragen, parallel bringt wenig).
+    table_hints: Adresse -> Lage der KO-Tabelle laut Herstellerdatei
+    (object_table_hints, vorher ausserhalb des Bus-Loops ermittelt)."""
+    table_hints = table_hints or {}
     targets = [f for f in findings if readable_for_links(f)]
     results: list[LinkTables] = []
     quiet = _QuietManagement()
@@ -1544,7 +1564,8 @@ async def read_all_links(xknx, findings: list[ScanFinding],
         for done, finding in enumerate(targets, 1):
             if stop is not None and stop.is_set():
                 break
-            tables = await read_links(xknx, finding.address, finding.mask, timeout)
+            tables = await read_links(xknx, finding.address, finding.mask, timeout,
+                                      table_hints.get(finding.address))
             results.append(tables)
             if on_read is not None:
                 on_read(tables)
@@ -1554,6 +1575,26 @@ async def read_all_links(xknx, findings: list[ScanFinding],
     finally:
         management_log.removeFilter(quiet)
     return results
+
+
+def object_table_hints(findings: list[ScanFinding], project=None) -> dict[str, int]:
+    """Lage der KO-Tabelle je Gerät aus den Herstellerdateien (Hersteller und
+    Applikation aus der Suche, sonst aus dem Projekt). Liest Dateien –
+    ausserhalb des Bus-Loops aufrufen."""
+    from .knxprod_tables import object_table_address
+    devices = {d.physical_address: d for d in project_devices(project)} if project else {}
+    hints = {}
+    for finding in findings:
+        if not readable_for_links(finding) or _is_system_b(finding.mask):
+            continue
+        mfr = finding.program_manufacturer or finding.manufacturer_id
+        program = finding.program
+        if not program and finding.address in devices:
+            mfr, program = expected_program(devices[finding.address])
+        address = object_table_address(mfr, program)
+        if address is not None:
+            hints[finding.address] = address
+    return hints
 
 
 def readable_for_links(finding: ScanFinding) -> bool:

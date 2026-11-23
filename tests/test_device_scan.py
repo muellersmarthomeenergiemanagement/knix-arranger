@@ -964,3 +964,45 @@ def test_find_object_table_behind_reserved_associations():
     # Typbyte ungültig: keine Tabelle (kein Zufallstreffer)
     assert ds.find_object_table(bytes([3, 0]) + bytes.fromhex("205440" "211440" "224C40"),
                                 [0, 1]) is None
+
+
+def test_object_table_address_from_knxprod(tmp_path):
+    """Lage der KO-Tabelle aus der Herstellerdatei (Static/ComObjectTable)."""
+    import zipfile
+    from knix_arranger.services import knxprod_tables as kt
+    app = ('<ApplicationProgram Id="M-0002_A-4701-11-952C"><Static><Code>'
+           '<AbsoluteSegment Id="M-0002_A-4701-11-952C_AS-01AE" Address="430" Size="60"/>'
+           '</Code><ComObjectTable CodeSegment="M-0002_A-4701-11-952C_AS-01AE" Offset="2">'
+           '</ComObjectTable></Static></ApplicationProgram>')
+    path = tmp_path / "ABB (M-0002).knxprod"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("M-0002/M-0002_A-4701-11-952C.xml", app)
+    kt._CACHE.clear()
+    assert kt.object_table_address("M-0002", "4701-11", [str(path)]) == 432
+    assert kt.object_table_address("M-0002", "9999-01", [str(path)]) is None
+    # ohne Segment-Element: Adresse aus der Kennung
+    assert kt.table_address('<ComObjectTable CodeSegment="X_AS-4400" Offset="0">') == 0x4400
+    kt._CACHE.clear()
+
+
+def test_flags_at_knxprod_location_system7():
+    """System 7 mit 4-Byte-Einträgen (Wert-Zeiger 2 Byte) an der Lage aus der
+    Herstellerdatei."""
+    import asyncio
+
+    memory = bytes([2, 0x40, 0x00]) + bytes.fromhex("4500" "54" "00" "4501" "1C" "00")
+
+    class Conn:
+        pass
+
+    async def fake_tolerant(conn, start, size, timeout):
+        return memory[:size]
+
+    result = ds.LinkTables("1.1.10", ["1/0/1", "1/0/2"], {0: ["1/0/1"], 1: ["1/0/2"]})
+    original = ds._memory_tolerant
+    ds._memory_tolerant = fake_tolerant
+    try:
+        asyncio.run(ds._read_flags(Conn(), "1.1.10", 0x0701, result, 1.0, table_hint=0x4400))
+    finally:
+        ds._memory_tolerant = original
+    assert result.flags == {0: "K-SÜ--", 1: "KLS---"}, result.flags_error

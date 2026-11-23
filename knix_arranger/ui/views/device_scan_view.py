@@ -313,10 +313,21 @@ class DeviceScanView(QWidget):
             return
         stop = threading.Event()
         bridge = self._bridge
+        # Lage der KO-Tabellen aus den Herstellerdateien (liest Dateien,
+        # darum hier und nicht im Bus-Loop)
+        from PySide6.QtWidgets import QApplication
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            hints = ds.object_table_hints(targets, self._project)
+        except Exception:
+            hints = {}
+        finally:
+            QApplication.restoreOverrideCursor()
 
         def factory(xknx):
             return ds.read_all_links(xknx, targets, on_progress=bridge.progress.emit,
-                                     on_read=bridge.link_read.emit, stop=stop)
+                                     on_read=bridge.link_read.emit, stop=stop,
+                                     table_hints=hints)
         try:
             future = self.bus_monitor.run_on_bus(factory)
         except BusSendError as exc:
