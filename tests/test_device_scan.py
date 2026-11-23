@@ -126,10 +126,70 @@ _DEVICES = {
     "1.1.5": {"mask": 0x07B0, "props": {
         (0, 12): bytes.fromhex("0002"), (0, 11): bytes.fromhex("000211223344"),
         (0, 78): bytes.fromhex("000000000047"), (0, 15): b"GH Q631\x00\x00\x00",
-        (3, 1): bytes.fromhex("0003"), (3, 13): bytes.fromhex("0002470111")}},
-    "1.1.7": {"mask": 0x0012, "memory": {0x0104: bytes.fromhex("1E102205")}},
+        (3, 1): bytes.fromhex("0003"), (3, 13): bytes.fromhex("0002470111"),
+        # Tabellen-Objekte: Typ, geladen, Lage im Speicher
+        (1, 1): bytes.fromhex("0001"), (2, 1): bytes.fromhex("0002"),
+        (1, 5): bytes([1]), (2, 5): bytes([1]),
+        (1, 7): bytes.fromhex("00004000"), (2, 7): bytes.fromhex("00005000")},
+        "memory": {
+            # 3 GAs: 1/0/1, 1/0/2, 2/1/5 (ohne eigene Adresse)
+            0x4000: bytes.fromhex("0003" "0801" "0802" "1105"),
+            # KO 0 an 1/0/1 und 2/1/5, KO 4 an 1/0/2 (je TSAP, ASAP 2 Byte)
+            0x5000: bytes.fromhex("0003" "00010000" "00030000" "00020004")}},
+    "1.1.7": {"mask": 0x0012, "memory": {
+        0x0104: bytes.fromhex("1E102205"),
+        # Anzahl 3 inkl. eigener Adresse 1.1.7, GAs 1/0/1 und 1/0/3
+        0x0111: bytes([0x50]), 0x0116: bytes.fromhex("03" "1107" "0801" "0803"),
+        # KO 0 an 1/0/1, KO 1 an 1/0/3
+        0x0150: bytes.fromhex("02" "0100" "0201")}},
     "1.1.9": {"mask": 0x07B0, "props": {}},          # gibt nichts preis
     "1.1.11": {"silent": True},                      # quittiert, antwortet nie
+    # System B mit Tabellen über 0xFFFF (Elsner Salva 0x13000): erweitertes Lesen
+    "1.1.13": {"mask": 0x07B0, "props": {
+        (0, 12): bytes.fromhex("00C9"), (3, 1): bytes.fromhex("0003"),
+        (3, 13): bytes.fromhex("00C9010110"),
+        (1, 1): bytes.fromhex("0001"), (2, 1): bytes.fromhex("0002"),
+        (1, 5): bytes([1]), (2, 5): bytes([1]),
+        (1, 7): bytes.fromhex("00013000"), (2, 7): bytes.fromhex("00013100")},
+        "memory": {0x13000: bytes.fromhex("0002" "0801" "0A05"),
+                   0x13100: bytes.fromhex("0002" "00010002" "00020003")}},
+    # System 7 (ABB 0701): Lage laut Objekt passt nicht, Tabellen an der BCU-2-Lage;
+    # Hersteller 0000 (wie Theben HTS), Seriennummer aus Nullen
+    "1.1.15": {"mask": 0x0701, "props": {
+        (0, 12): bytes.fromhex("0000"), (0, 11): bytes.fromhex("000200000000"),
+        (3, 1): bytes.fromhex("0003"), (3, 13): bytes.fromhex("0002A00212"),
+        (1, 1): bytes.fromhex("0001"), (2, 1): bytes.fromhex("0002"),
+        (1, 5): bytes([1]), (2, 5): bytes([1]),
+        (1, 7): bytes.fromhex("00004000"), (2, 7): bytes.fromhex("00004100")},
+        "memory": {0x4000: bytes.fromhex("FFFF"),
+                   0x0111: bytes([0x60]), 0x0116: bytes.fromhex("02" "110F" "0803"),
+                   0x0160: bytes.fromhex("01" "0105")}},
+    # ABB 0701: Speicher gesperrt (0 Byte), Tabellen nur als Eigenschaft PID_TABLE
+    "1.1.19": {"mask": 0x0701, "memory_locked": True, "props": {
+        (0, 12): bytes.fromhex("0002"), (3, 1): bytes.fromhex("0003"),
+        (3, 13): bytes.fromhex("0002A00110"),
+        (1, 1): bytes.fromhex("0001"), (2, 1): bytes.fromhex("0002"),
+        (1, 5): bytes([1]), (2, 5): bytes([1]),
+        (1, 7): bytes.fromhex("00004000"), (2, 7): bytes.fromhex("00004100")},
+        # eigene Adresse 1.1.19, GAs 1/0/1, 1/0/2; Zuordnungen je 1 Byte
+        "tables": {1: [bytes.fromhex("1113"), bytes.fromhex("0801"), bytes.fromhex("0802")],
+                   2: [bytes.fromhex("0100"), bytes.fromhex("0203")]}},
+    # Elsner Salva: Tabellen über 0xFFFF, erweitertes Lesen bleibt ohne
+    # Antwort; Tabellen als Eigenschaft mit 4-Byte-Zuordnungen
+    "1.1.21": {"mask": 0x07B0, "no_extended": True, "props": {
+        (0, 12): bytes.fromhex("00C9"), (3, 1): bytes.fromhex("0003"),
+        (3, 13): bytes.fromhex("00C9020110"),
+        (1, 1): bytes.fromhex("0001"), (2, 1): bytes.fromhex("0002"),
+        (1, 5): bytes([1]), (2, 5): bytes([1]),
+        (1, 7): bytes.fromhex("00013000"), (2, 7): bytes.fromhex("00013100")},
+        "tables": {1: [bytes.fromhex("0A01")], 2: [bytes.fromhex("00010007")]}},
+    # schweigt beim ersten Mal (Buslast), antwortet beim zweiten Versuch
+    "1.1.23": {"mask": 0x07B0, "flaky": 1, "props": {(0, 12): bytes.fromhex("0083")}},
+    # Adresse vergeben, Applikation entladen
+    "1.1.17": {"mask": 0x0701, "props": {
+        (0, 12): bytes.fromhex("0000"), (0, 11): bytes.fromhex("FFFBFFFFFFFF"),
+        (1, 1): bytes.fromhex("0001"), (2, 1): bytes.fromhex("0002"),
+        (1, 5): bytes([2]), (2, 5): bytes([2])}},
 }
 
 
@@ -167,15 +227,43 @@ def _device_tunnel_server(sock, stop, log):
     def answer(device: str, request):
         spec = _DEVICES[device]
         if isinstance(request, apci.DeviceDescriptorRead):
+            if spec.get("flaky"):
+                spec["flaky"] -= 1
+                return None
             return apci.DeviceDescriptorResponse(descriptor=0, value=spec["mask"])
+        if isinstance(request, apci.PropertyValueRead) and request.property_id == 23 \
+                and request.object_index in spec.get("tables", {}):
+            elements = spec["tables"][request.object_index]
+            if request.start_index == 0:
+                data, count = len(elements).to_bytes(2, "big"), 1
+            else:
+                part = elements[request.start_index - 1:
+                                request.start_index - 1 + request.count]
+                data, count = b"".join(part), len(part)
+            return apci.PropertyValueResponse(
+                object_index=request.object_index, property_id=23, count=count,
+                start_index=request.start_index, data=data)
         if isinstance(request, apci.PropertyValueRead):
             data = spec.get("props", {}).get((request.object_index, request.property_id))
             return apci.PropertyValueResponse(
                 object_index=request.object_index, property_id=request.property_id,
                 count=1 if data else 0, start_index=request.start_index, data=data or b"")
-        if isinstance(request, apci.MemoryRead):
-            data = spec.get("memory", {}).get(request.address, b"")
-            return apci.MemoryResponse(address=request.address, data=data[:request.count])
+        if isinstance(request, (apci.MemoryRead, apci.MemoryExtendedRead)):
+            memory = {}
+            for start, block in spec.get("memory", {}).items():
+                for offset, value in enumerate(block):
+                    memory[start + offset] = value
+            data = bytes(memory.get(request.address + i, 0) for i in range(request.count))
+            if spec.get("memory_locked"):
+                return apci.MemoryResponse(address=request.address, data=b"")
+            if isinstance(request, apci.MemoryExtendedRead):
+                if spec.get("no_extended"):
+                    return None
+                return apci.MemoryExtendedReadResponse(return_code=0, address=request.address,
+                                                       data=data)
+            if request.address + request.count - 1 > 0xFFFF:
+                return None
+            return apci.MemoryResponse(address=request.address, data=data)
         return None
 
     while not stop.is_set():
@@ -206,6 +294,8 @@ def _device_tunnel_server(sock, stop, log):
                 confirm[2] |= 0x01                     # L_Data.con negativ
             tunnel(bytes(confirm))
             spec = _DEVICES.get(target)
+            if type(telegram.tpci).__name__ == "TConnect":
+                sequence[target] = 0               # neue Verbindung: Folgenummer 0
             if spec is None or spec.get("silent") or not isinstance(telegram.tpci,
                                                                      TDataConnected):
                 continue
@@ -245,6 +335,10 @@ def test_scan_over_tunnel():
             x, [(1, 1)], on_progress=progress.append, on_found=found.append,
             addresses=[3, 5, 7, 9, 11, 250], timeout=1.0))
         findings = future.result(timeout=60)
+        # GA- und Zuordnungstabellen der lesbaren Geräte (FA-3108b)
+        read = []
+        tables = connection.run_on_bus(lambda x: ds.read_all_links(
+            x, findings, on_read=read.append, timeout=1.0)).result(timeout=60)
     finally:
         connection.stop()
         stop.set()
@@ -267,6 +361,85 @@ def test_scan_over_tunnel():
     assert not written
     # Verbindungen sauber abgebaut
     assert ("1.1.5", "TDisconnect", "") in log
+    # Tabellen: eigene Adresse wird nicht gelesen, das gesperrte Gerät versucht
+    by_table = {t.address: t for t in tables}
+    assert set(by_table) == {"1.1.5", "1.1.7", "1.1.9"} and len(read) == 3
+    assert not by_table["1.1.9"].ok
+    assert by_table["1.1.5"].ok, by_table["1.1.5"].error
+    assert by_table["1.1.5"].table_format == "System B"
+    assert by_table["1.1.5"].group_addresses == ["1/0/1", "1/0/2", "2/1/5"]
+    assert by_table["1.1.5"].links == {0: ["1/0/1", "2/1/5"], 4: ["1/0/2"]}
+    assert by_table["1.1.7"].table_format == "BCU"
+    assert by_table["1.1.7"].links == {0: ["1/0/1"], 1: ["1/0/3"]}
+    # auch beim Tabellenlesen nichts Schreibendes
+    assert not {p for _t, _tp, p in log if "Write" in p}
+
+
+def test_parse_tables_check_themselves():
+    # BCU: eigene Adresse an Platz 0, sonst nicht lesbar statt falsch
+    good = ds.parse_bcu_tables("1.1.7", bytes.fromhex("03110708010803"),
+                               bytes.fromhex("0201000201"))
+    assert good.ok and good.links == {0: ["1/0/1"], 1: ["1/0/3"]}
+    wrong = ds.parse_bcu_tables("1.1.8", bytes.fromhex("03110708010803"),
+                                bytes.fromhex("0201000201"))
+    assert not wrong.ok and "eigene Adresse" in wrong.error
+    # System B: Verweis ausserhalb der Adresstabelle
+    bad = ds.parse_system_b_tables("1.1.5", bytes.fromhex("00010801"),
+                                   bytes.fromhex("000100050000"))
+    assert not bad.ok and not bad.links
+    assert ds.group_address_text(0x1105) == "2/1/5" and ds.individual_raw("1.1.7") == 0x1107
+    assert not ds.readable_for_links(ds.ScanFinding("1.1.0", True, 0x091A, "M-0002"))
+    assert ds.readable_for_links(ds.ScanFinding("1.1.9", True, 0x07B0))      # gesperrt: versuchen
+    assert not ds.readable_for_links(ds.ScanFinding("1.1.250", True, own=True))
+
+
+def test_adopt_links_creates_gas_and_compares():
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.models.topology import Area, CommunicationObject, Device, Line
+    project = KnxProject()
+    actor = Device(physical_address="1.1.5", device_type="actor", communication_objects=[
+        CommunicationObject(object_number=0, name="Ausgang A", object_function="Schalten",
+                            data_type="DPST-1-1"),
+        CommunicationObject(object_number=0, name="Ausgang A", object_function="Dauer-Ein"),
+        CommunicationObject(object_number=1, name="Ausgang A", object_function="Status")])
+    sensor = Device(physical_address="1.1.7", device_type="sensor", communication_objects=[
+        CommunicationObject(object_number=0, name="Taste 1", object_function="Schalten",
+                            data_type="DPST-1-1")])
+    known = Device(physical_address="1.1.9", communication_objects=[
+        CommunicationObject(object_number=0, name="X", connected_gas=["1/0/1", "1/0/9"])])
+    project.topology.areas.append(Area(area_number=1, lines=[
+        Line(line_number=1, devices=[actor, sensor, known])]))
+    tables = [
+        ds.LinkTables("1.1.5", ["1/0/1", "2/1/5"], {0: ["1/0/1"], 1: ["2/1/5"], 7: ["1/0/1"]}),
+        ds.LinkTables("1.1.7", ["1/0/1"], {0: ["1/0/1"]}),
+        ds.LinkTables("1.1.9", ["1/0/1", "1/0/2"], {0: ["1/0/1", "1/0/2"]}),
+        ds.LinkTables("1.1.20", ["3/0/0"], {0: ["3/0/0"]}),
+        ds.LinkTables("1.1.21", error="keine Antwort"),
+    ]
+    result = ds.adopt_links(project, tables)
+    assert result.devices_linked == ["1.1.5", "1.1.7"] and result.devices_kept == ["1.1.9"]
+    assert result.devices_missing == ["1.1.20"] and result.unreadable == ["1.1.21"]
+    assert (result.gas_added, result.links_added, result.unknown_objects) == (2, 4, 1)
+    assert sorted(result.differences) == [("1.1.9", 0, "1/0/2", "nur Anlage"),
+                                          ("1.1.9", 0, "1/0/9", "nur Projekt")]
+    # erstes KO mit der Nummer wird verknüpft, unbekannte Nummer als «KO 7»
+    assert actor.communication_objects[0].connected_gas == ["1/0/1"]
+    assert not actor.communication_objects[1].connected_gas
+    assert [co.name for co in actor.communication_objects if co.object_number == 7] == ["KO 7"]
+    assert known.communication_objects[0].connected_gas == ["1/0/1", "1/0/9"]   # unverändert
+    gas = {g.address: g for g in project.group_addresses.all_addresses()}
+    # Name nach dem empfangenden Aktor-KO, DPT von dort
+    assert (gas["1/0/1"].designation, gas["1/0/1"].datapoint_type) == (
+        "Ausgang A Schalten (1.1.5)", "DPST-1-1")
+    assert gas["2/1/5"].designation == "Ausgang A Status (1.1.5)"
+    assert "Abweichungen" in result.text() and "1.1.20" in result.text()
+    # Spalte im Vergleich
+    findings = [ds.ScanFinding(a, True, 0x07B0) for a in ("1.1.5", "1.1.9")]
+    rows = {r.address: r for r in ds.compare(project, findings, [(1, 1)],
+                                             {t.address: t for t in tables})}
+    assert rows["1.1.5"].links.startswith("stimmt")
+    assert rows["1.1.9"].links.startswith("2 Abweichungen")
+    assert "KO 0 – 1/0/2: nur Anlage" in rows["1.1.9"].link_details
 
 
 def test_usb_does_not_scan():
@@ -455,3 +628,134 @@ def test_adopt_switches_to_256_participants():
     assert project.topology.topology_mode == "TP-64"
     ds.adopt_findings(project, [ds.ScanFinding("1.1.200", True, 0x07B0)], None)
     assert project.topology.topology_mode == "TP-256"
+
+
+def test_adopt_links_chooses_variant_by_partners():
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.models.topology import Area, CommunicationObject, Device, Line
+    project = KnxProject()
+    actor = Device(physical_address="1.1.1", device_type="actor", communication_objects=[
+        CommunicationObject(object_number=7, name="Ausgang H", object_function="UND-Verknüpfung"),
+        CommunicationObject(object_number=7, name="Ausgang H", object_function="Schalten")])
+    button = Device(physical_address="1.1.2", device_type="sensor", communication_objects=[
+        CommunicationObject(object_number=0, name="Taste 1", object_function="Schalten")])
+    project.topology.areas.append(Area(area_number=1, lines=[
+        Line(line_number=1, devices=[actor, button])]))
+    result = ds.adopt_links(project, [ds.LinkTables("1.1.1", ["1/0/1"], {7: ["1/0/1"]}),
+                                      ds.LinkTables("1.1.2", ["1/0/1"], {0: ["1/0/1"]})])
+    assert result.variants_chosen == 1
+    assert [co.object_function for co in actor.communication_objects if co.connected_gas] == [
+        "Schalten"]
+
+
+def test_product_later_keeps_links_and_renames():
+    """Herstellerdatei nachträglich: erneut übernehmen behält die
+    Verknüpfungen und benennt «KO n»-GAs nach dem Produkt."""
+    from knix_arranger.models.project import KnxProject
+    project = KnxProject()
+    finding = ds.ScanFinding("1.1.5", True, 0x07B0, "M-0002", program="4701-11")
+    ds.adopt_findings(project, [finding], None)                # ohne Katalog
+    ds.adopt_links(project, [ds.LinkTables("1.1.5", ["1/0/1"], {0: ["1/0/1"]})])
+    ga = project.group_addresses.all_addresses()[0]
+    assert ga.designation == "KO 0 (1.1.5)"
+    result = ds.adopt_findings(project, [finding], _Catalog())  # jetzt mit Produkt
+    assert result.completed == ["1.1.5"]
+    device = ds.project_devices(project)[0]
+    linked = [co for co in device.communication_objects if co.connected_gas]
+    assert [(co.name, co.connected_gas) for co in linked] == [("Ausgang A", ["1/0/1"])]
+    assert ga.designation == "Ausgang A Schalten (1.1.5)"
+
+
+def test_plant_cases_from_chalet():
+    """Befunde aus dem Chalet (2026-11-23): Tabellen über 0xFFFF, ABB 0701
+    mit Tabellen an der BCU-2-Lage, Hersteller 0000, Seriennummer aus Nullen,
+    entladene Applikation."""
+    from tests.test_bus_send import _wait
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(0.1)
+    stop, log = threading.Event(), []
+    server = threading.Thread(target=_device_tunnel_server, args=(sock, stop, log),
+                              daemon=True)
+    server.start()
+    connection = BusConnection(lambda t: None, lambda s, t: None)
+    try:
+        connection.start(ConnectionSettings(kind=TUNNEL_UDP, host="127.0.0.1",
+                                            port=sock.getsockname()[1]), Secrets())
+        assert _wait(lambda: connection.connected)
+        findings = connection.run_on_bus(lambda x: ds.scan_line(
+            x, [(1, 1)], addresses=[13, 15, 17], timeout=1.0)).result(timeout=60)
+        tables = connection.run_on_bus(lambda x: ds.read_all_links(
+            x, findings, timeout=1.0)).result(timeout=60)
+    finally:
+        connection.stop()
+        stop.set()
+        server.join(2)
+        sock.close()
+    found = {f.address: f for f in findings}
+    abb = found["1.1.15"]
+    # Hersteller 0000 gilt als unbekannt, der der Applikation zählt
+    assert (abb.manufacturer_id, abb.program, abb.serial_number) == ("M-0002", "A002-12", "")
+    by = {t.address: t for t in tables}
+    assert by["1.1.13"].ok and by["1.1.13"].links == {2: ["1/0/1"], 3: ["1/2/5"]}
+    assert by["1.1.15"].ok and by["1.1.15"].table_format == "BCU (feste Lage)"
+    assert by["1.1.15"].links == {5: ["1/0/3"]}
+    assert not by["1.1.17"].ok and "nicht geladen" in by["1.1.17"].error
+    assert found["1.1.17"].serial_number == ""
+    rows = {r.address: r for r in ds.compare(None, findings, [(1, 1)], by)}
+    assert rows["1.1.17"].links == "Applikation entladen"
+    assert "keine geladene Applikation" in rows["1.1.17"].note
+
+
+def test_parse_property_tables():
+    ok = ds.parse_property_tables("1.1.19", 3, bytes.fromhex("111308010802"),
+                                  2, bytes.fromhex("01000203"))
+    assert ok.ok and ok.group_addresses == ["1/0/1", "1/0/2"]
+    assert ok.links == {0: ["1/0/1"], 3: ["1/0/2"]}
+    wide = ds.parse_property_tables("1.1.21", 1, bytes.fromhex("0A01"),
+                                    1, bytes.fromhex("00010007"))
+    assert wide.ok and wide.links == {7: ["1/2/1"]}
+    assert not ds.parse_property_tables("1.1.21", 1, bytes.fromhex("0A01"),
+                                        1, bytes.fromhex("00020007")).ok
+    assert not ds.parse_property_tables("1.1.21", 1, bytes.fromhex("0A0101"), 0, b"").ok
+
+
+def test_second_run_cases_from_chalet():
+    """Zweiter Lauf im Chalet: ABB 0701 (Speicher gesperrt) und Salva
+    (erweitertes Lesen ohne Antwort) über PID_TABLE, schweigendes Gerät
+    beim zweiten Versuch gefunden."""
+    import copy
+    from tests.test_bus_send import _wait
+    saved = copy.deepcopy(_DEVICES)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(0.1)
+    stop, log = threading.Event(), []
+    server = threading.Thread(target=_device_tunnel_server, args=(sock, stop, log),
+                              daemon=True)
+    server.start()
+    connection = BusConnection(lambda t: None, lambda s, t: None)
+    try:
+        connection.start(ConnectionSettings(kind=TUNNEL_UDP, host="127.0.0.1",
+                                            port=sock.getsockname()[1]), Secrets())
+        assert _wait(lambda: connection.connected)
+        findings = connection.run_on_bus(lambda x: ds.scan_line(
+            x, [(1, 1)], addresses=[19, 21, 23], timeout=1.0,
+            retry={"1.1.23"})).result(timeout=60)
+        tables = connection.run_on_bus(lambda x: ds.read_all_links(
+            x, [f for f in findings if f.address != "1.1.23"],
+            timeout=1.0)).result(timeout=90)
+    finally:
+        connection.stop()
+        stop.set()
+        server.join(2)
+        sock.close()
+        _DEVICES.clear()
+        _DEVICES.update(saved)
+    assert {f.address for f in findings} == {"1.1.19", "1.1.21", "1.1.23"}
+    by = {t.address: t for t in tables}
+    assert by["1.1.19"].ok, by["1.1.19"].error
+    assert by["1.1.19"].table_format == "Eigenschaft"
+    assert by["1.1.19"].links == {0: ["1/0/1"], 3: ["1/0/2"]}
+    assert by["1.1.21"].ok, by["1.1.21"].error
+    assert by["1.1.21"].links == {7: ["1/2/1"]}

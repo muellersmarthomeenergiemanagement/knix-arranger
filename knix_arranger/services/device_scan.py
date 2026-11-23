@@ -63,7 +63,7 @@ STATUS_TEXT = {
 }
 
 COLUMNS = ["Adresse", "Ergebnis", "Hersteller", "Gerät", "Applikation", "Seriennummer",
-           "Maske", "Hinweis"]
+           "Maske", "Verknüpfungen", "Hinweis"]
 
 _LINE = re.compile(r"^\s*(\d{1,2})\.(\d{1,2})\s*$")
 
@@ -133,7 +133,9 @@ def program_from_bytes(data: bytes) -> tuple[str, str]:
 
 
 def serial_from_bytes(data: bytes) -> str:
-    if len(data) != 6:
+    # BCU 2 ohne Seriennummer liefert Nullen (ABB «0000:00000000», Feller
+    # «001E:00000000»), entladene Geräte FF: keine Seriennummer
+    if len(data) != 6 or data[2:] in (bytes(4), b"\xff" * 4):
         return ""
     return f"{data[:2].hex().upper()}:{data[2:].hex().upper()}"
 
@@ -228,6 +230,9 @@ class ScanRow:
     serial_number: str = ""
     mask: str = ""
     note: str = ""
+    # GA- und Zuordnungstabelle (FA-3108b): Kurztext und Abweichungen
+    links: str = ""
+    link_details: list[str] = field(default_factory=list)
 
     @property
     def status_text(self) -> str:
@@ -235,7 +240,7 @@ class ScanRow:
 
     def cells(self) -> list[str]:
         return [self.address, self.status_text, self.manufacturer, self.product,
-                self.application, self.serial_number, self.mask, self.note]
+                self.application, self.serial_number, self.mask, self.links, self.note]
 
 
 def _address_key(address: str) -> tuple[int, ...]:
@@ -259,7 +264,7 @@ def _device_product(device) -> str:
 
 
 def compare(project, findings: list[ScanFinding],
-            lines: list[tuple[int, int]]) -> list[ScanRow]:
+            lines: list[tuple[int, int]], tables: dict | None = None) -> list[ScanRow]:
     """Gefundenes gegen die Geräte des Projekts auf den gesuchten Linien.
     Ohne Projekt (None) erscheint alles Gefundene als «nicht im Projekt»."""
     scanned = {line_text(line) for line in lines}
@@ -280,8 +285,32 @@ def compare(project, findings: list[ScanFinding],
             finding = None
         if finding is None and device is None:
             continue
-        rows.append(_row(address, finding, device, secure_project))
+        row = _row(address, finding, device, secure_project)
+        if tables and address in tables:
+            _link_cells(row, tables[address], device)
+        rows.append(row)
     return rows
+
+
+def _link_cells(row: ScanRow, table, device) -> None:
+    """Spalte «Verknüpfungen»: gelesen, nicht lesbar, oder bei einem Gerät
+    mit Verknüpfungen im Projekt der Vergleich mit der Anlage."""
+    if not table.ok:
+        if "nicht geladen" in table.error:
+            row.links = "Applikation entladen"
+            row.note = ("Gerät hat eine Adresse, aber keine geladene Applikation – z.B. "
+                        "Ersatzgerät, Programmieren abgebrochen oder in der ETS entladen")
+            return
+        row.links = f"nicht lesbar: {table.error}"
+        return
+    count = sum(len(gas) for gas in table.links.values())
+    if device is not None and any(co.connected_gas for co in device.communication_objects):
+        diff = _differences(device, table)
+        row.links = (f"stimmt ({count})" if not diff
+                     else f"{len(diff)} Abweichungen ({count} in der Anlage)")
+        row.link_details = [f"KO {n} – {ga}: {kind}" for _a, n, ga, kind in diff]
+        return
+    row.links = f"{len(table.group_addresses)} GAs, {count} Verknüpfungen"
 
 
 def _row(address: str, finding: ScanFinding | None, device, secure_project: bool) -> ScanRow:
@@ -381,9 +410,11 @@ async def scan_line(xknx, lines: list[tuple[int, int]],
                     stop: threading.Event | None = None,
                     addresses=range(0, 256),
                     parallel: int = PARALLEL,
-                    timeout: float = PROBE_TIMEOUT) -> list[ScanFinding]:
+                    timeout: float = PROBE_TIMEOUT,
+                    retry=None) -> list[ScanFinding]:
     """Adressen der Linien der Reihe nach (parallel einige) anfragen. Läuft
-    im Loop der Busverbindung; Rückrufe kommen aus diesem Thread."""
+    im Loop der Busverbindung; Rückrufe kommen aus diesem Thread. retry:
+    Adressen, die ein zweites Mal gefragt werden, wenn sie schweigen."""
     own = str(getattr(xknx, "current_address", "") or "")
     targets = [f"{a}.{l}.{n}" for a, l in lines for n in addresses]
     findings: list[ScanFinding] = []
@@ -414,6 +445,19 @@ async def scan_line(xknx, lines: list[tuple[int, int]],
     management_log.addFilter(quiet)
     try:
         await asyncio.gather(*(one(address) for address in targets))
+        # erwartete Geräte (im Projekt) ohne Antwort ein zweites Mal, einzeln
+        # und mit längerer Wartezeit: bei Buslast geht eine Antwort verloren
+        # (Chalet 1.1.6 fehlte beim ersten Lauf)
+        answered = {f.address for f in findings}
+        for address in sorted(set(retry or ()) & set(targets) - answered - {own},
+                              key=_address_key):
+            if stop is not None and stop.is_set():
+                break
+            finding = await probe_device(xknx, address, timeout * 2)
+            if finding.answered:
+                findings.append(finding)
+                if on_found is not None:
+                    on_found(finding)
     finally:
         management_log.removeFilter(quiet)
     findings.sort(key=lambda f: _address_key(f.address))
@@ -475,11 +519,15 @@ async def _read_details(conn, finding: ScanFinding, timeout: float) -> None:
             finding.errors.append(f"Speicher 0104: {exc.__class__.__name__}")
         return
     data = await prop(OBJ_DEVICE, PID_MANUFACTURER_ID)
-    if len(data) >= 2:
+    if len(data) >= 2 and int.from_bytes(data[:2], "big") not in (0, 0xFFFF):
+        # 0000 melden manche Geräte (Theben HTS) statt ihrer Kennung: unbekannt
         finding.manufacturer_id = f"M-{int.from_bytes(data[:2], 'big'):04X}"
     if not data and finding.errors and "Timeout" in finding.errors[-1]:
-        return       # gibt nichts preis: nicht jede weitere Eigenschaft abwarten
-    finding.serial_number = serial_from_bytes(await prop(OBJ_DEVICE, PID_SERIAL_NUMBER))
+        # gibt nichts preis: nicht jede weitere Eigenschaft abwarten
+        await _identity_from_memory(conn, finding, timeout)
+        return
+    raw_serial = await prop(OBJ_DEVICE, PID_SERIAL_NUMBER)
+    finding.serial_number = serial_from_bytes(raw_serial)
     hardware = await prop(OBJ_DEVICE, PID_HARDWARE_TYPE)
     finding.hardware_type = hardware.hex().upper() if hardware.strip(b"\x00") else ""
     finding.order_info = order_text(await prop(OBJ_DEVICE, PID_ORDER_INFO))
@@ -492,8 +540,35 @@ async def _read_details(conn, finding: ScanFinding, timeout: float) -> None:
             break
         if not kind:
             break        # Objekt fehlt: weiter hinten kommt nichts mehr
+    if finding.program_manufacturer in ("M-0000", "M-FFFF"):
+        finding.program_manufacturer = ""
     if not finding.manufacturer_id and finding.program_manufacturer:
         finding.manufacturer_id = finding.program_manufacturer
+    # Seriennummer aus FF: Gerät ohne geladene Daten, der Speicher ab 0x0104
+    # enthält dann Zufälliges (1.1.21 im Chalet ergab «RTS Automation»)
+    unloaded = raw_serial[2:] == b"\xff" * 4
+    if unloaded and not finding.manufacturer_id:
+        finding.program = ""         # ebenso zufällig
+        finding.order_info = ""
+    if not finding.manufacturer_id and not finding.program and not unloaded:
+        await _identity_from_memory(conn, finding, timeout)
+
+
+async def _identity_from_memory(conn, finding: ScanFinding, timeout: float) -> None:
+    """Ohne Eigenschaften (System 7 ohne Geräteobjekt-Daten, Zugriffsschutz):
+    Kennung wie bei BCU 1/2 im Speicher ab 0x0104 versuchen. Nur übernehmen,
+    wenn sie plausibel ist (Hersteller nicht 00/FF)."""
+    if _is_system_b(finding.mask):
+        return
+    from xknx.management.procedures import dmp_mem_read_r_co
+    try:
+        data = await asyncio.wait_for(dmp_mem_read_r_co(conn, 0x0104, 4), timeout)
+    except Exception as exc:
+        finding.errors.append(f"Speicher 0104: {exc.__class__.__name__}")
+        return
+    if len(data) == 4 and data[0] not in (0, 0xFF):
+        finding.manufacturer_id, finding.program = bcu1_identity(data)
+        finding.program_manufacturer = finding.manufacturer_id
 
 
 async def _close(management, target, conn) -> None:
@@ -649,6 +724,30 @@ def _apply_product(device, prod) -> None:
     device.product = prod.product_name or device.product
 
 
+def _apply_product_keeping_links(project, device, prod) -> None:
+    """Produkt nachträglich zuweisen (Herstellerdatei inzwischen importiert),
+    ohne die gelesenen Verknüpfungen zu verlieren: sie wandern auf die KOs
+    des Produkts; GAs mit vorläufigem Namen «KO n (Adresse)» bekommen den
+    Namen des KOs."""
+    from ..models.topology import CommunicationObject
+    links = {co.object_number: list(co.connected_gas)
+             for co in device.communication_objects if co.connected_gas}
+    _apply_product(device, prod)
+    for number, gas in links.items():
+        co = next((c for c in device.communication_objects if c.object_number == number), None)
+        if co is None:
+            co = CommunicationObject(object_number=number, name=f"KO {number}")
+            device.communication_objects.append(co)
+        co.connected_gas = gas
+    device.communication_objects.sort(key=lambda c: c.object_number)
+    placeholder = re.compile(rf"KO \d+ \({re.escape(device.physical_address)}\)")
+    for ga in project.group_addresses.all_addresses():
+        if placeholder.fullmatch(ga.designation or ""):
+            name, dpt = _ga_name(project, ga.address)
+            ga.designation = name or ga.designation
+            ga.datapoint_type = ga.datapoint_type or dpt
+
+
 def adopt_findings(project, findings: list[ScanFinding], catalog=None) -> AdoptResult:
     """Gefundene Geräte ins Projekt übernehmen: fehlende Bereiche, Linien und
     Geräte anlegen (Hersteller, Seriennummer, Bestellnummer, Applikation;
@@ -677,7 +776,7 @@ def adopt_findings(project, findings: list[ScanFinding], catalog=None) -> AdoptR
             same_mfr = (prod is None or not device.manufacturer_id
                         or device.manufacturer_id.upper() == prod.manufacturer_id.upper())
             if prod is not None and not device.hw2prog_id and same_mfr:
-                _apply_product(device, prod)
+                _apply_product_keeping_links(project, device, prod)
                 if device.device_type in ("", "other", "unknown"):
                     device.device_type = _kind(prod, finding.address)
                 result.with_product.append(finding.address)
@@ -726,3 +825,626 @@ def adopt_findings(project, findings: list[ScanFinding], catalog=None) -> AdoptR
             and project.topology.topology_mode == "TP-64":
         project.topology.topology_mode = "TP-256"
     return result
+
+
+# ── GAs und Verknüpfungen aus den Geräten (FA-3108b) ──────────────────────
+#
+# Jedes Gerät führt eine GA-Tabelle (Adresstabelle) und eine Zuordnungs-
+# tabelle (welches KO an welcher GA). Gelesen wird der Speicher, nur lesend:
+#   BCU 1/2 (Maske 001x/002x): Adresstabelle fest ab 0x0116 (1 Byte Anzahl
+#     inkl. eigener physikalischer Adresse, dann je 2 Byte), Zeiger auf die
+#     Zuordnungstabelle in 0x0111 (+0x0100; 1 Byte Anzahl, je TSAP, ASAP).
+#   System 7 (070x): gleiches Format, Lage aus PID_TABLE_REFERENCE der
+#     Objekte Adresstabelle (Typ 1) und Zuordnungstabelle (Typ 2).
+#   System B (07B0, 57B0): Lage ebenso, 2 Byte Anzahl, GAs ohne eigene
+#     Adresse; Zuordnungen je 2 Byte TSAP und ASAP.
+# TSAP = Platz in der Adresstabelle (1 = erste GA), ASAP = KO-Nummer. Das
+# Format prüft sich selbst (eigene Adresse an Platz 0 bzw. TSAP im Bereich);
+# passt es nicht, gilt die Tabelle als nicht lesbar statt falsch.
+
+PID_LOAD_STATE = 5
+PID_TABLE_REFERENCE = 7
+OBJECT_TYPE_ADDRESS_TABLE = 1
+OBJECT_TYPE_ASSOCIATION_TABLE = 2
+BCU_ADDRESS_TABLE = 0x0116
+BCU_ASSOCIATION_POINTER = 0x0111
+MAX_TABLE_ENTRIES = 2000
+
+
+@dataclass
+class LinkTables:
+    """GA- und Zuordnungstabelle eines Geräts."""
+    address: str
+    group_addresses: list[str] = field(default_factory=list)
+    # KO-Nummer -> GAs in der Reihenfolge der Zuordnungstabelle
+    links: dict[int, list[str]] = field(default_factory=dict)
+    table_format: str = ""          # "BCU", "System B"
+    error: str = ""
+    # nicht lesbar: Lage und erste Bytes der Tabellen (für die Fehlersuche)
+    detail: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.error
+
+
+def group_address_text(raw: int) -> str:
+    return f"{raw >> 11 & 0x1F}/{raw >> 8 & 0x07}/{raw & 0xFF}"
+
+
+def individual_raw(address: str) -> int:
+    area, line, device = (int(p) for p in address.split("."))
+    return area << 12 | line << 8 | device
+
+
+def parse_bcu_tables(address: str, address_table: bytes,
+                     associations: bytes) -> LinkTables:
+    """Format BCU/System 7: Adresstabelle mit Anzahl (1 Byte) inkl. eigener
+    Adresse an Platz 0, Zuordnungen mit Anzahl (1 Byte), je TSAP, ASAP."""
+    result = LinkTables(address=address, table_format="BCU")
+    if not address_table:
+        result.error = "Adresstabelle leer"
+        return result
+    count = address_table[0]
+    entries = [int.from_bytes(address_table[1 + 2 * i:3 + 2 * i], "big")
+               for i in range(count) if 3 + 2 * i <= len(address_table)]
+    if len(entries) != count or not entries:
+        result.error = "Adresstabelle unvollständig"
+        return result
+    if entries[0] != individual_raw(address):
+        result.error = "Adresstabelle passt nicht (eigene Adresse fehlt)"
+        return result
+    gas = entries[1:]
+    result.group_addresses = [group_address_text(g) for g in gas]
+    if not associations:
+        result.error = "Zuordnungstabelle leer"
+        return result
+    pairs = associations[0]
+    for i in range(pairs):
+        if 3 + 2 * i > len(associations):
+            result.error = "Zuordnungstabelle unvollständig"
+            return result
+        tsap, asap = associations[1 + 2 * i], associations[2 + 2 * i]
+        if 1 <= tsap <= len(gas):
+            result.links.setdefault(asap, []).append(result.group_addresses[tsap - 1])
+    return result
+
+
+def parse_system_b_tables(address: str, address_table: bytes,
+                          associations: bytes) -> LinkTables:
+    """Format System B: Anzahl je 2 Byte, GAs ohne eigene Adresse,
+    Zuordnungen je 2 Byte TSAP und ASAP."""
+    result = LinkTables(address=address, table_format="System B")
+    if len(address_table) < 2 or len(associations) < 2:
+        result.error = "Tabelle leer"
+        return result
+    count = int.from_bytes(address_table[:2], "big")
+    if count > MAX_TABLE_ENTRIES or len(address_table) < 2 + 2 * count:
+        result.error = "Adresstabelle passt nicht"
+        return result
+    result.group_addresses = [group_address_text(int.from_bytes(
+        address_table[2 + 2 * i:4 + 2 * i], "big")) for i in range(count)]
+    pairs = int.from_bytes(associations[:2], "big")
+    if pairs > MAX_TABLE_ENTRIES or len(associations) < 2 + 4 * pairs:
+        result.error = "Zuordnungstabelle passt nicht"
+        return result
+    for i in range(pairs):
+        tsap = int.from_bytes(associations[2 + 4 * i:4 + 4 * i], "big")
+        asap = int.from_bytes(associations[4 + 4 * i:6 + 4 * i], "big")
+        if not 1 <= tsap <= count:
+            result.error = "Zuordnungstabelle passt nicht (Verweis ausserhalb)"
+            result.links = {}
+            return result
+        result.links.setdefault(asap, []).append(result.group_addresses[tsap - 1])
+    return result
+
+
+def _is_system_b(mask: int | None) -> bool:
+    return mask is not None and mask & 0x0FF0 == 0x07B0
+
+
+def _uses_fixed_tables(mask: int | None) -> bool:
+    return mask is not None and mask & 0xFFF0 in (0x0010, 0x0020)
+
+
+async def read_links(xknx, address: str, mask: int | None,
+                     timeout: float = DETAIL_TIMEOUT) -> LinkTables:
+    """GA- und Zuordnungstabelle eines Geräts lesen (eigene Verbindung)."""
+    from xknx.telegram import IndividualAddress
+    management = xknx.management
+    target = IndividualAddress(address)
+    conn = None
+    try:
+        conn = await asyncio.wait_for(management.connect(target), timeout)
+        if mask is None:
+            from xknx.management.procedures import dmp_connect_r_co
+            mask = await asyncio.wait_for(dmp_connect_r_co(conn), timeout)
+        if _uses_fixed_tables(mask):
+            return await _read_bcu(conn, address, timeout)
+        try:
+            result = await _read_by_reference(conn, address, mask, timeout)
+        except Exception as exc:
+            result = LinkTables(address=address, error=_link_error(exc))
+            # nach einer Zeitüberschreitung ist die Verbindung nicht mehr sauber
+            await _close(management, target, conn)
+            conn = None
+            conn = await asyncio.wait_for(management.connect(target), timeout)
+        if result.ok or "nicht geladen" in result.error:
+            return result
+        # Tabellen als Eigenschaft PID_TABLE, ohne Speicherzugriff
+        try:
+            by_property = await _read_property_tables(conn, address, timeout)
+        except Exception as exc:
+            by_property = LinkTables(address=address, error=_link_error(exc))
+        if by_property.ok:
+            return by_property
+        result.error += f"; Eigenschaft: {by_property.error}"
+        if _is_system_b(mask):
+            return _with_detail(result)
+        # System 7 mit Tabellen an der BCU-2-Lage; prüft sich selbst wie immer
+        try:
+            fixed = await _read_bcu(conn, address, timeout)
+        except Exception as exc:
+            result.error += f"; feste Lage: {_link_error(exc)}"
+            return _with_detail(result)
+        if fixed.ok:
+            fixed.table_format = "BCU (feste Lage)"
+            return fixed
+        result.error += f"; feste Lage: {fixed.error}"
+        return _with_detail(result)
+    except Exception as exc:
+        return LinkTables(address=address, error=_link_error(exc))
+    finally:
+        await _close(management, target, conn)
+
+
+def _link_error(exc: Exception) -> str:
+    name = exc.__class__.__name__
+    if isinstance(exc, asyncio.TimeoutError) or "Timeout" in name:
+        return "keine Antwort"
+    if "Refused" in name:
+        return "Verbindung abgelehnt"
+    text = str(exc)
+    if "nr_of_elem=0" in text:
+        return "Eigenschaft nicht lesbar (Zugriff gesperrt?)"
+    return text or name
+
+
+async def _memory(conn, start: int, size: int, timeout: float) -> bytes:
+    from xknx.management.procedures import dmp_mem_read_r_co
+    if size <= 0:
+        return b""
+    if start + size - 1 > 0xFFFF:
+        return await _memory_extended(conn, start, size, timeout)
+    # grosse Tabellen: je Anfrage eine eigene Wartezeit
+    data = bytearray()
+    while size > 0:
+        chunk = min(size, 60)
+        data += await asyncio.wait_for(dmp_mem_read_r_co(conn, start, chunk), timeout * 4)
+        start += chunk
+        size -= chunk
+    return bytes(data)
+
+
+# A_MemoryExtended_Read: 3 Byte Adresse; im Standardrahmen (15 Byte APDU)
+# passen nach Dienst, Rückgabecode und Adresse 9 Byte Daten
+EXTENDED_CHUNK = 8
+
+
+async def _memory_extended(conn, start: int, size: int, timeout: float) -> bytes:
+    """Speicher über 0xFFFF (System B mit 32-Bit-Tabellenlage, z.B. Elsner
+    Salva 0x13000, Hörmann 0xF0000) mit A_MemoryExtended_Read."""
+    from xknx.telegram import apci
+    if start + size - 1 > 0xFFFFFF:
+        raise ValueError(f"Speicheradresse {start:#x} ausserhalb von 16 MB")
+    data = bytearray()
+    while size > 0:
+        chunk = min(size, EXTENDED_CHUNK)
+        response = await asyncio.wait_for(
+            conn.request(apci.MemoryExtendedRead(count=chunk, address=start)), timeout)
+        payload = response.payload
+        if payload.return_code != 0 or len(payload.data) != chunk:
+            raise ValueError(f"Speicher {start:#x}: Rückgabecode {payload.return_code}")
+        data += payload.data
+        start += chunk
+        size -= chunk
+    return bytes(data)
+
+
+async def _read_bcu(conn, address: str, timeout: float) -> LinkTables:
+    count = (await _memory(conn, BCU_ADDRESS_TABLE, 1, timeout))[0]
+    address_table = bytes([count]) + await _memory(conn, BCU_ADDRESS_TABLE + 1,
+                                                   2 * count, timeout)
+    pointer = (await _memory(conn, BCU_ASSOCIATION_POINTER, 1, timeout))[0]
+    start = 0x0100 + pointer
+    pairs = (await _memory(conn, start, 1, timeout))[0]
+    associations = bytes([pairs]) + await _memory(conn, start + 1, 2 * pairs, timeout)
+    return parse_bcu_tables(address, address_table, associations)
+
+
+async def _table_objects(conn, timeout: float) -> dict[int, int]:
+    """Objekttyp -> Index der Adress- und Zuordnungstabelle."""
+    from xknx.management.procedures import dmp_interface_object_read_r
+    found: dict[int, int] = {}
+    for index in range(1, 6):
+        try:
+            kind = await asyncio.wait_for(
+                dmp_interface_object_read_r(conn, index, PID_OBJECT_TYPE), timeout)
+        except Exception:
+            break
+        number = int.from_bytes(kind, "big")
+        if number in (OBJECT_TYPE_ADDRESS_TABLE, OBJECT_TYPE_ASSOCIATION_TABLE):
+            found.setdefault(number, index)
+        if len(found) == 2:
+            break
+    return found
+
+
+async def _read_by_reference(conn, address: str, mask: int | None,
+                             timeout: float) -> LinkTables:
+    from xknx.management.procedures import dmp_interface_object_read_r
+    objects = await _table_objects(conn, timeout)
+    if len(objects) < 2:
+        return LinkTables(address=address, error="Tabellen-Objekte nicht gefunden")
+    references = {}
+    for kind, index in objects.items():
+        state = await asyncio.wait_for(
+            dmp_interface_object_read_r(conn, index, PID_LOAD_STATE), timeout)
+        if state and state[0] != 1:
+            return LinkTables(address=address, error="Tabellen nicht geladen (entladen)")
+        reference = await asyncio.wait_for(
+            dmp_interface_object_read_r(conn, index, PID_TABLE_REFERENCE), timeout)
+        references[kind] = int.from_bytes(reference, "big")
+    address_start = references[OBJECT_TYPE_ADDRESS_TABLE]
+    association_start = references[OBJECT_TYPE_ASSOCIATION_TABLE]
+    samples = []
+    for name, start in (("Adresstabelle", address_start), ("Zuordnung", association_start)):
+        try:
+            head = (await _memory(conn, start, 10, timeout)).hex(" ").upper()
+        except Exception as exc:
+            head = _link_error(exc)
+        samples.append(f"{name} {start:#x}: {head}")
+    detail = "; ".join(samples)
+    # System B: Anzahl 2 Byte; System 7: 1 Byte (BCU-Format). Zuerst das
+    # zur Maske passende Format, das andere als Gegenprobe
+    order = ("B", "BCU") if _is_system_b(mask) else ("BCU", "B")
+    errors = []
+    for kind in order:
+        if kind == "B":
+            head = await _memory(conn, address_start, 2, timeout)
+            count = int.from_bytes(head, "big")
+            if count > MAX_TABLE_ENTRIES:
+                errors.append("System B: Anzahl unplausibel")
+                continue
+            table = head + await _memory(conn, address_start + 2, 2 * count, timeout)
+            head = await _memory(conn, association_start, 2, timeout)
+            pairs = int.from_bytes(head, "big")
+            if pairs > MAX_TABLE_ENTRIES:
+                errors.append("System B: Zuordnungen unplausibel")
+                continue
+            links = head + await _memory(conn, association_start + 2, 4 * pairs, timeout)
+            result = parse_system_b_tables(address, table, links)
+        else:
+            count = (await _memory(conn, address_start, 1, timeout))[0]
+            table = bytes([count]) + await _memory(conn, address_start + 1, 2 * count, timeout)
+            pairs = (await _memory(conn, association_start, 1, timeout))[0]
+            links = bytes([pairs]) + await _memory(conn, association_start + 1,
+                                                   2 * pairs, timeout)
+            result = parse_bcu_tables(address, table, links)
+        if result.ok:
+            return result
+        errors.append(f"{result.table_format}: {result.error}")
+    return LinkTables(address=address, error="; ".join(errors), detail=detail)
+
+
+def _with_detail(result: LinkTables) -> LinkTables:
+    """Lage und erste Bytes an den Fehlertext (erscheint in der Liste und im
+    CSV, damit sich das Format eines Geräts nachträglich klären lässt)."""
+    if result.detail:
+        result.error += f" [{result.detail}]"
+    return result
+
+
+PID_TABLE = 23
+
+
+async def _read_property_tables(conn, address: str, timeout: float) -> LinkTables:
+    """Adress- und Zuordnungstabelle als Eigenschaft PID_TABLE der beiden
+    Tabellen-Objekte (Elementanzahl an Index 0, dann die Elemente)."""
+    from xknx.management.procedures import dmp_interface_object_read_r
+    objects = await _table_objects(conn, timeout)
+    if len(objects) < 2:
+        return LinkTables(address=address, error="Tabellen-Objekte nicht gefunden")
+
+    async def table(index: int) -> tuple[int, bytes]:
+        raw = await asyncio.wait_for(dmp_interface_object_read_r(
+            conn, index, PID_TABLE, count=1, start_index=0), timeout)
+        count = int.from_bytes(raw, "big")
+        if count == 0:
+            return 0, b""
+        if count > MAX_TABLE_ENTRIES:
+            raise ValueError("Anzahl unplausibel")
+        data = await asyncio.wait_for(dmp_interface_object_read_r(
+            conn, index, PID_TABLE, count=count, start_index=1), timeout * 4 + count * 0.5)
+        return count, data
+
+    address_count, address_data = await table(objects[OBJECT_TYPE_ADDRESS_TABLE])
+    pair_count, pair_data = await table(objects[OBJECT_TYPE_ASSOCIATION_TABLE])
+    return parse_property_tables(address, address_count, address_data,
+                                 pair_count, pair_data)
+
+
+def parse_property_tables(address: str, address_count: int, address_data: bytes,
+                          pair_count: int, pair_data: bytes) -> LinkTables:
+    """PID_TABLE: GAs je 2 Byte (mit oder ohne eigene Adresse an erster
+    Stelle), Zuordnungen je 2 Byte (TSAP, ASAP) oder 4 Byte (je 2 Byte)."""
+    result = LinkTables(address=address, table_format="Eigenschaft")
+    if address_count and len(address_data) != 2 * address_count:
+        result.error = "Adresstabelle: Elementgrösse nicht 2 Byte"
+        return result
+    entries = [int.from_bytes(address_data[2 * i:2 * i + 2], "big")
+               for i in range(address_count)]
+    if entries and entries[0] == individual_raw(address):
+        entries = entries[1:]
+    result.group_addresses = [group_address_text(g) for g in entries]
+    if not pair_count:
+        return result
+    size = len(pair_data) // pair_count
+    if size not in (2, 4) or len(pair_data) != size * pair_count:
+        result.error = "Zuordnungstabelle: Elementgrösse unbekannt"
+        return result
+    half = size // 2
+    for i in range(pair_count):
+        element = pair_data[size * i:size * (i + 1)]
+        tsap = int.from_bytes(element[:half], "big")
+        asap = int.from_bytes(element[half:], "big")
+        if not 1 <= tsap <= len(entries):
+            result.error = "Zuordnungstabelle passt nicht (Verweis ausserhalb)"
+            result.links = {}
+            return result
+        result.links.setdefault(asap, []).append(result.group_addresses[tsap - 1])
+    return result
+
+
+async def read_all_links(xknx, findings: list[ScanFinding],
+                         on_progress: Callable[[ScanProgress], None] | None = None,
+                         on_read: Callable[[LinkTables], None] | None = None,
+                         stop: threading.Event | None = None,
+                         timeout: float = DETAIL_TIMEOUT) -> list[LinkTables]:
+    """Tabellen aller lesbaren Geräte nacheinander (eine Verbindung zur Zeit:
+    grosse Tabellen brauchen viele Anfragen, parallel bringt wenig)."""
+    targets = [f for f in findings if readable_for_links(f)]
+    results: list[LinkTables] = []
+    quiet = _QuietManagement()
+    management_log = logging.getLogger("xknx.management")
+    management_log.addFilter(quiet)
+    try:
+        for done, finding in enumerate(targets, 1):
+            if stop is not None and stop.is_set():
+                break
+            tables = await read_links(xknx, finding.address, finding.mask, timeout)
+            results.append(tables)
+            if on_read is not None:
+                on_read(tables)
+            if on_progress is not None:
+                on_progress(ScanProgress(done, len(targets),
+                                         sum(1 for t in results if t.ok), finding.address))
+    finally:
+        management_log.removeFilter(quiet)
+    return results
+
+
+def readable_for_links(finding: ScanFinding) -> bool:
+    """Geräte mit Tabellen: geantwortet, keine Koppler (deren Filtertabelle
+    ist etwas anderes) und nicht die eigene Adresse. Auch «gesperrte»: ein
+    Gerät mit entladener Applikation gibt keine Kennung, aber den Ladezustand."""
+    if not finding.answered or finding.own or finding.refused:
+        return False
+    mask = finding.mask or 0
+    return not (mask & 0xFF00 == 0x0900 or finding.address.endswith(".0"))
+
+
+@dataclass
+class LinkAdoptResult:
+    """Was das Übernehmen der Tabellen getan hat."""
+    devices_linked: list[str] = field(default_factory=list)
+    devices_kept: list[str] = field(default_factory=list)      # hatten schon Verknüpfungen
+    devices_missing: list[str] = field(default_factory=list)   # nicht im Projekt
+    unreadable: list[str] = field(default_factory=list)
+    gas_added: int = 0
+    links_added: int = 0
+    unknown_objects: int = 0          # KO-Nummer ohne KO im Produkt
+    variants_chosen: int = 0          # KO-Variante nach den Partnern gewählt
+    # Vergleich bei Geräten mit Verknüpfungen: (Adresse, KO, GA, Art)
+    differences: list[tuple[str, int, str, str]] = field(default_factory=list)
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.gas_added or self.links_added)
+
+    def text(self) -> str:
+        lines = []
+        if self.devices_linked:
+            lines.append(f"{len(self.devices_linked)} Geräte verknüpft: {self.links_added} "
+                         f"Verknüpfungen, {self.gas_added} neue GAs.")
+        if self.devices_kept:
+            lines.append(f"{len(self.devices_kept)} Geräte hatten schon Verknüpfungen und "
+                         "bleiben unverändert" + (
+                             f"; {len(self.differences)} Abweichungen zur Anlage."
+                             if self.differences else " – stimmen mit der Anlage überein."))
+        if self.devices_linked:
+            lines.append("KO-Texte stammen aus dem Produktkatalog. Hat ein KO je nach Parameter "
+                         "mehrere Bedeutungen, wählt KNiX die, die zu den Partnern an derselben "
+                         f"GA passt ({self.variants_chosen}× angepasst) – Parameter liest KNiX "
+                         "nicht, im Zweifel vor Ort prüfen.")
+        if self.unknown_objects:
+            lines.append(f"{self.unknown_objects} KO-Nummern stehen nicht im Produkt – als "
+                         "«KO n» angelegt (Produkt fehlt oder andere Applikationsversion).")
+        if self.devices_missing:
+            lines.append(f"Nicht im Projekt: {_short_list(self.devices_missing)} – zuerst "
+                         "«Ins Projekt übernehmen».")
+        if self.unreadable:
+            lines.append(f"Tabellen nicht lesbar: {_short_list(self.unreadable)}.")
+        return "\n".join(lines) or "Nichts zu übernehmen."
+
+
+def _ga_group(project, main: int, middle: int):
+    from ..models.group_address import MainGroup, MiddleGroup
+    structure = project.group_addresses
+    hg = next((m for m in structure.main_groups if m.number == main), None)
+    if hg is None:
+        hg = MainGroup(number=main, name=f"Hauptgruppe {main}")
+        structure.main_groups.append(hg)
+        structure.main_groups.sort(key=lambda m: m.number)
+    mg = next((m for m in hg.middle_groups if m.number == middle), None)
+    if mg is None:
+        mg = MiddleGroup(number=middle, name=f"Mittelgruppe {main}/{middle}")
+        hg.middle_groups.append(mg)
+        hg.middle_groups.sort(key=lambda m: m.number)
+    return mg
+
+
+def _ga_name(project, address: str) -> tuple[str, str]:
+    """Vorläufiger Name und DPT einer gelesenen GA aus dem KO, das sie
+    empfängt (Aktor, Gateway), sonst dem ersten: «Ausgang A Schalten
+    (1.1.5)». Bessere Namen schlägt FA-3105b vor."""
+    best = None
+    dpts: list[str] = []
+    for device in project_devices(project):
+        for co in device.communication_objects:
+            if address not in co.connected_gas:
+                continue
+            if (co.data_type or "").startswith(("DPST-", "DPT-")):
+                dpts.append(co.data_type)
+            rank = 0 if device.device_type in ("actor", "gateway") else 1
+            if re.fullmatch(r"KO \d+", co.name or ""):
+                rank += 2          # ohne Produkt: Name eines Partners vorziehen
+            if best is None or rank < best[0]:
+                best = (rank, device, co)
+    if best is None:
+        return "", ""
+    _rank, device, co = best
+    text = " ".join(t for t in (co.name, co.object_function) if t) or f"KO {co.object_number}"
+    # DPT des empfangenden KOs, sonst eines Partners (genauer: DPST vor DPT)
+    own = co.data_type if (co.data_type or "").startswith(("DPST-", "DPT-")) else ""
+    dpt = own or next((d for d in dpts if d.startswith("DPST-")), "") or next(iter(dpts), "")
+    if not dpt and (co.object_size or "").strip().lower() == "1 bit":
+        dpt = "DPT-1"          # 1 Bit ist immer Hauptgruppe 1
+    return f"{text} ({device.physical_address})", dpt
+
+
+def adopt_links(project, tables: list[LinkTables]) -> LinkAdoptResult:
+    """Gelesene Tabellen ins Projekt: fehlende GAs anlegen, KOs verknüpfen.
+    Geräte, die schon Verknüpfungen haben (z.B. aus der ETS), bleiben
+    unverändert; ihre Abweichungen zur Anlage stehen im Ergebnis."""
+    from ..models.group_address import GroupAddress
+    from ..models.topology import CommunicationObject
+    result = LinkAdoptResult()
+    devices = {d.physical_address: d for d in project_devices(project)}
+    known = {ga.address for ga in project.group_addresses.all_addresses()}
+    new_gas: list[str] = []
+    for table in sorted(tables, key=lambda t: _address_key(t.address)):
+        if not table.ok:
+            result.unreadable.append(table.address)
+            continue
+        device = devices.get(table.address)
+        if device is None:
+            result.devices_missing.append(table.address)
+            continue
+        if any(co.connected_gas for co in device.communication_objects):
+            result.devices_kept.append(table.address)
+            result.differences.extend(_differences(device, table))
+            continue
+        linked = False
+        for number, gas in sorted(table.links.items()):
+            co = next((c for c in device.communication_objects
+                       if c.object_number == number), None)
+            if co is None:
+                co = CommunicationObject(object_number=number, name=f"KO {number}")
+                device.communication_objects.append(co)
+                result.unknown_objects += 1
+            co.connected_gas = list(dict.fromkeys(gas))
+            result.links_added += len(co.connected_gas)
+            linked = True
+            for address in co.connected_gas:
+                if address not in known:
+                    known.add(address)
+                    new_gas.append(address)
+        device.communication_objects.sort(key=lambda c: c.object_number)
+        if linked:
+            result.devices_linked.append(table.address)
+    result.variants_chosen = _choose_variants(
+        [devices[a] for a in result.devices_linked], project)
+    for address in new_gas:
+        main, middle, sub = (int(p) for p in address.split("/"))
+        name, dpt = _ga_name(project, address)
+        _ga_group(project, main, middle).group_addresses.append(GroupAddress(
+            main_group=main, middle_group=middle, sub_group=sub,
+            designation=name, datapoint_type=dpt))
+        result.gas_added += 1
+    for hg in project.group_addresses.main_groups:
+        for mg in hg.middle_groups:
+            mg.group_addresses.sort(key=lambda g: g.sub_group)
+    return result
+
+
+_WORD = re.compile(r"[a-zäöüß]{3,}")
+
+
+def _words(co) -> set[str]:
+    return set(_WORD.findall(f"{co.name} {co.object_function}".lower()))
+
+
+def _choose_variants(devices: list, project) -> int:
+    """KO-Nummern mit mehreren Varianten im Katalog (je nach Parameter, z.B.
+    «Schalten» oder «UND-Verknüpfung»): die Verknüpfung auf die Variante
+    legen, die am besten zu den Partnern an denselben GAs passt (gemeinsame
+    Wörter, gleicher DPT). Ohne Hinweis bleibt die erste. Anzahl Wechsel."""
+    partners: dict[str, list] = {}
+    for device in project_devices(project):
+        for co in device.communication_objects:
+            for ga in co.connected_gas:
+                partners.setdefault(ga, []).append((device, co))
+    changed = 0
+    for device in devices:
+        by_number: dict[int, list] = {}
+        for co in device.communication_objects:
+            by_number.setdefault(co.object_number, []).append(co)
+        for variants in by_number.values():
+            linked = next((co for co in variants if co.connected_gas), None)
+            if linked is None or len(variants) < 2:
+                continue
+            others = [co for ga in linked.connected_gas
+                      for d, co in partners.get(ga, []) if d is not device]
+            if not others:
+                continue
+            words = set().union(*(_words(co) for co in others))
+            types = {co.data_type for co in others if co.data_type}
+
+            def score(co) -> tuple[int, int]:
+                own = _words(co) - _words_common(variants)
+                return (len(own & words), int(bool(co.data_type) and co.data_type in types))
+            best = max(variants, key=score)
+            if best is not linked and score(best) > score(linked):
+                best.connected_gas, linked.connected_gas = linked.connected_gas, []
+                changed += 1
+    return changed
+
+
+def _words_common(variants: list) -> set[str]:
+    """Wörter, die alle Varianten tragen (meist der Kanal), zählen nicht."""
+    sets = [_words(co) for co in variants]
+    return set.intersection(*sets) if sets else set()
+
+
+def _differences(device, table: LinkTables) -> list[tuple[str, int, str, str]]:
+    """Verknüpfungen im Projekt gegen die Anlage: (Adresse, KO, GA, Art) mit
+    Art «nur Anlage» bzw. «nur Projekt»."""
+    project_links = {(co.object_number, ga) for co in device.communication_objects
+                     for ga in co.connected_gas}
+    plant_links = {(number, ga) for number, gas in table.links.items() for ga in gas}
+    diff = [(device.physical_address, n, ga, "nur Anlage")
+            for n, ga in sorted(plant_links - project_links)]
+    diff += [(device.physical_address, n, ga, "nur Projekt")
+             for n, ga in sorted(project_links - plant_links)]
+    return diff

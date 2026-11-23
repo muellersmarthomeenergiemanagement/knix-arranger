@@ -36,6 +36,8 @@ class _Bridge(QObject):
     progress = Signal(object)
     found = Signal(object)
     finished = Signal(object, str)
+    link_read = Signal(object)
+    links_finished = Signal(object, str)
 
 
 class DeviceScanView(QWidget):
@@ -54,12 +56,16 @@ class DeviceScanView(QWidget):
         self._findings: list[ds.ScanFinding] = []
         self._lines: list[tuple[int, int]] = []
         self._rows: list[ds.ScanRow] = []
+        # gelesene GA- und Zuordnungstabellen je Adresse (FA-3108b)
+        self._tables: dict[str, ds.LinkTables] = {}
         self._future = None
         self._stop: threading.Event | None = None
         self._bridge = _Bridge()
         self._bridge.progress.connect(self._on_progress)
         self._bridge.found.connect(self._on_found)
         self._bridge.finished.connect(self._on_finished)
+        self._bridge.link_read.connect(self._on_link_read)
+        self._bridge.links_finished.connect(self._on_links_finished)
 
         layout = QVBoxLayout(self)
         title = QLabel("Teilnehmer suchen")
@@ -70,7 +76,9 @@ class DeviceScanView(QWidget):
             "liest von den Geräten, die antworten, Hersteller, Seriennummer, Bestellnummer "
             "und Applikation. Nur lesend: an den Geräten ändert sich nichts. Das Ergebnis "
             "wird mit dem Projekt verglichen. Secure-Geräte geben ohne Schlüssel meist "
-            "keine Daten preis. Dauer: rund 3 Minuten je Linie.")
+            "keine Daten preis. Dauer: rund 3 Minuten je Linie. «GAs und Verknüpfungen "
+            "lesen» holt danach aus jedem Gerät seine Gruppenadressen und welches KO an "
+            "welcher GA hängt (je Gerät einige Sekunden).")
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color: {TEXT_MUTED};")
         layout.addWidget(intro)
@@ -93,6 +101,12 @@ class DeviceScanView(QWidget):
         self._lines_edit.returnPressed.connect(self._start)
         self._start_btn = QPushButton("Suchen")
         self._start_btn.clicked.connect(self._start)
+        self._links_btn = QPushButton("GAs und Verknüpfungen lesen")
+        self._links_btn.setObjectName("secondary")
+        self._links_btn.setToolTip(
+            "Aus jedem gefundenen Gerät die GA-Tabelle und die Zuordnungstabelle lesen "
+            "(nur lesend). Bei Geräten mit Verknüpfungen im Projekt: Vergleich mit der Anlage")
+        self._links_btn.clicked.connect(self._read_links)
         self._stop_btn = QPushButton("Abbrechen")
         self._stop_btn.setObjectName("secondary")
         self._stop_btn.clicked.connect(self._cancel)
@@ -101,6 +115,7 @@ class DeviceScanView(QWidget):
         self._progress.hide()
         row.addWidget(self._lines_edit, 1)
         row.addWidget(self._start_btn)
+        row.addWidget(self._links_btn)
         row.addWidget(self._stop_btn)
         row.addWidget(self._progress, 1)
         layout.addLayout(row)
@@ -118,7 +133,8 @@ class DeviceScanView(QWidget):
         self._adopt_btn = QPushButton("Ins Projekt übernehmen…")
         self._adopt_btn.setToolTip(
             "Gefundene Geräte im Projekt anlegen (Linien, Hersteller, Seriennummer, Produkt "
-            "und KOs aus dem Katalog); bestehende Geräte nur ergänzen, nie überschreiben")
+            "und KOs aus dem Katalog), gelesene GAs und Verknüpfungen dazu; bestehende "
+            "Geräte und Verknüpfungen nur ergänzen, nie überschreiben")
         self._adopt_btn.clicked.connect(self._adopt)
         filters.addWidget(self._filter)
         filters.addWidget(self._summary, 1)
@@ -135,7 +151,7 @@ class DeviceScanView(QWidget):
         self._table.verticalHeader().setDefaultSectionSize(22)
         self._table.horizontalHeader().setStretchLastSection(True)
         # Hinweis (letzte Spalte) nimmt den Rest der Breite
-        for column, width in enumerate((60, 110, 85, 200, 180, 125, 100)):
+        for column, width in enumerate((60, 105, 80, 190, 150, 120, 95, 160)):
             self._table.setColumnWidth(column, width)
         layout.addWidget(self._table, 1)
         from ..column_utils import EmptyHint
@@ -151,6 +167,7 @@ class DeviceScanView(QWidget):
         if project is not self._project:
             self._cancel()
             self._findings, self._lines, self._rows = [], [], []
+            self._tables = {}
             lines = ds.project_lines(project) if project is not None else []
             self._lines_edit.setText(", ".join(ds.line_text(line) for line in lines))
         self._project = project
@@ -186,6 +203,8 @@ class DeviceScanView(QWidget):
             self._connection.setStyleSheet(f"color: {TEXT_MUTED};")
         self._monitor_btn.setVisible(not usable)
         self._start_btn.setEnabled(usable and not self.scanning)
+        self._links_btn.setEnabled(usable and not self.scanning
+                                   and any(ds.readable_for_links(f) for f in self._findings))
         self._stop_btn.setEnabled(self.scanning)
         self._lines_edit.setEnabled(not self.scanning)
         self._export_btn.setEnabled(bool(self._rows))
@@ -207,10 +226,12 @@ class DeviceScanView(QWidget):
             return
         stop = threading.Event()
         bridge = self._bridge
+        expected = ({d.physical_address for d in ds.project_devices(self._project)}
+                    if self._project is not None else set())
 
         def factory(xknx):
             return ds.scan_line(xknx, lines, on_progress=bridge.progress.emit,
-                                on_found=bridge.found.emit, stop=stop)
+                                on_found=bridge.found.emit, stop=stop, retry=expected)
         try:
             future = self.bus_monitor.run_on_bus(factory)
         except BusSendError as exc:
@@ -266,16 +287,77 @@ class DeviceScanView(QWidget):
             self._summary.setText(self._summary.text() + " – abgebrochen, Ergebnis unvollständig")
         self._update_controls()
 
+    # ── GAs und Verknüpfungen (FA-3108b) ─────────────────────────────────
+
+    def _read_links(self) -> None:
+        if self.scanning or self.bus_monitor is None:
+            return
+        targets = [f for f in self._findings if ds.readable_for_links(f)]
+        if not targets:
+            return
+        stop = threading.Event()
+        bridge = self._bridge
+
+        def factory(xknx):
+            return ds.read_all_links(xknx, targets, on_progress=bridge.progress.emit,
+                                     on_read=bridge.link_read.emit, stop=stop)
+        try:
+            future = self.bus_monitor.run_on_bus(factory)
+        except BusSendError as exc:
+            QMessageBox.information(self, "GAs und Verknüpfungen lesen", str(exc))
+            return
+        self._future, self._stop = future, stop
+        self._progress.setRange(0, len(targets))
+        self._progress.setValue(0)
+        self._progress.setFormat("%v von %m Geräten")
+        self._progress.show()
+
+        def done(f) -> None:
+            if f.cancelled():
+                bridge.links_finished.emit(None, "abgebrochen")
+                return
+            exc = f.exception()
+            if exc is not None:
+                bridge.links_finished.emit(None, str(exc) or exc.__class__.__name__)
+            else:
+                bridge.links_finished.emit(f.result(), "")
+        future.add_done_callback(done)
+        self._update_controls()
+
+    def _on_link_read(self, tables: ds.LinkTables) -> None:
+        self._tables[tables.address] = tables
+        self._compare(final=False)
+
+    def _on_links_finished(self, results, error: str) -> None:
+        stopped = self._stop is not None and self._stop.is_set()
+        self._future = self._stop = None
+        self._progress.hide()
+        for tables in results or []:
+            self._tables[tables.address] = tables
+        self._compare()
+        read = [t for t in self._tables.values() if t.ok]
+        text = (f"Tabellen gelesen: {len(read)} Geräte, "
+                f"{len({ga for t in read for ga in t.group_addresses})} GAs")
+        failed = len(self._tables) - len(read)
+        if failed:
+            text += f", {failed} nicht lesbar"
+        self._summary.setText(text + (" – abgebrochen" if stopped else ""))
+        if error and error != "abgebrochen":
+            QMessageBox.warning(self, "GAs und Verknüpfungen lesen",
+                                f"Nicht abgeschlossen: {error}")
+        self._update_controls()
+
     # ── Ergebnis ─────────────────────────────────────────────────────────
 
     def _compare(self, final: bool = True) -> None:
         if not self._lines:
             self._rows = []
         elif final:
-            self._rows = ds.compare(self._project, self._findings, self._lines)
+            self._rows = ds.compare(self._project, self._findings, self._lines, self._tables)
         else:
             # während der Suche nur Gefundenes, «antwortet nicht» erst am Schluss
-            self._rows = [r for r in ds.compare(self._project, self._findings, self._lines)
+            self._rows = [r for r in ds.compare(self._project, self._findings, self._lines,
+                                                self._tables)
                           if r.status != ds.STATUS_MISSING]
         if not self.scanning or final:
             self._summary.setText(ds.summary(self._rows) if self._lines else "")
@@ -298,6 +380,10 @@ class DeviceScanView(QWidget):
                 if column == len(ds.COLUMNS) - 1:
                     item.setToolTip(text)
                 self._table.setItem(index, column, item)
+            if row.link_details:
+                more = len(row.link_details) - 30
+                self._table.item(index, 7).setToolTip("\n".join(row.link_details[:30]) + (
+                    f"\n… und {more} weitere" if more > 0 else ""))
             if row.finding is not None and row.finding.errors:
                 self._table.item(index, 1).setToolTip("Nicht lesbar: " + ", ".join(
                     row.finding.errors[:6]))
@@ -315,6 +401,12 @@ class DeviceScanView(QWidget):
                 "Produkt und Kommunikationsobjekte kommen aus dem Produktkatalog, wenn die "
                 "gelesene Applikation dort steht. Bestehende Angaben werden nicht "
                 "überschrieben; Abweichungen bleiben in der Liste stehen.")
+        tables = list(self._tables.values())
+        if tables:
+            text += ("\n\nGelesene GAs und Verknüpfungen von "
+                     f"{sum(1 for t in tables if t.ok)} Geräten kommen dazu – nur bei Geräten "
+                     "ohne Verknüpfungen im Projekt. Die neuen GAs heissen vorläufig nach dem "
+                     "KO, das sie empfängt.")
         if not existing:
             text += ("\n\nDas Projekt gilt danach als bestehende Anlage (wie aus der ETS "
                      "eingelesen).")
@@ -327,13 +419,19 @@ class DeviceScanView(QWidget):
         if self._bus is not None:
             self._bus.begin_change("Teilnehmer ins Projekt übernommen")
         result = ds.adopt_findings(self._project, found, catalog)
-        if result.changed:
+        links = ds.adopt_links(self._project, tables) if tables else None
+        if result.changed or (links is not None and links.changed):
             if self._bus is not None:
                 self._bus.emit_topology_changed()
+                if links is not None and links.changed:
+                    self._bus.emit_addresses_changed()
             self.adopted.emit()
         self._compare()
         self._update_controls()
-        QMessageBox.information(self, "Ins Projekt übernehmen", result.text())
+        message = result.text()
+        if links is not None:
+            message += "\n\n" + links.text()
+        QMessageBox.information(self, "Ins Projekt übernehmen", message)
 
     def _export(self) -> None:
         if not self._rows:
