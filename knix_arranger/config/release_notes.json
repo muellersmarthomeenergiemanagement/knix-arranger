@@ -2,6 +2,26 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.62",
+      "date": "2026-11-23",
+      "neu": [
+        "Willkommensbildschirm: «ETS-Projekt einlesen» für bestehende Anlagen. Das eingelesene Projekt liegt danach sofort im Arbeitsverzeichnis (Name aus dem ETS-Projekt) und wird automatisch gespeichert – ohne vorher ein leeres Projekt anzulegen.",
+        "KNiX merkt sich beim Einlesen einer .knxproj, aus welchem ETS-Projekt sie stammt. Gehört eine später eingelesene Datei zu einer anderen Anlage, fragt KNiX nach: «Als neues Projekt einlesen» oder «Trotzdem ins offene Projekt». So überschreibt Chalet B nicht mehr aus Versehen Chalet A. Gilt ab dem nächsten Einlesen eines Projekts."
+      ],
+      "verbessert": [
+        "Nach dem Einlesen zeigt KNiX ein einziges Fenster mit dem Ergebnis – zuerst, was zu prüfen ist, dann die Hinweise – statt mehrerer Meldungen nacheinander. Danach öffnet sich die Übersicht mit dem nächsten Schritt.",
+        "Projekt neu aus ETS aufbauen: Notizen der Bauherrenberatung (Raumnotizen, Anmerkungen, Datenblätter), Anpassungen der Bedienungsanleitung, Revisionen und die Busverbindung bleiben jetzt erhalten. Der Dialog nennt, was ohne Haken verloren geht, z.B. «Geht verloren: Zeitprogramme (2)».",
+        "Bei aus der ETS eingelesenen Projekten steht der Wizard nicht mehr in der Seitenleiste – er plant neu, und Änderungen gingen beim nächsten Einlesen verloren. Über Ansicht → Wizard starten bleibt er erreichbar.",
+        "Seitenleiste: Beim ersten Start ist die Gruppe «Projekt» mit Neu, Öffnen und ETS6 Import aufgeklappt.",
+        "CSV-Export: Überschreiben bestätigen Sie nur noch im Speichern-Dialog; die angezeigte Anzahl zählt keine Reserven (Reserven werden nie exportiert)."
+      ],
+      "behoben": [
+        "«Neues Projekt» und «Öffnen» ersetzten das offene Projekt ohne Rückfrage – ungespeicherte Änderungen, z.B. ein frisch eingelesenes Projekt, gingen verloren. Jetzt fragt KNiX: Speichern, Verwerfen oder Abbrechen.",
+        "CSV-Export scheiterte bei einer bestehenden Datei trotz bestätigter Rückfrage, wenn der Haken «Vorhandene Datei überschreiben» fehlte; der wirkungslose Haken «Platzhalter/Reserve exportieren» ist entfernt.",
+        "Beim ETS6 Import landete die Datei im Import-Ordner des offenen Projekts, auch wenn Sie danach abbrachen."
+      ]
+    },
+    {
       "version": "1.4.61",
       "date": "2026-11-18",
       "neu": [

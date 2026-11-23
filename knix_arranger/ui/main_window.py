@@ -49,7 +49,7 @@ from .dialogs.export_dialog import ExportDialog
 from .dialogs.settings_dialog import SettingsDialog
 from .dialogs.reports_dialog import ReportsDialog
 from .dialogs.license_dialog import LicenseDialog
-from .dialogs.welcome_dialog import WelcomeDialog, ACTION_NEW, ACTION_OPEN
+from .dialogs.welcome_dialog import WelcomeDialog, ACTION_IMPORT, ACTION_NEW, ACTION_OPEN
 from .dialogs.workspace_setup_dialog import WorkspaceSetupDialog
 from .dialogs.project_properties_dialog import ProjectPropertiesDialog
 from .dialogs.update_dialog import UpdateDialog
@@ -84,6 +84,9 @@ from .. import APP_NAME, __version__
 from ..utils.logging_setup import get_log_dir, set_last_action
 
 _MAX_PROBLEM_LINES = 8   # Sofortmeldung: so viele Meldungen einzeln, Rest als Anzahl
+
+#: Name eines eingelesenen Projekts, bis die ETS-Datei einen liefert
+IMPORTED_PROJECT_NAME = "Importiertes Projekt"
 
 logger = logging.getLogger("knix_arranger.main_window")
 
@@ -1218,6 +1221,8 @@ class MainWindow(QMainWindow):
 
         if not license_gate.save_allowed(self):  # NFA-066
             return
+        if not self._confirm_discard_changes():
+            return
         # Neue Projekte werden verbindlich im Workspace abgelegt (FA-1601):
         # {Workspace}/{Projektname}/{Projektname}.knxarr + Revisionen/ + Berichte/
         workspace = self._ensure_workspace()
@@ -1279,6 +1284,8 @@ class MainWindow(QMainWindow):
 
     def open_file(self, path: str):
         """Öffnet eine .knxarr-Datei direkt (z.B. per Doppelklick im Explorer)."""
+        if not self._confirm_discard_changes():
+            return
         try:
             self._project = KnxProject.load(path)
             from ..services import import_folder
@@ -1490,16 +1497,31 @@ class MainWindow(QMainWindow):
             return
 
         file_type = dialog.file_type
-        # Kopie im Ordner «Import» des Projekts (FA-3402a)
-        filepath = import_folder.store(self._project, dialog.filepath)
+        source = dialog.filepath
+        self._new_import = ""
 
-        if file_type == "knxproj" and self._knxproj_rebuilds(filepath):
-            return
+        if file_type == "knxproj":
+            target = self._ets_project_target(source)
+            if target == "cancel":
+                return
+            if target == "new":
+                # Andere Anlage: nicht ins offene Projekt, sondern neu einlesen
+                if not self._confirm_discard_changes():
+                    return
+                self._project = None
+            elif self._knxproj_rebuilds(source):
+                return
 
+        # Kopie im Ordner «Import» des Projekts (FA-3402a) -- erst nach der
+        # Entscheidung, sonst läge die Datei auch nach «Abbrechen» oder einer
+        # fremden Anlage im Import-Ordner dieses Projekts
         if not self._project:
-            self._project = KnxProject(name="Importiertes Projekt")
-            import_folder.store(self._project, filepath)   # beim ersten Speichern
+            self._project = KnxProject(name=IMPORTED_PROJECT_NAME)
+            # danach im Arbeitsverzeichnis ablegen (_place_imported_project)
+            self._new_import = source
+            filepath = import_folder.store(self._project, source)  # beim ersten Speichern
         else:
+            filepath = import_folder.store(self._project, source)
             self._backup_project("vor_Import")
 
         try:
@@ -1522,6 +1544,52 @@ class MainWindow(QMainWindow):
                 "• Die Datei wird noch von einem anderen Programm verwendet\n"
                 "• Fehlende Leserechte auf die Datei",
             )
+
+    def _ets_project_target(self, filepath: str) -> str:
+        """Gehört die .knxproj zum offenen Projekt? Vergleicht die Kennung des
+        ETS-Projekts (P-XXXX) mit der beim letzten Einlesen gemerkten.
+        "open" = ins offene Projekt, "new" = als neues Projekt, "cancel"."""
+        project = self._project
+        if project is None or not project.ets_project_id:
+            return "open"
+        new_id = KnxprojImportService().read_project_id(filepath)
+        if not new_id or new_id == project.ets_project_id:
+            return "open"
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Anderes ETS-Projekt")
+        box.setText(
+            f"«{os.path.basename(filepath)}» enthält das ETS-Projekt {new_id}, "
+            f"«{project.name}» stammt aus dem ETS-Projekt {project.ets_project_id}. "
+            "Das ist vermutlich eine andere Anlage.\n\n"
+            "Ins offene Projekt eingelesen, ersetzt sie dessen Gebäude, Topologie "
+            "und Gruppenadressen.")
+        new = box.addButton("Als neues Projekt einlesen", QMessageBox.AcceptRole)
+        into = box.addButton("Trotzdem ins offene Projekt", QMessageBox.DestructiveRole)
+        box.addButton("Abbrechen", QMessageBox.RejectRole)
+        box.setDefaultButton(new)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is new:
+            return "new"
+        return "open" if clicked is into else "cancel"
+
+    def _confirm_discard_changes(self) -> bool:
+        """Vor dem Wechsel auf ein anderes Projekt: ungespeicherte Änderungen
+        speichern, verwerfen oder abbrechen. True = weiter. Vorher ersetzten
+        «Neu» und «Öffnen» das Projekt kommentarlos -- ein frisch eingelesenes
+        ohne Pfad (kein automatisches Speichern) war dann ganz verloren."""
+        if not self._has_unsaved_changes():
+            return True
+        reply = QMessageBox.question(
+            self, "Ungespeicherte Änderungen",
+            f"«{self._project.name}» hat ungespeicherte Änderungen. Vorher speichern?",
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+            QMessageBox.Save,
+        )
+        if reply == QMessageBox.Save:
+            return self._save_project()
+        return reply == QMessageBox.Discard
 
     def _backup_project(self, reason: str) -> str:
         """Sichert die gespeicherte Projektdatei in «Sicherungen» (NFA-042).
@@ -1637,6 +1705,11 @@ class MainWindow(QMainWindow):
             # Der Import setzt den Namen aus der ETS – behaltene Projekt-
             # eigenschaften haben Vorrang
             self._project.name = old_project.name
+        if "bauherr_notes" in keep:
+            # Räume und Bedienelemente sind frisch aus der ETS: Notizen über
+            # Raumschlüssel bzw. physikalische Adresse zurückholen
+            from ..services.rebuild_service import adopt_bauherr_notes
+            adopt_bauherr_notes(old_project, self._project)
 
         self._project.add_changelog_entry(
             "Import", f"Projekt neu aus {os.path.basename(filepath)} aufgebaut"
@@ -1658,39 +1731,19 @@ class MainWindow(QMainWindow):
             return structure
 
         def on_success(structure):
+            self._set_dirty(True)
+            saved = self._place_imported_project()
             self._update_views()
             ga_count = len(structure.all_addresses())
-            self._status_bar.set_status(f"CSV importiert: {ga_count} Gruppenadressen.")
+            self._status_bar.set_status(
+                f"CSV importiert: {ga_count} Gruppenadressen."
+                + (f" Als neues Projekt gespeichert: {saved}" if saved else ""))
             self._sidebar.select("addresses")
             self._navigate("addresses")
 
         run_import(
             self, "Gruppenadressen werden importiert…", do_import, on_success,
             self._import_worker_ref,
-        )
-
-    def _warn_if_building_structure_empty(self, areal):
-        """Macht sichtbar, wenn aus dem XLSX-Import keine Gebäudestruktur
-        abgeleitet werden konnte (FA-519).
-
-        `derive_building_structure()` scheitert lautlos (nur Log-Warning),
-        wenn keine GA-Bezeichnung dem erwarteten Namensmuster
-        'GEWERK.STOCKWERK.RAUM.ELEMENT' entspricht -- z.B. weil der
-        Integrator die GAs frei/uneinheitlich beschriftet hat. Ohne diesen
-        Hinweis bleibt unbemerkt, dass Stockwerke, Räume und
-        Gewerk-Zuweisungen manuell im Wizard nachgetragen werden müssen.
-        """
-        if areal.all_floors:
-            return
-        QMessageBox.warning(
-            self, "Keine Gebäudestruktur erkannt",
-            "Aus den Gruppenadress-Bezeichnungen konnte keine Gebäudestruktur "
-            "abgeleitet werden.\n\n"
-            "Das deutet darauf hin, dass die GAs nicht nach dem erwarteten Muster "
-            "'GEWERK.STOCKWERK.RAUM.ELEMENT' benannt sind. Gruppenadressen, "
-            "Topologie und Geräte wurden trotzdem vollständig importiert -- "
-            "Stockwerke, Räume und Gewerk-Zuweisungen müssen jedoch manuell im "
-            "Wizard (Schritt 2/3/5) nachgetragen werden."
         )
 
     def _replace_areal(self, areal, keep_names: bool = True) -> None:
@@ -1711,58 +1764,135 @@ class MainWindow(QMainWindow):
         old.areal = self._project.areal
         return old
 
-    def _show_import_notes(self, pipeline: ImportPipeline, diff, warn_empty_areal=None) -> None:
-        """Nach jedem Import (UI-Thread): Projekt als geändert markieren und
-        Hinweise zeigen -- fehlende Gebäudestruktur, verwaiste Planungsdaten,
-        Kanal-Konflikte und fehlgeschlagene Schritte."""
-        self._set_dirty(True)
-        if warn_empty_areal is not None:
-            self._warn_if_building_structure_empty(warn_empty_areal)
+    def _import_notes(self, pipeline: ImportPipeline, diff, warn_empty_areal=None) -> list:
+        """Hinweise nach einem Import für die Zusammenfassung: fehlende
+        Gebäudestruktur, verwaiste Planungsdaten, Kanal-Konflikte, Stand der
+        ETS-Arbeitsliste, in der ETS noch verbundene GAs, fehlgeschlagene
+        Schritte."""
+        from .dialogs.import_summary_dialog import ImportNote
+        notes = []
+        if warn_empty_areal is not None and not warn_empty_areal.all_floors:
+            # derive_building_structure scheitert lautlos (nur Log), wenn
+            # keine GA-Bezeichnung dem Muster entspricht (FA-519)
+            notes.append(ImportNote(
+                "Keine Gebäudestruktur erkannt",
+                "Aus den Gruppenadress-Bezeichnungen liess sich keine Gebäudestruktur "
+                "ableiten – die GAs folgen nicht dem Muster 'GEWERK.STOCKWERK.RAUM.ELEMENT'. "
+                "Gruppenadressen, Topologie und Geräte sind vollständig importiert; "
+                "Stockwerke, Räume und Gewerke fehlen. Abhilfe: Gebäude-Report (XLSX) "
+                "oder die .knxproj einlesen.", True))
         is_reimport = diff.devices_matched > 0 or diff.rooms_matched > 0
         if is_reimport and (diff.has_removed or diff.has_ga_conflicts):
-            QMessageBox.warning(
-                self, "Re-Import: Abgleich-Hinweise",
-                "Beim Abgleich mit dem bisherigen Projektstand wurden folgende "
-                "Geräte/Räume nicht mehr gefunden. Falls sie in der ETS nur "
-                "umbenannt statt gelöscht wurden, sind ihre KNiX-Planungsdaten "
-                "(Gewerk-Zuweisungen, Bedienelemente, Materialliste, ...) jetzt "
-                "verwaist:\n\n" + diff.details_text(),
-            )
-        self._warn_if_channel_conflicts(pipeline.channel_conflicts)
-        parts = []
+            notes.append(ImportNote(
+                "Nicht mehr gefunden",
+                "Diese Geräte/Räume des bisherigen Stands fehlen in der ETS. Wurden sie "
+                "dort nur umbenannt, sind ihre KNiX-Daten (Gewerke, Bedienelemente, "
+                "Materialliste …) jetzt verwaist:\n\n" + diff.details_text(), True))
+        conflicts = pipeline.channel_conflicts
+        if conflicts:
+            # FA-521d: bewusst keinem Gewerk automatisch zugeordnet
+            more = f"\n… und {len(conflicts) - 30} weitere" if len(conflicts) > 30 else ""
+            notes.append(ImportNote(
+                "Mehrere Gewerke auf einem Kanal",
+                f"{len(conflicts)} Kommunikationsobjekte haben GAs unterschiedlicher "
+                "Gewerke verbunden und sind keinem Gewerk zugeordnet – bitte im Gewerk "
+                "prüfen:\n\n" + "\n".join(conflicts[:30]) + more, True))
         if diff.report_params_kept and not pipeline.params_from_report:
-            parts.append(self._report_params_note(pipeline, diff.report_params_kept))
+            notes.append(ImportNote(
+                "Tastenparameter aus früherem Report",
+                self._report_params_note(pipeline, diff.report_params_kept)))
         wl = pipeline.worklist_diff
         if wl is not None and not wl.first and (wl.done or wl.new or wl.open):
-            parts.append(
-                f"ETS-Arbeitsliste: {wl.done} Aufgabe(n) in der ETS erledigt, "
-                f"{wl.new} neu, {wl.open} noch offen.\n"
-                "Neue Liste unter Berichte → ETS-Arbeitsliste oder in der Validierung.")
+            notes.append(ImportNote(
+                "ETS-Arbeitsliste",
+                f"{wl.done} Aufgabe(n) in der ETS erledigt, {wl.new} neu, {wl.open} noch "
+                "offen. Neue Liste unter Berichte → ETS-Arbeitsliste oder in der "
+                "Validierung.", bool(wl.new or wl.open)))
         if pipeline.pending_unlinks:
             shown = pipeline.pending_unlinks[:20]
             more = (f"\n… und {len(pipeline.pending_unlinks) - 20} weitere"
                     if len(pipeline.pending_unlinks) > 20 else "")
-            parts.append(
-                "Diese Gruppenadressen wurden in KNiX von einer Taste bzw. einem "
-                "Objekt getrennt, sind in der ETS aber noch verbunden. KNiX hat "
-                "sie wieder getrennt – bitte auch in der ETS trennen:\n\n"
+            notes.append(ImportNote(
+                "In der ETS noch verbunden",
+                "Diese GAs wurden in KNiX von einer Taste bzw. einem Objekt getrennt, "
+                "sind in der ETS aber noch verbunden. KNiX hat sie wieder getrennt – "
+                "bitte auch in der ETS trennen:\n\n"
                 + "\n".join(f"• {p.text()}" for p in shown) + more
-                + "\n\nSobald die ETS sie nicht mehr liefert, entfällt dieser Hinweis.")
-        if parts:
-            QMessageBox.information(self, "Abgleich mit der ETS", "\n\n".join(parts))
+                + "\n\nSobald die ETS sie nicht mehr liefert, entfällt dieser Hinweis.",
+                True))
         if pipeline.problems:
             from ..utils.logging_setup import get_log_dir
             shown = pipeline.problems[:15]
             more = (f"\n… und {len(pipeline.problems) - 15} weitere"
                     if len(pipeline.problems) > 15 else "")
-            QMessageBox.warning(
-                self, "Import unvollständig",
-                "Der Import ist abgeschlossen, aber diese Schritte sind "
-                "fehlgeschlagen. Die betroffenen Daten fehlen oder sind "
-                "unvollständig:\n\n"
-                + "\n".join(f"• {p}" for p in shown) + more
-                + f"\n\nDetails stehen in der Log-Datei im Ordner:\n{get_log_dir()}",
-            )
+            notes.append(ImportNote(
+                "Import unvollständig",
+                "Diese Schritte sind fehlgeschlagen, die betroffenen Daten fehlen oder "
+                "sind unvollständig:\n\n" + "\n".join(f"• {p}" for p in shown) + more
+                + f"\n\nDetails in der Log-Datei im Ordner:\n{get_log_dir()}", True))
+        return notes
+
+    def _show_import_notes(self, pipeline: ImportPipeline, diff, warn_empty_areal=None,
+                           *, summary: str = "", extra: tuple = ()) -> None:
+        """Nach jedem Import (UI-Thread): Projekt als geändert markieren, ein
+        neu eingelesenes Projekt im Arbeitsverzeichnis ablegen und alles in
+        EINER Zusammenfassung zeigen (vorher bis zu fünf Meldungen
+        nacheinander)."""
+        from .dialogs.import_summary_dialog import ImportSummaryDialog
+        self._set_dirty(True)
+        notes = self._import_notes(pipeline, diff, warn_empty_areal) + list(extra)
+        saved = self._place_imported_project()
+        if saved:
+            summary += f"\n\nAls neues Projekt gespeichert: {saved}"
+        # Das Parsen lief teils im UI-Thread: ohne Aktivieren bliebe die
+        # Zusammenfassung hinter einem anderen Fenster (Windows-Foreground-Lock)
+        self.raise_()
+        self.activateWindow()
+        ImportSummaryDialog("Import abgeschlossen", summary, notes, self).exec()
+
+    def _place_imported_project(self) -> str:
+        """Erstes Einlesen ohne offenes Projekt: das Projekt sofort wie ein
+        neues im Arbeitsverzeichnis ablegen ({Workspace}/{Name}/{Name}.knxarr,
+        FA-1601) -- sonst hätte es keinen Pfad, kein automatisches Speichern
+        und «Neu aus ETS aufbauen» wäre gesperrt. Gibt den Pfad zurück, ""
+        wenn nicht abgelegt."""
+        source = getattr(self, "_new_import", "")
+        self._new_import = ""
+        project = self._project
+        if not source or project is None or project._file_path:
+            return ""
+        if not (project.topology.areas or project.group_addresses.all_addresses()):
+            return ""
+        if license_gate.is_read_only():  # NFA-066
+            return ""
+        from ..services.project_service import ProjectService
+        service = ProjectService()
+        workspace = self._ensure_workspace()
+        if project.name and project.name != IMPORTED_PROJECT_NAME:
+            base = project.name
+        else:
+            base = os.path.splitext(os.path.basename(source))[0]
+        path = ""
+        for n in range(1, 100):
+            try:
+                path = service.prepare_workspace_project_folder(
+                    workspace, base if n == 1 else f"{base} ({n})")
+                break
+            except FileExistsError:
+                continue
+            except OSError:
+                logger.exception("Projektordner für den Import nicht angelegt")
+                return ""
+        if not path:
+            return ""
+        if project.name in ("", IMPORTED_PROJECT_NAME):
+            project.name = base
+        if not self._write_project(path):
+            return ""
+        service.add_to_recent(path)
+        self._update_window_title()
+        self._status_bar.set_project_name(project.name)
+        return path
 
     @staticmethod
     def _report_params_note(pipeline, count: int) -> str:
@@ -1811,7 +1941,7 @@ class MainWindow(QMainWindow):
 
             # Projektname aus Metadaten uebernehmen, falls noch leer
             meta = getattr(topology, "metadata", {})
-            if meta.get("project_name") and self._project.name == "Importiertes Projekt":
+            if meta.get("project_name") and self._project.name == IMPORTED_PROJECT_NAME:
                 self._project.name = meta["project_name"]
 
             # Gruppenadressen aus dem Topologie-Report nur, solange kein
@@ -1847,7 +1977,6 @@ class MainWindow(QMainWindow):
         def on_success(result: dict):
             topology = result["topology"]
             diff = result["diff"]
-            self._show_import_notes(result["pipeline"], diff, result["areal"])
             self._update_views()
 
             total_devices = sum(len(line.devices) for area in topology.areas for line in area.lines)
@@ -1863,15 +1992,18 @@ class MainWindow(QMainWindow):
                 " | Tipp: Gruppenadress-Report (XLSX) importieren für vollständige GA-Daten."
                 if not self._project.import_files.get(GA_REPORT) else ""
             )
-            self._status_bar.set_status(
+            status = (
                 f"Topologie importiert: {len(topology.areas)} Bereiche, "
                 f"{sum(len(a.lines) for a in topology.areas)} Linien, "
                 f"{total_devices} Geräte, {kos} KOs, {ga_count} GAs{ga_hint} | "
                 f"Gebäude: {total_floors} Stockwerke, {total_rooms} Räume.{ga_tipp} | "
                 f"{diff.summary_line()}."
             )
-            self._sidebar.select("topology_report")
-            self._navigate("topology_report")
+            self._status_bar.set_status(status)
+            self._show_import_notes(result["pipeline"], diff, result["areal"],
+                                    summary=status.replace(" | ", "\n"))
+            self._sidebar.select("overview")
+            self._navigate("overview")
 
         run_import(
             self, "Topologie wird importiert…", do_import, on_success,
@@ -1921,18 +2053,20 @@ class MainWindow(QMainWindow):
             ga_structure = result["ga_structure"]
             pipeline = result["pipeline"]
             diff = result["diff"]
-            self._show_import_notes(pipeline, diff, result["areal"])
             self._update_views()
             ga_count = len(ga_structure.all_addresses())
             hg_count = len(ga_structure.main_groups)
             assigned = pipeline.gewerke_assigned
             gewerk_hint = f", {assigned} Gewerk-Zuweisungen" if assigned else ""
-            self._status_bar.set_status(
+            status = (
                 f"GA-Report importiert: {hg_count} Hauptgruppen, "
                 f"{ga_count} Gruppenadressen{gewerk_hint} | {diff.summary_line()}."
             )
-            self._sidebar.select("addresses")
-            self._navigate("addresses")
+            self._status_bar.set_status(status)
+            self._show_import_notes(pipeline, diff, result["areal"],
+                                    summary=status.replace(" | ", "\n"))
+            self._sidebar.select("overview")
+            self._navigate("overview")
 
         run_import(
             self, "Gruppenadressen werden importiert…", do_import, on_success,
@@ -1963,37 +2097,21 @@ class MainWindow(QMainWindow):
             areal = result["areal"]
             pipeline = result["pipeline"]
             diff = result["diff"]
-            self._show_import_notes(pipeline, diff, areal)
             self._update_views()
             assigned = pipeline.gewerke_assigned
             gewerk_hint = f", {assigned} Gewerk-Zuweisungen" if assigned else ""
-            self._status_bar.set_status(
+            status = (
                 f"Gebäude-Report importiert: {len(areal.all_floors)} Stockwerke, "
                 f"{len(areal.all_rooms)} Räume{gewerk_hint} | {diff.summary_line()}."
             )
-            self._sidebar.select("building")
-            self._navigate("building")
+            self._status_bar.set_status(status)
+            self._show_import_notes(pipeline, diff, areal, summary=status.replace(" | ", "\n"))
+            self._sidebar.select("overview")
+            self._navigate("overview")
 
         run_import(
             self, "Gebäudestruktur wird importiert…", do_import, on_success,
             self._import_worker_ref,
-        )
-
-    def _warn_if_channel_conflicts(self, conflicts: list[str]):
-        """Warnt, wenn Kanäle mehrere Gewerke auf derselben GA-Verbindung haben
-        (FA-521d). Solche Kanäle werden bewusst NICHT automatisch einem Gewerk
-        zugeordnet -- die Zuordnung muss in Schritt 5 geprüft werden."""
-        if not conflicts:
-            return
-        shown = conflicts[:30]
-        more = f"\n… und {len(conflicts) - 30} weitere" if len(conflicts) > 30 else ""
-        QMessageBox.warning(
-            self, "Mehrere Gewerke auf einem Kanal",
-            f"{len(conflicts)} Kommunikationsobjekte haben Gruppenadressen "
-            "unterschiedlicher Gewerke verbunden. Das kann nicht automatisch "
-            "korrekt einem einzelnen Gewerk zugeordnet werden -- bitte in "
-            "Schritt 5 (Gewerke) manuell prüfen:\n\n"
-            + "\n".join(shown) + more,
         )
 
     def _import_knxprod_catalog(self):
@@ -2252,6 +2370,8 @@ class MainWindow(QMainWindow):
         self._project.group_addresses = project.group_addresses
         self._project.topology = project.topology
         self._project.areal = project.areal
+        # Kennung merken: ein späterer Import einer anderen Anlage wird erkannt
+        self._project.ets_project_id = importer.read_project_id(filepath)
         pipeline.project = self._project
 
         # KNX Secure: Gerätezertifikate (FDSK) und das beim Import eingegebene
@@ -2261,6 +2381,7 @@ class MainWindow(QMainWindow):
         # Schlüssel im Klartext in Projektdatei und Sicherungen.
         secure_suffix = ""
         secure_notice = ""   # nach dem Import deutlich anzeigen, nicht nur Statusleiste
+        cert_conflicts = []
         secure_cfg = self._project.knx_secure
         skipped = []
         if importer.device_certificates:
@@ -2305,12 +2426,6 @@ class MainWindow(QMainWindow):
                     secure_suffix = f" | {n_certs} Secure-Zertifikat(e) übernommen"
                 if cert_conflicts:
                     secure_suffix += f" | {len(cert_conflicts)} FDSK-Abweichung(en)"
-                    QMessageBox.warning(
-                        self, "KNX Secure: abweichende Zertifikate",
-                        "Diese Geräte haben im KNX-Secure-Archiv bereits einen anderen "
-                        "FDSK als im ETS-Projekt. Er wurde nicht überschrieben:\n\n"
-                        + "\n".join(cert_conflicts),
-                    )
 
         # Gewerk-Verknüpfung der GAs, Szenen, DALI, Änderungsprotokoll
         pipeline.finalize(filepath, reconcile_diff)
@@ -2343,25 +2458,31 @@ class MainWindow(QMainWindow):
             f"{n_products_cataloged} Produkte im Katalog aktualisiert"
             if n_products_extracted else ""
         )
-        self._status_bar.set_status(
+        status = (
             f"KNXPROJ importiert: {ga_count} GAs | "
             f"{n_areas} Bereiche, {n_lines} Linien, {n_dev} Geräte | "
             f"{n_rooms} Räume | {reconcile_diff.summary_line()}"
             f"{scenes_suffix}{products_suffix}{secure_suffix}."
         )
+        self._status_bar.set_status(status)
 
-        # Das Parsen der .knxproj-Datei lief synchron im UI-Thread (nur per
-        # processEvents() am Leben gehalten) -- ohne explizites Aktivieren
-        # bliebe ein Hinweis-Dialog im Hintergrund, falls der Nutzer
-        # zwischenzeitlich in ein anderes Fenster gewechselt hat
-        # (Windows-Foreground-Lock, siehe export_worker.run_export).
-        self.raise_()
-        self.activateWindow()
-        self._show_import_notes(pipeline, reconcile_diff)
+        from .dialogs.import_summary_dialog import ImportNote
+        extra = []
         if secure_notice:
-            QMessageBox.information(self, "KNX Secure: Schlüssel nicht übernommen", secure_notice)
-        self._sidebar.select("addresses")
-        self._navigate("addresses")
+            extra.append(ImportNote("KNX Secure: Schlüssel nicht übernommen", secure_notice, True))
+        if cert_conflicts:
+            extra.append(ImportNote(
+                "KNX Secure: abweichende Zertifikate",
+                "Diese Geräte haben im KNX-Secure-Archiv bereits einen anderen FDSK als "
+                "im ETS-Projekt. Er wurde nicht überschrieben:\n\n" + "\n".join(cert_conflicts),
+                True))
+        # Das Parsen lief synchron im UI-Thread; _show_import_notes holt das
+        # Fenster nach vorn (Windows-Foreground-Lock)
+        self._show_import_notes(pipeline, reconcile_diff, summary=status.replace(" | ", "\n"),
+                                extra=tuple(extra))
+        # Übersicht: Arbeitsweg mit dem nächsten Schritt (meist die Validierung)
+        self._sidebar.select("overview")
+        self._navigate("overview")
 
     def _export_csv(self):
         if not self._project:
@@ -2370,7 +2491,8 @@ class MainWindow(QMainWindow):
 
         if not license_gate.export_allowed(self):  # NFA-066
             return
-        ga_count = len(self._project.group_addresses.all_addresses())
+        ga_count = sum(1 for g in self._project.group_addresses.all_addresses()
+                       if not g.is_placeholder)
         dialog = ExportDialog(ga_count, self)
         if dialog.exec():
             try:
@@ -2794,6 +2916,8 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             if dialog.action == ACTION_NEW:
                 self._new_project()
+            elif dialog.action == ACTION_IMPORT:
+                self._import_file()
             elif dialog.action == ACTION_OPEN:
                 if dialog.selected_path:
                     self.open_file(dialog.selected_path)

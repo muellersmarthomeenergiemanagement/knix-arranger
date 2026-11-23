@@ -372,6 +372,19 @@ class KnxprojImportService:
                     continue
         return None
 
+    def read_project_id(self, filepath: str) -> str:
+        """Kennung des ETS-Projekts ("P-0A1B") aus dem Inhaltsverzeichnis der
+        .knxproj -- ohne Passwort und ohne die Projektdaten zu lesen.
+        "" wenn nicht ermittelbar."""
+        try:
+            with zipfile.ZipFile(filepath, "r") as zf:
+                nested = self._find_nested_zip_name(zf)
+                if nested:
+                    return nested[:-4]
+                return self._find_project_folder(zf)
+        except (OSError, zipfile.BadZipFile, KnxprojImportError):
+            return ""
+
     def _find_nested_zip_name(self, zf: zipfile.ZipFile) -> str | None:
         """Gibt den Namen der P-XXXX.zip im aeusseren ZIP zurueck, oder None."""
         for name in zf.namelist():

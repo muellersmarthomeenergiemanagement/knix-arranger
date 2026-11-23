@@ -15,6 +15,7 @@ from ..styles import KNX_GREEN, KNX_DARK_GREEN, KNX_PRIMARY
 
 ACTION_NEW = "new"
 ACTION_OPEN = "open"
+ACTION_IMPORT = "import"   # bestehende Anlage: ETS-Projekt einlesen
 
 
 class WelcomeDialog(QDialog):
@@ -26,7 +27,7 @@ class WelcomeDialog(QDialog):
         self._action: str | None = None
         self._selected_path: str | None = None
         self._recent_projects = [p for p in (recent_projects or []) if os.path.exists(p)][:5]
-        self.setFixedSize(580, 520 + (40 * len(self._recent_projects) if self._recent_projects else 0))
+        self.setFixedSize(720, 520 + (40 * len(self._recent_projects) if self._recent_projects else 0))
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
@@ -170,6 +171,18 @@ class WelcomeDialog(QDialog):
         self._btn_open.clicked.connect(self._choose_open)
         btn_row.addWidget(self._btn_open)
 
+        # Bestehende Anlage: .knxproj einlesen, ohne zuerst ein leeres Projekt
+        # anzulegen (das Projekt entsteht im Arbeitsverzeichnis)
+        self._btn_import = QPushButton("ETS-Projekt einlesen")
+        self._btn_import.setToolTip(
+            "Bestehende Anlage aus der ETS (.knxproj) einlesen und prüfen. "
+            "Das Projekt wird im Arbeitsverzeichnis angelegt.")
+        self._btn_import.setFixedHeight(52)
+        self._btn_import.setStyleSheet(self._btn_open.styleSheet())
+        self._btn_import.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._btn_import.clicked.connect(self._choose_import)
+        btn_row.addWidget(self._btn_import)
+
         content_layout.addLayout(btn_row)
 
         content_layout.addStretch()
@@ -210,6 +223,10 @@ class WelcomeDialog(QDialog):
         self._action = ACTION_OPEN
         self.accept()
 
+    def _choose_import(self):
+        self._action = ACTION_IMPORT
+        self.accept()
+
     def _choose_recent(self, path: str):
         self._action = ACTION_OPEN
         self._selected_path = path
@@ -217,7 +234,7 @@ class WelcomeDialog(QDialog):
 
     @property
     def action(self) -> str | None:
-        """ACTION_NEW oder ACTION_OPEN, je nach Benutzerwahl."""
+        """ACTION_NEW, ACTION_OPEN oder ACTION_IMPORT, je nach Benutzerwahl."""
         return self._action
 
     @property

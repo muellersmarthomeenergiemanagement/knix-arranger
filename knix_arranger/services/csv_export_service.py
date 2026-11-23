@@ -37,10 +37,7 @@ class CsvExportService:
         FA-805: Warnung bei Ueberschreiben.
         """
         if os.path.exists(filepath) and not overwrite:
-            raise FileExistsError(
-                f"Datei existiert bereits: {filepath}. "
-                f"Setzen Sie overwrite=True zum Ueberschreiben."
-            )
+            raise FileExistsError(f"Die Datei existiert bereits: {filepath}")
 
         q = self._q
         row = self._row

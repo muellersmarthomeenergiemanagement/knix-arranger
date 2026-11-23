@@ -67,6 +67,20 @@ REBUILD_OPTIONS: tuple[RebuildOption, ...] = (
         "Eingelesene Mitschnitte der Busanalyse (Zusammenfassung)",
         True, ("bus_recordings",)),
     RebuildOption(
+        "bus_connection", "Busverbindung", "Schnittstelle des Live-Monitors",
+        True, ("bus_connection",)),
+    RebuildOption(
+        "bauherr_notes", "Notizen der Bauherrenberatung",
+        "Raumnotizen, Anmerkungen und Datenblätter je Bedienelement "
+        "(über Raumnummer bzw. physikalische Adresse wiedererkannt)",
+        True, ()),
+    RebuildOption(
+        "manual_settings", "Anpassungen der Bedienungsanleitung",
+        "Eigene Texte, Fotos und Sprache", True, ("manual_settings",)),
+    RebuildOption(
+        "revisions", "Revisionen", "Verlauf der Revisionspakete",
+        True, ("revisions",)),
+    RebuildOption(
         "verteiler_rooms", "Zuordnung Verteiler → Raum",
         "In Schritt 3b gewählte Zielräume der Verteiler",
         False, ("verteiler_room_overrides",)),
@@ -137,6 +151,88 @@ def adopt_report_params(old: KnxProject, imported: KnxProject) -> int:
                 if old_dev and keep_report_params(old_dev, device):
                     kept += 1
     return kept
+
+
+def _rooms_by_key(project) -> dict:
+    from .ets_corrections import room_key
+    return {room_key(floor, room): room
+            for building in project.areal.buildings
+            for floor in building.all_floors for room in floor.all_rooms}
+
+
+def _count_bauherr_notes(project) -> int:
+    count = 0
+    for room in _rooms_by_key(project).values():
+        count += bool(room.bauherr_notes)
+        count += sum(1 for be in room.bedienelemente
+                     if be.participant_number and (be.bauherr_annotation or be.datasheets))
+    return count
+
+
+def adopt_bauherr_notes(old: KnxProject, fresh: KnxProject) -> int:
+    """Notizen der Bauherrenberatung nach dem Neuaufbau zurückholen: Raum-
+    notizen über den Raumschlüssel ("EG|08"), Anmerkung und Datenblätter
+    eines Bedienelements über die physikalische Adresse des Geräts (IDs
+    überleben den Neuaufbau nicht). Gibt die Anzahl übernommener Notizen
+    zurück."""
+    old_rooms = _rooms_by_key(old)
+    old_bes = {(be.participant_number, be.taster_index): be
+               for room in old_rooms.values() for be in room.bedienelemente
+               if be.participant_number}
+    adopted = 0
+    for key, room in _rooms_by_key(fresh).items():
+        old_room = old_rooms.get(key)
+        if old_room is not None and old_room.bauherr_notes and not room.bauherr_notes:
+            room.bauherr_notes = old_room.bauherr_notes
+            adopted += 1
+        for be in room.bedienelemente:
+            old_be = (old_bes.get((be.participant_number, be.taster_index))
+                      if be.participant_number else None)
+            if old_be is None or not (old_be.bauherr_annotation or old_be.datasheets):
+                continue
+            be.bauherr_annotation = be.bauherr_annotation or old_be.bauherr_annotation
+            be.datasheets = be.datasheets or list(old_be.datasheets)
+            adopted += 1
+    return adopted
+
+
+def kept_content(option: RebuildOption, project) -> str:
+    """Was eine Option im bisherigen Projekt enthält: "" = nichts, sonst die
+    Anzahl oder "vorhanden" -- für den Hinweis, was beim Neuaufbau ohne
+    diese Option verloren geht."""
+    if project is None:
+        return ""
+    if option.key == "bauherr_notes":
+        count = _count_bauherr_notes(project)
+        return str(count) if count else ""
+    total, present = 0, False
+    for attr in option.attributes:
+        value = getattr(project, attr, None)
+        if isinstance(value, (list, dict, tuple, set)):
+            total += len(value)
+        elif hasattr(value, "__dataclass_fields__"):
+            try:
+                present = present or value != type(value)()
+            except TypeError:
+                present = True
+        elif value:
+            present = True
+    if total:
+        return str(total)
+    return "vorhanden" if present else ""
+
+
+def lost_content(keep: set[str], project) -> list[str]:
+    """Abgewählte Optionen, die im bisherigen Projekt Daten haben, z.B.
+    ["Zeitprogramme (2)", "Inbetriebnahme (vorhanden)"]."""
+    lost = []
+    for option in REBUILD_OPTIONS:
+        if option.key in keep:
+            continue
+        content = kept_content(option, project)
+        if content:
+            lost.append(f"{option.label} ({content})")
+    return lost
 
 
 def build_fresh_project(old: KnxProject, keep: set[str]) -> KnxProject:

@@ -7,7 +7,8 @@ from PySide6.QtWidgets import (
     QFileDialog, QGroupBox, QCheckBox,
 )
 
-from ...services.rebuild_service import REBUILD_OPTIONS, REBUILT_FROM_ETS
+from ..styles import COLOR_WARNING
+from ...services.rebuild_service import REBUILD_OPTIONS, REBUILT_FROM_ETS, lost_content
 
 REBUILD, RECONCILE = "rebuild", "reconcile"
 
@@ -39,6 +40,7 @@ class RebuildDialog(QDialog):
         self.setWindowTitle("Projekt neu aus ETS aufbauen")
         self.setMinimumWidth(620)
         self._filepath = filepath
+        self._project = project
         self.choice = REBUILD
 
         layout = QVBoxLayout(self)
@@ -80,9 +82,16 @@ class RebuildDialog(QDialog):
         for option in REBUILD_OPTIONS:
             check = QCheckBox(_option_text(option, project))
             check.setChecked(option.default)
+            check.toggled.connect(self._update_lost)
             keep_layout.addWidget(check)
             self._checks[option.key] = check
         layout.addWidget(keep_group)
+
+        # Konkret benennen, was ohne Haken verloren geht (z.B. «Zeitprogramme (2)»)
+        self._lost = QLabel()
+        self._lost.setWordWrap(True)
+        self._lost.setStyleSheet(f"color: {COLOR_WARNING}; font-weight: bold; padding: 4px;")
+        layout.addWidget(self._lost)
 
         fresh = QLabel("Neu aus der ETS: " + ", ".join(REBUILT_FROM_ETS) + ".")
         fresh.setWordWrap(True)
@@ -106,6 +115,12 @@ class RebuildDialog(QDialog):
         self._btn_ok.clicked.connect(self.accept)
         buttons.addWidget(self._btn_ok)
         layout.addLayout(buttons)
+        self._update_lost()
+
+    def _update_lost(self, *_args) -> None:
+        lost = lost_content(self.keep, self._project)
+        self._lost.setText("Geht verloren: " + ", ".join(lost) + "." if lost else "")
+        self._lost.setVisible(bool(lost))
 
     def _reconcile(self):
         self.choice = RECONCILE

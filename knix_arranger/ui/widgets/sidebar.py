@@ -219,6 +219,9 @@ class Sidebar(QWidget):
         wizard_layout.setContentsMargins(4, 8, 4, 4)
         self._add_button("wizard", "13-Schritt-Wizard", "wand", layout=wizard_layout)
         outer.addWidget(wizard_area)
+        # Bei importierten Projekten ausgeblendet (set_imported): der Wizard
+        # plant neu und würde die ETS-Daten verändern
+        self._wizard_area = wizard_area
 
         # ── Scrollbarer Navigationsbereich ──
         scroll = QScrollArea()
@@ -239,13 +242,15 @@ class Sidebar(QWidget):
         self._nav_layout.setSpacing(2)
 
         # Gruppen lassen sich unabhängig auf- und zuklappen, mehrere dürfen
-        # gleichzeitig offen sein. Anfangs nur "Planung" (das Hauptfenster
+        # gleichzeitig offen sein. Anfangs "Projekt" und "Planung" (das Hauptfenster
         # stellt den zuletzt gespeicherten Zustand wieder her); beim Wechsel
         # auf eine Ansicht öffnet sich deren Gruppe automatisch.
         self._scroll = scroll
         self._groups: list[_NavGroup] = []
         for group_title, entries in NAV_GROUPS:
-            group = _NavGroup(group_title, expanded=group_title == "Planung",
+            # "Projekt" offen: Neu, Öffnen und ETS6 Import sind beim ersten
+            # Start sichtbar
+            group = _NavGroup(group_title, expanded=group_title in ("Projekt", "Planung"),
                               on_toggle=self._emit_groups_changed)
             self._groups.append(group)
             for key, text, icon_name in entries:
@@ -307,10 +312,15 @@ class Sidebar(QWidget):
     def set_imported(self, imported: bool) -> None:
         """Importierte Projekte dokumentieren und verändern eine bestehende
         Anlage: die Gruppe "Bestand & Umbau" steht dann direkt nach "Projekt",
-        sonst nach der Planung bei Angebot und Abschluss."""
+        sonst nach der Planung bei Angebot und Abschluss.
+
+        Der Wizard steht dann nicht in der Seitenleiste: er plant ein Projekt
+        neu, Änderungen an ETS-Daten gingen beim nächsten Einlesen verloren
+        (Bestand ändern: Korrekturen, Erweiterungen, Umbau-Varianten)."""
         if getattr(self, "_imported", None) == imported:
             return
         self._imported = imported
+        self._wizard_area.setVisible(not imported)
         group = next(g for g in self._groups if g.title == self.BESTAND_GROUP)
         self._nav_layout.removeWidget(group)
         anchor = next(g for g in self._groups

@@ -4,7 +4,7 @@ CSV Export-Dialog (FA-800)
 from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QFileDialog, QGroupBox, QCheckBox,
+    QPushButton, QGroupBox,
 )
 from PySide6.QtCore import Qt
 from .. import license_gate  # NFA-066: Exporte im Lesemodus gesperrt
@@ -23,14 +23,20 @@ class ExportDialog(QDialog):
 
         # Info
         info = QLabel(f"{ga_count} Gruppenadressen werden exportiert.")
+        hint = QLabel("Reserven werden nicht exportiert; sie bleiben Lücken im "
+                      "Adressraum.")
+        hint.setObjectName("hint")
         info.setStyleSheet("font-size: 16px; font-weight: bold; padding: 5px;")
         layout.addWidget(info)
+        layout.addWidget(hint)
 
         # Datei
         file_group = QGroupBox("Zieldatei")
         file_layout = QHBoxLayout()
         self._path_edit = QLineEdit()
         self._path_edit.setPlaceholderText("Pfad für die CSV-Datei...")
+        # nur über «Speichern unter…»: dort fragt Windows auch nach dem Überschreiben
+        self._path_edit.setReadOnly(True)
         file_layout.addWidget(self._path_edit)
 
         btn_browse = QPushButton("Speichern unter...")
@@ -38,17 +44,6 @@ class ExportDialog(QDialog):
         file_layout.addWidget(btn_browse)
         file_group.setLayout(file_layout)
         layout.addWidget(file_group)
-
-        # Optionen
-        options_group = QGroupBox("Optionen")
-        options_layout = QVBoxLayout()
-        self._cb_overwrite = QCheckBox("Vorhandene Datei überschreiben")
-        self._cb_placeholders = QCheckBox("Platzhalter/Reserve exportieren")
-        self._cb_placeholders.setChecked(True)
-        options_layout.addWidget(self._cb_overwrite)
-        options_layout.addWidget(self._cb_placeholders)
-        options_group.setLayout(options_layout)
-        layout.addWidget(options_group)
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -80,4 +75,7 @@ class ExportDialog(QDialog):
 
     @property
     def overwrite(self) -> bool:
-        return self._cb_overwrite.isChecked()
+        """Immer True: das Überschreiben bestätigt der Speichern-Dialog
+        (vorher zusätzlich eine Checkbox -- ohne Haken scheiterte der Export
+        trotz bestätigter Rückfrage)."""
+        return True

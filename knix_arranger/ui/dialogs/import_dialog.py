@@ -1,10 +1,10 @@
 """
-CSV/XLSX Import-Dialog (FA-500)
+ETS6 Import-Dialog: .knxproj, XLSX-Reports, CSV (FA-500)
 """
 from __future__ import annotations
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QFileDialog, QGroupBox, QTextEdit, QProgressBar,
+    QPushButton, QFileDialog, QGroupBox,
 )
 from PySide6.QtCore import Qt
 
@@ -14,9 +14,9 @@ class ImportDialog(QDialog):
 
     def __init__(self, parent=None, start_dir: str = ""):
         super().__init__(parent)
-        self.setWindowTitle("CSV/XLSX Import")
+        self.setWindowTitle("ETS6 Import")
         self._start_dir = start_dir
-        self.setMinimumSize(600, 380)
+        self.setMinimumSize(600, 240)
         self._filepath = ""
         self._file_type = ""  # "csv" oder "xlsx"
 
@@ -26,7 +26,7 @@ class ImportDialog(QDialog):
         file_group = QGroupBox("Datei auswählen")
         file_layout = QHBoxLayout()
         self._path_edit = QLineEdit()
-        self._path_edit.setPlaceholderText("Pfad zur ETS6 CSV- oder XLSX-Datei...")
+        self._path_edit.setPlaceholderText("Pfad zur .knxproj-, XLSX- oder CSV-Datei...")
         self._path_edit.setReadOnly(True)
         file_layout.addWidget(self._path_edit)
 
@@ -47,12 +47,7 @@ class ImportDialog(QDialog):
         info.setStyleSheet("color: #666666; padding: 5px;")
         layout.addWidget(info)
 
-        # Log
-        self._log = QTextEdit()
-        self._log.setReadOnly(True)
-        self._log.setMaximumHeight(150)
-        self._log.setPlaceholderText("Import-Protokoll...")
-        layout.addWidget(self._log)
+        layout.addStretch()
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -96,6 +91,3 @@ class ImportDialog(QDialog):
     @property
     def file_type(self) -> str:
         return self._file_type
-
-    def log(self, message: str):
-        self._log.append(message)

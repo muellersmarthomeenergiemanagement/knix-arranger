@@ -30,8 +30,9 @@ def test_every_view_is_in_exactly_one_group():
     assert len(keys) == len(set(keys))
 
 
-def test_initially_only_planung_open(sidebar):
-    assert sidebar.expanded_groups() == ["Planung"]
+def test_initially_projekt_and_planung_open(sidebar):
+    # "Projekt" offen: Neu, Öffnen und ETS6 Import beim ersten Start sichtbar
+    assert sidebar.expanded_groups() == ["Projekt", "Planung"]
 
 
 def test_several_groups_can_be_open(sidebar):
@@ -39,13 +40,13 @@ def test_several_groups_can_be_open(sidebar):
     sidebar.groups_changed.connect(received.append)
     _group(sidebar, "Angebot")._header.click()
     _group(sidebar, "Adressen & Logik")._header.click()
-    assert sidebar.expanded_groups() == ["Planung", "Adressen & Logik", "Angebot"]
-    assert received[-1] == ["Planung", "Adressen & Logik", "Angebot"]
+    assert sidebar.expanded_groups() == ["Projekt", "Planung", "Adressen & Logik", "Angebot"]
+    assert received[-1] == ["Projekt", "Planung", "Adressen & Logik", "Angebot"]
 
 
 def test_header_click_closes_group(sidebar):
     _group(sidebar, "Planung")._header.click()
-    assert sidebar.expanded_groups() == []
+    assert sidebar.expanded_groups() == ["Projekt"]
 
 
 def test_restore_saved_groups(sidebar):
@@ -58,8 +59,8 @@ def test_select_opens_group_without_closing_others(sidebar):
     sidebar.groups_changed.connect(received.append)
     sidebar.select("material_list")
     assert sidebar._buttons["material_list"].isChecked()
-    assert sidebar.expanded_groups() == ["Planung", "Topologie & Geräte"]
-    assert received == [["Planung", "Topologie & Geräte"]]
+    assert sidebar.expanded_groups() == ["Projekt", "Planung", "Topologie & Geräte"]
+    assert received == [["Projekt", "Planung", "Topologie & Geräte"]]
 
 
 def test_group_title_with_ampersand_is_shown(sidebar):
