@@ -11,7 +11,9 @@
       "verbessert": [
         "Nach dem Einlesen zeigt KNiX ein einziges Fenster mit dem Ergebnis – zuerst, was zu prüfen ist, dann die Hinweise – statt mehrerer Meldungen nacheinander. Danach öffnet sich die Übersicht mit dem nächsten Schritt.",
         "Projekt neu aus ETS aufbauen: Notizen der Bauherrenberatung (Raumnotizen, Anmerkungen, Datenblätter), Anpassungen der Bedienungsanleitung, Revisionen und die Busverbindung bleiben jetzt erhalten. Der Dialog nennt, was ohne Haken verloren geht, z.B. «Geht verloren: Zeitprogramme (2)».",
-        "Bei aus der ETS eingelesenen Projekten steht der Wizard nicht mehr in der Seitenleiste – er plant neu, und Änderungen gingen beim nächsten Einlesen verloren. Über Ansicht → Wizard starten bleibt er erreichbar.",
+        "Bei aus der ETS eingelesenen Projekten steht der Wizard nicht mehr in der Seitenleiste – er plant neu, und Änderungen gingen beim nächsten Einlesen verloren. Über Ansicht → Wizard starten bleibt er erreichbar, nach einem Hinweis mit direktem Weg zu den Umbau-Varianten. Importierte Gruppenadressen ersetzt Schritt 9 nur noch über den Knopf «Gruppenadressen ersetzen» und legt vorher eine Sicherung an.",
+        "Validierung nach erneutem Einlesen: «Nur neue seit dem letzten Einlesen» zeigt, was die Änderungen in der ETS neu gebracht haben; neue Meldungen sind mit «(neu)» markiert, die Import-Zusammenfassung nennt die Anzahl. Bei eingelesenen Projekten sind die Hinweise anfangs ausgeblendet – Fehler und Warnungen stehen damit oben, die Anzahl der Hinweise bleibt sichtbar.",
+        "CSV-Export bei eingelesenen Projekten: KNiX weist darauf hin, dass die ETS diese Gruppenadressen schon kennt, und führt zur «GA-Liste für die ETS» der Erweiterung; die ganze Liste lässt sich weiterhin exportieren.",
         "Seitenleiste: Beim ersten Start ist die Gruppe «Projekt» mit Neu, Öffnen und ETS6 Import aufgeklappt.",
         "CSV-Export: Überschreiben bestätigen Sie nur noch im Speichern-Dialog; die angezeigte Anzahl zählt keine Reserven (Reserven werden nie exportiert)."
       ],

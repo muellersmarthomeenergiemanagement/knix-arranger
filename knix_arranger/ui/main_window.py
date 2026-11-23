@@ -113,6 +113,9 @@ class MainWindow(QMainWindow):
         # Bisheriges Projekt während "Projekt neu aus ETS aufbauen" (FA-527),
         # siehe _rebuild_project/_import_knxproj
         self._rebuild_id_source: KnxProject | None = None
+        # Validierungsmeldungen vor dem laufenden Import (_issue_keys), für
+        # «Nur neue seit dem letzten Einlesen»
+        self._issues_before_import: list[str] | None = None
         self._pending_undo_cmd: ObjectStateCommand | None = None
         self._import_worker_ref: list = [None]  # GC-Schutz für laufenden Import-Worker (run_import)
         self._export_worker_ref: list = [None]  # GC-Schutz für Exporte aus dem Hauptfenster
@@ -1520,9 +1523,11 @@ class MainWindow(QMainWindow):
             # danach im Arbeitsverzeichnis ablegen (_place_imported_project)
             self._new_import = source
             filepath = import_folder.store(self._project, source)  # beim ersten Speichern
+            self._issues_before_import = None
         else:
             filepath = import_folder.store(self._project, source)
             self._backup_project("vor_Import")
+            self._issues_before_import = self._issue_keys()
 
         try:
             if file_type == "knxproj":
@@ -1679,6 +1684,7 @@ class MainWindow(QMainWindow):
                 return
 
         old_project = self._project
+        self._issues_before_import = self._issue_keys()
         self._project = build_fresh_project(old_project, keep)
         if "knx_secure" in keep:
             self._rebuild_id_source = old_project
@@ -1733,6 +1739,7 @@ class MainWindow(QMainWindow):
         def on_success(structure):
             self._set_dirty(True)
             saved = self._place_imported_project()
+            self._store_issue_baseline()
             self._update_views()
             ga_count = len(structure.all_addresses())
             self._status_bar.set_status(
@@ -1807,7 +1814,7 @@ class MainWindow(QMainWindow):
                 "ETS-Arbeitsliste",
                 f"{wl.done} Aufgabe(n) in der ETS erledigt, {wl.new} neu, {wl.open} noch "
                 "offen. Neue Liste unter Berichte → ETS-Arbeitsliste oder in der "
-                "Validierung.", bool(wl.new or wl.open)))
+                "Validierung.", bool(wl.new)))   # nur Neues ist zu prüfen
         if pipeline.pending_unlinks:
             shown = pipeline.pending_unlinks[:20]
             more = (f"\n… und {len(pipeline.pending_unlinks) - 20} weitere"
@@ -1841,6 +1848,9 @@ class MainWindow(QMainWindow):
         from .dialogs.import_summary_dialog import ImportSummaryDialog
         self._set_dirty(True)
         notes = self._import_notes(pipeline, diff, warn_empty_areal) + list(extra)
+        baseline_note = self._store_issue_baseline()
+        if baseline_note is not None:
+            notes.append(baseline_note)
         saved = self._place_imported_project()
         if saved:
             summary += f"\n\nAls neues Projekt gespeichert: {saved}"
@@ -1849,6 +1859,43 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
         ImportSummaryDialog("Import abgeschlossen", summary, notes, self).exec()
+
+    def _issue_keys(self) -> list[str] | None:
+        """Schlüssel aller Validierungsmeldungen des offenen Projekts, für den
+        Vergleich nach dem Einlesen. None ohne Inhalt (nichts zu vergleichen)."""
+        project = self._project
+        if project is None or not (project.topology.areas
+                                   or project.group_addresses.all_addresses()):
+            return None
+        from .views.validation_view import baseline_key
+        try:
+            issues = ValidationEngine(project.gewerk_catalog).validate(
+                project.group_addresses, project=project)
+        except Exception:
+            logger.exception("Validierung vor dem Import fehlgeschlagen")
+            return None
+        return sorted({baseline_key(i) for i in issues})
+
+    def _store_issue_baseline(self):
+        """Nach dem Einlesen: Meldungen von vorher am Projekt merken, damit die
+        Validierung zeigt, was das Einlesen neu gebracht hat. Gibt einen
+        Hinweis für die Zusammenfassung zurück (None ohne Vergleich bzw.
+        ohne Unterschied)."""
+        before = self._issues_before_import
+        self._issues_before_import = None
+        if before is None or self._project is None:
+            return None
+        self._project.validation_before_import = before
+        after = set(self._issue_keys() or [])
+        new, gone = len(after - set(before)), len(set(before) - after)
+        if not (new or gone):
+            return None
+        from .dialogs.import_summary_dialog import ImportNote
+        return ImportNote(
+            "Validierung",
+            f"{new} neue Meldung(en), {gone} entfallen gegenüber dem Stand vor dem "
+            "Einlesen. In der Validierung zeigt «Nur neue seit dem letzten Einlesen» "
+            "die neuen.")
 
     def _place_imported_project(self) -> str:
         """Erstes Einlesen ohne offenes Projekt: das Projekt sofort wie ein
@@ -2491,6 +2538,8 @@ class MainWindow(QMainWindow):
 
         if not license_gate.export_allowed(self):  # NFA-066
             return
+        if self._project.topology.is_imported and not self._confirm_full_export_imported():
+            return
         ga_count = sum(1 for g in self._project.group_addresses.all_addresses()
                        if not g.is_placeholder)
         dialog = ExportDialog(ga_count, self)
@@ -2510,13 +2559,39 @@ class MainWindow(QMainWindow):
             if offer_ets_transferred(self, self._project):
                 self._status_bar.set_status("Projekt als «in ETS übertragen» markiert.")
 
+    def _confirm_full_export_imported(self) -> bool:
+        """CSV-Export eines aus der ETS eingelesenen Projekts: die ETS kennt
+        diese GAs schon. Für Anpassungen gehört nur die GA-Liste einer
+        Erweiterung in die ETS (Umbau-Varianten). True = ganze Liste exportieren."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle("Gruppenadressen für die ETS")
+        box.setText(
+            f"«{self._project.name}» ist aus der ETS eingelesen – die ETS kennt diese "
+            "Gruppenadressen bereits.\n\n"
+            "Für Anpassungen gehören nur die neuen GAs in die ETS: Umbau-Varianten → "
+            "Erweiterung → «GA-Liste für die ETS…».\n\n"
+            "Die ganze Liste eignet sich zum Dokumentieren oder für ein neues ETS-Projekt.")
+        renovation = box.addButton("Umbau-Varianten öffnen", QMessageBox.AcceptRole)
+        full = box.addButton("Ganze Liste exportieren", QMessageBox.ActionRole)
+        box.addButton("Abbrechen", QMessageBox.RejectRole)
+        box.setDefaultButton(renovation)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is renovation:
+            self._sidebar.select("renovation")
+            self._navigate("renovation")
+        return clicked is full
+
     def _run_validation(self) -> list:
         """Validieren und die Ansicht füllen, ohne dorthin zu wechseln. Auch
         beim Öffnen der Ansicht (sonst leer, obwohl die Übersicht Probleme
         zählt) und nach Projektänderungen (_view_refreshers)."""
         validator = ValidationEngine(self._project.gewerk_catalog)
         issues = validator.validate(self._project.group_addresses, project=self._project)
-        self._validation_view.set_issues(issues)
+        self._validation_view.set_issues(
+            issues, baseline=self._project.validation_before_import,
+            imported=self._project.topology.is_imported)
         return issues
 
     def _validate(self):
@@ -2537,6 +2612,9 @@ class MainWindow(QMainWindow):
             self._new_project()
             if not self._project:
                 return
+
+        if self._project.topology.is_imported and not focus and not self._confirm_wizard_imported():
+            return
 
         from .wizard.wizard_controller import WizardController
 
@@ -2561,6 +2639,31 @@ class MainWindow(QMainWindow):
             self._status_bar.set_status("Wizard abgeschlossen.")
             self._sidebar.select("overview")
             self._navigate("overview")
+
+    def _confirm_wizard_imported(self) -> bool:
+        """Wizard bei einem aus der ETS eingelesenen Projekt (nur noch über
+        das Menü erreichbar): er plant neu, Änderungen an Gebäude, Gewerken,
+        Geräten und GAs gehen beim nächsten Einlesen verloren. Bestand ändern
+        über Korrekturen und Umbau-Varianten. True = Wizard trotzdem öffnen."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Wizard bei eingelesenem Projekt")
+        box.setText(
+            f"«{self._project.name}» ist aus der ETS eingelesen – die ETS ist massgebend.\n\n"
+            "Der Wizard plant neu. Was Sie darin an Gebäude, Gewerken, Geräten oder "
+            "Gruppenadressen ändern, geht beim nächsten Einlesen der .knxproj verloren.\n\n"
+            "Bestand anpassen: Korrekturen per Rechtsklick (Gewerk, Raum, Trennen) bleiben "
+            "erhalten; neue Elemente unter Umbau-Varianten → «Erweiterung planen…».")
+        renovation = box.addButton("Umbau-Varianten öffnen", QMessageBox.AcceptRole)
+        wizard = box.addButton("Wizard trotzdem öffnen", QMessageBox.DestructiveRole)
+        box.addButton("Abbrechen", QMessageBox.RejectRole)
+        box.setDefaultButton(renovation)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is renovation:
+            self._sidebar.select("renovation")
+            self._navigate("renovation")
+        return clicked is wizard
 
     def _open_wizard_at_addresses_step(self):
         """Deep-Link aus der Szenen-Ansicht (Veraltet-Banner) direkt zu

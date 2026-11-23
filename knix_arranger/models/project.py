@@ -166,6 +166,10 @@ class KnxProject:
     # ZIP der .knxproj). Ein späterer Import einer .knxproj mit anderer
     # Kennung gehört zu einer anderen Anlage -> Warnung vor dem Einlesen.
     ets_project_id: str = ""
+    # Validierungsmeldungen ("Regel|Adresse|Meldung") vor dem letzten
+    # Einlesen; None = noch nie in ein bestehendes Projekt eingelesen. Die
+    # Validierung zeigt damit, was das Einlesen neu gebracht hat.
+    validation_before_import: Optional[list[str]] = None
     areal: Areal = field(default_factory=Areal)
     topology: Topology = field(default_factory=Topology)
     group_addresses: GroupAddressStructure = field(default_factory=GroupAddressStructure)
@@ -330,6 +334,7 @@ class KnxProject:
             "extension_plans": [p.to_dict() for p in self.extension_plans],
             "ets_transferred": self.ets_transferred,
             "ets_project_id": self.ets_project_id,
+            "validation_before_import": self.validation_before_import,
             "areal":self.areal.to_dict(),
             "topology": self.topology.to_dict(),
             "group_addresses": self.group_addresses.to_dict(),
@@ -395,6 +400,7 @@ class KnxProject:
         project.functions = [KnixFunction.from_dict(f) for f in data.get("functions", [])]
         project.ets_transferred = data.get("ets_transferred", "")
         project.ets_project_id = data.get("ets_project_id", "")
+        project.validation_before_import = data.get("validation_before_import")
         project.revisions = [RevisionRecord.from_dict(r) for r in data.get("revisions", [])]
         project.manual_settings = UserManualSettings.from_dict(data.get("manual_settings"))
         project.areal = Areal.from_dict(data.get("areal", {}))

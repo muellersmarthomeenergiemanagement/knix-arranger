@@ -80,6 +80,12 @@ def _issue_fields(issue) -> dict:
     }
 
 
+def baseline_key(issue) -> str:
+    """Schlüssel einer Meldung für den Vergleich vor/nach dem Einlesen."""
+    f = _issue_fields(issue)
+    return f"{f['rule_id']}|{f['address']}|{f['message']}"
+
+
 class ValidationView(QWidget):
     """Zeigt Validierungsergebnisse als Baum Stufe → Regel → Meldung."""
 
@@ -91,6 +97,10 @@ class ValidationView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._issues: list[dict] = []
+        # Meldungen, die es vor dem letzten Einlesen nicht gab; None ohne Vergleich
+        self._new_keys: set[str] | None = None
+        # Projektart, für die die Vorgabe «Hinweise ausblenden» zuletzt galt
+        self._info_default: bool | None = None
         # Meldung -> Sprungziele, vom Hauptfenster gesetzt (braucht das Projekt)
         self._targets_for = None
 
@@ -141,6 +151,14 @@ class ValidationView(QWidget):
             box.toggled.connect(self._rebuild)
             filter_row.addWidget(box)
             self._level_boxes[level] = box
+        # Nach einem erneuten Einlesen: nur, was es vorher nicht gab
+        self._only_new = QCheckBox("Nur neue seit dem letzten Einlesen")
+        self._only_new.setToolTip(
+            "Meldungen, die es vor dem letzten Einlesen der ETS-Daten nicht gab – "
+            "was die Änderungen in der ETS neu gebracht haben.")
+        self._only_new.toggled.connect(self._rebuild)
+        self._only_new.setVisible(False)
+        filter_row.addWidget(self._only_new)
         filter_row.addSpacing(16)
         self._search = QLineEdit()
         self._search.setPlaceholderText(
@@ -245,9 +263,30 @@ class ValidationView(QWidget):
             self._tree.setColumnWidth(col, int(rest * share))
         self._relayout_timer.start()
 
-    def set_issues(self, issues: list):
-        """Zeigt Validierungsprobleme an."""
+    def set_issues(self, issues: list, baseline: list[str] | None = None,
+                   imported: bool | None = None):
+        """Zeigt Validierungsprobleme an.
+
+        baseline: Meldungsschlüssel vor dem letzten Einlesen (baseline_key);
+        damit werden neue Meldungen markiert und filterbar. imported: bei aus
+        der ETS eingelesenen Projekten sind Hinweise (oft über tausend,
+        FA-610) anfangs ausgeblendet -- die Vorgabe gilt beim Wechsel der
+        Projektart, danach bleibt die Wahl des Anwenders."""
         self._issues = [_issue_fields(i) for i in issues]
+        if baseline is None:
+            self._new_keys = None
+        else:
+            known = set(baseline)
+            self._new_keys = {k for k in map(baseline_key, self._issues) if k not in known}
+        self._only_new.setVisible(self._new_keys is not None)
+        if self._new_keys is None:
+            self._only_new.setChecked(False)
+        if imported is not None and imported != self._info_default:
+            self._info_default = imported
+            box = self._level_boxes["info"]
+            box.blockSignals(True)
+            box.setChecked(not imported)
+            box.blockSignals(False)
         self._update_summary()
         self._rebuild()
 
@@ -265,6 +304,7 @@ class ValidationView(QWidget):
         self._tree.setUpdatesEnabled(False)
         self._tree.clear()
         needle = self._search.text().strip()
+        only_new = self._only_new.isChecked() and self._new_keys is not None
         bold = QFont()
         bold.setBold(True)
         shown = 0
@@ -273,8 +313,11 @@ class ValidationView(QWidget):
                 continue
             by_rule: dict[str, list[dict]] = {}
             for issue in self._issues:
-                if issue["level"] == level and self._matches(issue, needle):
-                    by_rule.setdefault(issue["rule_id"], []).append(issue)
+                if issue["level"] != level or not self._matches(issue, needle):
+                    continue
+                if only_new and baseline_key(issue) not in self._new_keys:
+                    continue
+                by_rule.setdefault(issue["rule_id"], []).append(issue)
             if not by_rule:
                 continue
             count = sum(len(v) for v in by_rule.values())
@@ -300,6 +343,9 @@ class ValidationView(QWidget):
                         issue["suggestion"], issue["designation"],
                     ])
                     item.setData(0, _ISSUE_ROLE, issue)
+                    if self._new_keys and baseline_key(issue) in self._new_keys:
+                        item.setText(0, f"{issue['address'] or '–'}  (neu)")
+                        item.setToolTip(0, "Neu seit dem letzten Einlesen")
                     for col, text in ((1, issue["message"]), (2, issue["suggestion"])):
                         if text:
                             item.setToolTip(col, text)
@@ -309,7 +355,12 @@ class ValidationView(QWidget):
             level_item.setExpanded(True)
 
         if self._issues and not shown:
-            QTreeWidgetItem(self._tree, ["Keine Meldung passt zum Filter."])
+            hidden_info = (not self._level_boxes["info"].isChecked()
+                           and any(i["level"] == "info" for i in self._issues))
+            QTreeWidgetItem(self._tree, [
+                "Keine Fehler oder Warnungen – die Hinweise sind ausgeblendet "
+                "(Haken bei «Hinweise»)." if hidden_info and not needle and not only_new
+                else "Keine Meldung passt zum Filter."])
         self._fit_columns()
         self._tree.setUpdatesEnabled(True)
 
@@ -330,6 +381,9 @@ class ValidationView(QWidget):
             counts[issue["level"] if issue["level"] in counts else "info"] += 1
         for level, label, _color in _LEVELS:
             self._level_boxes[level].setText(f"{label} ({counts[level]})")
+        if self._new_keys is not None:
+            self._only_new.setText(
+                f"Nur neue seit dem letzten Einlesen ({len(self._new_keys)})")
         if not self._issues:
             self._summary.setText("Keine Probleme gefunden.")
             self._summary.setStyleSheet(f"color: {COLOR_OK}; font-weight: bold;")

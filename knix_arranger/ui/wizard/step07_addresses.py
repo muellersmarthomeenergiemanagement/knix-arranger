@@ -3,6 +3,8 @@ Wizard Schritt 9: Gruppenadressen generieren
 """
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QRadioButton, QButtonGroup, QGroupBox, QTreeWidget,
@@ -23,6 +25,8 @@ from .recompute_guard import RecomputeGuard, KEY_ADDRESSES
 
 _MANUAL_COLOR = QColor("#1565C0")   # Blau für manuelle GAs
 _MAX_CHANGE_LINES = 10              # Änderungsliste im Log begrenzen
+
+logger = logging.getLogger("knix_arranger.step07_addresses")
 
 
 class Step07Addresses(QWidget):
@@ -208,20 +212,8 @@ class Step07Addresses(QWidget):
     # ── Haupt-Aktionen ─────────────────────────────────────────────────────
 
     def _generate(self):
-        if self._project.topology.is_imported:
-            reply = QMessageBox.question(
-                self,
-                "Importierte Gruppenadressen überschreiben?",
-                "Dieses Projekt wurde aus einem ETS-Projekt importiert.\n"
-                "Eine (Neu-)Generierung ersetzt alle nicht-manuellen Gruppenadressen\n"
-                "durch heuristisch erzeugte – importierte Adressen ohne 'manuell'-Markierung\n"
-                "gehen dabei verloren.\n\n"
-                "Trotzdem fortfahren?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if reply != QMessageBox.Yes:
-                return
+        if self._project.topology.is_imported and not self._confirm_replace_imported():
+            return
 
         variant = "B" if self._variant_b.isChecked() else "A"
         self._project.config.mg_variant = variant
@@ -248,6 +240,33 @@ class Step07Addresses(QWidget):
             self._log.append(f"… und {hidden} weitere Änderungen")
         for warning in structure.warnings:
             self._log.append(f'<b style="color:#c62828">WARNUNG:</b> {warning}')
+
+    def _confirm_replace_imported(self) -> bool:
+        """Importierte GAs durch erzeugte ersetzen: ausdrücklicher Knopf statt
+        Ja/Nein, «Abbrechen» vorgewählt, vorher Sicherung der gespeicherten
+        Projektdatei (NFA-042). True = ersetzen."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Importierte Gruppenadressen ersetzen?")
+        box.setText(
+            "Dieses Projekt ist aus der ETS eingelesen. Generieren ersetzt alle nicht "
+            "manuellen Gruppenadressen durch erzeugte – die Adressen der ETS gehen in "
+            "KNiX verloren, die Anlage selbst ist davon nicht betroffen.\n\n"
+            "Der gespeicherte Stand wird vorher unter «Sicherungen» abgelegt.\n\n"
+            "Neue Elemente in einer bestehenden Anlage plant man besser unter "
+            "Umbau-Varianten → «Erweiterung planen…».")
+        replace = box.addButton("Gruppenadressen ersetzen", QMessageBox.DestructiveRole)
+        cancel = box.addButton("Abbrechen", QMessageBox.RejectRole)
+        box.setDefaultButton(cancel)
+        box.exec()
+        if box.clickedButton() is not replace:
+            return False
+        from ...services.project_service import ProjectService
+        try:
+            ProjectService().create_backup(self._project._file_path, "vor_GA_Generierung")
+        except OSError:
+            logger.warning("Sicherung vor der GA-Generierung fehlgeschlagen", exc_info=True)
+        return True
 
     def _validate(self):
         if not self._project.group_addresses.main_groups:
