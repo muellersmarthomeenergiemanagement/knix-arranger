@@ -114,12 +114,13 @@ class ScanFinding:
     program_manufacturer: str = ""   # Hersteller der Applikation (meist gleich)
     refused: bool = False            # Verbindung abgelehnt (Adresse belegt)
     own: bool = False                # eigene Adresse der Schnittstelle
+    unloaded: bool = False           # ohne geladene Applikation (Werkszustand)
     errors: list[str] = field(default_factory=list)
 
     @property
     def locked(self) -> bool:
         """Antwortet, gibt aber weder Hersteller noch Applikation preis."""
-        return self.answered and not self.own and not (
+        return self.answered and not self.own and not self.unloaded and not (
             self.manufacturer_id or self.program)
 
 
@@ -346,6 +347,9 @@ def _row(address: str, finding: ScanFinding | None, device, secure_project: bool
                     if finding.locked else "Gerät am Bus, im Projekt keines mit dieser Adresse")
         if finding.refused:
             row.note = "lehnt die Verbindung ab (Adresse belegt)"
+        if finding.unloaded:
+            row.note = ("Gerät mit Adresse, aber ohne geladene Applikation – z.B. Ersatzgerät, "
+                        "Programmieren abgebrochen oder entladen")
         return row
     if finding.locked:
         row.status = STATUS_LOCKED
@@ -448,16 +452,22 @@ async def scan_line(xknx, lines: list[tuple[int, int]],
         # erwartete Geräte (im Projekt) ohne Antwort ein zweites Mal, einzeln
         # und mit längerer Wartezeit: bei Buslast geht eine Antwort verloren
         # (Chalet 1.1.6 fehlte beim ersten Lauf)
-        answered = {f.address for f in findings}
+        # Ebenso «gesperrte»: Hager 1.1.15 gab einmal keine Kennung, beim
+        # nächsten Lauf schon
+        answered = {f.address for f in findings if not f.locked}
         for address in sorted(set(retry or ()) & set(targets) - answered - {own},
                               key=_address_key):
             if stop is not None and stop.is_set():
                 break
             finding = await probe_device(xknx, address, timeout * 2)
-            if finding.answered:
-                findings.append(finding)
-                if on_found is not None:
-                    on_found(finding)
+            earlier = next((f for f in findings if f.address == address), None)
+            if not finding.answered or (earlier is not None and finding.locked):
+                continue
+            if earlier is not None:
+                findings.remove(earlier)
+            findings.append(finding)
+            if on_found is not None:
+                on_found(finding)
     finally:
         management_log.removeFilter(quiet)
     findings.sort(key=lambda f: _address_key(f.address))
@@ -532,24 +542,31 @@ async def _read_details(conn, finding: ScanFinding, timeout: float) -> None:
     finding.hardware_type = hardware.hex().upper() if hardware.strip(b"\x00") else ""
     finding.order_info = order_text(await prop(OBJ_DEVICE, PID_ORDER_INFO))
     # Applikationsobjekt: meist Index 3, sonst unter den ersten suchen
+    app_loaded = True
     for index in (3, 4, 2, 5, 1):
         kind = await prop(index, PID_OBJECT_TYPE)
         if kind and int.from_bytes(kind, "big") == OBJECT_TYPE_APPLICATION:
             finding.program_manufacturer, finding.program = program_from_bytes(
                 await prop(index, PID_PROGRAM_VERSION))
+            state = await prop(index, PID_LOAD_STATE)
+            app_loaded = not state or state[0] != 0      # 0 = entladen
             break
         if not kind:
             break        # Objekt fehlt: weiter hinten kommt nichts mehr
     if finding.program_manufacturer in ("M-0000", "M-FFFF"):
         finding.program_manufacturer = ""
+    # Applikation entladen, Seriennummer aus FF oder Bestellnummer aus
+    # Füllbytes (FB/FF): Gerät ohne geladene Daten, Applikationskennung und
+    # Speicher ab 0x0104 sind Zufall (Chalet 1.1.21 «RTS Automation», 0001-01)
+    garbage_order = bool(re.fullmatch(r"[FB]{8,}", finding.order_info or ""))
+    unloaded = not app_loaded or raw_serial[2:] == b"\xff" * 4 or garbage_order
+    if unloaded:
+        finding.program = finding.program_manufacturer = ""
+        if garbage_order:
+            finding.order_info = ""
     if not finding.manufacturer_id and finding.program_manufacturer:
         finding.manufacturer_id = finding.program_manufacturer
-    # Seriennummer aus FF: Gerät ohne geladene Daten, der Speicher ab 0x0104
-    # enthält dann Zufälliges (1.1.21 im Chalet ergab «RTS Automation»)
-    unloaded = raw_serial[2:] == b"\xff" * 4
-    if unloaded and not finding.manufacturer_id:
-        finding.program = ""         # ebenso zufällig
-        finding.order_info = ""
+    finding.unloaded = unloaded
     if not finding.manufacturer_id and not finding.program and not unloaded:
         await _identity_from_memory(conn, finding, timeout)
 
@@ -799,7 +816,10 @@ def adopt_findings(project, findings: list[ScanFinding], catalog=None) -> AdoptR
             is_programmed=True,
             manually_added=True,
         )
-        if finding.locked or finding.refused:
+        if finding.unloaded and prod is None:
+            device.product = "Unbekannt – Applikation entladen"
+            result.locked.append(finding.address)
+        elif finding.locked or finding.refused:
             device.product = "Unbekannt – Daten gesperrt"
             result.locked.append(finding.address)
         elif prod is not None:
@@ -891,7 +911,9 @@ def parse_bcu_tables(address: str, address_table: bytes,
     if len(entries) != count or not entries:
         result.error = "Adresstabelle unvollständig"
         return result
-    if entries[0] != individual_raw(address):
+    # Platz 0: eigene Adresse; ABB (System 7, 0701) schreibt FFFF hinein
+    # (Chalet 1.1.10: «14 FF FF 02 32 02 33 …»)
+    if entries[0] not in (individual_raw(address), 0xFFFF):
         result.error = "Adresstabelle passt nicht (eigene Adresse fehlt)"
         return result
     gas = entries[1:]

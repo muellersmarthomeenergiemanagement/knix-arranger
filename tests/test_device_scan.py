@@ -183,11 +183,17 @@ _DEVICES = {
         (1, 5): bytes([1]), (2, 5): bytes([1]),
         (1, 7): bytes.fromhex("00013000"), (2, 7): bytes.fromhex("00013100")},
         "tables": {1: [bytes.fromhex("0A01")], 2: [bytes.fromhex("00010007")]}},
+    # gibt die Kennung beim ersten Mal nicht heraus (Hager 1.1.15)
+    "1.1.25": {"mask": 0x0701, "flaky_props": 1, "props": {
+        (0, 12): bytes.fromhex("0009"), (3, 1): bytes.fromhex("0003"),
+        (3, 13): bytes.fromhex("0009123410")}},
     # schweigt beim ersten Mal (Buslast), antwortet beim zweiten Versuch
     "1.1.23": {"mask": 0x07B0, "flaky": 1, "props": {(0, 12): bytes.fromhex("0083")}},
     # Adresse vergeben, Applikation entladen
     "1.1.17": {"mask": 0x0701, "props": {
         (0, 12): bytes.fromhex("0000"), (0, 11): bytes.fromhex("FFFBFFFFFFFF"),
+        (3, 1): bytes.fromhex("0003"), (3, 13): bytes.fromhex("00B1000101"),
+        (3, 5): bytes([0]),
         (1, 1): bytes.fromhex("0001"), (2, 1): bytes.fromhex("0002"),
         (1, 5): bytes([2]), (2, 5): bytes([2])}},
 }
@@ -243,6 +249,10 @@ def _device_tunnel_server(sock, stop, log):
             return apci.PropertyValueResponse(
                 object_index=request.object_index, property_id=23, count=count,
                 start_index=request.start_index, data=data)
+        if isinstance(request, apci.PropertyValueRead) and spec.get("flaky_props") \
+                and (request.object_index, request.property_id) == (0, 12):
+            spec["flaky_props"] -= 1
+            return None
         if isinstance(request, apci.PropertyValueRead):
             data = spec.get("props", {}).get((request.object_index, request.property_id))
             return apci.PropertyValueResponse(
@@ -702,6 +712,10 @@ def test_plant_cases_from_chalet():
     assert by["1.1.15"].links == {5: ["1/0/3"]}
     assert not by["1.1.17"].ok and "nicht geladen" in by["1.1.17"].error
     assert found["1.1.17"].serial_number == ""
+    # entladen: Zufallskennung verworfen, nicht «gesperrt»
+    entladen = found["1.1.17"]
+    assert (entladen.unloaded, entladen.program, entladen.manufacturer_id,
+            entladen.locked) == (True, "", "", False)
     rows = {r.address: r for r in ds.compare(None, findings, [(1, 1)], by)}
     assert rows["1.1.17"].links == "Applikation entladen"
     assert "keine geladene Applikation" in rows["1.1.17"].note
@@ -740,10 +754,10 @@ def test_second_run_cases_from_chalet():
                                             port=sock.getsockname()[1]), Secrets())
         assert _wait(lambda: connection.connected)
         findings = connection.run_on_bus(lambda x: ds.scan_line(
-            x, [(1, 1)], addresses=[19, 21, 23], timeout=1.0,
-            retry={"1.1.23"})).result(timeout=60)
+            x, [(1, 1)], addresses=[19, 21, 23, 25], timeout=1.0,
+            retry={"1.1.23", "1.1.25"})).result(timeout=60)
         tables = connection.run_on_bus(lambda x: ds.read_all_links(
-            x, [f for f in findings if f.address != "1.1.23"],
+            x, [f for f in findings if f.address not in ("1.1.23", "1.1.25")],
             timeout=1.0)).result(timeout=90)
     finally:
         connection.stop()
@@ -752,10 +766,23 @@ def test_second_run_cases_from_chalet():
         sock.close()
         _DEVICES.clear()
         _DEVICES.update(saved)
-    assert {f.address for f in findings} == {"1.1.19", "1.1.21", "1.1.23"}
+    assert {f.address for f in findings} == {"1.1.19", "1.1.21", "1.1.23", "1.1.25"}
+    hager = next(f for f in findings if f.address == "1.1.25")
+    assert not hager.locked and hager.program == "1234-10"
     by = {t.address: t for t in tables}
     assert by["1.1.19"].ok, by["1.1.19"].error
     assert by["1.1.19"].table_format == "Eigenschaft"
     assert by["1.1.19"].links == {0: ["1/0/1"], 3: ["1/0/2"]}
     assert by["1.1.21"].ok, by["1.1.21"].error
     assert by["1.1.21"].links == {7: ["1/2/1"]}
+
+
+def test_abb_address_table_with_ffff():
+    """ABB System 7 (0701) schreibt FFFF statt der eigenen Adresse an Platz 0
+    (Chalet 1.1.12, Bytes aus dem Anlagentest)."""
+    tables = ds.parse_bcu_tables("1.1.12", bytes.fromhex("02FFFF130F"),
+                                 bytes.fromhex("01010B"))
+    assert tables.ok and tables.links == {11: ["2/3/15"]}
+    first = ds.parse_bcu_tables(
+        "1.1.10", bytes.fromhex("03FFFF02320233"), bytes.fromhex("02010A020B"))
+    assert first.links == {10: ["0/2/50"], 11: ["0/2/51"]}

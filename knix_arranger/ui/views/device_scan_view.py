@@ -270,6 +270,8 @@ class DeviceScanView(QWidget):
     def _on_found(self, finding: ds.ScanFinding) -> None:
         if not self.scanning:
             return
+        # zweiter Versuch ersetzt den ersten
+        self._findings = [f for f in self._findings if f.address != finding.address]
         self._findings.append(finding)
         self._compare(final=False)
 
