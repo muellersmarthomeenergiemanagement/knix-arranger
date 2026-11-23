@@ -62,6 +62,34 @@ def start_dir(project) -> str:
     return ""
 
 
+def known_project_ids(project, exclude: str = "") -> set[str]:
+    """Kennungen (P-XXXX) der früher eingelesenen .knxproj im Import-Ordner
+    (bzw. im älteren Ordner «Importdateien»). Ersatz für Projekte, die sich
+    die Kennung noch nicht gemerkt haben (vor 1.4.63). ``exclude``: die
+    gerade gewählte Datei -- liegt sie schon im Import-Ordner, zählt sie
+    nicht als früherer Stand."""
+    folder = project.folder_path if project is not None else None
+    if not folder:
+        return set()
+    from .knxproj_import_service import KnxprojImportService
+    skip = os.path.normcase(os.path.abspath(exclude)) if exclude else ""
+    reader = KnxprojImportService()
+    ids = set()
+    for sub in (IMPORT_FOLDER, LEGACY_FOLDER):
+        path = os.path.join(folder, sub)
+        if not os.path.isdir(path):
+            continue
+        for name in os.listdir(path):
+            full = os.path.join(path, name)
+            if (not name.lower().endswith(".knxproj")
+                    or os.path.normcase(os.path.abspath(full)) == skip):
+                continue
+            project_id = reader.read_project_id(full)
+            if project_id:
+                ids.add(project_id)
+    return ids
+
+
 def _inside(path: str, folder: str) -> bool:
     try:
         return os.path.commonpath([os.path.normcase(os.path.abspath(path)),

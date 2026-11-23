@@ -2,6 +2,13 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.63",
+      "date": "2026-11-23",
+      "verbessert": [
+        "Erkennung einer anderen Anlage beim ETS6 Import jetzt auch bei Projekten, die vor 1.4.62 eingelesen wurden: KNiX vergleicht mit den früher eingelesenen .knxproj im Ordner «Import» des Projekts. Schutz besteht damit sofort, nicht erst nach dem nächsten Einlesen."
+      ]
+    },
+    {
       "version": "1.4.62",
       "date": "2026-11-23",
       "neu": [

@@ -1552,20 +1552,29 @@ class MainWindow(QMainWindow):
 
     def _ets_project_target(self, filepath: str) -> str:
         """Gehört die .knxproj zum offenen Projekt? Vergleicht die Kennung des
-        ETS-Projekts (P-XXXX) mit der beim letzten Einlesen gemerkten.
+        ETS-Projekts (P-XXXX) mit der beim letzten Einlesen gemerkten -- bei
+        Projekten ohne gemerkte Kennung (vor 1.4.62 eingelesen) mit den
+        früher eingelesenen .knxproj im Import-Ordner.
         "open" = ins offene Projekt, "new" = als neues Projekt, "cancel"."""
         project = self._project
-        if project is None or not project.ets_project_id:
+        if project is None:
+            return "open"
+        if project.ets_project_id:
+            known = {project.ets_project_id}
+        else:
+            from ..services import import_folder
+            known = import_folder.known_project_ids(project, exclude=filepath)
+        if not known:
             return "open"
         new_id = KnxprojImportService().read_project_id(filepath)
-        if not new_id or new_id == project.ets_project_id:
+        if not new_id or new_id in known:
             return "open"
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
         box.setWindowTitle("Anderes ETS-Projekt")
         box.setText(
             f"«{os.path.basename(filepath)}» enthält das ETS-Projekt {new_id}, "
-            f"«{project.name}» stammt aus dem ETS-Projekt {project.ets_project_id}. "
+            f"«{project.name}» stammt aus dem ETS-Projekt {', '.join(sorted(known))}. "
             "Das ist vermutlich eine andere Anlage.\n\n"
             "Ins offene Projekt eingelesen, ersetzt sie dessen Gebäude, Topologie "
             "und Gruppenadressen.")

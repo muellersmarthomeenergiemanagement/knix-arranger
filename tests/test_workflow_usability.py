@@ -62,6 +62,57 @@ def test_projektkennung_wird_gespeichert():
     assert KnxProject.from_dict(project.to_dict()).ets_project_id == "P-0A1B"
 
 
+def _knxproj(path, project_id):
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(f"{project_id}/0.xml", "<x/>")
+    return str(path)
+
+
+def _legacy_project(tmp_path) -> KnxProject:
+    """Projekt ohne gemerkte Kennung (vor 1.4.62), früher eingelesene
+    .knxproj im Import-Ordner."""
+    folder = tmp_path / "Chalet"
+    (folder / "Import").mkdir(parents=True)
+    _knxproj(folder / "Import" / "Chalet.knxproj", "P-06C2")
+    _knxproj(folder / "Import" / "Chalet_20261118_1234.knxproj", "P-06C2")
+    (folder / "Import" / "Monitor.xml").write_text("<x/>")
+    project = KnxProject(name="Chalet")
+    project._file_path = str(folder / "Chalet.knxarr")
+    return project
+
+
+def test_kennung_aus_dem_import_ordner(tmp_path):
+    from knix_arranger.services import import_folder
+    project = _legacy_project(tmp_path)
+    assert import_folder.known_project_ids(project) == {"P-06C2"}
+    # die gewählte Datei selbst zählt nicht als früherer Stand
+    own = project.folder_path + "/Import/Chalet.knxproj"
+    other = _knxproj(tmp_path / "Chalet" / "Import" / "Fremd.knxproj", "P-9999")
+    assert import_folder.known_project_ids(project, exclude=other) == {"P-06C2"}
+    assert "P-06C2" in import_folder.known_project_ids(project, exclude=own)
+    assert import_folder.known_project_ids(KnxProject()) == set()   # ungespeichert
+
+
+def test_alte_projekte_erkennen_andere_anlage_ueber_den_import_ordner(tmp_path, monkeypatch):
+    project = _legacy_project(tmp_path)
+    fremd = _knxproj(tmp_path / "fremd.knxproj", "P-049F")
+    gleich = _knxproj(tmp_path / "neu.knxproj", "P-06C2")
+    texts = []
+
+    def fake_exec(box):
+        texts.append(box.text())
+        box._clicked = next(b for b in box.buttons() if b.text() == "Abbrechen")
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    monkeypatch.setattr(QMessageBox, "clickedButton", lambda box: box._clicked)
+    from PySide6.QtWidgets import QWidget
+    fake = QWidget()
+    fake._project = project
+    assert MainWindow._ets_project_target(fake, gleich) == "open" and texts == []
+    assert MainWindow._ets_project_target(fake, fremd) == "cancel"
+    assert "P-049F" in texts[0] and "P-06C2" in texts[0]
+
+
 def test_gleiche_oder_unbekannte_kennung_liest_ohne_rueckfrage_ein(tmp_path, monkeypatch):
     path = tmp_path / "a.knxproj"
     with zipfile.ZipFile(path, "w") as zf:
