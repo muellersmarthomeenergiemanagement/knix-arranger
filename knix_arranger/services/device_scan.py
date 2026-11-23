@@ -1158,13 +1158,26 @@ async def _read_flags(conn, address: str, mask: int | None, result: LinkTables,
     notes: list[str] = []          # Diagnose je Versuch
 
     def take(label: str, entries: list[bytes]) -> bool:
-        flags, info = score_flags(entries, linked, read_on_init=system_b)
+        # festes Format: Konfiguration vor dem Typ (Grösse 0-15) am Schluss;
+        # passt das, nur diese Stelle; sonst frei, aber erst ab 3 KOs (mit
+        # einem oder zwei KOs träfe Zufall zu leicht)
+        width = min((len(e) for e in entries), default=0)
+        if width >= 2 and all(e[-1] <= 15 for e in entries):
+            flags, info = score_flags([e[-2:-1] for e in entries], linked,
+                                      read_on_init=system_b)
+        elif len(linked) >= 3:
+            flags, info = score_flags(entries, linked, read_on_init=system_b)
+        else:
+            flags, info = None, f"{len(entries)} Einträge, Format unbekannt"
         if flags:
             result.flags, result.flags_error = flags, ""
             return True
         sample = " ".join(e.hex().upper() for e in entries[:4])
         notes.append(f"{label}: {info} [{sample}]")
         return False
+
+    def take_found(flags: dict[int, str]) -> None:
+        result.flags, result.flags_error = flags, ""
 
     async def table_at(label: str, start: int, strides: tuple[int, ...]) -> bool:
         """Tabelle ab start: Kopf (Anzahl …) 2 Byte, dann je KO stride Byte."""
@@ -1226,13 +1239,69 @@ async def _read_flags(conn, address: str, mask: int | None, result: LinkTables,
                              f"[0110: {header.hex(' ').upper()}]")
         except Exception as exc:
             notes.append(f"Zeiger: {_link_error(exc)}")
-    # 3) direkt hinter der Zuordnungstabelle (dort liegt sie meist)
+    # 3) hinter der Zuordnungstabelle (dort liegt sie meist); oft ist für die
+    # Zuordnungen mehr Platz reserviert als belegt (Chalet: Theben HTS, Siemens
+    # «05 04 06 05 …»), darum ein Stück absuchen
     if result.association_end:
         if await table_at("nach Zuordnung", result.association_end,
                           (2, 3) if system_b else (3, 2)):
             return
+        if not system_b and await _scan_object_table(
+                conn, result.association_end, linked, timeout, take_found, notes):
+            return
     result.flags_error = "Flags nicht deutbar – " + " | ".join(notes) if notes \
         else "KO-Tabelle nicht gefunden"
+
+
+SCAN_WINDOW = 320
+
+
+async def _memory_tolerant(conn, start: int, size: int, timeout: float) -> bytes:
+    """So viel Speicher wie lesbar (in Stücken), bis zum ersten verweigerten."""
+    data = bytearray()
+    while size > 0:
+        chunk = min(size, 48)
+        try:
+            data += await _memory(conn, start, chunk, timeout)
+        except Exception:
+            break
+        start += chunk
+        size -= chunk
+    return bytes(data)
+
+
+def find_object_table(data: bytes, linked: list[int]) -> tuple[dict[int, str], int] | None:
+    """KO-Tabelle im BCU-/System-7-Format (Anzahl, RAM-Zeiger, je KO 3 Byte)
+    irgendwo in data: Anzahl mindestens so gross wie das höchste verknüpfte
+    KO, und die verknüpften KOs plausibel (score_flags). (Flags, Versatz)."""
+    top = max(linked)
+    for offset in range(0, max(0, len(data) - 2)):
+        count = data[offset]
+        if not top + 1 <= count <= 255:
+            continue
+        body = data[offset + 2:offset + 2 + 3 * count]
+        entries = _chunks(body, 3)
+        if len(entries) < count:
+            continue
+        # festes Format: Typ (Grösse) an dritter Stelle bei allen Einträgen
+        # gültig (0-15) – zufällige Bytes erfüllen das kaum
+        if any(entry[2] > 15 for entry in entries):
+            continue
+        flags, _info = score_flags([entry[1:2] for entry in entries], linked)
+        if flags:
+            return flags, offset
+    return None
+
+
+async def _scan_object_table(conn, start: int, linked: list[int], timeout: float,
+                             found, notes: list[str]) -> bool:
+    data = await _memory_tolerant(conn, start, SCAN_WINDOW + 3 * (max(linked) + 3), timeout)
+    hit = find_object_table(data, linked)
+    if hit is None:
+        notes.append(f"gesucht ab {start:#x}: {len(data)} Byte, keine KO-Tabelle")
+        return False
+    found(hit[0])
+    return True
 
 
 def flag_differences(device, table: LinkTables) -> list[tuple[int, str, str]]:

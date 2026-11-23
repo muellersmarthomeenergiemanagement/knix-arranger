@@ -952,3 +952,15 @@ def test_flags_behind_association_table():
     table = tables[0]
     assert table.ok and table.links == {0: ["1/0/1"]}
     assert table.flags == {0: "K-S---"}, table.flags_error
+
+
+def test_find_object_table_behind_reserved_associations():
+    """Chalet Theben HTS/Siemens: hinter den belegten Zuordnungen weitere
+    Paare («05 04 06 05 …»), die KO-Tabelle beginnt weiter hinten."""
+    junk = bytes.fromhex("0504060507060807090A0B0C")
+    table = bytes([3, 0xC0]) + bytes.fromhex("205400" "211400" "224C01")
+    found = ds.find_object_table(junk + table + bytes(20), [0, 1, 2])
+    assert found == ({0: "K-SÜ--", 1: "K-S---", 2: "KL-Ü--"}, len(junk))
+    # Typbyte ungültig: keine Tabelle (kein Zufallstreffer)
+    assert ds.find_object_table(bytes([3, 0]) + bytes.fromhex("205440" "211440" "224C40"),
+                                [0, 1]) is None
