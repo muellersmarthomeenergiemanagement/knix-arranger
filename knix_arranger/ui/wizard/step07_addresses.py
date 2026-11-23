@@ -328,8 +328,35 @@ class Step07Addresses(QWidget):
 
     # ── Manuelle GA-Verwaltung ──────────────────────────────────────────────
 
+    def _confirm_new_ga_imported(self) -> bool:
+        """Neue GA in einem aus der ETS eingelesenen Projekt: beim Abgleich
+        bleibt sie, beim Neuaufbau aus der ETS geht sie verloren. Hinweis
+        einmal je Sitzung und Projekt. True = anlegen."""
+        project = self._project
+        if not project.topology.is_imported or project.__dict__.get("_new_ga_hint_shown"):
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle("Neue GA in einem eingelesenen Projekt")
+        box.setText(
+            "Dieses Projekt ist aus der ETS eingelesen. Eine hier angelegte GA steht "
+            "nur in KNiX: beim Abgleich mit der ETS bleibt sie erhalten, beim "
+            "Neuaufbau aus der ETS geht sie verloren.\n\n"
+            "Neue Elemente für die ETS plant man unter Umbau-Varianten → «Erweiterung "
+            "planen…» – mit Adressvorschlag und GA-Liste für die ETS.")
+        create = box.addButton("Trotzdem anlegen", QMessageBox.AcceptRole)
+        box.addButton("Abbrechen", QMessageBox.RejectRole)
+        box.setDefaultButton(create)
+        box.exec()
+        if box.clickedButton() is not create:
+            return False
+        project.__dict__["_new_ga_hint_shown"] = True
+        return True
+
     def _add_ga(self):
         """Öffnet Dialog zum manuellen Hinzufügen einer neuen GA."""
+        if not self._confirm_new_ga_imported():
+            return
         hg_default, mg_default, ug_default = self._default_address_from_selection()
         new_ga = GroupAddress(
             main_group=hg_default,
@@ -399,7 +426,7 @@ class Step07Addresses(QWidget):
             )
             return
         dlg = GALibraryDialog(entries, self)
-        if dlg.exec() and dlg.selected_entries:
+        if dlg.exec() and dlg.selected_entries and self._confirm_new_ga_imported():
             hg_default, mg_default, _ = self._default_address_from_selection()
             for entry in dlg.selected_entries:
                 new_ga = GroupAddress(

@@ -239,6 +239,10 @@ class ImportPipeline:
 
     def finalize(self, filepath: str, diff: ReimportDiff) -> None:
         project = self.project
+        # In KNiX bearbeitete GA-Felder mit den frischen ETS-Werten abgleichen
+        # (nachgeführte entfallen), bevor refresh_bedienelemente sie anwendet
+        from .ets_corrections import settle_ga_fields
+        self.step("GA-Korrekturen", settle_ga_fields, project, default=0)
         # GAs mit ihrer Gewerk-Zuweisung verknüpfen (FA-521e) -- braucht die
         # endgültigen Raum-Daten nach dem Abgleich
         # Funktions-GAs (FA-530) vor der Gewerk-Verknüpfung erkennen

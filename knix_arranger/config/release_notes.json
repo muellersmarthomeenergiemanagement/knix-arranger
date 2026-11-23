@@ -5,7 +5,13 @@
       "version": "1.4.63",
       "date": "2026-11-23",
       "verbessert": [
-        "Erkennung einer anderen Anlage beim ETS6 Import jetzt auch bei Projekten, die vor 1.4.62 eingelesen wurden: KNiX vergleicht mit den früher eingelesenen .knxproj im Ordner «Import» des Projekts. Schutz besteht damit sofort, nicht erst nach dem nächsten Einlesen."
+        "Erkennung einer anderen Anlage beim ETS6 Import jetzt auch bei Projekten, die vor 1.4.62 eingelesen wurden: KNiX vergleicht mit den früher eingelesenen .knxproj im Ordner «Import» des Projekts. Schutz besteht damit sofort, nicht erst nach dem nächsten Einlesen.",
+        "GAs aus der ETS bearbeiten: Name, Beschreibung, DPT und Zentral-Kennzeichen, die Sie in KNiX ändern, stehen als Abweichung zur ETS in der Validierung und als Aufgabe in der ETS-Arbeitsliste («Umbenennen in …», «Datenpunkttyp … setzen»). Sobald die ETS den Wert hat, entfällt die Aufgabe. Der Bearbeitungsdialog erklärt das.",
+        "Die Adresse einer GA aus der ETS lässt sich in KNiX nicht mehr ändern – das geschieht in der ETS, danach neu einlesen.",
+        "Neue GA in einem eingelesenen Projekt (Wizard Schritt 9): KNiX weist einmal darauf hin, dass sie nur in KNiX steht – beim Abgleich bleibt sie, beim Neuaufbau aus der ETS geht sie verloren – und führt zur «Erweiterung planen…». Der Neuaufbau-Dialog nennt solche GAs unter «Geht verloren»."
+      ],
+      "behoben": [
+        "Änderungen an GAs eines aus der ETS eingelesenen Projekts (Name, Beschreibung, DPT, Funktion, Raum …) gingen beim nächsten Einlesen kommentarlos verloren. Sie bleiben jetzt als Korrektur erhalten."
       ]
     },
     {

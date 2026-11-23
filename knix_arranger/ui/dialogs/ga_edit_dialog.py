@@ -80,6 +80,12 @@ class GaEditDialog(QDialog):
         self.setMinimumSize(500, 500)
         allowed = editable_fields(project, ga) if project is not None else FIELDS_FREE
         address_free = project is None or "designation" in allowed
+        # GA aus der ETS: Änderungen werden Korrekturen (FA-616c), die
+        # Adresse selbst bleibt die der ETS
+        from_ets = (project is not None and project.topology.is_imported
+                    and not ga.is_manual)
+        if from_ets:
+            address_free = False
 
         layout = QVBoxLayout(self)
 
@@ -174,7 +180,16 @@ class GaEditDialog(QDialog):
         for name, widget in widgets.items():
             widget.setEnabled(name in allowed)
 
-        if project is not None and edit_kind(project, ga) == GENERATED:
+        if from_ets:
+            note = QLabel(
+                "Aus der ETS: Änderungen gelten in KNiX und bleiben beim nächsten "
+                "Einlesen erhalten (Korrektur). Name, Beschreibung, DPT und Zentral "
+                "erscheinen als Abweichung zur ETS in der ETS-Arbeitsliste. Die "
+                "Adresse ändern Sie in der ETS.")
+            note.setWordWrap(True)
+            note.setStyleSheet("color: #666666; font-style: italic;")
+            prop_layout.addWidget(note, 10, 0, 1, 2)
+        elif project is not None and edit_kind(project, ga) == GENERATED:
             hint = ("Aus der Planung: Funktion und DPT lassen sich nachbearbeiten, "
                     "sie bleiben bei jeder Neuberechnung erhalten, die Adresse "
                     "bleibt dieselbe. Die Bezeichnung folgt der Funktion.")

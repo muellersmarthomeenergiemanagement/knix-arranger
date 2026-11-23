@@ -28,12 +28,19 @@ class EtsCorrections:
     # In KNiX getrennte KO-Verknüpfungen "1.1.51|6|12/1/62" (Gerät|KO|GA);
     # beim Re-Import wieder getrennt, solange die ETS sie noch hat.
     unlinked: list[str] = field(default_factory=list)
+    # In KNiX bearbeitete Felder einer GA (Name, Beschreibung, DPT, Funktion …):
+    # Adresse -> Feld -> {"value": in KNiX, "ets": laut ETS beim Bearbeiten
+    # bzw. letzten Einlesen}, z.B. "1/1/5": {"designation": {"value":
+    # "Licht Wohnen", "ets": "L.EG.01"}}. Das Gewerk steht in gewerk_by_address.
+    ga_fields: dict[str, dict[str, dict]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {"gewerk_by_address": dict(self.gewerk_by_address),
                 "button_labels": dict(self.button_labels),
                 "room_by_device": {k: dict(v) for k, v in self.room_by_device.items()},
-                "unlinked": list(self.unlinked)}
+                "unlinked": list(self.unlinked),
+                "ga_fields": {a: {f: dict(e) for f, e in fields.items()}
+                              for a, fields in self.ga_fields.items()}}
 
     @classmethod
     def from_dict(cls, data: dict | None) -> EtsCorrections:
@@ -42,4 +49,6 @@ class EtsCorrections:
                    button_labels=dict(data.get("button_labels", {})),
                    room_by_device={k: dict(v) for k, v in
                                    data.get("room_by_device", {}).items()},
-                   unlinked=list(data.get("unlinked", [])))
+                   unlinked=list(data.get("unlinked", [])),
+                   ga_fields={a: {f: dict(e) for f, e in fields.items()}
+                              for a, fields in data.get("ga_fields", {}).items()})

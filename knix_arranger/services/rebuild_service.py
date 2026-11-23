@@ -232,6 +232,13 @@ def lost_content(keep: set[str], project) -> list[str]:
         content = kept_content(option, project)
         if content:
             lost.append(f"{option.label} ({content})")
+    # Von Hand in KNiX angelegte GAs: der Neuaufbau übernimmt nur die GAs der
+    # ETS (beim Abgleich blieben sie) -- immer nennen, nicht abwählbar
+    if project is not None:
+        manual = sum(1 for ga in project.group_addresses.all_addresses()
+                     if ga.is_manual and not ga.function_id)
+        if manual:
+            lost.append(f"In KNiX angelegte GAs ({manual})")
     return lost
 
 

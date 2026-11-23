@@ -116,13 +116,25 @@ def apply_changes(project, gas: list, changes: dict) -> EditResult:
         if kind == GENERATED and ({"function_name", "datapoint_type"} & set(wanted)):
             if _rework(project, ga, wanted.get("function_name"), wanted.get("datapoint_type")):
                 result.regenerated = True
+        # Importierte GAs: nicht die ETS-Daten still überschreiben, sondern als
+        # Korrektur ablegen -- überlebt jedes Einlesen, erscheint als
+        # Abweichung zur ETS (FA-616c)
+        set_field = setattr
+        if project.topology.is_imported and not ga.is_manual:
+            from .ets_corrections import set_ga_field, set_gewerk
+
+            def set_field(target, name, value):
+                if name == "gewerk_code":
+                    set_gewerk(project, [target.address], value)
+                else:
+                    set_ga_field(project, target, name, value)
         for name, value in wanted.items():
             if kind == GENERATED and name in ("function_name", "datapoint_type"):
                 continue
             if name == "function_name" and "datapoint_type" not in changes:
                 if value != ga.function_name and suggested_dpt(value):
-                    ga.datapoint_type = suggested_dpt(value)
-            setattr(ga, name, value)
+                    set_field(ga, "datapoint_type", suggested_dpt(value))
+            set_field(ga, name, value)
         result.changed.append(ga.address)
     if result.regenerated:
         regenerate_addresses(project)
@@ -138,6 +150,11 @@ def move_ga(project, ga, main: int, middle: int, sub: int) -> str:
         return ""
     if edit_kind(project, ga) != FREE:
         return "Die Adresse kommt aus der Planung – verschieben per Ziehen im Baum."
+    if project.topology.is_imported and not ga.is_manual:
+        # Korrekturen hängen an der Adresse; ein erneutes Einlesen brächte
+        # die GA an der alten Adresse zurück
+        return ("Die Adresse kommt aus der ETS – in der ETS verschieben und neu "
+                "einlesen.")
     if not (0 <= main <= 31 and 0 <= middle <= 7 and 0 <= sub <= 255):
         return "Ungültige Adresse (HG 0–31, MG 0–7, UG 0–255)."
     if (main, middle, sub) == (0, 0, 0):

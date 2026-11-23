@@ -45,6 +45,7 @@ def apply_ets_corrections(project) -> int:
             n += 1
     _apply_rooms(project)
     _apply_unlinks(project)
+    _apply_ga_fields(project)
     return n
 
 
@@ -69,6 +70,80 @@ def set_gewerk(project, addresses: list[str], code: str) -> int:
     return changed
 
 
+# ── Felder einer GA (Name, Beschreibung, DPT …) ─────────────────────────
+
+#: Felder, die in der ETS stehen -- Abweichung zur ETS und Aufgabe in der
+#: ETS-Arbeitsliste. Die übrigen (Funktion, Raum, Element, Reserve) leitet
+#: KNiX selbst ab; ihre Korrektur bleibt still erhalten.
+ETS_GA_FIELDS = {"designation": "Name", "description": "Beschreibung",
+                 "datapoint_type": "DPT", "central": "Zentral"}
+
+#: Markierung am GA-Objekt: Korrekturen sind angewendet (nicht frisch aus
+#: der ETS). Nur zur Laufzeit, wird nicht gespeichert.
+_APPLIED = "_knix_corrected"
+
+
+def set_ga_field(project, ga, name: str, value) -> None:
+    """Feld einer importierten GA in KNiX ändern, ohne die ETS-Daten still zu
+    überschreiben: der Wert gilt sofort und bleibt als Korrektur über jedes
+    Einlesen erhalten. Zurück auf den ETS-Wert hebt die Korrektur auf."""
+    fields = project.ets_corrections.ga_fields
+    entries = fields.setdefault(ga.address, {})
+    entry = entries.get(name)
+    ets_value = entry["ets"] if entry else getattr(ga, name)
+    if value == ets_value:
+        entries.pop(name, None)
+    else:
+        entries[name] = {"value": value, "ets": ets_value}
+    if not entries:
+        fields.pop(ga.address, None)
+    setattr(ga, name, value)
+    ga.__dict__[_APPLIED] = True
+
+
+def _apply_ga_fields(project) -> None:
+    fields = project.ets_corrections.ga_fields
+    if not fields:
+        return
+    by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+    for addr, entries in fields.items():
+        ga = by_address.get(addr)
+        if ga is None:
+            continue
+        for name, entry in entries.items():
+            setattr(ga, name, entry["value"])
+        ga.__dict__[_APPLIED] = True
+
+
+def settle_ga_fields(project) -> int:
+    """Nach dem Einlesen, bevor die Korrekturen angewendet werden: GAs frisch
+    aus der ETS mit den Korrekturen vergleichen. Hat die ETS den Wert
+    nachgeführt, ist die Korrektur erledigt und entfällt; sonst wird der
+    aktuelle ETS-Wert vermerkt. GAs, die nicht frisch eingelesen sind
+    (z.B. Gebäude-Report ohne GAs), bleiben unberührt. Gibt die Anzahl
+    erledigter Korrekturen zurück."""
+    fields = project.ets_corrections.ga_fields
+    if not fields:
+        return 0
+    by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+    done = 0
+    for addr in list(fields):
+        ga = by_address.get(addr)
+        if ga is None or ga.__dict__.get(_APPLIED):
+            continue
+        entries = fields[addr]
+        for name in list(entries):
+            fresh = getattr(ga, name)
+            if fresh == entries[name]["value"]:
+                del entries[name]
+                done += 1
+            else:
+                entries[name]["ets"] = fresh
+        if not entries:
+            del fields[addr]
+    return done
+
+
 @dataclass
 class Deviation:
     address: str      # GA-Adresse bzw. physikalische Adresse (Raum)
@@ -76,6 +151,14 @@ class Deviation:
     field: str        # "Gewerk", "Raum", "Verknüpfung"
     ets_value: str
     knix_value: str
+
+
+def _shown(value) -> str:
+    if value is True or value == "true":
+        return "ja"
+    if value in (False, "", None):
+        return "–"
+    return str(value)
 
 
 def _sort_key(address: str):
@@ -106,6 +189,17 @@ def deviations(project) -> list[Deviation]:
                 pa, device.product_name or device.product, "Raum",
                 ets[0] if ets else (entry.get("ets") or "ohne Raum"), target[0]))
 
+    for addr, entries in corrections.ga_fields.items():
+        ga = by_address.get(addr)
+        if ga is None:
+            continue
+        for name, label in ETS_GA_FIELDS.items():
+            entry = entries.get(name)
+            if entry is None or entry["value"] == entry["ets"]:
+                continue
+            result.append(Deviation(addr, ga.designation, label,
+                                    _shown(entry["ets"]), _shown(entry["value"])))
+
     for key in corrections.unlinked:
         pa, co_number, ga_addr = _split_unlink(key)
         ga = by_address.get(ga_addr)
@@ -113,7 +207,8 @@ def deviations(project) -> list[Deviation]:
             ga_addr, f"{pa} KO {co_number}" + (f" · {ga.designation}" if ga else ""),
             "Verknüpfung", "verbunden", "getrennt"))
 
-    order = {"Gewerk": 0, "Raum": 1, "Verknüpfung": 2}
+    order = {"Gewerk": 0, "Name": 0, "Beschreibung": 0, "DPT": 0, "Zentral": 0,
+             "Raum": 1, "Verknüpfung": 2}
     result.sort(key=lambda d: (order.get(d.field, 9), _sort_key(d.address)))
     return result
 

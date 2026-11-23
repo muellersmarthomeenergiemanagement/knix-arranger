@@ -141,6 +141,21 @@ def _items_from_issue(issue, project) -> list[WorkItem]:
                 f"FA-616|Raum|{addr}", PRIO_DOCS, rule, f"Gerät {addr}",
                 f"In Raum «{knix}» verschieben.", f"Heute: «{ets}»",
                 sort=(PRIO_DOCS, 1, _addr_sort(addr)))]
+        if what in ("Name", "Beschreibung", "DPT", "Zentral"):
+            # In KNiX bearbeitete GA-Felder (FA-616c); DPT wirkt z.B. auf
+            # Visualisierung und Gateways -> prüfen statt nur nachführen
+            task = {
+                "Name": f"Umbenennen in «{knix}».",
+                "Beschreibung": f"Beschreibung «{knix}» eintragen.",
+                "DPT": f"Datenpunkttyp {knix} setzen.",
+                "Zentral": "Als zentral kennzeichnen." if knix == "ja"
+                else "Zentral-Kennzeichen entfernen.",
+            }[what]
+            prio = PRIO_CHECK if what == "DPT" else PRIO_DOCS
+            return [WorkItem(
+                f"FA-616|{what}|{addr}", prio, rule, f"GA {addr}", task,
+                f"Heute: {ets}" if what != "Name" else f"Heute: «{ets}»",
+                sort=(prio, 0, _addr_sort(addr)))]
         new_name = _gewerk_rename(designation, ets, knix)
         return [WorkItem(
             f"FA-616|{what}|{addr}", PRIO_DOCS, rule, f"GA {addr}",
