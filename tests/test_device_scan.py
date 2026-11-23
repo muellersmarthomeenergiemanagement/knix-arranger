@@ -37,7 +37,7 @@ def test_identity_bytes():
     assert ds.bcu1_identity(bytes.fromhex("1E102205")) == ("M-001E", "1022-05")
     assert ds.order_text(b"GH Q631\x00\x00\x00") == "GH Q631"
     assert ds.order_text(b"\x00" * 10) == ""
-    assert ds.order_text(b"\x01\x02") == "0102"
+    assert ds.order_text(b"\x01\x02") == ""                # nicht lesbar: keine
     assert ds.mask_text(0x07B0) == "07B0 System B"
     assert ds.mask_text(0x0012) == "0012 BCU 1"
     assert ds.mask_text(0x091A) == "091A Koppler"
@@ -786,3 +786,32 @@ def test_abb_address_table_with_ffff():
     first = ds.parse_bcu_tables(
         "1.1.10", bytes.fromhex("03FFFF02320233"), bytes.fromhex("02010A020B"))
     assert first.links == {10: ["0/2/50"], 11: ["0/2/51"]}
+
+
+def test_view_offers_adoption_after_reading_links(monkeypatch):
+    """RekChalet1: Geräte waren übernommen, die gelesenen GAs nicht. Nach dem
+    Lesen fragt die Ansicht gleich, ob sie übernommen werden sollen."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    QApplication.instance() or QApplication([])
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.ui.views.device_scan_view import DeviceScanView
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or QMessageBox.Yes)
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    view = DeviceScanView()
+    view.catalog = _Catalog()
+    project = KnxProject()
+    view.set_project(project)
+    view._lines = [(1, 1)]
+    view._findings = [ds.ScanFinding("1.1.5", True, 0x07B0, "M-0002", program="4701-11")]
+    ds.adopt_findings(project, view._findings, _Catalog())      # Geräte schon da
+    view._compare()
+    view._on_links_finished([ds.LinkTables("1.1.5", ["1/0/1"], {0: ["1/0/1"]})], "")
+    assert len(asked) == 1 and "Gelesen: 1 GAs von 1 Geräten" in asked[0]
+    assert [g.address for g in project.group_addresses.all_addresses()] == ["1/0/1"]
+    assert view._rows[0].links.startswith("stimmt")
+    # nochmals gelesen: nichts mehr anzubieten
+    view._on_links_finished([ds.LinkTables("1.1.5", ["1/0/1"], {0: ["1/0/1"]})], "")
+    assert len(asked) == 1

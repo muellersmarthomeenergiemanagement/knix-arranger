@@ -142,11 +142,12 @@ def serial_from_bytes(data: bytes) -> str:
 
 
 def order_text(data: bytes) -> str:
-    """Bestellnummer: meist ASCII, sonst Hex; Füllbytes weg."""
+    """Bestellnummer als Text, Füllbytes weg; nicht als Text lesbar = keine
+    (Hager 1.1.6 liefert 01 02 03 … 09 00, als Gerätename unbrauchbar)."""
     stripped = data.rstrip(b"\x00 \xff")
     if stripped and all(32 <= b < 127 for b in stripped):
         return stripped.decode("ascii").strip()
-    return data.hex().upper() if data.strip(b"\x00\xff") else ""
+    return ""
 
 
 def bcu1_identity(data: bytes) -> tuple[str, str]:
@@ -311,7 +312,7 @@ def _link_cells(row: ScanRow, table, device) -> None:
                      else f"{len(diff)} Abweichungen ({count} in der Anlage)")
         row.link_details = [f"KO {n} – {ga}: {kind}" for _a, n, ga, kind in diff]
         return
-    row.links = f"{len(table.group_addresses)} GAs, {count} Verknüpfungen"
+    row.links = f"{len(table.group_addresses)} GAs, {count} Verknüpfungen – noch nicht übernommen"
 
 
 def _row(address: str, finding: ScanFinding | None, device, secure_project: bool) -> ScanRow:
@@ -540,26 +541,26 @@ async def _read_details(conn, finding: ScanFinding, timeout: float) -> None:
     finding.serial_number = serial_from_bytes(raw_serial)
     hardware = await prop(OBJ_DEVICE, PID_HARDWARE_TYPE)
     finding.hardware_type = hardware.hex().upper() if hardware.strip(b"\x00") else ""
-    finding.order_info = order_text(await prop(OBJ_DEVICE, PID_ORDER_INFO))
+    raw_order = await prop(OBJ_DEVICE, PID_ORDER_INFO)
+    finding.order_info = order_text(raw_order)
     # Applikationsobjekt: meist Index 3, sonst unter den ersten suchen
-    app_loaded = True
     for index in (3, 4, 2, 5, 1):
         kind = await prop(index, PID_OBJECT_TYPE)
         if kind and int.from_bytes(kind, "big") == OBJECT_TYPE_APPLICATION:
             finding.program_manufacturer, finding.program = program_from_bytes(
                 await prop(index, PID_PROGRAM_VERSION))
-            state = await prop(index, PID_LOAD_STATE)
-            app_loaded = not state or state[0] != 0      # 0 = entladen
             break
         if not kind:
             break        # Objekt fehlt: weiter hinten kommt nichts mehr
     if finding.program_manufacturer in ("M-0000", "M-FFFF"):
         finding.program_manufacturer = ""
-    # Applikation entladen, Seriennummer aus FF oder Bestellnummer aus
-    # Füllbytes (FB/FF): Gerät ohne geladene Daten, Applikationskennung und
-    # Speicher ab 0x0104 sind Zufall (Chalet 1.1.21 «RTS Automation», 0001-01)
-    garbage_order = bool(re.fullmatch(r"[FB]{8,}", finding.order_info or ""))
-    unloaded = not app_loaded or raw_serial[2:] == b"\xff" * 4 or garbage_order
+    # Seriennummer aus FF oder Bestellnummer aus Füllbytes (FB/FF): Gerät
+    # ohne geladene Daten, Applikationskennung und Speicher ab 0x0104 sind
+    # Zufall (Chalet 1.1.21 «RTS Automation», 0001-01). Der Ladezustand des
+    # Applikationsobjekts taugt nicht dafür: Hager 1.1.15 meldet 0 und
+    # arbeitet mit 30 Verknüpfungen
+    garbage_order = len(raw_order) >= 4 and set(raw_order) <= {0xFB, 0xFF}
+    unloaded = raw_serial[2:] == b"\xff" * 4 or garbage_order
     if unloaded:
         finding.program = finding.program_manufacturer = ""
         if garbage_order:

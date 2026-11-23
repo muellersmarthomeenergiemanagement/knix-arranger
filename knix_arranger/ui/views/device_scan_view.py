@@ -348,6 +348,35 @@ class DeviceScanView(QWidget):
             QMessageBox.warning(self, "GAs und Verknüpfungen lesen",
                                 f"Nicht abgeschlossen: {error}")
         self._update_controls()
+        # Gelesen ist noch nicht im Projekt: gleich anbieten (RekChalet1:
+        # Geräte vorher übernommen, GAs danach vermisst)
+        pending = self._tables_to_adopt()
+        if pending and self._project is not None:
+            gas = len({ga for t in pending for ga in t.group_addresses})
+            answer = QMessageBox.question(
+                self, "GAs und Verknüpfungen lesen",
+                f"Gelesen: {gas} GAs von {len(pending)} Geräten. Sie stehen erst im Projekt, "
+                "wenn sie übernommen werden.\n\nJetzt ins Projekt übernehmen (fehlende "
+                "Geräte, GAs und Verknüpfungen)? Geräte mit Verknüpfungen im Projekt bleiben "
+                "unverändert.")
+            if answer == QMessageBox.Yes:
+                self._adopt(confirmed=True)
+
+    def _tables_to_adopt(self) -> list:
+        """Gelesene Tabellen, die das Projekt noch nicht hat: Gerät fehlt oder
+        hat keine Verknüpfungen."""
+        if self._project is None:
+            return []
+        devices = {d.physical_address: d for d in ds.project_devices(self._project)}
+        result = []
+        for table in self._tables.values():
+            if not table.ok or not table.links:
+                continue
+            device = devices.get(table.address)
+            if device is None or not any(co.connected_gas
+                                         for co in device.communication_objects):
+                result.append(table)
+        return result
 
     # ── Ergebnis ─────────────────────────────────────────────────────────
 
@@ -391,8 +420,9 @@ class DeviceScanView(QWidget):
                     row.finding.errors[:6]))
         self._export_btn.setEnabled(bool(self._rows))
 
-    def _adopt(self) -> None:
-        """Gefundene Geräte ins Projekt (FA-3108a), mit Rückfrage und Rückgängig."""
+    def _adopt(self, confirmed: bool = False) -> None:
+        """Gefundene Geräte ins Projekt (FA-3108a), mit Rückfrage (ausser schon
+        bestätigt) und Rückgängig."""
         if self._project is None or self.scanning:
             return
         found = [f for f in self._findings if f.answered and not f.own]
@@ -412,7 +442,8 @@ class DeviceScanView(QWidget):
         if not existing:
             text += ("\n\nDas Projekt gilt danach als bestehende Anlage (wie aus der ETS "
                      "eingelesen).")
-        if QMessageBox.question(self, "Ins Projekt übernehmen", text) != QMessageBox.Yes:
+        if not confirmed and QMessageBox.question(
+                self, "Ins Projekt übernehmen", text) != QMessageBox.Yes:
             return
         catalog = self.catalog
         if catalog is None:
