@@ -37,7 +37,9 @@ def _project():
                     product="9x blind actuator JAX-9", communication_objects=[
                         _co(0, "Bedienung Storen (M1), Endlage", "Auf/Ab", ["0/1/1", "0/2/9"],
                             dpt="DPST-1-8"),
-                        _co(1, "Bedienung Storen (M1), Wippen", "Stopp", ["0/1/2"])])
+                        _co(1, "Bedienung Storen (M1), Wippen", "Stopp", ["0/1/2"]),
+                        _co(5, "Sonnenschutz (M1), Position Höhe", "Status", ["0/6/1"],
+                            size="1 Byte", flags="K-LÜ--", dpt="DPST-5-1")])
     button = Device(physical_address="1.1.30", device_type="sensor",
                     product="Taster EDIZIOdue 1-8fach", communication_objects=[
                         _co(0, "Taste 1", "Schalten", ["0/2/1"], flags="K-SÜ--"),
@@ -97,6 +99,10 @@ def test_operators_and_channels():
     assert "0/2/9" not in plan.channels[("1.1.1", "Ausgang A")].addresses
     assert "0/4/1" not in plan.channels[("1.1.1", "Ausgang A")].addresses
     assert [c.key for c in plan.orphan_channels()] == [("1.1.1", "Ausgang B")]
+    # Status unter anderem Namen, gleicher Motor: ein Kanal
+    assert plan.channels[("1.1.4", "Bedienung Storen (M1)")].addresses == [
+        "0/1/1", "0/1/2", "0/6/1"]
+    assert len(plan.channels) == 3
     groups = {tuple(ops): chs for ops, chs in plan.groups}
     assert groups[("1.1.30",)] == [("1.1.1", "Ausgang A")]
 
@@ -275,6 +281,118 @@ def test_tour_dialog_room_keys_reaction():
     assert dialog._room_combo.currentData() == ""
     dialog.done(0)
     assert not monitor.listeners
+
+
+def test_load_probe_like_function_test():
+    project = _project()
+    plan = rb.analyse(project)
+    switch = plan.channels[("1.1.1", "Ausgang B")]
+    assert switch.functions["E/A"] == "0/2/3" and switch.functions["RM"] == "0/2/4"
+    step = rb.load_probe(project, switch)
+    assert step.testable
+    assert [(a.kind, a.address, a.payload) for a in rb.probe_actions(step)] == [
+        ("send", "0/2/3", "01"), ("ask", "", ""), ("send", "0/2/3", "00")]
+    blinds = rb.load_probe(project, plan.channels[("1.1.4", "Bedienung Storen (M1)")])
+    assert [a.text or a.kind for a in rb.probe_actions(blinds)] == [
+        "Ab", "wait", "Stopp", "ask", "Auf", "wait", "Stopp"]
+    # Tor, Heizung: nie
+    assert not rb.load_probe(project, rb.Channel("1.1.9", "Tor", "G", ["5/0/1"],
+                                                 {"E/A": "5/0/1"})).testable
+    assert not rb.load_probe(project, rb.Channel("1.1.9", "Kanal 1", "H", ["5/0/2"],
+                                                 {"E/A": "5/0/2"})).testable
+    # Schaltaktor im Storenbetrieb: Storen, ohne Stopp nicht
+    pair = rb.Channel("1.1.15", "Ausgänge 1-2", "L", ["1/0/0", "1/0/1"],
+                      {"AUF/AB": "1/0/0", "STOPP": "1/0/1"})
+    assert rb.load_probe(project, pair).what().startswith("Ab")
+    del pair.functions["STOPP"]
+    assert rb.load_probe(project, pair).skip == "ohne GA STOPP"
+    # offen: alle Kanäle ohne Raum
+    room = rb.add_room(project, "EG", "05", "Wohnen")
+    rb.assign(project, plan, room, "", [("1.1.1", "Ausgang A")])
+    assert [c.key for c in rb.open_channels(project, plan)] == [
+        ("1.1.1", "Ausgang B"), ("1.1.4", "Bedienung Storen (M1)")]
+
+
+class _SendingMonitor(_Monitor):
+    connected = True
+
+    def send_telegram(self, address, service, payload, size, callback):
+        self.sent.append((address, service, payload))
+        callback("")
+
+
+def _wait_until(condition, seconds=5.0):
+    import time
+    from PySide6.QtWidgets import QApplication
+    end = time.monotonic() + seconds
+    while not condition() and time.monotonic() < end:
+        QApplication.processEvents()
+
+
+def test_tour_load_search():
+    _app()
+    from PySide6.QtCore import Qt
+    from knix_arranger.ui.dialogs import load_search_dialog as ls
+    from knix_arranger.ui.dialogs import room_tour_dialog as rt
+    project = _project()
+    room = rb.add_room(project, "EG", "05", "Wohnen")
+    monitor = _SendingMonitor()
+    tour = rt.RoomTourDialog(project, monitor)
+    tour._room_combo.setCurrentIndex(tour._room_combo.findData(room.id))
+    tour._go_next()
+    monitor.send("1.1.30", "0/2/1")                         # Taster -> Ausgang A
+    tour._go_next()
+    assert tour._loads_btn.isEnabled()
+    channels = tour._loads_to_search()
+    assert [c.key for c in channels] == [("1.1.1", "Ausgang B"),
+                                         ("1.1.4", "Bedienung Storen (M1)")]
+
+    dialog = ls.LoadSearchDialog(project, monitor, channels, "EG 05 Wohnen", {"L"})
+    dialog.time_scale = 0
+    # Gewerk des Raums angehakt, Storen nicht
+    assert dialog.selected() == [("1.1.1", "Ausgang B")]
+    dialog.set_checked([("1.1.1", "Ausgang B"), ("1.1.4", "Bedienung Storen (M1)")])
+    answers = iter([True, False])
+    dialog.ask = lambda step: next(answers)
+    monitor.sent.clear()
+    assert dialog.start(confirmed=True)
+    _wait_until(lambda: not dialog._running)
+    assert dialog.found == [("1.1.1", "Ausgang B")]
+    # Licht Ein/Aus, Storen Ab-Stopp und zurück
+    assert [(a, p) for a, _s, p in monitor.sent] == [
+        ("0/2/3", "01"), ("0/2/3", "00"),
+        ("0/1/1", "01"), ("0/1/2", "01"), ("0/1/1", "00"), ("0/1/2", "00")]
+
+    tour._take_found(dialog.found)
+    keys = {}
+    for i in range(tour._tree.topLevelItemCount()):
+        parent = tour._tree.topLevelItem(i)
+        for j in range(parent.childCount()):
+            item = parent.child(j)
+            keys[item.data(0, Qt.UserRole)] = (item.text(1), item.checkState(0))
+    assert keys[("1.1.1", "Ausgang B")] == ("Last gefunden", Qt.Checked)
+    tour._go_next()                                         # Raum abschliessen
+    gas = _by_address(project)
+    assert gas["0/2/3"].room_id == room.id and gas["0/2/1"].room_id == room.id
+    assert gas["0/1/1"].room_id != room.id
+    tour.done(0)
+
+
+def test_load_search_stop_resets_channel():
+    _app()
+    from knix_arranger.ui.dialogs import load_search_dialog as ls
+    project = _project()
+    plan = rb.analyse(project)
+    monitor = _SendingMonitor()
+    dialog = ls.LoadSearchDialog(project, monitor, rb.open_channels(project, plan), "Wohnen")
+    dialog.time_scale = 0
+    dialog.set_checked([("1.1.1", "Ausgang A"), ("1.1.1", "Ausgang B")])
+    dialog.ask = lambda step: None                          # «Anhalten»
+    dialog.start(confirmed=True)
+    _wait_until(lambda: not dialog._running)
+    # erster Kanal wieder aus, zweiter nicht mehr geschaltet
+    assert [(a, p) for a, _s, p in monitor.sent] == [("0/2/1", "01"), ("0/2/1", "00")]
+    assert dialog.found == []
 
 
 def test_overview_dialog_without_live():

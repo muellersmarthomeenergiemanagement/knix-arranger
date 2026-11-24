@@ -2,7 +2,8 @@
 Rundgang «Räume zuordnen» (FA-3105c): Raum für Raum geführt.
 1) In welchem Raum sind Sie?  2) Alle Tasten drücken (KNiX nimmt auf, nur
 Tasten-KOs, ohne Grundrauschen)  3) Was gehört in diesen Raum? (Aktorkanäle
-nach Gewerk)  -> Raum abschliessen, nächster Raum.
+nach Gewerk; Kanäle ohne Taster mit «Lasten suchen»: einzeln kurz schalten,
+vor Ort bestätigen)  -> Raum abschliessen, nächster Raum.
 """
 from __future__ import annotations
 
@@ -150,12 +151,21 @@ class RoomTourDialog(QDialog):
         layout.addWidget(_muted(
             "Aktorkanäle, die mit den gedrückten Tastern verknüpft sind oder nach einem "
             "Tastendruck geschaltet bzw. Status gemeldet haben. Anhaken, was wirklich in "
-            "diesem Raum ist. Kanäle mit einem anderen Raum sind nicht angehakt."))
+            "diesem Raum ist. Kanäle mit einem anderen Raum sind nicht angehakt. Was kein "
+            "Taster auslöst, findet «Lasten suchen»."))
         self._tree = QTreeWidget()
         self._tree.setHeaderLabels(["Aktorkanal", "Herkunft", "Raum bisher"])
         self._tree.setColumnWidth(0, 360)
         self._tree.setColumnWidth(1, 150)
         layout.addWidget(self._tree, 1)
+        row = QHBoxLayout()
+        self._loads_btn = QPushButton("Lasten suchen…")
+        self._loads_btn.setObjectName("secondary")
+        self._loads_btn.clicked.connect(self._search_loads)
+        row.addWidget(self._loads_btn)
+        self._loads_hint = _muted("")
+        row.addWidget(self._loads_hint, 1)
+        layout.addLayout(row)
         return page
 
     def _done_page(self) -> QWidget:
@@ -213,14 +223,16 @@ class RoomTourDialog(QDialog):
             self._show_page(_KEYS)
         elif page == _KEYS:
             if not self._session.pressed and QMessageBox.question(
-                    self, "Rundgang", "Noch kein Taster erfasst. Trotzdem weiter "
-                    "(nur der Raum, keine Aktorkanäle)?") != QMessageBox.Yes:
+                    self, "Rundgang", "Noch kein Taster erfasst. Trotzdem weiter? "
+                    "Aktorkanäle ohne Taster finden Sie im nächsten Schritt mit "
+                    "«Lasten suchen».") != QMessageBox.Yes:
                 return
             self._react_title.setText(
                 f"Schritt 3 von 3 – Was gehört in "
                 f"{rb.room_label(self._project, self._room.id)}?")
             self._tree.clear()
             self._fill_tree()
+            self._update_loads_button()
             self._show_page(_REACT)
         elif page == _REACT:
             self._finish_room()
@@ -366,6 +378,43 @@ class RoomTourDialog(QDialog):
             self._tree.addTopLevelItem(QTreeWidgetItem(
                 ["Keine Aktorkanäle – die Taster gehen nur an einen Logikserver ohne "
                  "Reaktion, oder es wurde keine Taste gedrückt."]))
+
+    # ── Lasten suchen ────────────────────────────────────────────────────
+
+    def _loads_to_search(self) -> list:
+        """Kanäle ohne Raum, die noch nicht in der Liste stehen."""
+        shown = set(self._checked_channels() or {})
+        return [c for c in rb.open_channels(self._project, self._plan) if c.key not in shown]
+
+    def _update_loads_button(self) -> None:
+        connected = getattr(self._monitor, "connected", False)
+        count = len(self._loads_to_search())
+        self._loads_btn.setEnabled(connected and count > 0)
+        if not connected:
+            self._loads_hint.setText("Lasten suchen braucht die Busverbindung.")
+        elif count:
+            self._loads_hint.setText(
+                f"Noch {count} Aktorkanäle ohne Raum: KNiX schaltet sie einzeln kurz, "
+                "Sie sagen, ob hier etwas reagiert.")
+        else:
+            self._loads_hint.setText("Alle Aktorkanäle haben einen Raum.")
+
+    def _search_loads(self) -> None:
+        from .load_search_dialog import LoadSearchDialog
+        channels = self._loads_to_search()
+        shown = self._checked_channels() or {}
+        preferred = {self._plan.channels[k].gewerk or "SF" for k in shown}
+        dialog = LoadSearchDialog(self._project, self._monitor, channels,
+                                  rb.room_label(self._project, self._room.id), preferred, self)
+        dialog.exec()
+        self._take_found(dialog.found)
+
+    def _take_found(self, keys) -> None:
+        added = [k for k in keys if k not in self._session.found]
+        if added:
+            self._session.found.extend(added)
+            self._fill_tree()
+        self._update_loads_button()
 
     def _checked_channels(self, default=None) -> dict | None:
         """Bisherige Häkchen (bleiben beim Nachfüllen erhalten)."""

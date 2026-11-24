@@ -28,6 +28,8 @@ class Channel:
     channel: str
     gewerk: str = ""
     addresses: list[str] = field(default_factory=list)
+    # Funktion -> GA ("E/A" -> "0/2/3", "RM" -> "0/2/4"), für «Lasten suchen»
+    functions: dict[str, str] = field(default_factory=dict)
 
     @property
     def key(self) -> tuple[str, str]:
@@ -104,10 +106,14 @@ def _is_scene(ga, co) -> bool:
 def analyse(project) -> RoomPlan:
     """Taster/Sensoren, Aktorkanäle und Raumvorschläge aus den Verknüpfungen."""
     from .device_scan import project_devices
-    from .ga_meaning import CENTRAL_CHANNELS, _anchors, _channel, _channel_gewerk
+    from .ets_function_plan import ko_functions
+    from .ga_meaning import (
+        CENTRAL_CHANNELS, _anchors, _channel, _channel_gewerk, _function_of, clean_dpt,
+    )
     plan = RoomPlan()
     by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
     anchors, receivers = _anchors(project)
+    device_functions = ko_functions(project)
     gewerk_cache: dict = {}
 
     central: set[str] = set()
@@ -132,6 +138,12 @@ def analyse(project) -> RoomPlan:
             plan.channels[key] = channel
         channel.addresses.append(address)
         channel_of[address] = key
+        # Bedeutung vom Gerät vor dem Namen (FA-531a), dann KO-Text/DPT
+        function = device_functions.get(address) or ga.function_name or _function_of(
+            co, "", clean_dpt(ga.datapoint_type) or clean_dpt(co.data_type))
+        if function:
+            channel.functions.setdefault(function, address)
+    _merge_motors(plan, channel_of)
     for channel in plan.channels.values():
         channel.addresses.sort(key=_ga_key)
 
@@ -165,6 +177,35 @@ def analyse(project) -> RoomPlan:
             plan.operators[device.physical_address] = operator
     plan.groups = _groups(plan)
     return plan
+
+
+_MOTOR = re.compile(r"\((M\d+)\)", re.IGNORECASE)
+
+
+def _merge_motors(plan: RoomPlan, channel_of: dict) -> None:
+    """Ein Motor, ein Kanal: «Bedienung Storen (M1)» und «Sonnenschutz (M1)»
+    (Status) desselben Geräts zusammenfassen -- unter dem Namen mit den
+    Befehls-GAs."""
+    by_motor: dict[tuple[str, str], list[Channel]] = {}
+    for channel in plan.channels.values():
+        match = _MOTOR.search(channel.channel)
+        if match:
+            by_motor.setdefault((channel.device_address, match.group(1).upper()), []) \
+                .append(channel)
+    for channels in by_motor.values():
+        if len(channels) < 2:
+            continue
+        channels.sort(key=lambda c: ("AUF/AB" not in c.functions, -len(c.addresses)))
+        main = channels[0]
+        for other in channels[1:]:
+            for address in other.addresses:
+                main.addresses.append(address)
+                channel_of[address] = main.key
+            for function, address in other.functions.items():
+                main.functions.setdefault(function, address)
+            if not main.gewerk:
+                main.gewerk = other.gewerk
+            del plan.channels[other.key]
 
 
 # Zeitfenster nach einem Tastendruck: Logik (Server, Szenen) und Status der
@@ -218,6 +259,8 @@ class RoomSession:
         self.noise = noise_pairs(history, now)
         self.pressed: dict[str, Press] = {}
         self.removed: set[str] = set()
+        # mit «Lasten suchen» in diesem Raum gefunden
+        self.found: list[tuple[str, str]] = []
         self.ignored = 0
         self._last: tuple[str, float] | None = None
 
@@ -265,7 +308,76 @@ class RoomSession:
         for press in self.pressed.values():
             for key in channels_in_telegrams(self.plan, press.followed):
                 result.setdefault(key, "nach Tastendruck")
+        for key in self.found:
+            result.setdefault(key, "Last gefunden")
         return list(result.items())
+
+
+# ── Lasten suchen ────────────────────────────────────────────────────────
+
+def open_channels(project, plan: RoomPlan) -> list[Channel]:
+    """Aktorkanäle ohne Raum, nach Gerät und Kanal."""
+    by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+    result = []
+    for channel in plan.channels.values():
+        rooms = {by_address[a].room_id for a in channel.addresses if a in by_address}
+        if len(rooms) != 1 or not rooms.pop():
+            result.append(channel)
+    result.sort(key=lambda c: (_pa_key(c.device_address), c.channel))
+    return result
+
+
+def load_probe(project, channel: Channel):
+    """Prüfschritt für «Lasten suchen» (FA-3105c): kurz schalten wie beim
+    Funktionstest (FA-3104) -- Licht Ein/Aus, Dimmer 50 %/0 %, Storen Ab -
+    Stopp / Auf - Stopp. Alarm, Wetter, Tor, Türe und Fenster nie; Gewerke
+    ohne sichtbare Last (Heizung, Energie …) ebenso. skip nennt den Grund."""
+    from .function_test import (
+        BLIND_CODES, EXCLUDED_CODES, KIND_BLIND, KIND_DIM, KIND_SWITCH, SWITCH_CODES,
+        TestStep,
+    )
+    code = channel.gewerk or "SF"
+    catalog = getattr(project, "gewerk_catalog", None)
+    gewerk = catalog.get(code) if hasattr(catalog, "get") else None
+    step = TestStep(room_id="", room="", gewerk_code=code, label=channel.label,
+                    place=channel.label)
+    functions = channel.functions
+    if getattr(gewerk, "category", "") == "alarm" or code in EXCLUDED_CODES:
+        step.skip = "nie automatisch (Sicherheit)"
+    elif code in BLIND_CODES or "AUF/AB" in functions:
+        # auch Schaltaktor-Ausgänge im Storenbetrieb («Ausgänge 1-2»)
+        if "AUF/AB" in functions and "STOPP" in functions:
+            step.kind = KIND_BLIND
+            step.gewerk_code = code if code in BLIND_CODES else "J"
+            step.commands = {"AUF/AB": functions["AUF/AB"], "STOPP": functions["STOPP"]}
+        else:
+            # ohne Stopp führe der Behang ganz durch
+            step.skip = "ohne GA STOPP" if "AUF/AB" in functions else "ohne GA AUF/AB"
+    elif code not in SWITCH_CODES:
+        step.skip = "keine sichtbare Last"
+    elif "E/A" in functions:
+        step.kind = KIND_SWITCH
+        step.commands = {"E/A": functions["E/A"]}
+    elif "WERT" in functions:
+        step.kind = KIND_DIM
+        step.commands = {"WERT": functions["WERT"]}
+    else:
+        step.skip = "ohne GA E/A bzw. WERT"
+    return step
+
+
+def probe_actions(step) -> list:
+    """Ablauf eines Prüfschritts: wie im Funktionstest, aber immer fragen
+    (ohne Warten auf eine Rückmeldung) -- es geht um den Ort, nicht um den
+    Aktor."""
+    actions = step.actions()
+    result = []
+    for index, action in enumerate(actions):
+        following = actions[index + 1] if index + 1 < len(actions) else None
+        if action.kind == "wait" and following is not None and following.kind == "ask":
+            continue
+        result.append(action)
+    return result
 
 
 def progress(project, plan: RoomPlan) -> tuple[int, int, int, int]:
