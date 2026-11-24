@@ -143,11 +143,23 @@ class DeviceScanView(QWidget):
             "Namensschema aus den KOs (z.B. «J_1.1.4_03 AUF/AB (Motor C)»), Mittelgruppen "
             "nach Gewerk benennen, Szenen erkennen. Änderbar, mit Rückgängig.")
         self._meaning_btn.clicked.connect(self._add_meaning)
+        self._rooms_btn = QPushButton("Räume zuordnen…")
+        self._rooms_btn.setObjectName("secondary")
+        self._rooms_btn.setToolTip(
+            "Taster und Sensoren mit ihren Aktorkanälen einem Raum zuweisen; die GA-Namen "
+            "bekommen den Raum an Stelle der Geräteadresse")
+        from PySide6.QtWidgets import QMenu
+        rooms_menu = QMenu(self._rooms_btn)
+        rooms_menu.addAction("Rundgang vor Ort (Raum für Raum)…",
+                             lambda: self._assign_rooms(tour=True))
+        rooms_menu.addAction("Übersicht…", lambda: self._assign_rooms(tour=False))
+        self._rooms_btn.setMenu(rooms_menu)
         filters.addWidget(self._filter)
         filters.addWidget(self._summary, 1)
         filters.addWidget(self._export_btn)
         filters.addWidget(self._adopt_btn)
         filters.addWidget(self._meaning_btn)
+        filters.addWidget(self._rooms_btn)
         layout.addLayout(filters)
 
         self._table = QTableWidget(0, len(ds.COLUMNS))
@@ -224,6 +236,10 @@ class DeviceScanView(QWidget):
             structure is not None and not self.scanning
             and any(is_provisional(ga) and ga.designation
                     for ga in structure.all_addresses()))
+        self._rooms_btn.setEnabled(
+            self._project is not None and not self.scanning
+            and any(getattr(d, "communication_objects", None)
+                    for d in ds.project_devices(self._project)))
 
     def set_bus(self, bus) -> None:
         self._bus = bus
@@ -527,6 +543,21 @@ class DeviceScanView(QWidget):
             self._bus.emit_addresses_changed()
         self._update_controls()
         QMessageBox.information(self, "Bedeutung ergänzen", result.text())
+
+    def _assign_rooms(self, tour: bool = True) -> None:
+        """Räume aus dem Bus (FA-3105c): Rundgang vor Ort (Raum wählen, Tasten
+        drücken, Aktorkanäle bestätigen) bzw. Übersicht zum Korrigieren."""
+        if self._project is None or self.scanning:
+            return
+        if tour:
+            from ..dialogs.room_tour_dialog import RoomTourDialog
+            dialog = RoomTourDialog(self._project, self.bus_monitor, self._bus, self)
+        else:
+            from ..dialogs.room_assign_dialog import RoomAssignDialog
+            dialog = RoomAssignDialog(self._project, self.bus_monitor, self._bus, self)
+        dialog.exec()
+        self._compare()
+        self._update_controls()
 
     def _export(self) -> None:
         if not self._rows:
