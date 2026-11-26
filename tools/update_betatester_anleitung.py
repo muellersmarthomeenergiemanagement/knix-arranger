@@ -397,7 +397,7 @@ def build_document() -> Document:
 
     add_heading2(doc, "4.1  Menüleiste")
     add_table_2col(doc, [
-        ("Datei",    "Neues Projekt, Öffnen, Speichern, Speichern unter, Import (ETS6/CSV/KNXPROJ), CSV-Export, Projekteigenschaften (Ctrl+P, mit Status «Gruppenadressen in die ETS übertragen»: ab dann stehen die Adressen fest)"),
+        ("Datei",    "Neues Projekt, Öffnen, Speichern, Speichern unter, ETS-Projekt einlesen (KNXPROJ/XLSX/CSV), CSV-Export, Projekteigenschaften (Ctrl+P, mit Status «Gruppenadressen in die ETS übertragen»: ab dann stehen die Adressen fest)"),
         ("Bearbeiten", "Rückgängig (Ctrl+Z), Wiederholen (Ctrl+Y), Einstellungen"),
         ("Ansicht",  "Wizard starten (Ctrl+W), Projekt validieren (Ctrl+V)"),
         ("Hilfe",    "Hilfe (F1), Erste Schritte (Tour), Bedienungsanleitung (PDF), Was ist neu, "
@@ -430,20 +430,36 @@ def build_document() -> Document:
         "wählen Sie über «Ordner wählen…» einen anderen Speicherort, und bestätigen Sie "
         "mit «Verwenden».")
     add_body(doc,
-        "Danach erscheint der Willkommens-Bildschirm mit den Optionen «Neues Projekt "
-        "erstellen», «Bestehendes Projekt öffnen» (inkl. Liste zuletzt verwendeter "
-        "Projekte) und «Ohne Projekt fortfahren». Für ein neues Projekt wählen Sie "
-        "«Neues Projekt erstellen» oder klicken im Menü auf Datei → Neues Projekt "
-        "(Ctrl+N). Im Dialog geben Sie an:")
+        "Danach erscheint der Willkommens-Bildschirm. Unter «Neu beginnen» wählen Sie "
+        "nach der Ausgangslage:")
+    add_table_2col(doc, [
+        ("Neue Anlage planen", "Vom Grundriss zur ETS – neues Projekt, danach der Wizard "
+                               "(dieses Kapitel und Kapitel 7)."),
+        ("ETS-Projekt einlesen", "Bestehende Anlage mit .knxproj (Kapitel 6.1)."),
+        ("Anlage vom Bus aufnehmen", "Bestehende Anlage ohne Projektdatei (Kapitel 6.2)."),
+    ], header=("Einstieg", "Wann?"))
+    add_body(doc,
+        "Unter «Weiterarbeiten» stehen «Projekt öffnen…» und die zuletzt verwendeten "
+        "Projekte, je mit ihrem Ort (z. B. «Projekte im Arbeitsverzeichnis»); so lassen "
+        "sich gleichnamige Projekte unterscheiden. «Ohne Projekt fortfahren» genügt z. B. "
+        "für Live-Monitor oder Busanalyse.")
+    add_body(doc,
+        "Für ein neues Projekt wählen Sie «Neue Anlage planen» oder im Menü Datei → "
+        "Neues Projekt (Ctrl+N). Im Dialog geben Sie an:")
     add_bullet(doc, "Projektname (z. B. «Neubau EFH Mueller»)")
     add_bullet(doc, "Projektnummer (z. B. «2024-001»)")
+    add_bullet(doc, "Vorgehen: «Neues Projekt planen» oder «Bestehende Anlage ohne "
+                    "Projektdatei aufnehmen (vom Bus)» – beim Aufnehmen entfallen Vorlage, "
+                    "Mittelgruppen-Variante und Wizard")
     add_bullet(doc, "Gebäudetyp / Vorlage: Leeres Projekt, Einfamilienhaus (EFH), "
                     "Mehrfamilienhaus (MFH) oder Zweckbau")
     add_bullet(doc, "Mittelgruppen-Variante: A (Rückmeldungen in gleicher MG, Standard) "
                     "oder B (Rückmeldungen in separater MG 6/7)")
     add_body(doc,
         "Der Dialog zeigt direkt den künftigen Projektordner an. Mit «Projekt erstellen» "
-        "wird folgende Ordnerstruktur im Arbeitsverzeichnis angelegt:")
+        "wird folgende Ordnerstruktur im Ordner «Projekte» des Arbeitsverzeichnisses "
+        "angelegt (daneben liegt die «Bibliothek» mit Herstellerdateien, Datenblättern "
+        "und Vorlagen):")
     add_bullet(doc, "{Projektname}\\{Projektname}.knxarr  –  die Projektdatei")
     add_bullet(doc, "{Projektname}\\Revisionen\\  –  für exportierte Revisionspakete")
     add_bullet(doc, "{Projektname}\\Berichte\\  –  für weitere Berichte "
@@ -454,10 +470,16 @@ def build_document() -> Document:
         "erneut aufrufen.")
     doc.add_paragraph()
 
-    # ── 6  ETS6-Import ────────────────────────────────────────────────────────
-    add_heading1(doc, "6  Bestehendes ETS6-Projekt importieren")
+    # ── 6  Bestehende Anlage übernehmen ───────────────────────────────────────
+    add_heading1(doc, "6  Bestehende Anlage übernehmen")
     add_body(doc,
-        "Ein bestehendes ETS6-Projekt lesen Sie über Datei → Import ein. Empfohlen ist "
+        "Für eine bestehende Anlage gibt es zwei Wege: Mit ETS-Projektdatei lesen Sie "
+        "diese ein (6.1). Fehlt sie, nimmt KNiX die Anlage vom Bus auf (6.2).")
+
+    add_heading2(doc, "6.1  ETS-Projekt einlesen")
+    add_body(doc,
+        "Ein bestehendes ETS6-Projekt lesen Sie über «ETS-Projekt einlesen» ein "
+        "(Willkommens-Bildschirm, Seitenleiste oder Datei-Menü). Empfohlen ist "
         "die Projektdatei .knxproj (in der ETS6: Projekt exportieren). Sie enthält alles, "
         "was die Excel-Berichte der ETS zeigen – ein einziger Import genügt:")
     doc.add_paragraph()
@@ -491,8 +513,8 @@ def build_document() -> Document:
     add_body(doc,
         "Die Excel-Berichte «Gebäude», «Topologie» (mit «Objekte») und «Gruppenadressen» "
         "braucht es nur noch, wenn keine .knxproj vorliegt. KNiX erkennt sie am Titel; "
-        "lesen Sie sie in beliebiger Reihenfolge nacheinander ein (Datei → Import, je "
-        "Bericht einmal).")
+        "lesen Sie sie in beliebiger Reihenfolge nacheinander ein («ETS-Projekt "
+        "einlesen», je Bericht einmal).")
     add_body(doc,
         "Nach dem Import erscheint das Projekt in der Übersicht. Prüfen Sie die Daten "
         "anschliessend in der Validierung und in den Einzelansichten.")
@@ -500,6 +522,67 @@ def build_document() -> Document:
         "Einzelne Berechnungen in Parametern wertet KNiX nicht aus. Bekannt: beim "
         "Theben thePixa erscheinen einige KOs zusätzlich als unverknüpft – das betrifft "
         "nur die Anzeige, nicht die GAs.")
+    doc.add_paragraph()
+
+    add_heading2(doc, "6.2  Anlage vom Bus aufnehmen (ohne Projektdatei)")
+    add_body(doc,
+        "Fehlt die .knxproj, liest KNiX die Anlage aus den Geräten: Teilnehmer, "
+        "Gruppenadressen, Verknüpfungen und Flags. Namen und Räume ergänzen Sie mit "
+        "KNiX – am Schreibtisch und vor Ort. An den Geräten ändert sich dabei nichts.")
+    add_body(doc,
+        "Start: Willkommens-Bildschirm → «Anlage vom Bus aufnehmen» (oder Neues Projekt "
+        "mit Vorgehen «Bestehende Anlage ohne Projektdatei aufnehmen»). KNiX legt ein "
+        "leeres Projekt an und öffnet «Teilnehmer suchen». Oben führt die Schrittleiste "
+        "«Anlage aufnehmen» durch den Ablauf:")
+    add_table_2col(doc, [
+        ("1  Verbinden",
+         "Im Live-Monitor über KNXnet/IP (Tunnel) verbinden. Über USB sucht KNiX keine "
+         "Teilnehmer."),
+        ("2  Suchen",
+         "Linien angeben (z. B. «1.1, 1.2»). KNiX fragt jede Adresse ab und liest "
+         "Hersteller, Seriennummer, Bestellnummer und Applikation – rund 3 Minuten je Linie."),
+        ("3  Übernehmen",
+         "Gefundene Geräte samt Linien ins Projekt. Produkt und KOs kommen aus dem "
+         "Produktkatalog: die Herstellerdateien vorher in «Bibliothek/Produkte KNX» "
+         "legen und einlesen. Das Projekt gilt danach als bestehende Anlage."),
+        ("4  GAs lesen",
+         "Adresstabelle, Zuordnungstabelle und Flags aus jedem Gerät. Die GAs heissen "
+         "vorläufig nach dem KO, das sie empfängt."),
+        ("5  Bedeutung ergänzen",
+         "Gewerk, Funktion und Name nach dem Namensschema, an Stelle des Raums vorerst "
+         "die Geräteadresse (z. B. «J_1.1.4_03 AUF/AB»). Vorschau und Rückgängig."),
+        ("6  Gebäude erfassen",
+         "Stockwerke, Zonen und Räume in der Ansicht «Gebäude»."),
+        ("7  Rundgang",
+         "Vor Ort Raum für Raum: Raum wählen, alle Tasten drücken, die vorgeschlagenen "
+         "Aktorkanäle bestätigen. Die GA-Namen erhalten den Raum."),
+    ], header=("Schritt", "Was geschieht"))
+    add_bullet(doc,
+        "✓ heisst erledigt, «…» teilweise (z. B. Secure-Geräte ohne Schlüssel). Der "
+        "nächste Schritt ist fett. Nichts ist gesperrt; jeder Schritt lässt sich "
+        "wiederholen, z. B. eine weitere Linie suchen.")
+    add_bullet(doc,
+        "Gebäude zuerst erfassen, wenn die Anlage mehrere Zonen (z. B. Innen und Aussen, "
+        "Wohnungen), Gebäudeteile oder Gebäude hat. Ohne Räume fragt der Rundgang nach; "
+        "Räume lassen sich auch im Rundgang anlegen («Neuer Raum…» mit Stockwerk, Zone "
+        "und Raumnummer).")
+    add_bullet(doc,
+        "Raumnummern sind im Projekt eindeutig: Der GA-Name enthält Stockwerk und "
+        "Raumnummer, nicht die Zone. Eine doppelte Nummer übernimmt KNiX nur nach "
+        "Rückfrage.")
+    add_bullet(doc,
+        "Viele Taster senden nur an einen Logikserver. Der Rundgang wertet darum auch "
+        "die Telegramme aus, die kurz nach dem Tastendruck folgen. Was übrig bleibt, "
+        "findet «Lasten suchen»: KNiX schaltet einen Kanal kurz und fragt, ob im Raum "
+        "etwas reagiert hat. Alarm, Wetter, Tor, Türe und Fenster schaltet KNiX nie, "
+        "Storen nur mit Stopp-GA.")
+    add_tip(doc,
+        "Bei mehreren Linien die Schnittstelle an die Haupt- oder Bereichslinie "
+        "anschliessen: Der Rundgang hört nur, was die Linienkoppler durchlassen.")
+    add_note(doc,
+        "Parameter liest KNiX nicht aus den Geräten, und die ETS6 nimmt das Ergebnis "
+        "nicht als Projekt zurück. Die Gruppenadressen lassen sich als Liste "
+        "exportieren und in der ETS einlesen.")
     doc.add_paragraph()
 
     # ── 7  Der Planungs-Wizard ────────────────────────────────────────────────
@@ -1068,6 +1151,9 @@ def build_document() -> Document:
          "Mitschnitte lassen sich vergleichen; Bericht «Busanalyse»."),
         ("Live-Monitor",
          "Telegramme der Anlage in Echtzeit, direkt aus KNiX – ohne ETS. Siehe unten."),
+        ("Teilnehmer suchen",
+         "Linien absuchen, Geräte mit dem Projekt vergleichen, GAs, Verknüpfungen und "
+         "Flags aus den Geräten lesen; Ablauf «Anlage aufnehmen» siehe Kapitel 6.2."),
         ("Umbau-Varianten",
          "Alle geplanten Änderungen an einem Ort: je Linie Teilnehmer, Busstrom und "
          "Umbau-Variante (Linie aufteilen mit Linienkoppler oder Linienverstärker, "
