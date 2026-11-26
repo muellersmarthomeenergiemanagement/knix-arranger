@@ -547,8 +547,8 @@ def build_document() -> Document:
          "3 Minuten je Linie."),
         ("3  Übernehmen",
          "Gefundene Geräte samt Linien ins Projekt. Produkt und KOs kommen aus dem "
-         "Produktkatalog: die Herstellerdateien vorher in «Bibliothek/Produkte KNX» "
-         "legen und einlesen. Das Projekt gilt danach als bestehende Anlage."),
+         "Produktkatalog; neue Herstellerdateien in «Bibliothek/Produkte KNX» liest "
+         "KNiX vorher ein. Das Projekt gilt danach als bestehende Anlage."),
         ("4  GAs lesen",
          "Adresstabelle, Zuordnungstabelle und Flags aus jedem Gerät. Die GAs heissen "
          "vorläufig nach dem KO, das sie empfängt."),
@@ -565,6 +565,15 @@ def build_document() -> Document:
         "✓ heisst erledigt, «…» teilweise (z. B. Secure-Geräte ohne Schlüssel). Der "
         "nächste Schritt ist fett. Nichts ist gesperrt; jeder Schritt lässt sich "
         "wiederholen, z. B. eine weitere Linie suchen.")
+    add_bullet(doc,
+        "Fehlt eine Herstellerdatei, legt KNiX das Gerät trotzdem an – ohne Produkt, die "
+        "KOs nur als Nummer. «Herstellerdateien (n)…» nennt je Hersteller Bestellnummer "
+        "und Applikation mit Version; damit die passende .knxprod beim Hersteller laden "
+        "und mit «Datei hinzufügen…» einlesen, oder mit «Aus ETS-Projekt…» aus einem "
+        "anderen Projekt mit denselben Geräten herauslösen. «Nachführen» ordnet Produkt "
+        "und KOs zu, behält die gelesenen Verknüpfungen, ergänzt die Bedeutung neu "
+        "(von Hand oder im Rundgang benannte GAs bleiben) und liest bei Verbindung die "
+        "Flags nach. Ohne Datei steht das Gerät in der ETS-Arbeitsliste unter «Prüfen».")
     add_bullet(doc,
         "Gebäude zuerst erfassen, wenn die Anlage mehrere Zonen (z. B. Innen und Aussen, "
         "Wohnungen), Gebäudeteile oder Gebäude hat. Ohne Räume fragt der Rundgang nach; "

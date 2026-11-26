@@ -73,8 +73,11 @@ def steps(project, connected: bool = False, findings: int = 0) -> list[Step]:
         by_key[SEARCH].detail = f"{findings} gefunden" if findings else "Geräte im Projekt"
 
     if devices:
-        by_key[ADOPT].state = DONE
-        by_key[ADOPT].detail = f"{len(devices)} Geräte"
+        from .missing_products import device_count
+        without = device_count(project)
+        by_key[ADOPT].state = PARTIAL if without else DONE
+        by_key[ADOPT].detail = f"{len(devices)} Geräte" + (
+            f", {without} ohne Herstellerdatei" if without else "")
     elif findings:
         by_key[ADOPT].detail = "Gefundenes noch nicht im Projekt"
 

@@ -214,6 +214,17 @@ def current_items(project) -> list[WorkItem]:
                         need.task, f"{need.device.product} ({where})".strip(),
                         sort=(PRIO_MUST, 1, _addr_sort(address)))
         items.setdefault(item.key, item)
+    # Geräte vom Bus ohne Herstellerdatei (FA-3108f): KOs nur als Nummer
+    from .missing_products import missing
+    for entry in missing(project):
+        order = ", ".join(entry.order_numbers) or "unbekannt"
+        for address in entry.addresses:
+            item = WorkItem(
+                f"FA-3108f|{address}", PRIO_CHECK, "FA-3108f", f"Gerät {address}",
+                f"Herstellerdatei fehlt – Produkt prüfen (Bestellnummer {order}, "
+                f"Applikation {entry.application_text}).", entry.manufacturer,
+                sort=(PRIO_CHECK, 3, _addr_sort(address)))
+            items.setdefault(item.key, item)
     return sorted(items.values(), key=lambda i: i.sort)
 
 

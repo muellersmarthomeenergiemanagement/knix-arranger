@@ -212,12 +212,15 @@ def _anchors(project) -> tuple[dict[str, tuple], dict[str, list]]:
 CENTRAL_CHANNELS = 3
 
 
-def propose(project) -> list[Meaning]:
-    """Bedeutung für alle GAs mit vorläufigem Namen."""
+def propose(project, refresh=()) -> list[Meaning]:
+    """Bedeutung für alle GAs mit vorläufigem Namen; `refresh`: dazu diese
+    GAs neu (Herstellerdatei nachgeführt, FA-3108f)."""
     from .ets_function_plan import ko_functions
     functions = ko_functions(project)
     anchors, receivers = _anchors(project)
-    gas = [ga for ga in project.group_addresses.all_addresses() if is_provisional(ga)]
+    refresh = set(refresh)
+    gas = [ga for ga in project.group_addresses.all_addresses()
+           if is_provisional(ga) or ga.address in refresh]
     # Elemente: je Gerät und Gewerk die Kanäle in der Reihenfolge ihrer KOs
     proposals: list[Meaning] = []
     channels: dict[tuple[str, str], dict[str, int]] = {}

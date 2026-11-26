@@ -833,7 +833,8 @@ class AdoptResult:
                          "aus dem Produktkatalog.")
         if self.without_product:
             lines.append(f"Ohne Produkt aus dem Katalog: {_short_list(self.without_product)} – "
-                         "Herstellerdatei (.knxprod) importieren, dann erneut übernehmen.")
+                         "«Herstellerdateien…» zeigt, welche .knxprod fehlt, und führt die "
+                         "Geräte danach nach.")
         if self.ambiguous:
             lines.append("Produkt unsicher (Applikation passt, Bestellnummer nicht eindeutig): "
                          f"{_short_list(self.ambiguous)} – in der Materialliste prüfen.")

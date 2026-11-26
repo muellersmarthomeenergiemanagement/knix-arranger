@@ -166,6 +166,12 @@ class DeviceScanView(QWidget):
             "und KOs aus dem Katalog), gelesene GAs und Verknüpfungen dazu; bestehende "
             "Geräte und Verknüpfungen nur ergänzen, nie überschreiben")
         self._adopt_btn.clicked.connect(self._adopt)
+        self._products_btn = QPushButton("Herstellerdateien…")
+        self._products_btn.setObjectName("secondary")
+        self._products_btn.setToolTip(
+            "Geräte ohne Produkt aus dem Katalog: welche .knxprod fehlt, Datei hinzufügen "
+            "oder aus einem ETS-Projekt herauslösen, Geräte nachführen")
+        self._products_btn.clicked.connect(self._open_missing_products)
         self._meaning_btn = QPushButton("Bedeutung ergänzen…")
         self._meaning_btn.setObjectName("secondary")
         self._meaning_btn.setToolTip(
@@ -188,6 +194,7 @@ class DeviceScanView(QWidget):
         filters.addWidget(self._summary, 1)
         filters.addWidget(self._export_btn)
         filters.addWidget(self._adopt_btn)
+        filters.addWidget(self._products_btn)
         filters.addWidget(self._meaning_btn)
         filters.addWidget(self._rooms_btn)
         layout.addLayout(filters)
@@ -271,6 +278,13 @@ class DeviceScanView(QWidget):
             self._project is not None and not self.scanning
             and any(getattr(d, "communication_objects", None)
                     for d in ds.project_devices(self._project)))
+        from ...services import missing_products
+        without = (missing_products.device_count(self._project)
+                   if getattr(self._project, "topology", None) is not None else 0)
+        self._products_btn.setVisible(bool(without))
+        self._products_btn.setEnabled(not self.scanning)
+        self._products_btn.setText(f"Herstellerdateien ({without})…" if without
+                                   else "Herstellerdateien…")
         self._refresh_steps(usable)
 
     # ── Schritte «Anlage aufnehmen» (FA-3105e) ───────────────────────────
@@ -286,7 +300,7 @@ class DeviceScanView(QWidget):
         enabled = {
             rs.CONNECT: True,
             rs.SEARCH: self._start_btn.isEnabled() or not connected,
-            rs.ADOPT: self._adopt_btn.isEnabled(),
+            rs.ADOPT: self._adopt_btn.isEnabled() or not self._products_btn.isHidden(),
             rs.LINKS: self._links_btn.isEnabled(),
             rs.MEANING: self._meaning_btn.isEnabled(),
             rs.BUILDING: not self.scanning,
@@ -318,7 +332,10 @@ class DeviceScanView(QWidget):
             else:
                 self._start()
         elif key == rs.ADOPT:
-            self._adopt()
+            if self._adopt_btn.isEnabled():
+                self._adopt()
+            else:
+                self._open_missing_products()   # übernommen, Herstellerdateien fehlen
         elif key == rs.LINKS:
             self._read_links()
         elif key == rs.MEANING:
@@ -476,10 +493,12 @@ class DeviceScanView(QWidget):
 
     # ── GAs und Verknüpfungen (FA-3108b) ─────────────────────────────────
 
-    def _read_links(self) -> None:
+    def _read_links(self, only=None) -> None:
+        """only: nur diese Adressen (z.B. nach dem Nachführen der Herstellerdatei)."""
         if self.scanning or self.bus_monitor is None:
             return
-        targets = [f for f in self._findings if ds.readable_for_links(f)]
+        targets = [f for f in self._findings if ds.readable_for_links(f)
+                   and (only is None or f.address in only)]
         if not targets:
             return
         stop = threading.Event()
@@ -660,6 +679,12 @@ class DeviceScanView(QWidget):
         if catalog is None:
             from ...services.product_sync import shared_catalog
             catalog = shared_catalog()
+        # neu in den Produktordner gelegte Herstellerdateien zuerst einlesen
+        from ...services import missing_products
+        try:
+            pending = missing_products.read_pending(catalog)
+        except Exception:
+            pending = missing_products.ReadResult()
         if self._bus is not None:
             self._bus.begin_change("Teilnehmer ins Projekt übernommen")
         result = ds.adopt_findings(self._project, found, catalog)
@@ -673,12 +698,42 @@ class DeviceScanView(QWidget):
         self._compare()
         self._update_controls()
         message = result.text()
+        if pending.products:
+            message = (f"{pending.products} Produkte aus neuen Herstellerdateien im "
+                       "Produktordner eingelesen.\n" + message)
         if links is not None:
             message += "\n\n" + links.text()
             if links.gas_added:
                 message += ("\n\nNächster Schritt: «Bedeutung ergänzen…» gibt den GAs Gewerk "
                             "und Namen nach dem Namensschema.")
         QMessageBox.information(self, "Ins Projekt übernehmen", message)
+
+    def _open_missing_products(self) -> None:
+        """Fehlende Herstellerdateien (FA-3108f); danach die Flags der
+        nachgeführten Geräte lesen (Lage der KO-Tabelle aus der Datei)."""
+        if self._project is None or self.scanning:
+            return
+        from ..dialogs.missing_products_dialog import MissingProductsDialog
+        dialog = MissingProductsDialog(self._project, self._bus, self.catalog, self)
+        dialog.exec()
+        self._compare()
+        self._update_controls()
+        done = set(dialog.completed)
+        if not done:
+            return
+        connected = self.bus_monitor is not None and self.bus_monitor.can_access_devices
+        readable = [f for f in self._findings if f.address in done and ds.readable_for_links(f)]
+        if connected and readable:
+            if QMessageBox.question(
+                    self, "Herstellerdateien",
+                    f"Die Flags von {len(readable)} nachgeführten Geräten jetzt aus den "
+                    "Geräten lesen? Bei manchen Geräten steht erst in der Herstellerdatei, "
+                    "wo sie liegen.") == QMessageBox.Yes:
+                self._read_links(only=done)
+        else:
+            self._summary.setText(
+                f"{len(done)} Geräte nachgeführt – Flags beim nächsten Verbinden mit "
+                "«GAs und Verknüpfungen lesen» nachlesen.")
 
     def _add_meaning(self) -> None:
         """Bedeutung der gelesenen GAs ergänzen (FA-3105b), mit Vorschau,
