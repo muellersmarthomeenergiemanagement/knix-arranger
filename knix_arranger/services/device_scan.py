@@ -673,6 +673,50 @@ async def scan_line(xknx, lines: list[tuple[int, int]],
     return findings
 
 
+async def probe_addresses(xknx, addresses: list[str],
+                          on_progress: Callable[[ScanProgress], None] | None = None,
+                          stop: threading.Event | None = None,
+                          parallel: int = PARALLEL,
+                          timeout: float = PROBE_TIMEOUT) -> list[ScanFinding]:
+    """Nur diese Adressen abfragen (Geräte des Projekts), z.B. wenn das
+    Suchergebnis nach einem Neustart fehlt und die Tabellen gelesen werden
+    sollen. Wer nicht antwortet, wird einmal mit längerer Wartezeit gefragt."""
+    own = str(getattr(xknx, "current_address", "") or "")
+    targets = [a for a in dict.fromkeys(addresses) if a and a != own]
+    findings: dict[str, ScanFinding] = {}
+    semaphore = asyncio.Semaphore(max(1, parallel))
+    done = 0
+
+    async def one(address: str, wait: float) -> None:
+        nonlocal done
+        async with semaphore:
+            if stop is not None and stop.is_set():
+                return
+            finding = await probe_device(xknx, address, wait)
+            if finding.answered:
+                findings[address] = finding
+            done += 1
+            if on_progress is not None:
+                on_progress(ScanProgress(min(done, len(targets)), len(targets),
+                                         len(findings), address))
+
+    quiet = _QuietManagement()
+    management_log = logging.getLogger("xknx.management")
+    management_log.addFilter(quiet)
+    try:
+        await asyncio.gather(*(one(address, timeout) for address in targets))
+        silent = [a for a in targets if a not in findings or findings[a].locked]
+        for address in silent:
+            if stop is not None and stop.is_set():
+                break
+            finding = await probe_device(xknx, address, timeout * 2)
+            if finding.answered and (address not in findings or not finding.locked):
+                findings[address] = finding
+    finally:
+        management_log.removeFilter(quiet)
+    return sorted(findings.values(), key=lambda f: _address_key(f.address))
+
+
 class _QuietManagement(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         return record.levelno > logging.ERROR

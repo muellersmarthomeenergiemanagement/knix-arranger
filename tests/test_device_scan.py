@@ -1110,3 +1110,68 @@ def test_view_search_without_lines_finds_lines_first():
     lines = [c.line for c in view.line_candidates(
         [ds.ScanFinding(address="1.3.0", answered=True, mask=0x0910)])]
     assert lines == [(1, 1), (1, 2), (1, 3)]
+
+
+# ── GAs lesen ohne Suchergebnis (Befund RekChalet 2026-11-26) ─────────────
+
+def test_probe_addresses_over_tunnel():
+    """Nur die Projektgeräte abfragen: leere Adresse fällt weg."""
+    from tests.test_bus_send import _wait
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(0.1)
+    stop, log = threading.Event(), []
+    server = threading.Thread(target=_device_tunnel_server, args=(sock, stop, log),
+                              daemon=True)
+    server.start()
+    connection = BusConnection(lambda t: None, lambda s, t: None)
+    progress = []
+    try:
+        connection.start(ConnectionSettings(kind=TUNNEL_UDP, host="127.0.0.1",
+                                            port=sock.getsockname()[1]), Secrets())
+        assert _wait(lambda: connection.connected)
+        findings = connection.run_on_bus(lambda x: ds.probe_addresses(
+            x, ["1.1.3", "1.1.5", "1.1.9", "1.1.5"], on_progress=progress.append,
+            timeout=1.0)).result(timeout=60)
+    finally:
+        connection.stop()
+        stop.set()
+        server.join(2)
+        sock.close()
+    assert [f.address for f in findings] == ["1.1.5", "1.1.9"]
+    assert findings[0].mask == 0x07B0
+    assert progress and progress[-1].total == 3
+
+
+def test_read_links_without_search_probes_project_devices(monkeypatch):
+    """Nach einem Neustart fehlt das Suchergebnis: «GAs lesen» fragt zuerst
+    die Projektgeräte ab und liest danach die Tabellen (statt nichts zu tun)."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from types import SimpleNamespace
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    QApplication.instance() or QApplication([])
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.ui.views.device_scan_view import DeviceScanView
+    project = KnxProject()
+    ds.adopt_findings(project, [ds.ScanFinding("1.1.5", True, 0x07B0, "M-0002",
+                                               program="4701-11")], None)
+    view = DeviceScanView()
+    view.set_project(project)
+    view.bus_monitor = SimpleNamespace(can_access_devices=True, listening=True,
+                                       connection_label="Tunnel", run_on_bus=lambda f: None)
+    view._update_controls()
+    assert view._links_btn.isEnabled()                     # ohne Suchergebnis
+    calls = []
+    monkeypatch.setattr(view, "_probe_project_devices", lambda: calls.append("probe"))
+    view._read_links()
+    assert calls == ["probe"]
+    # Antwort da: Tabellen lesen
+    monkeypatch.setattr(view, "_read_links", lambda only=None: calls.append("read"))
+    view._on_known_probed([ds.ScanFinding("1.1.5", True, 0x07B0, "M-0002",
+                                          program="4701-11")], "")
+    assert calls == ["probe", "read"] and view._lines == [(1, 1)]
+    # niemand antwortet: Hinweis statt Stille
+    shown = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: shown.append(a[2]))
+    view._on_known_probed([], "")
+    assert shown and "Keines der Projektgeräte" in shown[0]

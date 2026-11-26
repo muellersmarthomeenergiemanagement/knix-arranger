@@ -40,6 +40,7 @@ class _Bridge(QObject):
     link_read = Signal(object)
     links_finished = Signal(object, str)
     couplers_found = Signal(object, str)
+    known_probed = Signal(object, str)
 
 
 class DeviceScanView(QWidget):
@@ -69,6 +70,7 @@ class DeviceScanView(QWidget):
         self._bridge.link_read.connect(self._on_link_read)
         self._bridge.links_finished.connect(self._on_links_finished)
         self._bridge.couplers_found.connect(self._on_couplers_found)
+        self._bridge.known_probed.connect(self._on_known_probed)
         self._finding_lines = False
 
         layout = QVBoxLayout(self)
@@ -261,8 +263,12 @@ class DeviceScanView(QWidget):
         self._monitor_btn.setVisible(not usable)
         self._start_btn.setEnabled(usable and not self.scanning)
         self._find_btn.setEnabled(usable and not self.scanning)
-        self._links_btn.setEnabled(usable and not self.scanning
-                                   and any(ds.readable_for_links(f) for f in self._findings))
+        # ohne Suchergebnis (z.B. nach einem Neustart) fragt KNiX zuerst die
+        # Geräte des Projekts ab
+        self._links_btn.setEnabled(
+            usable and not self.scanning
+            and (any(ds.readable_for_links(f) for f in self._findings)
+                 or bool(self._project is not None and ds.project_devices(self._project))))
         self._stop_btn.setEnabled(self.scanning)
         self._lines_edit.setEnabled(not self.scanning)
         self._export_btn.setEnabled(bool(self._rows))
@@ -405,6 +411,73 @@ class DeviceScanView(QWidget):
         what = "Koppler" if self._finding_lines else "Teilnehmer"
         self._summary.setText(f"{what}: {progress.address} … {progress.found} gefunden")
 
+    # ── Geräte des Projekts abfragen (Suchergebnis fehlt) ────────────────
+
+    def _probe_project_devices(self) -> None:
+        """Nur die Geräte des Projekts abfragen (Maske, Applikation), danach
+        die Tabellen lesen – statt die ganzen Linien neu abzusuchen."""
+        if self.scanning or self.bus_monitor is None or self._project is None:
+            return
+        addresses = [d.physical_address for d in ds.project_devices(self._project)]
+        if not addresses:
+            QMessageBox.information(self, "GAs und Verknüpfungen lesen",
+                                    "Das Projekt hat noch keine Geräte – zuerst «Suchen».")
+            return
+        stop = threading.Event()
+        bridge = self._bridge
+
+        def factory(xknx):
+            return ds.probe_addresses(xknx, addresses, on_progress=bridge.progress.emit,
+                                      stop=stop)
+        try:
+            future = self.bus_monitor.run_on_bus(factory)
+        except BusSendError as exc:
+            QMessageBox.information(self, "GAs und Verknüpfungen lesen", str(exc))
+            return
+        self._future, self._stop = future, stop
+        self._progress.setRange(0, len(addresses))
+        self._progress.setValue(0)
+        self._progress.setFormat("%v von %m Geräten des Projekts")
+        self._progress.show()
+        self._summary.setText(f"Kein Suchergebnis – frage die {len(addresses)} Geräte "
+                              "des Projekts ab, danach werden die Tabellen gelesen …")
+
+        def done(f) -> None:
+            if f.cancelled():
+                bridge.known_probed.emit(None, "abgebrochen")
+                return
+            exc = f.exception()
+            if exc is not None:
+                bridge.known_probed.emit(None, str(exc) or exc.__class__.__name__)
+            else:
+                bridge.known_probed.emit(f.result(), "")
+        future.add_done_callback(done)
+        self._update_controls()
+
+    def _on_known_probed(self, findings, error: str) -> None:
+        stopped = self._stop is not None and self._stop.is_set()
+        self._future = self._stop = None
+        self._progress.hide()
+        if findings is not None:
+            self._findings = list(findings)
+            self._lines = ds.project_lines(self._project) if self._project is not None else []
+        self._compare()
+        self._update_controls()
+        if stopped:
+            self._summary.setText("Abfrage der Projektgeräte abgebrochen")
+            return
+        if error:
+            QMessageBox.warning(self, "GAs und Verknüpfungen lesen",
+                                f"Abfrage nicht abgeschlossen: {error}")
+            return
+        if not any(ds.readable_for_links(f) for f in self._findings):
+            QMessageBox.information(
+                self, "GAs und Verknüpfungen lesen",
+                "Keines der Projektgeräte hat lesbare Tabellen geliefert (keine Antwort, "
+                "gesperrt oder Secure ohne Schlüssel). Verbindung und Linien prüfen.")
+            return
+        self._read_links()
+
     # ── Linien finden (FA-3108e) ─────────────────────────────────────────
 
     def _find_lines(self) -> None:
@@ -500,6 +573,8 @@ class DeviceScanView(QWidget):
         targets = [f for f in self._findings if ds.readable_for_links(f)
                    and (only is None or f.address in only)]
         if not targets:
+            if only is None and not any(ds.readable_for_links(f) for f in self._findings):
+                self._probe_project_devices()      # Suchergebnis fehlt
             return
         stop = threading.Event()
         bridge = self._bridge

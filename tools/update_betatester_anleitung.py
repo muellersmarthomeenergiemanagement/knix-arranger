@@ -550,8 +550,9 @@ def build_document() -> Document:
          "Produktkatalog; neue Herstellerdateien in «Bibliothek/Produkte KNX» liest "
          "KNiX vorher ein. Das Projekt gilt danach als bestehende Anlage."),
         ("4  GAs lesen",
-         "Adresstabelle, Zuordnungstabelle und Flags aus jedem Gerät. Die GAs heissen "
-         "vorläufig nach dem KO, das sie empfängt."),
+         "Adresstabelle, Zuordnungstabelle und Flags aus jedem Gerät; danach «Jetzt "
+         "übernehmen» bestätigen. Die GAs heissen vorläufig nach dem KO, das sie empfängt. "
+         "Nach einem Neustart fragt KNiX zuerst nur die Geräte des Projekts ab."),
         ("5  Bedeutung ergänzen",
          "Gewerk, Funktion und Name nach dem Namensschema, an Stelle des Raums vorerst "
          "die Geräteadresse (z. B. «J_1.1.4_03 AUF/AB»). Vorschau und Rückgängig."),
@@ -559,7 +560,9 @@ def build_document() -> Document:
          "Stockwerke, Zonen und Räume in der Ansicht «Gebäude»."),
         ("7  Rundgang",
          "Vor Ort Raum für Raum: Raum wählen, alle Tasten drücken, die vorgeschlagenen "
-         "Aktorkanäle bestätigen. Die GA-Namen erhalten den Raum."),
+         "Aktorkanäle bestätigen. Die GA-Namen erhalten den Raum. Welche Taste was "
+         "schaltet, weiss KNiX aus Schritt 4 – der Rundgang ergänzt nur den Raum, den "
+         "kein Gerät speichert."),
     ], header=("Schritt", "Was geschieht"))
     add_bullet(doc,
         "✓ heisst erledigt, «…» teilweise (z. B. Secure-Geräte ohne Schlüssel). Der "
