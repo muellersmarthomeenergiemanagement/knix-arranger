@@ -21,41 +21,153 @@ _COLUMNS = ["Gerät", "Produkt", "Raum", "Aktorkanäle"]
 
 
 class NewRoomDialog(QDialog):
-    """Stockwerk (bestehend oder neu), Raumnummer und Name."""
+    """Gebäude und Gebäudeteil (bei mehreren), Stockwerk, Zone, Raumnummer
+    und Name. Neues Stockwerk oder neue Zone erst nach Rückfrage (vor Ort
+    vertippt man sich leicht: «OG» und «1.OG» wären zwei Stockwerke). Die
+    Raumnummer folgt dem Schema von Schritt 3 und ist im Projekt eindeutig,
+    sonst wären die GA-Namen zweier Räume gleich."""
 
-    def __init__(self, project, parent=None):
+    def __init__(self, project, parent=None, floor_hint: str = "", zone_hint: str = ""):
         super().__init__(parent)
+        self._project = project
+        self._suggested = ""
         self.setWindowTitle("Neuer Raum")
         form = QFormLayout(self)
+        buildings = list(project.areal.buildings)
+        self.building = QComboBox()
+        for building in buildings:
+            self.building.addItem(building.name or "Gebäude", building)
+        self.wing = QComboBox()
         self.floor = QComboBox()
         self.floor.setEditable(True)
-        floors = []
-        for building in project.areal.buildings:
-            for floor in building.all_floors:
-                text = floor.short_code or floor.name
-                if text and text not in floors:
-                    floors.append(text)
-        self.floor.addItems(floors or ["UG", "EG", "OG", "DG"])
-        self.floor.setCurrentText(floors[0] if floors else "EG")
         self.floor.setToolTip("Bestehendes Stockwerk wählen oder ein neues Kürzel eingeben")
+        self.zone = QComboBox()
+        self.zone.setEditable(True)
+        self.zone.setToolTip("Zone des Raums (z.B. Innen/Aussen, Wohnung). Gleicher Name "
+                             "auf mehreren Stockwerken = eine Zone.")
+        self.zone.addItems(rb.zone_names(project))
         self.number = QLineEdit()
-        self.number.setPlaceholderText("z.B. 05 (leer = ohne Nummer)")
+        self.number.setPlaceholderText("leer = ohne Nummer")
+        self.number.setToolTip("Vorschlag nach dem Schema der übrigen Räume; im Projekt "
+                               "eindeutig, damit die GA-Namen eindeutig bleiben")
         self.name = QLineEdit()
         self.name.setPlaceholderText("z.B. Wohnen")
+        if len(buildings) > 1:
+            form.addRow("Gebäude:", self.building)
+        self._wing_label = QLabel("Gebäudeteil:")
+        form.addRow(self._wing_label, self.wing)
         form.addRow("Stockwerk:", self.floor)
+        form.addRow("Zone:", self.zone)
         form.addRow("Raumnummer:", self.number)
         form.addRow("Name:", self.name)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
+        self.building.currentIndexChanged.connect(self._fill_wings)
+        self.wing.currentIndexChanged.connect(self._fill_floors)
+        self.floor.currentTextChanged.connect(self._floor_changed)
+        self.zone.currentTextChanged.connect(lambda _t: self._suggest_number())
+        self._fill_wings()
+        if floor_hint and self.floor.findText(floor_hint) >= 0:
+            self.floor.setCurrentText(floor_hint)
+        if zone_hint:
+            self.zone.setCurrentText(zone_hint)
         self.name.setFocus()
+
+    def selected_building(self):
+        return self.building.currentData()
+
+    def selected_wing(self):
+        return self.wing.currentData()
+
+    def _floors(self) -> list:
+        wing = self.selected_wing()
+        if wing is not None:
+            return list(wing.floors)
+        building = self.selected_building()
+        return list(building.all_floors) if building is not None else []
+
+    def _current_floor(self):
+        building = self.selected_building()
+        if building is None:
+            return None
+        return rb.find_floor(building, self.floor.currentText(), self.selected_wing())
+
+    def _fill_wings(self) -> None:
+        self.wing.blockSignals(True)
+        self.wing.clear()
+        building = self.selected_building()
+        wings = list(building.wings) if building is not None else []
+        for wing in wings:
+            self.wing.addItem(wing.name or "Gebäudeteil", wing)
+        self.wing.blockSignals(False)
+        self.wing.setVisible(len(wings) > 1)
+        self._wing_label.setVisible(len(wings) > 1)
+        self._fill_floors()
+
+    def _fill_floors(self) -> None:
+        self.floor.blockSignals(True)
+        self.floor.clear()
+        floors = [f.short_code or f.name for f in self._floors() if f.short_code or f.name]
+        self.floor.addItems(floors or ["UG", "EG", "OG", "DG"])
+        self.floor.setCurrentText(floors[0] if floors else "EG")
+        self.floor.blockSignals(False)
+        self._floor_changed(self.floor.currentText())
+
+    def _floor_changed(self, _text: str) -> None:
+        """Zone vorschlagen: die einzige benannte Zone des Stockwerks."""
+        floor = self._current_floor()
+        if floor is not None:
+            named = [a.name for a in floor.apartments if rb._named_zone(floor, a)]
+            if len(named) == 1:
+                self.zone.setCurrentText(named[0])
+            elif not named:
+                self.zone.setCurrentText("")
+        self._suggest_number()
+
+    def _suggest_number(self) -> None:
+        """Nummer vorschlagen, solange sie nicht von Hand geändert wurde."""
+        if self.number.text().strip() not in ("", self._suggested):
+            return
+        floor = self._current_floor()
+        self._suggested = rb.suggest_number(self._project, floor, self.zone.currentText(),
+                                            self.selected_wing()) if floor else ""
+        self.number.setText(self._suggested)
 
     def _accept(self) -> None:
         if not self.name.text().strip() and not self.number.text().strip():
             QMessageBox.information(self, "Neuer Raum", "Name oder Raumnummer angeben.")
             return
+        floor_text = self.floor.currentText().strip()
+        new = []
+        if self._current_floor() is None and self._floors():
+            new.append(f"das Stockwerk «{floor_text or 'EG'}»")
+        zone = self.zone.currentText().strip()
+        known = [z.lower() for z in rb.zone_names(self._project)]
+        if zone and known and zone.lower() not in known:
+            new.append(f"die Zone «{zone}»")
+        if new:
+            text = " und ".join(new)
+            if QMessageBox.question(
+                    self, "Neuer Raum",
+                    f"{text[0].upper()}{text[1:]} gibt es noch nicht. Neu anlegen?")                     != QMessageBox.Yes:
+                return
+        number = self.number.text().strip()
+        taken = rb.duplicate_number(self._project, number)
+        if taken and QMessageBox.question(
+                self, "Neuer Raum",
+                f"Die Raumnummer {number} hat schon «{taken}». Die GA-Namen beider Räume "
+                "wären gleich. Trotzdem verwenden?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
         self.accept()
+
+    def create_room(self):
+        """Raum nach den Eingaben anlegen."""
+        return rb.add_room(self._project, self.floor.currentText(), self.number.text(),
+                           self.name.text(), zone=self.zone.currentText(),
+                           building=self.selected_building(), wing=self.selected_wing())
 
 
 class RoomAssignDialog(QDialog):
@@ -280,13 +392,13 @@ class RoomAssignDialog(QDialog):
     # ── Aktionen ─────────────────────────────────────────────────────────
 
     def _new_room(self) -> None:
-        dialog = NewRoomDialog(self._project, self)
+        floor, zone = rb.room_place(self._project, self._room.currentData() or "")
+        dialog = NewRoomDialog(self._project, self, floor, zone)
         if dialog.exec() != QDialog.Accepted:
             return
         if self._bus is not None:
             self._bus.begin_change("Raum angelegt")
-        room = rb.add_room(self._project, dialog.floor.currentText(),
-                           dialog.number.text(), dialog.name.text())
+        room = dialog.create_room()
         if self._bus is not None:
             self._bus.emit_building_changed()
         self._fill_rooms(room.id)

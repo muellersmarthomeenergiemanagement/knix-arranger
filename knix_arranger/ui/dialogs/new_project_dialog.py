@@ -44,8 +44,31 @@ class NewProjectDialog(QDialog):
         self._preview_label.setWordWrap(True)
         layout.addWidget(self._preview_label)
 
+        # Vorgehen (FA-3105e): planen oder bestehende Anlage vom Bus aufnehmen
+        mode_group = QGroupBox("Vorgehen")
+        mode_layout = QVBoxLayout()
+        self._mode_plan = QRadioButton("Neues Projekt planen")
+        self._mode_reconstruct = QRadioButton(
+            "Bestehende Anlage ohne Projektdatei aufnehmen (vom Bus)")
+        self._mode_plan.setChecked(True)
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.addButton(self._mode_plan)
+        self._mode_group.addButton(self._mode_reconstruct)
+        mode_hint = QLabel(
+            "Aufnehmen: leeres Projekt, danach «Teilnehmer suchen» mit den Schritten "
+            "Verbinden, Suchen, Übernehmen, GAs lesen, Bedeutung ergänzen, Gebäude "
+            "erfassen, Rundgang. Mit ETS-Projektdatei stattdessen die .knxproj einlesen.")
+        mode_hint.setWordWrap(True)
+        mode_hint.setObjectName("hint")
+        mode_layout.addWidget(self._mode_plan)
+        mode_layout.addWidget(self._mode_reconstruct)
+        mode_layout.addWidget(mode_hint)
+        mode_group.setLayout(mode_layout)
+        layout.addWidget(mode_group)
+
         # Vorlage
         template_group = QGroupBox("Gebäudetyp")
+        self._template_box = template_group
         template_layout = QVBoxLayout()
 
         self._template_group = QButtonGroup(self)
@@ -96,11 +119,13 @@ class NewProjectDialog(QDialog):
 
         variant_group.setLayout(variant_layout)
         layout.addWidget(variant_group)
+        self._variant_box = variant_group
 
         # Nächster Schritt: meist die Grundplanung im Wizard
         self._start_wizard = QCheckBox("Danach den Wizard starten")
         self._start_wizard.setChecked(True)
         layout.addWidget(self._start_wizard)
+        self._mode_reconstruct.toggled.connect(self._mode_changed)
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -142,6 +167,17 @@ class NewProjectDialog(QDialog):
 
         self._btn_create.setEnabled(True)
 
+    def _mode_changed(self, reconstruct: bool) -> None:
+        """Aufnehmen: Gebäudetyp, Mittelgruppen-Variante und Wizard gelten
+        nicht (die Adressen kommen aus der Anlage, das Gebäude wird erfasst)."""
+        self._template_box.setEnabled(not reconstruct)
+        self._variant_box.setEnabled(not reconstruct)
+        self._start_wizard.setVisible(not reconstruct)
+
+    @property
+    def reconstruct(self) -> bool:
+        return self._mode_reconstruct.isChecked()
+
     @property
     def project_name(self) -> str:
         return self._name.text().strip()
@@ -152,12 +188,14 @@ class NewProjectDialog(QDialog):
 
     @property
     def template_key(self) -> str:
+        if self.reconstruct:
+            return "empty"
         btn = self._template_group.checkedButton()
         return btn.property("template_key") if btn else "empty"
 
     @property
     def start_wizard(self) -> bool:
-        return self._start_wizard.isChecked()
+        return self._start_wizard.isChecked() and not self.reconstruct
 
     @property
     def variant(self) -> str:

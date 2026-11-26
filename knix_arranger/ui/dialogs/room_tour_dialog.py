@@ -46,7 +46,7 @@ class RoomTourDialog(QDialog):
         self._plan = rb.analyse(project)
         self._session: rb.RoomSession | None = None
         self._room = None
-        self._done_rooms: list[str] = []
+        self._done_rooms: list[str] = []          # Raum-IDs
         self._listening = False
 
         self.setWindowTitle("Räume zuordnen – Rundgang")
@@ -278,7 +278,8 @@ class RoomTourDialog(QDialog):
 
     def _update_progress(self) -> None:
         ops, all_ops, chs, all_chs = rb.progress(self._project, self._plan)
-        done = f" · in diesem Rundgang: {', '.join(self._done_rooms)}" if self._done_rooms else ""
+        names = [rb.room_label(self._project, r) for r in self._done_rooms]
+        done = f" · in diesem Rundgang: {', '.join(names)}" if names else ""
         self._progress.setText(f"Zugeordnet: {ops} von {all_ops} Tastern/Sensoren, "
                                f"{chs} von {all_chs} Aktorkanälen{done}")
 
@@ -292,7 +293,7 @@ class RoomTourDialog(QDialog):
         self._room_combo.clear()
         self._room_combo.addItem("– Raum wählen –", "")
         for label, _floor, room in rb.all_rooms(self._project):
-            done = " ✓" if label in self._done_rooms else ""
+            done = " ✓" if room.id in self._done_rooms else ""
             self._room_combo.addItem(label + done, room.id)
         self._room_combo.setCurrentIndex(max(self._room_combo.findData(current), 0))
 
@@ -301,17 +302,21 @@ class RoomTourDialog(QDialog):
         return next((r for _l, _f, r in rb.all_rooms(self._project) if r.id == room_id), None)
 
     def _new_room(self) -> None:
-        dialog = NewRoomDialog(self._project, self)
+        # Stockwerk und Zone wie beim zuletzt gewählten Raum vorschlagen
+        last = self._room_combo.currentData() or (self._done_rooms[-1] if self._done_rooms
+                                                  else "")
+        floor, zone = rb.room_place(self._project, last)
+        dialog = NewRoomDialog(self._project, self, floor, zone)
         if dialog.exec() != QDialog.Accepted:
             return
         if self._bus is not None:
             self._bus.begin_change("Raum angelegt")
-        room = rb.add_room(self._project, dialog.floor.currentText(),
-                           dialog.number.text(), dialog.name.text())
+        room = dialog.create_room()
         if self._bus is not None:
             self._bus.emit_building_changed()
-        self._room_combo.addItem(rb.room_label(self._project, room.id), room.id)
-        self._room_combo.setCurrentIndex(self._room_combo.count() - 1)
+        # neu füllen: mit der ersten benannten Zone ändern sich alle Anzeigen
+        self._fill_rooms()
+        self._room_combo.setCurrentIndex(max(self._room_combo.findData(room.id), 0))
 
     def _fill_manual(self) -> None:
         self._manual.clear()
@@ -445,8 +450,8 @@ class RoomTourDialog(QDialog):
         if self._bus is not None:
             self._bus.emit_topology_changed()
             self._bus.emit_addresses_changed()
-        if label not in self._done_rooms:
-            self._done_rooms.append(label)
+        if room.id not in self._done_rooms:
+            self._done_rooms.append(room.id)
         self._done_title.setText(f"{label} abgeschlossen")
         self._done_text.setText(
             f"{len(operators)} Taster/Sensoren, {total.channels} Aktorkanäle neu im Raum, "

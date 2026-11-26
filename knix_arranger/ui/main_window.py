@@ -1305,6 +1305,11 @@ class MainWindow(QMainWindow):
         self._status_bar.set_status(
             f"Neues Projekt '{project.name}' erstellt unter: {file_path}"
         )
+        if dialog.reconstruct:
+            # Anlage ohne Projektdatei (FA-3105e): gleich zu den Schritten
+            self._sidebar.select("device_scan")
+            self._navigate("device_scan")
+            return
         self._sidebar.select("overview")
         self._navigate("overview")
         if offer_wizard and dialog.start_wizard:

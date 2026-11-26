@@ -173,6 +173,104 @@ def test_add_room_creates_floor_once():
     assert [label for label, _f, _r in rb.all_rooms(project)] == ["EG 01 Küche", "EG 02 Essen"]
 
 
+def test_add_room_with_zones_innen_aussen():
+    """Chalet: Innen über zwei Stockwerke (eine Zone), Aussen auf dem EG."""
+    project = _project()
+    kitchen = rb.add_room(project, "EG", "01", "Küche", zone="Innen")
+    terrace = rb.add_room(project, "EG", "02", "Terrasse", zone="Aussen")
+    library = rb.add_room(project, "OG", "01", "Bibliothek", zone="innen")
+    eg = rb.find_floor(project.areal.buildings[0], "EG")
+    assert [a.name for a in eg.apartments] == ["Innen", "Aussen"]   # keine leere «EG»
+    og = rb.find_floor(project.areal.buildings[0], "OG")
+    assert [a.name for a in og.apartments] == ["Innen"]             # Schreibweise bleibt
+    assert project.areal.zone_name_for_room(library.id) == "Innen"
+    assert project.areal.zone_name_for_room(terrace.id) == "Aussen"
+    assert rb.zone_names(project) == ["Innen", "Aussen"]
+    assert rb.room_label(project, kitchen.id) == "EG 01 Küche (Innen)"
+    assert rb.room_place(project, terrace.id) == ("EG", "Aussen")
+    # ohne Zone: die erste des Stockwerks, keine neue
+    rb.add_room(project, "EG", "03", "Gang")
+    assert len(eg.apartments) == 2
+
+
+def test_add_room_existing_floor_gets_zone():
+    """Bestehende leere Standardzone eines Stockwerks übernimmt den Namen."""
+    from knix_arranger.services.building_service import BuildingService
+    project = _project()
+    project.areal = BuildingService.create_default_areal("Chalet")
+    BuildingService.add_floor(project.areal.buildings[0].wings[0], "Erdgeschoss", "EG",
+                              areal=project.areal)
+    rb.add_room(project, "EG", "01", "Garten", zone="Aussen")
+    eg = rb.find_floor(project.areal.buildings[0], "EG")
+    assert [a.name for a in eg.apartments] == ["Aussen"]
+    rb.add_room(project, "EG", "02", "Wohnen", zone="Innen")
+    assert [a.name for a in eg.apartments] == ["Aussen", "Innen"]
+
+
+def test_new_room_dialog_zone_and_confirmation(monkeypatch):
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from knix_arranger.ui.dialogs.room_assign_dialog import NewRoomDialog
+    QApplication.instance() or QApplication([])
+    project = _project()
+    rb.add_room(project, "EG", "01", "Küche", zone="Innen")
+    rb.add_room(project, "EG", "02", "Terrasse", zone="Aussen")
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or QMessageBox.No)
+    dialog = NewRoomDialog(project, None, "EG", "Aussen")
+    assert dialog.zone.currentText() == "Aussen"
+    dialog.floor.setCurrentText("1.OG")                 # vertippt
+    dialog.name.setText("Balkon")
+    dialog._accept()
+    assert asked and "Stockwerk «1.OG»" in asked[0] and dialog.result() == 0
+    dialog.floor.setCurrentText("EG")
+    dialog.zone.setCurrentText("Aussen")
+    asked.clear()
+    dialog._accept()
+    assert not asked
+    room = dialog.create_room()
+    assert project.areal.zone_name_for_room(room.id) == "Aussen"
+
+
+def test_new_room_dialog_unique_number(monkeypatch):
+    """Nummer nach dem Schema von Schritt 3; doppelte Nummer nur nach Rückfrage
+    (sonst gleiche GA-Namen in zwei Räumen)."""
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from knix_arranger.ui.dialogs.room_assign_dialog import NewRoomDialog
+    QApplication.instance() or QApplication([])
+    project = _project()
+    rb.add_room(project, "EG", "EG01", "Küche", zone="Innen")
+    rb.add_room(project, "EG", "EG02", "Wohnen", zone="Innen")
+    asked = []
+    # neue Zone: Ja; doppelte Nummer: Nein
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or (
+                            QMessageBox.Yes if "noch nicht" in a[2] else QMessageBox.No))
+    dialog = NewRoomDialog(project, None, "EG", "Aussen")
+    assert dialog.number.text() not in ("", "EG01", "EG02")      # frei im Projekt
+    dialog.number.setText("EG01")
+    dialog.name.setText("Terrasse")
+    dialog._accept()
+    assert asked and "EG01" in asked[-1] and dialog.result() == 0
+
+
+def test_add_room_in_second_wing():
+    """Zwei Gebäudeteile mit je einem EG: der Raum kommt in den gewählten."""
+    from knix_arranger.models.building import Wing
+    from knix_arranger.services.building_service import BuildingService
+    project = _project()
+    project.areal = BuildingService.create_default_areal("Hotel")
+    building = project.areal.buildings[0]
+    north = building.wings[0]
+    south = Wing(name="Süd")
+    building.wings.append(south)
+    BuildingService.add_floor(north, "Erdgeschoss", "EG", areal=project.areal)
+    BuildingService.add_floor(south, "Erdgeschoss", "EG", areal=project.areal)
+    room = rb.add_room(project, "EG", "EG01", "Lobby", wing=south)
+    assert any(room in f.all_rooms for f in south.floors)
+    assert rb.room_label(project, room.id) == "EG EG01 Lobby (Süd)"
+
+
 def _telegram(source, destination, seconds_ago=0.0, service="Write"):
     from datetime import timedelta
     return LiveTelegram(datetime.now() - timedelta(seconds=seconds_ago), source, destination,

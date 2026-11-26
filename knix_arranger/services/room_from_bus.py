@@ -425,28 +425,102 @@ def _ga_key(address: str):
 # ── Räume ────────────────────────────────────────────────────────────────
 
 def room_label(project, room_id: str) -> str:
-    """«EG 05 Wohnen» bzw. "" ohne Raum."""
+    """«EG 05 Wohnen» bzw. "" ohne Raum; mit Zone und Gebäude, wo nötig."""
     if not room_id:
         return ""
-    for building in project.areal.buildings:
-        for floor in building.all_floors:
-            for room in floor.all_rooms:
-                if room.id == room_id:
-                    return " ".join(p for p in (floor.short_code or floor.name,
-                                                room.number, room.name) if p)
-    return ""
+    return next((label for label, _f, room in all_rooms(project) if room.id == room_id), "")
+
+
+def _named_zone(floor, apartment) -> bool:
+    """Eigene Zone, nicht nur die Standardzone eines Stockwerks (FA-107)."""
+    return (apartment.name or "") not in ("", floor.short_code or "", floor.name or "")
 
 
 def all_rooms(project) -> list[tuple[str, object, object]]:
-    """[(Anzeige, Stockwerk, Raum)] in der Reihenfolge der Gebäudestruktur."""
+    """[(Anzeige, Stockwerk, Raum)] in der Reihenfolge der Gebäudestruktur.
+    Die Zone steht dabei, sobald es benannte Zonen gibt (Innen/Aussen,
+    Wohnungen), das Gebäude bei mehreren Gebäuden."""
+    buildings = project.areal.buildings
+    zones = any(_named_zone(floor, apt) for b in buildings
+                for floor in b.all_floors for apt in floor.apartments)
     result = []
+    for building in buildings:
+        for wing in building.wings:
+            for floor in wing.floors:
+                for apt in floor.apartments:
+                    for room in apt.rooms:
+                        label = " ".join(p for p in (floor.short_code or floor.name,
+                                                     room.number, room.name) if p)
+                        extra = [building.name] if len(buildings) > 1 and building.name \
+                            else []
+                        if len(building.wings) > 1 and wing.name:
+                            extra.append(wing.name)
+                        if zones and apt.name:
+                            extra.append(apt.name)
+                        if extra:
+                            label += f" ({', '.join(extra)})"
+                        result.append((label, floor, room))
+    return result
+
+
+def zone_names(project) -> list[str]:
+    """Benannte Zonen des Projekts in der Reihenfolge der Gebäudestruktur."""
+    names: list[str] = []
     for building in project.areal.buildings:
         for floor in building.all_floors:
-            for room in floor.all_rooms:
-                label = " ".join(p for p in (floor.short_code or floor.name,
-                                             room.number, room.name) if p)
-                result.append((label, floor, room))
-    return result
+            for apt in floor.apartments:
+                if _named_zone(floor, apt) and apt.name not in names:
+                    names.append(apt.name)
+    return names
+
+
+def room_place(project, room_id: str) -> tuple[str, str]:
+    """(Stockwerk-Kürzel, benannte Zone oder "") eines Raums, sonst ("", "")."""
+    for building in project.areal.buildings:
+        for floor in building.all_floors:
+            for apt in floor.apartments:
+                if any(r.id == room_id for r in apt.rooms):
+                    return (floor.short_code or floor.name or "",
+                            apt.name if _named_zone(floor, apt) else "")
+    return "", ""
+
+
+def find_floor(building, floor_name: str, wing=None):
+    """Stockwerk nach Kürzel oder Name (ohne Gross-/Kleinschreibung), mit
+    `wing` nur in diesem Gebäudeteil."""
+    wanted = (floor_name or "").strip().lower()
+    floors = wing.floors if wing is not None else building.all_floors
+    return next((f for f in floors
+                 if wanted and wanted in ((f.short_code or "").lower(),
+                                          (f.name or "").lower())), None)
+
+
+def suggest_number(project, floor, zone: str = "", wing=None) -> str:
+    """Nächste freie Raumnummer nach dem Schema von Schritt 3 (im ganzen
+    Projekt eindeutig, damit die GA-Namen eindeutig bleiben)."""
+    from .room_numbering import suggest_room_number
+    from ..models.building import Apartment
+    if floor is None:
+        return ""
+    if wing is None:
+        wing = next((w for b in project.areal.buildings for w in b.wings
+                     if floor in w.floors), None)
+    if wing is None:
+        return ""
+    apartment = next((a for a in floor.apartments
+                      if zone and (a.name or "").lower() == zone.lower()), None)
+    if apartment is None:
+        apartment = floor.apartments[0] if not zone and floor.apartments else             Apartment(name=zone or floor.short_code or floor.name)
+    return suggest_room_number(project.areal, wing, apartment, floor)
+
+
+def duplicate_number(project, number: str) -> str:
+    """Bezeichnung des Raums, der die Nummer schon trägt, sonst ""."""
+    number = (number or "").strip()
+    if not number:
+        return ""
+    return next((label for label, _f, room in all_rooms(project)
+                 if room.number == number), "")
 
 
 def channel_room(project, channel: Channel) -> str:
@@ -456,27 +530,53 @@ def channel_room(project, channel: Channel) -> str:
     return rooms.pop() if len(rooms) == 1 else ""
 
 
-def add_room(project, floor_name: str, number: str, name: str):
-    """Raum anlegen; fehlt das Stockwerk (Name oder Kürzel), wird es angelegt."""
+def add_room(project, floor_name: str, number: str, name: str, zone: str = "",
+             building=None, wing=None):
+    """Raum anlegen; fehlt das Stockwerk (Name oder Kürzel), wird es angelegt.
+    `zone`: Zone (Wohnung, Innen/Aussen); gleicher Name auf mehreren
+    Stockwerken = eine Zone. Fehlt sie auf dem Stockwerk, wird sie dort
+    angelegt. Leer = die erste Zone des Stockwerks. `wing`: Gebäudeteil,
+    in dem das Stockwerk gesucht bzw. angelegt wird (sonst der erste)."""
     from .building_service import BuildingService
     areal = project.areal
     if not areal.buildings:
         fresh = BuildingService.create_default_areal(project.name or "")
         areal.buildings.extend(fresh.buildings)
-    building = areal.buildings[0]
+    if building is None or building not in areal.buildings:
+        building = areal.buildings[0]
     if not building.wings:
         from ..models.building import Wing
         building.wings.append(Wing(name="Hauptgebäude"))
+    if wing is not None and wing not in building.wings:
+        wing = None
     wanted = floor_name.strip()
-    floor = next((f for f in building.all_floors
-                  if wanted and wanted.lower() in ((f.short_code or "").lower(),
-                                                   (f.name or "").lower())), None)
+    zone = (zone or "").strip()
+    # Schreibweise einer bestehenden Zone, damit «innen» nicht eine zweite wird
+    zone = next((n for n in zone_names(project) if n.lower() == zone.lower()), zone)
+    floor = find_floor(building, wanted, wing)
     if floor is None:
         code = re.sub(r"[^A-Za-z0-9]", "", wanted)[:4].upper() or "EG"
-        floor = BuildingService.add_floor(building.wings[0], wanted or code, code,
+        floor = BuildingService.add_floor(wing or building.wings[0], wanted or code, code,
                                           areal=areal)
-    apartment = floor.apartments[0] if floor.apartments else \
-        BuildingService.add_apartment(floor, floor.short_code or floor.name)
+        if zone and len(floor.apartments) == 1 and not floor.apartments[0].rooms:
+            floor.apartments[0].name = zone          # keine leere Standardzone
+    apartment = None
+    if zone:
+        apartment = next((a for a in floor.apartments
+                          if (a.name or "").lower() == zone.lower()), None)
+        if apartment is None:
+            # die leere Standardzone eines Stockwerks übernimmt den Namen
+            default = next((a for a in floor.apartments if not a.rooms
+                            and not _named_zone(floor, a)), None)
+            if default is not None:
+                default.name = zone
+                apartment = default
+            else:
+                apartment = BuildingService.add_apartment(floor, zone)
+    elif floor.apartments:
+        apartment = floor.apartments[0]
+    else:
+        apartment = BuildingService.add_apartment(floor, floor.short_code or floor.name)
     room = BuildingService.add_room(apartment, number.strip(), name.strip())
     room.floor_id = floor.id
     return room

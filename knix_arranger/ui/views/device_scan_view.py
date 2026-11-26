@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...services import device_scan as ds
+from ...services import reconstruction_steps as rs
 from ...services.bus_access import BusSendError
 from ..styles import COLOR_ERROR, COLOR_INFO, COLOR_OK, COLOR_WARNING, TEXT_MUTED
 
@@ -82,6 +83,24 @@ class DeviceScanView(QWidget):
         intro.setWordWrap(True)
         intro.setStyleSheet(f"color: {TEXT_MUTED};")
         layout.addWidget(intro)
+
+        # Anlage ohne Projektdatei (FA-3105e): Schritte mit Stand, nichts gesperrt
+        self._steps_box = QWidget()
+        steps_layout = QHBoxLayout(self._steps_box)
+        steps_layout.setContentsMargins(0, 4, 0, 4)
+        steps_layout.setSpacing(4)
+        steps_label = QLabel("Anlage aufnehmen:")
+        steps_label.setToolTip("Reihenfolge für eine Anlage ohne Projektdatei. Jeder Schritt "
+                               "lässt sich wiederholen; ✓ = erledigt, … = teilweise.")
+        steps_layout.addWidget(steps_label)
+        self._step_buttons: dict[str, QPushButton] = {}
+        for step in rs.steps(None):
+            button = QPushButton()
+            button.clicked.connect(lambda _c=False, key=step.key: self._run_step(key))
+            steps_layout.addWidget(button)
+            self._step_buttons[step.key] = button
+        steps_layout.addStretch(1)
+        layout.addWidget(self._steps_box)
 
         connection = QHBoxLayout()
         self._connection = QLabel()
@@ -240,6 +259,60 @@ class DeviceScanView(QWidget):
             self._project is not None and not self.scanning
             and any(getattr(d, "communication_objects", None)
                     for d in ds.project_devices(self._project)))
+        self._refresh_steps(usable)
+
+    # ── Schritte «Anlage aufnehmen» (FA-3105e) ───────────────────────────
+
+    def _refresh_steps(self, connected: bool) -> None:
+        if not rs.applies(self._project):
+            self._steps_box.hide()
+            return
+        self._steps_box.show()
+        found = sum(1 for f in self._findings if f.answered and not f.own)
+        step_list = rs.steps(self._project, connected, found)
+        current = rs.current(step_list, connected)
+        enabled = {
+            rs.CONNECT: True,
+            rs.SEARCH: self._start_btn.isEnabled() or not connected,
+            rs.ADOPT: self._adopt_btn.isEnabled(),
+            rs.LINKS: self._links_btn.isEnabled(),
+            rs.MEANING: self._meaning_btn.isEnabled(),
+            rs.BUILDING: not self.scanning,
+            rs.TOUR: self._rooms_btn.isEnabled(),
+        }
+        for step in step_list:
+            button = self._step_buttons[step.key]
+            mark = {rs.DONE: " ✓", rs.PARTIAL: " …"}.get(step.state, "")
+            button.setText(f"{step.number} {step.title}{mark}")
+            tip = step.detail or "noch offen"
+            if step.key == current:
+                tip = "Nächster Schritt – " + tip
+            button.setToolTip(tip)
+            button.setEnabled(enabled[step.key])
+            button.setObjectName("" if step.key == current else "secondary")
+            button.setStyleSheet(
+                "font-weight: bold;" if step.key == current
+                else f"color: {COLOR_OK};" if step.state == rs.DONE else "")
+            button.style().unpolish(button)
+            button.style().polish(button)
+
+    def _run_step(self, key: str) -> None:
+        connected = self.bus_monitor is not None and self.bus_monitor.can_access_devices
+        if key == rs.CONNECT or (key in (rs.SEARCH, rs.LINKS) and not connected):
+            self.navigate_requested.emit("live_monitor")
+        elif key == rs.SEARCH:
+            self._lines_edit.setFocus()
+            self._start()
+        elif key == rs.ADOPT:
+            self._adopt()
+        elif key == rs.LINKS:
+            self._read_links()
+        elif key == rs.MEANING:
+            self._add_meaning()
+        elif key == rs.BUILDING:
+            self.navigate_requested.emit("building")
+        elif key == rs.TOUR:
+            self._assign_rooms(tour=True)
 
     def set_bus(self, bus) -> None:
         self._bus = bus
@@ -474,6 +547,16 @@ class DeviceScanView(QWidget):
         found = [f for f in self._findings if f.answered and not f.own]
         existing = {d.physical_address for d in ds.project_devices(self._project)}
         new = [f for f in found if f.address not in existing]
+        # Geplantes Projekt mit Geräten: bleibt geplant (Richtlinien als Fehler)
+        if existing and not self._project.topology.is_imported and QMessageBox.question(
+                self, "Ins Projekt übernehmen",
+                f"Dieses Projekt ist mit KNiX geplant und hat schon {len(existing)} Geräte. "
+                "Die gefundenen Geräte kämen dazu, das Projekt bliebe ein geplantes Projekt: "
+                "Abweichungen von den Projektrichtlinien gelten als Fehler, nicht als "
+                "Hinweise.\n\nFür eine Anlage ohne Projektdatei ein neues, leeres Projekt "
+                "anlegen («Bestehende Anlage aufnehmen»).\n\nTrotzdem übernehmen?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
         text = (f"{len(new)} Geräte neu anlegen, {len(found) - len(new)} bestehende "
                 "ergänzen (nur leere Seriennummer oder fehlendes Produkt).\n\n"
                 "Produkt und Kommunikationsobjekte kommen aus dem Produktkatalog, wenn die "
@@ -549,6 +632,22 @@ class DeviceScanView(QWidget):
         drücken, Aktorkanäle bestätigen) bzw. Übersicht zum Korrigieren."""
         if self._project is None or self.scanning:
             return
+        if tour and not self._project.areal.all_rooms:
+            box = QMessageBox(QMessageBox.Question, "Rundgang",
+                              "Das Projekt hat noch keine Räume. Bei mehreren Zonen (z.B. "
+                              "Innen/Aussen, Wohnungen), Gebäudeteilen oder Gebäuden zuerst "
+                              "das Gebäude erfassen; sonst lassen sich die Räume im "
+                              "Rundgang anlegen.", parent=self)
+            building = box.addButton("Zuerst Gebäude erfassen", QMessageBox.AcceptRole)
+            box.addButton("Räume im Rundgang anlegen", QMessageBox.ActionRole)
+            cancel = box.addButton(QMessageBox.Cancel)
+            box.setDefaultButton(building)
+            box.exec()
+            if box.clickedButton() is cancel:
+                return
+            if box.clickedButton() is building:
+                self.navigate_requested.emit("building")
+                return
         if tour:
             from ..dialogs.room_tour_dialog import RoomTourDialog
             dialog = RoomTourDialog(self._project, self.bus_monitor, self._bus, self)
