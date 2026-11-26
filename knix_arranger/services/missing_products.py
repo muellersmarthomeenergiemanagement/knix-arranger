@@ -94,44 +94,114 @@ class ReadResult:
     problems: list[str] = field(default_factory=list)
 
 
-def read_files(paths: list[str], catalog=None) -> ReadResult:
-    """.knxprod in den Produktkatalog einlesen und im Produktordner ablegen
-    (wie die Produktauswahl)."""
-    from .knxprod_catalog_service import KnxprodCatalogService
-    from .product_folder import add_to_folder, mark_imported
-    if catalog is None:
-        from .product_sync import shared_catalog
-        catalog = shared_catalog()
-    result = ReadResult()
-    service = KnxprodCatalogService()
-    products, imported = [], {}
-    for path in paths:
-        name = os.path.basename(path)
-        try:
-            found = service.import_file(path)
-        except ValueError as exc:
-            result.problems.append(f"{name}: {exc}")
+def file_manufacturers(path: str) -> set[str]:
+    """Hersteller-IDs einer .knxprod aus dem Inhaltsverzeichnis des Archivs
+    (Ordner «M-0002/…») – liest nur das Verzeichnis am Dateiende, nicht die
+    ganze Datei."""
+    import zipfile
+    try:
+        with zipfile.ZipFile(path) as archive:
+            return {name.split("/", 1)[0].upper() for name in archive.namelist()
+                    if name.upper().startswith("M-") and "/" in name}
+    except (zipfile.BadZipFile, OSError):
+        return set()
+
+
+def needed_manufacturers(findings, catalog) -> set[str]:
+    """Hersteller der Geräte, deren Applikation nicht im Katalog steht."""
+    from . import device_scan as ds
+    index = ds.catalog_index(catalog)
+    needed = set()
+    for finding in findings:
+        if not getattr(finding, "program", ""):
             continue
-        if not found:
-            result.problems.append(f"{name}: keine Produktdaten gefunden")
+        if ds.match_product(index, finding)[0] is None:
+            mfr = (finding.program_manufacturer or finding.manufacturer_id or "").upper()
+            if mfr:
+                needed.add(mfr)
+    return needed
+
+
+def findings_of_devices(project) -> list:
+    """Geräte ohne Produkt als ScanFinding (für match_product)."""
+    from . import device_scan as ds
+    return [ds.ScanFinding(address=d.physical_address, answered=True,
+                           manufacturer_id=d.manufacturer_id or "",
+                           program=device_program(d), order_info=d.order_number or "")
+            for d in _devices_without_product(project)]
+
+
+def relevant_pending(manufacturers: set[str]) -> list[str]:
+    """Noch nicht eingelesene Dateien im Produktordner, die einen der
+    Hersteller enthalten (die grossen Sammeldateien nur, wenn nötig)."""
+    from .product_folder import pending_files
+    if not manufacturers:
+        return []
+    return [path for path in pending_files()
+            if file_manufacturers(path) & manufacturers]
+
+
+def total_mb(paths: list[str]) -> int:
+    size = 0
+    for path in paths:
+        try:
+            size += os.path.getsize(path)
+        except OSError:
+            pass
+    return round(size / 1_000_000)
+
+
+def read_files(paths: list[str], catalog=None, progress=None) -> ReadResult:
+    """.knxprod in den Produktkatalog einlesen und im Produktordner ablegen
+    (wie die Produktauswahl). progress(index, total, name) -> False bricht ab
+    (vor der nächsten Datei)."""
+    result = ReadResult()
+    products, imported = [], {}
+    for number, path in enumerate(paths):
+        name = os.path.basename(path)
+        if progress is not None and progress(number, len(paths), name) is False:
+            result.problems.append("abgebrochen")
+            break
+        found, problem = parse_file(path)
+        if problem:
+            result.problems.append(problem)
             continue
         products.extend(found)
         imported[path] = len(found)
+    store(products, imported, catalog, result)
+    return result
+
+
+def parse_file(path: str) -> tuple[list, str]:
+    """Eine .knxprod lesen (ohne Katalog, darf im Hintergrund laufen):
+    (Produkte, Problem oder "")."""
+    from .knxprod_catalog_service import KnxprodCatalogService
+    name = os.path.basename(path)
+    try:
+        found = KnxprodCatalogService().import_file(path)
+    except ValueError as exc:
+        return [], f"{name}: {exc}"
+    if not found:
+        return [], f"{name}: keine Produktdaten gefunden"
+    return found, ""
+
+
+def store(products: list, imported: dict[str, int], catalog, result: ReadResult) -> None:
+    """Gelesene Produkte in den Katalog, Dateien in den Produktordner und als
+    eingelesen vermerken (im Hauptthread)."""
+    from .product_folder import add_to_folder, mark_imported
     if products:
+        if catalog is None:
+            from .product_sync import shared_catalog
+            catalog = shared_catalog()
         catalog.add_products([p.to_catalog_dict() for p in products])
         sources = list(imported)
         copies = add_to_folder(sources)
         mark_imported(copies, {copy: imported[src] for src, copy in zip(sources, copies)})
         result.files = copies
     result.products = len(products)
-    return result
 
 
-def read_pending(catalog=None) -> ReadResult:
-    """Dateien im Produktordner, die noch nicht eingelesen sind."""
-    from .product_folder import pending_files
-    pending = pending_files()
-    return read_files(pending, catalog) if pending else ReadResult()
 
 
 def from_knxproj(path: str, catalog=None) -> ReadResult:

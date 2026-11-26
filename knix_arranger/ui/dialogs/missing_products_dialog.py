@@ -144,9 +144,17 @@ class MissingProductsDialog(QDialog):
     # ── Nachführen ───────────────────────────────────────────────────────
 
     def _complete(self, prefix: str = "") -> None:
+        # im Ordner abgelegte, noch nicht eingelesene Dateien (nach Rückfrage)
+        from .product_reading import offer_pending
+        catalog = self._catalog
+        if catalog is None:
+            from ...services.product_sync import shared_catalog
+            catalog = shared_catalog()
+        pending = offer_pending(
+            self, mp.needed_manufacturers(mp.findings_of_devices(self._project), catalog),
+            catalog)
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            pending = mp.read_pending(self._catalog)      # im Ordner abgelegte Dateien
             if self._bus is not None:
                 self._bus.begin_change("Herstellerdateien nachgeführt")
             result = mp.complete(self._project, self._catalog)

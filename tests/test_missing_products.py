@@ -113,7 +113,7 @@ def test_dialog_lists_and_completes(monkeypatch):
     QApplication.instance() or QApplication([])
     from knix_arranger.ui.dialogs.missing_products_dialog import MissingProductsDialog
     project = _reconstructed()
-    monkeypatch.setattr(mp, "read_pending", lambda catalog=None: mp.ReadResult())
+    monkeypatch.setattr(mp, "relevant_pending", lambda manufacturers: [])
     dialog = MissingProductsDialog(project, catalog=_Catalog())
     assert dialog._table.rowCount() == 2
     assert dialog._table.item(0, 0).text() == "ABB (M-0002)"
@@ -136,3 +136,98 @@ def test_view_shows_button_only_with_missing_files():
     view.set_project(_reconstructed())
     assert not view._products_btn.isHidden()
     assert view._products_btn.text() == "Herstellerdateien (3)…"
+
+
+# ── Einlesen: nur Nötiges, nach Rückfrage (Befund RekChalet 2026-11-26) ────
+
+def _knxprod(path, *manufacturers):
+    import zipfile
+    with zipfile.ZipFile(path, "w") as archive:
+        for mfr in manufacturers:
+            archive.writestr(f"{mfr}/Hardware.xml", "<KNX/>")
+    return str(path)
+
+
+def _library(tmp_path, monkeypatch):
+    from knix_arranger.services import product_folder
+    folder = tmp_path / "Bibliothek" / "Produkte KNX"
+    folder.mkdir(parents=True)
+    monkeypatch.setattr(product_folder, "products_folder", lambda: str(folder))
+    monkeypatch.setattr(product_folder, "_index_path",
+                        lambda: str(tmp_path / "product_folder_index.json"))
+    return folder
+
+
+def test_relevant_pending_only_for_needed_manufacturers(tmp_path, monkeypatch):
+    folder = _library(tmp_path, monkeypatch)
+    abb = _knxprod(folder / "IBUS_ABB.knxprod", "M-0002")
+    _knxprod(folder / "Hager_2021.knxprod", "M-0009")
+    assert mp.file_manufacturers(abb) == {"M-0002"}
+    assert mp.relevant_pending({"M-0002"}) == [abb]
+    assert mp.relevant_pending(set()) == []
+    # Geräte ohne Katalogprodukt bestimmen die Hersteller
+    findings = mp.findings_of_devices(_reconstructed())
+    assert mp.needed_manufacturers(findings, _Catalog()) == {"M-00C9"}
+    assert mp.needed_manufacturers(findings, None) == {"M-0002", "M-00C9"}
+
+
+def test_moved_library_is_not_new(tmp_path, monkeypatch):
+    """Bibliothek umgezogen: gleicher Name und gleiche Grösse gelten als eingelesen."""
+    from knix_arranger.services import product_folder
+    folder = _library(tmp_path, monkeypatch)
+    path = _knxprod(folder / "ABB (M-0002).knxprod", "M-0002")
+    old = tmp_path / "Dropbox" / "Produkte KNX"
+    old.mkdir(parents=True)
+    import shutil
+    shutil.copy(path, old / "ABB (M-0002).knxprod")
+    product_folder.mark_imported([str(old / "ABB (M-0002).knxprod")], folder=str(old))
+    assert product_folder.pending_files(str(folder)) == []
+    # geänderte Datei (andere Grösse) bleibt neu
+    _knxprod(folder / "ABB (M-0002).knxprod", "M-0002", "M-0083")
+    assert product_folder.pending_files(str(folder)) == [path]
+
+
+def test_read_files_stops_between_files(monkeypatch):
+    from knix_arranger.services import knxprod_catalog_service
+    read = []
+
+    class _Service:
+        def import_file(self, path):
+            read.append(path)
+            return []
+    monkeypatch.setattr(knxprod_catalog_service, "KnxprodCatalogService", _Service)
+    calls = []
+
+    def progress(index, total, name):
+        calls.append((index, total, name))
+        return index < 1                         # nach der ersten Datei abbrechen
+    result = mp.read_files(["a.knxprod", "b.knxprod", "c.knxprod"], catalog=object(),
+                           progress=progress)
+    assert read == ["a.knxprod"] and "abgebrochen" in result.problems
+    assert calls[0] == (0, 3, "a.knxprod")
+
+
+def test_adopt_asks_before_reading_files(monkeypatch, tmp_path):
+    """Übernehmen liest Herstellerdateien nie unangekündigt (App hing bei 358 MB)."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    QApplication.instance() or QApplication([])
+    from knix_arranger.ui.views.device_scan_view import DeviceScanView
+    folder = _library(tmp_path, monkeypatch)
+    _knxprod(folder / "Elsner.knxprod", "M-00C9")
+    _knxprod(folder / "Hager_2021.knxprod", "M-0009")       # nicht nötig
+    asked, read = [], []
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or (
+                            QMessageBox.No if "Produktordner" in a[2] else QMessageBox.Yes))
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    monkeypatch.setattr(mp, "read_files", lambda *a, **k: read.append(a) or mp.ReadResult())
+    view = DeviceScanView()
+    view.catalog = _Catalog()
+    view.set_project(KnxProject())
+    view._findings = [ds.ScanFinding("1.2.3", True, 0x07B0, "M-00C9", program="0101-10")]
+    view._adopt()
+    offer = [q for q in asked if "Produktordner" in q]
+    assert len(offer) == 1 and "Elsner.knxprod" in offer[0] and "Hager" not in offer[0]
+    assert read == []                                         # «Nein»: nichts gelesen
+    assert ds.project_devices(view._project)                  # übernommen trotzdem

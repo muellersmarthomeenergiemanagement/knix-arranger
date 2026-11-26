@@ -679,12 +679,12 @@ class DeviceScanView(QWidget):
         if catalog is None:
             from ...services.product_sync import shared_catalog
             catalog = shared_catalog()
-        # neu in den Produktordner gelegte Herstellerdateien zuerst einlesen
+        # noch nicht eingelesene Herstellerdateien der Geräte ohne Produkt:
+        # nur nach Rückfrage und mit Fortschritt (grosse Dateien dauern Minuten)
         from ...services import missing_products
-        try:
-            pending = missing_products.read_pending(catalog)
-        except Exception:
-            pending = missing_products.ReadResult()
+        from ..dialogs.product_reading import offer_pending
+        pending = offer_pending(self, missing_products.needed_manufacturers(found, catalog),
+                                catalog, "Ins Projekt übernehmen")
         if self._bus is not None:
             self._bus.begin_change("Teilnehmer ins Projekt übernommen")
         result = ds.adopt_findings(self._project, found, catalog)

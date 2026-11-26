@@ -100,14 +100,26 @@ def _rel(path: str, folder: str) -> str:
 def pending_files(folder: str | None = None) -> list[str]:
     """Dateien, die noch nicht oder in einer älteren Fassung eingelesen sind."""
     folder = products_folder() if folder is None else folder
-    index = load_index().get(os.path.normcase(os.path.abspath(folder)), {}) if folder else {}
+    data = load_index()
+    index = data.get(os.path.normcase(os.path.abspath(folder)), {}) if folder else {}
+    # Bibliothek umgezogen (z.B. Dropbox -> Synology): gleicher Name und
+    # gleiche Grösse in einem früheren Produktordner gilt als eingelesen
+    elsewhere: dict[tuple[str, int], dict] = {}
+    for other in data.values():
+        for rel, entry in other.items():
+            if isinstance(entry, dict):
+                elsewhere.setdefault((os.path.basename(rel).lower(), entry.get("size")), entry)
     result = []
     for path in folder_files(folder):
-        known = index.get(_rel(path, folder))
         try:
             stamp = _stamp(path)
         except OSError:
             continue
+        known = index.get(_rel(path, folder))
+        if not known:
+            moved = elsewhere.get((os.path.basename(path).lower(), stamp["size"]))
+            if moved is not None:
+                known = dict(moved, mtime=stamp["mtime"])
         if not known or (known.get("size"), known.get("mtime")) != (
                 stamp["size"], stamp["mtime"]):
             result.append(path)
