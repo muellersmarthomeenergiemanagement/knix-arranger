@@ -539,8 +539,12 @@ def build_document() -> Document:
          "Im Live-Monitor über KNXnet/IP (Tunnel) verbinden. Über USB sucht KNiX keine "
          "Teilnehmer."),
         ("2  Suchen",
-         "Linien angeben (z. B. «1.1, 1.2»). KNiX fragt jede Adresse ab und liest "
-         "Hersteller, Seriennummer, Bestellnummer und Applikation – rund 3 Minuten je Linie."),
+         "Zuerst findet KNiX die Linien: Linie der Schnittstelle, Absender der "
+         "mitgehörten Telegramme und Koppler (B.L.0), die antworten – rund 1–3 Minuten. "
+         "In der Liste anhaken, was abgesucht wird; bekannte Linien lassen sich auch "
+         "direkt eintragen (z. B. «1.1, 1.2»). Danach fragt KNiX jede Adresse ab und "
+         "liest Hersteller, Seriennummer, Bestellnummer und Applikation – rund "
+         "3 Minuten je Linie."),
         ("3  Übernehmen",
          "Gefundene Geräte samt Linien ins Projekt. Produkt und KOs kommen aus dem "
          "Produktkatalog: die Herstellerdateien vorher in «Bibliothek/Produkte KNX» "

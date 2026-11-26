@@ -223,6 +223,173 @@ def line_text(line: tuple[int, int]) -> str:
     return f"{line[0]}.{line[1]}"
 
 
+def line_of(address: str) -> tuple[int, int] | None:
+    """Linie einer physikalischen Adresse ("1.2.15" -> (1, 2)), sonst None."""
+    parts = (address or "").strip().split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        return None
+    area, line, number = (int(p) for p in parts)
+    if area > 15 or line > 15 or number > 255:
+        return None
+    return area, line
+
+
+# ── Linien finden (FA-3108e) ─────────────────────────────────────────────
+# Ohne Projekt weiss niemand, welche Linien es gibt; alle 240 abzusuchen
+# dauerte rund 12 Stunden. Drei Quellen: die Linie der Schnittstelle, die
+# Absender der mitgehörten Telegramme und die Koppler (B.L.0).
+
+COUPLER_PARALLEL = 8
+COUPLER_TIMEOUT = 2.0
+MINUTES_PER_LINE = 3
+
+
+@dataclass
+class LineCandidate:
+    """Eine gefundene Linie und woher KNiX sie kennt."""
+    line: tuple[int, int]
+    interface: bool = False         # Linie der Schnittstelle
+    senders: int = 0                # verschiedene Absender gehört
+    coupler: str = ""               # «1.2.0 Koppler» (antwortet)
+    in_project: bool = False        # Linie mit Geräten im Projekt
+
+    @property
+    def is_backbone(self) -> bool:
+        """Bereichs- bzw. Hauptlinie (B.0): meist nur Koppler und IP-Geräte."""
+        return self.line[1] == 0
+
+    @property
+    def preselected(self) -> bool:
+        if self.interface or self.senders or self.in_project:
+            return True
+        return bool(self.coupler) and not self.is_backbone
+
+    def origin(self) -> str:
+        parts = []
+        if self.interface:
+            parts.append("Linie der Schnittstelle")
+        if self.coupler:
+            parts.append(f"{self.coupler} antwortet")
+        if self.senders:
+            parts.append(f"{self.senders} Absender gehört")
+        if self.in_project:
+            parts.append("Geräte im Projekt")
+        if self.is_backbone and not self.senders and not self.interface:
+            parts.append("Bereichslinie, meist ohne weitere Geräte")
+        return ", ".join(parts)
+
+
+def senders_per_line(telegrams, own: str = "") -> dict[tuple[int, int], int]:
+    """Verschiedene Absender je Linie aus mitgehörten Telegrammen."""
+    seen: dict[tuple[int, int], set[str]] = {}
+    for telegram in telegrams:
+        source = getattr(telegram, "source", "") or ""
+        line = line_of(source)
+        if line is None or source == own:
+            continue
+        seen.setdefault(line, set()).add(source)
+    return {line: len(sources) for line, sources in seen.items()}
+
+
+async def probe_mask(xknx, address: str, timeout: float = COUPLER_TIMEOUT) -> ScanFinding:
+    """Nur verbinden und die Maskenversion lesen (ohne weitere Daten): genügt,
+    um einen Koppler zu erkennen. Quittiert-ohne-Antwort zählt nicht, weil ein
+    Koppler auch für fremde Adressen quittiert."""
+    from xknx.exceptions import ManagementConnectionError, ManagementConnectionRefused
+    from xknx.management.procedures import dmp_connect_r_co
+    from xknx.telegram import IndividualAddress
+
+    finding = ScanFinding(address=address)
+    target = IndividualAddress(address)
+    management = xknx.management
+    conn = None
+    try:
+        conn = await asyncio.wait_for(management.connect(target), timeout)
+        finding.acknowledged = True
+        finding.mask = await asyncio.wait_for(dmp_connect_r_co(conn), timeout)
+        finding.answered = True
+    except ManagementConnectionRefused:
+        finding.answered = finding.refused = True
+    except (asyncio.TimeoutError, ManagementConnectionError):
+        pass
+    except Exception as exc:
+        logger.info("Koppler %s: %s", address, exc)
+    finally:
+        await _close(management, target, conn)
+    return finding
+
+
+async def find_couplers(xknx, on_progress: Callable[[ScanProgress], None] | None = None,
+                        stop: threading.Event | None = None,
+                        areas=range(1, 16), parallel: int = COUPLER_PARALLEL,
+                        timeout: float = COUPLER_TIMEOUT) -> list[ScanFinding]:
+    """Kopplerplätze B.L.0 abfragen (Bereichskoppler B.0.0, Linienkoppler und
+    IP-Router B.L.0). Gibt die antwortenden zurück."""
+    targets = [f"{a}.{l}.0" for a in areas for l in range(16)]
+    found: list[ScanFinding] = []
+    semaphore = asyncio.Semaphore(max(1, parallel))
+    done = 0
+
+    async def one(address: str) -> None:
+        nonlocal done
+        async with semaphore:
+            if stop is not None and stop.is_set():
+                return
+            finding = await probe_mask(xknx, address, timeout)
+            done += 1
+            if finding.answered:
+                found.append(finding)
+            if on_progress is not None:
+                on_progress(ScanProgress(done, len(targets), len(found), address))
+
+    quiet = _QuietManagement()
+    management_log = logging.getLogger("xknx.management")
+    management_log.addFilter(quiet)
+    try:
+        await asyncio.gather(*(one(address) for address in targets))
+    finally:
+        management_log.removeFilter(quiet)
+    found.sort(key=lambda f: _address_key(f.address))
+    return found
+
+
+def line_candidates(own: str = "", senders: dict | None = None,
+                    couplers: list[ScanFinding] | None = None,
+                    project: list[tuple[int, int]] | None = None) -> list[LineCandidate]:
+    """Alle bekannten Linien mit Herkunft, sortiert. Ein Bereichskoppler
+    B.0.0 meldet den Bereich: seine Bereichslinie B.0 wird angeboten."""
+    result: dict[tuple[int, int], LineCandidate] = {}
+
+    def get(line: tuple[int, int]) -> LineCandidate:
+        return result.setdefault(line, LineCandidate(line))
+
+    own_line = line_of(own)
+    if own_line is not None:
+        get(own_line).interface = True
+    for line, count in (senders or {}).items():
+        if line != (0, 0):
+            get(line).senders = count
+    for finding in couplers or []:
+        line = line_of(finding.address)
+        if line is None:
+            continue
+        family = mask_text(finding.mask).split(" ", 1)[-1] if finding.mask is not None else ""
+        kind = "IP-Router" if family == "IP" else \
+            "Bereichskoppler" if line[1] == 0 else "Linienkoppler"
+        get(line).coupler = f"{finding.address} {kind}"
+    for line in project or []:
+        get(line).in_project = True
+    return sorted(result.values(), key=lambda c: c.line)
+
+
+def duration_text(lines: int) -> str:
+    minutes = lines * MINUTES_PER_LINE
+    if minutes < 60:
+        return f"ca. {minutes} Minuten"
+    hours = f"{minutes / 60:.1f}".replace(".", ",")
+    return f"ca. {hours} Stunden"
+
+
 # ── Vergleich mit dem Projekt ─────────────────────────────────────────────
 
 @dataclass

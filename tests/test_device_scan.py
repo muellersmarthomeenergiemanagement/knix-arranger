@@ -1006,3 +1006,107 @@ def test_flags_at_knxprod_location_system7():
     finally:
         ds._memory_tolerant = original
     assert result.flags == {0: "K-SÜ--", 1: "KLS---"}, result.flags_error
+
+
+# ── Linien finden (FA-3108e) ─────────────────────────────────────────────
+
+def test_find_couplers_over_tunnel():
+    """Nur antwortende Kopplerplätze zählen; leere Plätze quittiert niemand."""
+    import copy
+    from tests.test_bus_send import _wait
+    saved = copy.deepcopy(_DEVICES)
+    _DEVICES["1.0.0"] = {"mask": 0x0910, "props": {}}       # Bereichskoppler
+    _DEVICES["1.2.0"] = {"mask": 0x0910, "props": {}}       # Linienkoppler
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(0.1)
+    stop, log = threading.Event(), []
+    server = threading.Thread(target=_device_tunnel_server, args=(sock, stop, log),
+                              daemon=True)
+    server.start()
+    connection = BusConnection(lambda t: None, lambda s, t: None)
+    progress = []
+    try:
+        connection.start(ConnectionSettings(kind=TUNNEL_UDP, host="127.0.0.1",
+                                            port=sock.getsockname()[1]), Secrets())
+        assert _wait(lambda: connection.connected)
+        couplers = connection.run_on_bus(lambda x: ds.find_couplers(
+            x, on_progress=progress.append, areas=[1], timeout=1.0)).result(timeout=60)
+    finally:
+        connection.stop()
+        stop.set()
+        server.join(2)
+        sock.close()
+        _DEVICES.clear()
+        _DEVICES.update(saved)
+    assert [f.address for f in couplers] == ["1.0.0", "1.2.0"]
+    assert couplers[1].mask == 0x0910
+    assert progress[-1].done == 16 and progress[-1].total == 16
+
+
+def test_line_candidates_from_three_sources():
+    from types import SimpleNamespace
+    telegrams = [SimpleNamespace(source=s) for s in
+                 ("1.1.12", "1.1.12", "1.1.30", "1.2.15", "1.1.70", "kaputt")]
+    senders = ds.senders_per_line(telegrams, own="1.1.70")
+    assert senders == {(1, 1): 2, (1, 2): 1}
+    couplers = [ds.ScanFinding(address="1.0.0", answered=True, mask=0x0910),
+                ds.ScanFinding(address="1.2.0", answered=True, mask=0x0910),
+                ds.ScanFinding(address="1.3.0", answered=True, mask=0x0910)]
+    found = {c.line: c for c in ds.line_candidates("1.1.70", senders, couplers)}
+    assert list(found) == [(1, 0), (1, 1), (1, 2), (1, 3)]
+    assert found[(1, 1)].interface and found[(1, 1)].preselected
+    assert found[(1, 2)].coupler == "1.2.0 Linienkoppler" and found[(1, 2)].senders == 1
+    assert found[(1, 0)].coupler == "1.0.0 Bereichskoppler"
+    assert found[(1, 3)].preselected                        # stille Linie mit Koppler
+    assert not found[(1, 0)].preselected                    # Bereichslinie
+    assert "Bereichslinie" in found[(1, 0)].origin()
+    assert "Linie der Schnittstelle" in found[(1, 1)].origin()
+    assert ds.line_of("15.15.255") == (15, 15) and ds.line_of("16.1.1") is None
+    assert ds.duration_text(3) == "ca. 9 Minuten"
+    assert ds.duration_text(40) == "ca. 2,0 Stunden"
+
+
+def test_line_choice_dialog():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from knix_arranger.ui.dialogs.line_choice_dialog import LineChoiceDialog
+    candidates = [ds.LineCandidate((1, 0), coupler="1.0.0 Koppler"),
+                  ds.LineCandidate((1, 1), interface=True, senders=3)]
+    dialog = LineChoiceDialog(candidates)
+    assert dialog.selected_lines() == [(1, 1)]
+    assert "ca. 3 Minuten" in dialog._summary.text()
+    dialog._extra.setText("2.1, 1.0")
+    dialog._add_extra()
+    assert dialog.selected_lines() == [(1, 0), (1, 1), (2, 1)]
+    for i in range(dialog._list.count()):
+        dialog._list.item(i).setCheckState(Qt.Unchecked)
+    assert not dialog._ok.isEnabled()
+    # ohne antwortenden Koppler: Hinweis auf Fernzugang
+    quiet = LineChoiceDialog([ds.LineCandidate((1, 1), interface=True)])
+    from PySide6.QtWidgets import QLabel
+    assert any("Kein Koppler" in label.text() for label in quiet.findChildren(QLabel))
+
+
+def test_view_search_without_lines_finds_lines_first():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from types import SimpleNamespace
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from knix_arranger.models.project import KnxProject
+    from knix_arranger.ui.views.device_scan_view import DeviceScanView
+    view = DeviceScanView()
+    view.set_project(KnxProject())
+    calls = []
+    view._find_lines = lambda: calls.append("find")
+    view.bus_monitor = SimpleNamespace(
+        local_address="1.1.70", run_on_bus=lambda f: None,
+        history=lambda: [SimpleNamespace(source="1.2.4")])
+    view._lines_edit.setText("")
+    view._start()
+    assert calls == ["find"]
+    lines = [c.line for c in view.line_candidates(
+        [ds.ScanFinding(address="1.3.0", answered=True, mask=0x0910)])]
+    assert lines == [(1, 1), (1, 2), (1, 3)]

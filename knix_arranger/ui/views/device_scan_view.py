@@ -39,6 +39,7 @@ class _Bridge(QObject):
     finished = Signal(object, str)
     link_read = Signal(object)
     links_finished = Signal(object, str)
+    couplers_found = Signal(object, str)
 
 
 class DeviceScanView(QWidget):
@@ -67,6 +68,8 @@ class DeviceScanView(QWidget):
         self._bridge.finished.connect(self._on_finished)
         self._bridge.link_read.connect(self._on_link_read)
         self._bridge.links_finished.connect(self._on_links_finished)
+        self._bridge.couplers_found.connect(self._on_couplers_found)
+        self._finding_lines = False
 
         layout = QVBoxLayout(self)
         title = QLabel("Teilnehmer suchen")
@@ -115,9 +118,16 @@ class DeviceScanView(QWidget):
         row = QHBoxLayout()
         row.addWidget(QLabel("Linien:"))
         self._lines_edit = QLineEdit()
-        self._lines_edit.setPlaceholderText("z.B. 1.1, 1.2")
-        self._lines_edit.setToolTip("Bereich.Linie, mehrere mit Komma")
+        self._lines_edit.setPlaceholderText("leer = Linien finden, z.B. 1.1, 1.2")
+        self._lines_edit.setToolTip("Bereich.Linie, mehrere mit Komma. Leer: KNiX findet "
+                                    "die Linien zuerst selbst.")
         self._lines_edit.returnPressed.connect(self._start)
+        self._find_btn = QPushButton("Linien finden…")
+        self._find_btn.setObjectName("secondary")
+        self._find_btn.setToolTip(
+            "Linien der Anlage ermitteln: Linie der Schnittstelle, Absender der "
+            "mitgehörten Telegramme und Koppler (B.L.0), die antworten – rund 1–3 Minuten")
+        self._find_btn.clicked.connect(self._find_lines)
         self._start_btn = QPushButton("Suchen")
         self._start_btn.clicked.connect(self._start)
         self._links_btn = QPushButton("GAs und Verknüpfungen lesen")
@@ -133,6 +143,7 @@ class DeviceScanView(QWidget):
         self._progress.setTextVisible(True)
         self._progress.hide()
         row.addWidget(self._lines_edit, 1)
+        row.addWidget(self._find_btn)
         row.addWidget(self._start_btn)
         row.addWidget(self._links_btn)
         row.addWidget(self._stop_btn)
@@ -242,6 +253,7 @@ class DeviceScanView(QWidget):
             self._connection.setStyleSheet(f"color: {TEXT_MUTED};")
         self._monitor_btn.setVisible(not usable)
         self._start_btn.setEnabled(usable and not self.scanning)
+        self._find_btn.setEnabled(usable and not self.scanning)
         self._links_btn.setEnabled(usable and not self.scanning
                                    and any(ds.readable_for_links(f) for f in self._findings))
         self._stop_btn.setEnabled(self.scanning)
@@ -301,8 +313,10 @@ class DeviceScanView(QWidget):
         if key == rs.CONNECT or (key in (rs.SEARCH, rs.LINKS) and not connected):
             self.navigate_requested.emit("live_monitor")
         elif key == rs.SEARCH:
-            self._lines_edit.setFocus()
-            self._start()
+            if self._project is None or not ds.project_devices(self._project):
+                self._find_lines()       # unbekannte Anlage: Linien zuerst finden
+            else:
+                self._start()
         elif key == rs.ADOPT:
             self._adopt()
         elif key == rs.LINKS:
@@ -321,6 +335,9 @@ class DeviceScanView(QWidget):
 
     def _start(self) -> None:
         if self.scanning or self.bus_monitor is None:
+            return
+        if not self._lines_edit.text().strip():
+            self._find_lines()       # unbekannte Anlage: Linien zuerst finden
             return
         try:
             lines = ds.parse_lines(self._lines_edit.text())
@@ -368,7 +385,72 @@ class DeviceScanView(QWidget):
         if not self.scanning:
             return
         self._progress.setValue(progress.done)
-        self._summary.setText(f"Sucht {progress.address} … {progress.found} gefunden")
+        what = "Koppler" if self._finding_lines else "Teilnehmer"
+        self._summary.setText(f"{what}: {progress.address} … {progress.found} gefunden")
+
+    # ── Linien finden (FA-3108e) ─────────────────────────────────────────
+
+    def _find_lines(self) -> None:
+        """Kopplerplätze abfragen, danach mit Schnittstelle und gehörten
+        Absendern die Linien zur Auswahl stellen."""
+        if self.scanning or self.bus_monitor is None:
+            return
+        stop = threading.Event()
+        bridge = self._bridge
+
+        def factory(xknx):
+            return ds.find_couplers(xknx, on_progress=bridge.progress.emit, stop=stop)
+        try:
+            future = self.bus_monitor.run_on_bus(factory)
+        except BusSendError as exc:
+            QMessageBox.information(self, "Linien finden", str(exc))
+            return
+        self._future, self._stop = future, stop
+        self._finding_lines = True
+        self._progress.setRange(0, 15 * 16)
+        self._progress.setValue(0)
+        self._progress.setFormat("%v von %m Kopplerplätzen")
+        self._progress.show()
+
+        def done(f) -> None:
+            if f.cancelled():
+                bridge.couplers_found.emit(None, "abgebrochen")
+                return
+            exc = f.exception()
+            if exc is not None:
+                bridge.couplers_found.emit(None, str(exc) or exc.__class__.__name__)
+            else:
+                bridge.couplers_found.emit(f.result(), "")
+        future.add_done_callback(done)
+        self._update_controls()
+
+    def _on_couplers_found(self, couplers, error: str) -> None:
+        stopped = self._stop is not None and self._stop.is_set()
+        self._future = self._stop = None
+        self._finding_lines = False
+        self._progress.hide()
+        self._update_controls()
+        if stopped:
+            self._summary.setText("Linien finden abgebrochen")
+            return
+        if error:
+            QMessageBox.warning(self, "Linien finden", f"Nicht abgeschlossen: {error}")
+        candidates = self.line_candidates(couplers or [])
+        from ..dialogs.line_choice_dialog import LineChoiceDialog
+        dialog = LineChoiceDialog(candidates, couplers_searched=not error, parent=self)
+        if dialog.exec() != LineChoiceDialog.Accepted:
+            self._summary.setText(f"{len(candidates)} Linien gefunden")
+            return
+        self._lines_edit.setText(", ".join(ds.line_text(l) for l in dialog.selected_lines()))
+        self._start()
+
+    def line_candidates(self, couplers: list) -> list:
+        """Linien aus Schnittstelle, mitgehörten Absendern, Kopplern und Projekt."""
+        monitor = self.bus_monitor
+        own = getattr(monitor, "local_address", "") or ""
+        history = monitor.history() if hasattr(monitor, "history") else []
+        project = ds.project_lines(self._project) if self._project is not None else []
+        return ds.line_candidates(own, ds.senders_per_line(history, own), couplers, project)
 
     def _on_found(self, finding: ds.ScanFinding) -> None:
         if not self.scanning:

@@ -522,6 +522,11 @@ class LiveMonitorView(QWidget):
     def connection_label(self) -> str:
         return self._connection_label if self.listening else ""
 
+    @property
+    def local_address(self) -> str:
+        """Eigene Adresse der Schnittstelle (Tunnel), "" ohne Verbindung."""
+        return (getattr(self._connection, "local_address", "") or "") if self.listening else ""
+
     def run_on_bus(self, factory):
         """Gerätezugriff über diese Verbindung (BusConnection.run_on_bus)."""
         return self._connection.run_on_bus(factory)
