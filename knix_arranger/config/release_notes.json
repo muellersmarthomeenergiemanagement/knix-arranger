@@ -2,6 +2,28 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.65",
+      "date": "2026-11-26",
+      "neu": [
+        "Willkommensbildschirm nach Ausgangslage: «Neue Anlage planen», «ETS-Projekt einlesen» oder «Anlage vom Bus aufnehmen» (bestehende Anlage ohne Projektdatei). Die zuletzt verwendeten Projekte zeigen ihren Ort, gleichnamige sind so unterscheidbar.",
+        "Anlage vom Bus aufnehmen: In «Teilnehmer suchen» führt eine Schrittleiste durch die Aufnahme – Verbinden, Suchen, Übernehmen, GAs lesen, Bedeutung ergänzen, Gebäude erfassen, Rundgang. Der Stand kommt aus den Projektdaten, nichts ist gesperrt, jeder Schritt lässt sich wiederholen.",
+        "Linien finden: Bleibt das Feld «Linien» leer, findet KNiX die Linien selbst – Linie der Schnittstelle, Absender aus dem Live-Monitor und Koppler, die antworten (rund 1–3 Minuten). Danach Auswahl mit Herkunft und geschätzter Dauer.",
+        "Räume vom Bus: Im Rundgang vor Ort wählen Sie den Raum, drücken die Tasten, KNiX schlägt die Aktorkanäle vor; «Lasten suchen» schaltet übrige Kanäle kurz und fragt, was reagiert hat (nie Alarm, Wetter, Tor, Fenster; Storen nur mit Stopp). Die GA-Namen erhalten den Raum statt der Geräteadresse. Dazu eine Übersicht zum Korrigieren.",
+        "Fehlende Herstellerdateien: «Herstellerdateien (n)…» nennt je Hersteller Bestellnummer und Applikation mit Version. Datei hinzufügen oder aus einem ETS-Projekt mit denselben Geräten herauslösen; «Nachführen» ordnet Produkt und Kommunikationsobjekte zu und behält die gelesenen Verknüpfungen. Ohne Datei steht das Gerät in der ETS-Arbeitsliste."
+      ],
+      "verbessert": [
+        "Neuer Raum (Rundgang, Übersicht): mit Gebäude, Gebäudeteil und Zone (z.B. Innen/Aussen); die Raumnummer folgt dem Schema von Schritt 3 und ist im Projekt eindeutig. Ein neues Stockwerk oder eine neue Zone legt KNiX erst nach Rückfrage an.",
+        "Rundgang ohne Räume: Rückfrage, ob zuerst das Gebäude erfasst werden soll (empfohlen bei mehreren Zonen oder Gebäudeteilen).",
+        "«GAs und Verknüpfungen lesen» funktioniert auch nach einem Neustart: KNiX fragt zuerst nur die Geräte des Projekts ab und liest danach die Tabellen.",
+        "Herstellerdateien im Produktordner liest KNiX nur nach Rückfrage, nur für fehlende Hersteller und im Hintergrund mit Fortschritt. Nach einem Umzug der Bibliothek gelten bereits eingelesene Dateien nicht mehr als neu.",
+        "«ETS-Projekt einlesen» heisst überall gleich (Seitenleiste, Menü, Dateiauswahl)."
+      ],
+      "behoben": [
+        "«Ins Projekt übernehmen» blockierte das Programm minutenlang, wenn im Produktordner viele noch nicht eingelesene Herstellerdateien lagen.",
+        "Übernehmen in ein mit KNiX geplantes Projekt warnt jetzt vorher: es bliebe ein geplantes Projekt (Richtlinien als Fehler statt Hinweise)."
+      ]
+    },
+    {
       "version": "1.4.64",
       "date": "2026-11-23",
       "neu": [
