@@ -14,7 +14,8 @@ from PySide6.QtCore import Qt
 class NewProjectDialog(QDialog):
     """Dialog zum Erstellen eines neuen Projekts."""
 
-    def __init__(self, parent=None, workspace_root: str = "", project_service=None):
+    def __init__(self, parent=None, workspace_root: str = "", project_service=None,
+                 reconstruct: bool = False):
         super().__init__(parent)
         self.setWindowTitle("Neues Projekt erstellen")
         self.setMinimumSize(500, 420)
@@ -126,6 +127,9 @@ class NewProjectDialog(QDialog):
         self._start_wizard.setChecked(True)
         layout.addWidget(self._start_wizard)
         self._mode_reconstruct.toggled.connect(self._mode_changed)
+        if reconstruct:
+            # Einstieg «Anlage vom Bus aufnehmen» (Willkommensbildschirm)
+            self._mode_reconstruct.setChecked(True)
 
         # Buttons
         btn_layout = QHBoxLayout()

@@ -32,6 +32,6 @@ def file_type(path: str) -> str:
 def choose_import_file(parent, start_dir: str = "") -> tuple[str, str]:
     """Dateiauswahl für den ETS6 Import. Gibt (Pfad, Typ) zurück, ("", "")
     bei Abbruch."""
-    path, _ = QFileDialog.getOpenFileName(parent, "ETS6 Import – Datei wählen",
+    path, _ = QFileDialog.getOpenFileName(parent, "ETS-Projekt einlesen – Datei wählen",
                                           start_dir, FILE_FILTER)
     return (path, file_type(path)) if path else ("", "")

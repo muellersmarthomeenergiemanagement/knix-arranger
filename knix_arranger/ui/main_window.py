@@ -49,7 +49,8 @@ from .dialogs.export_dialog import ExportDialog
 from .dialogs.settings_dialog import SettingsDialog
 from .dialogs.reports_dialog import ReportsDialog
 from .dialogs.license_dialog import LicenseDialog
-from .dialogs.welcome_dialog import WelcomeDialog, ACTION_IMPORT, ACTION_NEW, ACTION_OPEN
+from .dialogs.welcome_dialog import (WelcomeDialog, ACTION_IMPORT, ACTION_NEW, ACTION_OPEN,
+                                     ACTION_RECONSTRUCT)
 from .dialogs.workspace_setup_dialog import WorkspaceSetupDialog
 from .dialogs.project_properties_dialog import ProjectPropertiesDialog
 from .dialogs.update_dialog import UpdateDialog
@@ -206,7 +207,7 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        import_action = QAction("ETS6 &Import... (CSV / XLSX / KNXPROJ)", self)
+        import_action = QAction("ETS-Projekt &einlesen... (KNXPROJ / XLSX / CSV)", self)
         import_action.setShortcut(QKeySequence("Ctrl+I"))
         import_action.triggered.connect(self._import_file)
         file_menu.addAction(import_action)
@@ -1240,9 +1241,10 @@ class MainWindow(QMainWindow):
 
     # -- Projekt-Aktionen --
 
-    def _new_project(self, offer_wizard: bool = True):
+    def _new_project(self, offer_wizard: bool = True, reconstruct: bool = False):
         """offer_wizard=False: der Aufrufer startet den Wizard selbst (Knopf
-        «Wizard» ohne offenes Projekt) -- sonst liefe er zweimal."""
+        «Wizard» ohne offenes Projekt) -- sonst liefe er zweimal.
+        reconstruct=True: Vorgehen «Anlage vom Bus aufnehmen» vorgewählt."""
         from ..services.project_service import ProjectService
 
         if not license_gate.save_allowed(self):  # NFA-066
@@ -1254,7 +1256,8 @@ class MainWindow(QMainWindow):
         workspace = self._ensure_workspace()
         project_service = ProjectService()
 
-        dialog = NewProjectDialog(self, workspace_root=workspace, project_service=project_service)
+        dialog = NewProjectDialog(self, workspace_root=workspace, project_service=project_service,
+                                  reconstruct=reconstruct)
         if not dialog.exec():
             return
 
@@ -1691,7 +1694,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self, "Projekt neu aufbauen",
                 "Bitte zuerst ein gespeichertes Projekt öffnen. Für ein neues "
-                "Projekt: Datei → Neues Projekt, danach ETS6 Import.")
+                "Projekt: Datei → Neues Projekt, danach ETS-Projekt einlesen.")
             return True
         from ..services import import_folder
         dialog = RebuildDialog(self._project.name, self, filepath=filepath,
@@ -3070,10 +3073,13 @@ class MainWindow(QMainWindow):
         self._ensure_workspace()
         from ..services.project_service import ProjectService
         recent = ProjectService().get_recent_projects()
-        dialog = WelcomeDialog(self, recent_projects=recent)
+        from ..utils.workspace import projects_folder
+        dialog = WelcomeDialog(self, recent_projects=recent, projects_folder=projects_folder())
         if dialog.exec():
             if dialog.action == ACTION_NEW:
                 self._new_project()
+            elif dialog.action == ACTION_RECONSTRUCT:
+                self._new_project(reconstruct=True)
             elif dialog.action == ACTION_IMPORT:
                 self._import_file()
             elif dialog.action == ACTION_OPEN:

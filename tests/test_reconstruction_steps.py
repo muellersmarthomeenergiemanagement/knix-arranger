@@ -134,6 +134,52 @@ def test_adopt_into_planned_project_warns(monkeypatch):
     assert "1.1.9" not in {d.physical_address for d in ds.project_devices(project)}
 
 
+def test_welcome_offers_three_starts_and_place():
+    from PySide6.QtWidgets import QApplication
+    from knix_arranger.ui.dialogs import welcome_dialog as wd
+    QApplication.instance() or QApplication([])
+    dialog = wd.WelcomeDialog()
+    dialog._btn_bus.click()
+    assert dialog.action == wd.ACTION_RECONSTRUCT
+    dialog = wd.WelcomeDialog()
+    dialog._btn_new.click()
+    assert dialog.action == wd.ACTION_NEW
+    # gleichnamige Projekte unterscheiden sich am Ort
+    assert wd.recent_place("C:/Syn/KNiX Arranger/Projekte/Chalet/Chalet.knxarr",
+                           "C:/Syn/KNiX Arranger/Projekte") == "Projekte im Arbeitsverzeichnis"
+    assert wd.recent_place("C:/Users/mm/AI/KNX Arranger Test3/Chalet/Chalet.knxarr",
+                           "C:/Syn/KNiX Arranger/Projekte") == "AI › KNX Arranger Test3"
+
+
+def test_welcome_lists_recent_with_place(tmp_path):
+    from PySide6.QtWidgets import QApplication
+    from knix_arranger.ui.dialogs import welcome_dialog as wd
+    QApplication.instance() or QApplication([])
+    paths = []
+    for folder in ("Projekte", "Testkopien"):
+        project = tmp_path / folder / "Chalet"
+        project.mkdir(parents=True)
+        (project / "Chalet.knxarr").write_text("{}", encoding="utf-8")
+        paths.append(str(project / "Chalet.knxarr"))
+    dialog = wd.WelcomeDialog(recent_projects=paths + [str(tmp_path / "weg.knxarr")],
+                              projects_folder=str(tmp_path / "Projekte"))
+    names = [b.accessibleName() for b in dialog._recent_buttons]
+    assert names[0] == "Chalet – Projekte im Arbeitsverzeichnis"
+    assert names[1].startswith("Chalet – ") and names[1].endswith("Testkopien")
+    assert len(names) == 2                                   # fehlende Datei nicht
+    dialog._recent_buttons[1].click()
+    assert dialog.action == wd.ACTION_OPEN and dialog.selected_path == paths[1]
+
+
+def test_new_project_dialog_preselects_reconstruct():
+    from PySide6.QtWidgets import QApplication
+    from knix_arranger.ui.dialogs.new_project_dialog import NewProjectDialog
+    QApplication.instance() or QApplication([])
+    dialog = NewProjectDialog(reconstruct=True)
+    assert dialog.reconstruct and not dialog.start_wizard
+    assert not dialog._template_box.isEnabled()
+
+
 def test_new_project_dialog_reconstruct():
     from PySide6.QtWidgets import QApplication
     from knix_arranger.ui.dialogs.new_project_dialog import NewProjectDialog

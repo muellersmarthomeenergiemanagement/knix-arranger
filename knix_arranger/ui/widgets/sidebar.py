@@ -62,7 +62,7 @@ NAV_GROUPS: list[tuple[str, list[tuple[str, str, str]]]] = [
     ("Projekt", [
         ("new_project",  "Neues Projekt",  "file-plus"),
         ("open_project", "Projekt öffnen", "folder-open"),
-        ("import_csv",   "ETS6 Import",    "file-import"),
+        ("import_csv",   "ETS-Projekt einlesen", "file-import"),
     ]),
     ("Planung", [
         ("overview",      "Übersicht",           "layout-dashboard"),
@@ -249,7 +249,7 @@ class Sidebar(QWidget):
         self._scroll = scroll
         self._groups: list[_NavGroup] = []
         for group_title, entries in NAV_GROUPS:
-            # "Projekt" offen: Neu, Öffnen und ETS6 Import sind beim ersten
+            # "Projekt" offen: Neu, Öffnen und ETS-Projekt einlesen sind beim ersten
             # Start sichtbar
             group = _NavGroup(group_title, expanded=group_title in ("Projekt", "Planung"),
                               on_toggle=self._emit_groups_changed)
