@@ -2,6 +2,24 @@
   "_hinweis": "Pro Release einen Eintrag OBEN anlegen. Texte für Integratoren formulieren (was ändert sich für mich?), nicht für Entwickler. Kategorien: neu, verbessert, behoben – leere Kategorien weglassen. CI bricht ab, wenn für die getaggte Version kein Eintrag existiert.",
   "versions": [
     {
+      "version": "1.4.66",
+      "date": "2026-11-27",
+      "neu": [
+        "Rundgang mit Gewerken: Je Aktorkanal stehen Gewerk und Klartext in der Liste – Gewerk korrigieren (z.B. Markise statt Jalousie, Steckdose statt Licht), Klartext per Doppelklick, z.B. «Fenster gross Berg». «Raum abschliessen» legt die Gewerke des Raums mit ihren Elementen an wie bei einem geplanten Raum; die GA-Namen tragen Raum und Klartext, z.B. «J_OG05_01 AUF/AB (Bibliothek Fenster gross Berg)».",
+        "Rundgang › «Einzeln ansteuern…»: KNiX schaltet die angehakten Kanäle nacheinander kurz und fragt, was reagiert hat. Die Antwort wird der Klartext – so lässt sich unterscheiden, welcher von zwei gemeinsam bedienten Storen an welchem Aktorkanal hängt.",
+        "Rundgang: Bedient eine GA zwei Kanäle des Raums (eine Taste für zwei Storen), wird sie eine Funktion des Raums, z.B. «J_OG05_F1 AUF/AB (Fenster Berg)». Den Namen schlägt KNiX aus dem Klartext vor."
+      ],
+      "verbessert": [
+        "Rundgang: Kanäle ohne Taster (z.B. Heizkanal) lassen sich von Hand dazunehmen. Hat der Raum eine Raumtemperatur, aber keinen Heizkanal, zeigt KNiX einen Hinweis.",
+        "Rundgang: Nach einem Tastendruck zählt ein Kanal nur, wenn er einen Befehl bekommt – eine Rückmeldung oder ein Messwert allein (z.B. Helligkeit, die zufällig in diesen Sekunden gesendet wird) schlägt keinen Kanal mehr vor."
+      ],
+      "behoben": [
+        "Rundgang: Bediente eine Taste zwei Storen über eine gemeinsame GA, schlug KNiX nur den ersten vor.",
+        "GAs, die im Rundgang schon einen Raum bekommen hatten, trugen nach «Herstellerdateien › Nachführen» wieder die Geräteadresse im Namen. Jetzt steht der Raum im Namen; ein erneutes «Raum abschliessen» korrigiert bestehende Namen.",
+        "Schrittleiste «Anlage aufnehmen»: «GAs lesen» und «Bedeutung ergänzen» zeigen ✓, auch wenn Koppler, entladene Geräte oder GAs mit leerem Namen vorhanden sind."
+      ]
+    },
+    {
       "version": "1.4.65",
       "date": "2026-11-26",
       "neu": [
