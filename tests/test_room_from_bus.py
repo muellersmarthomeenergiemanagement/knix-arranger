@@ -162,6 +162,133 @@ def test_channels_after_key_press():
     # Taster 1.1.31 -> Logikserver -> schaltet B (0/2/3), B meldet Status (0/2/4)
     assert rb.channels_in_telegrams(plan, ["3/4/20", "0/2/3", "0/2/4"]) == [
         ("1.1.1", "Ausgang B")]
+    # nur eine Rückmeldung (zyklisch, zufällig in diesen Sekunden): kein Kanal
+    assert rb.channels_in_telegrams(plan, ["3/4/20", "0/2/4"]) == []
+    assert rb.channels_in_telegrams(plan, ["0/6/1"]) == []
+
+
+M1, M2 = ("1.1.4", "Bedienung Storen (M1)"), ("1.1.4", "Bedienung Storen (M2)")
+
+
+def _device(project, address):
+    return next(d for a in project.topology.areas for line in a.lines for d in line.devices
+                if d.physical_address == address)
+
+
+def _two_blinds_project():
+    """Chalet Bibliothek: Taste 2 von 1.1.31 fährt M1 und M2 über die
+    gemeinsame GA 0/1/9 (Gruppenbedienung); M2 hat eigene GA 0/1/5."""
+    project = _project()
+    blinds = _device(project, "1.1.4")
+    blinds.communication_objects.append(
+        _co(20, "Bedienung Storen (M2), Endlage", "Auf/Ab", ["0/1/5", "0/1/9"],
+            dpt="DPST-1-8"))
+    blinds.communication_objects.append(
+        _co(21, "Bedienung Storen (M2), Wippen", "Stopp", ["0/1/6"]))
+    blinds.communication_objects[0].connected_gas.append("0/1/9")
+    _device(project, "1.1.31").communication_objects.append(
+        _co(2, "Taste 2", "Auf/Ab", ["0/1/9"], flags="K-SÜ--"))
+    mg = next(m for m in project.group_addresses.main_groups[0].middle_groups if m.number == 1)
+    for sub, dpt in ((5, "DPST-1-8"), (6, "DPST-1-7"), (9, "DPST-1-8")):
+        mg.group_addresses.append(GroupAddress(main_group=0, middle_group=1, sub_group=sub,
+                                               designation=f"Storen 0/1/{sub} (1.1.4)",
+                                               datapoint_type=dpt))
+    gm.apply(project, gm.propose(project))
+    return project
+
+
+def test_group_ga_of_two_blinds_reaches_both_channels():
+    plan = rb.analyse(_two_blinds_project())
+    assert set(plan.operators["1.1.31"].channels) == {M1, M2}
+    # die Gruppen-GA gehört keinem Kanal: «Einzeln ansteuern» fährt nur einen Storen
+    assert plan.group_gas["0/1/9"] == [M1, M2]
+    assert "0/1/9" not in plan.channels[M1].addresses
+    assert plan.channels[M1].functions["AUF/AB"] == "0/1/1"
+    # Logikserver auf die Gruppen-GA: beide Kanäle
+    assert set(rb.channels_in_telegrams(plan, ["0/1/9"])) == {M1, M2}
+
+
+def test_finish_room_gewerke_labels_and_function():
+    project = _two_blinds_project()
+    plan = rb.analyse(project)
+    room = rb.add_room(project, "OG", "05", "Bibliothek")
+    rb.assign(project, plan, room, "1.1.31", [M1, M2, ("1.1.1", "Ausgang B")])
+    rb.set_channel_gewerk(project, plan, ("1.1.1", "Ausgang B"), "S")    # Steckdose
+    summary = rb.finish_room(project, plan, room,
+                             {M1: "Fenster gross Berg", M2: "Fenster klein Berg"})
+    assert summary.gewerke == {"J": 2, "S": 1}
+    assignment = next(a for a in room.gewerk_assignments if a.gewerk_code == "J")
+    assert assignment.count == 2
+    assert assignment.element_labels == ["Fenster gross Berg", "Fenster klein Berg"]
+    gas = _by_address(project)
+    assert gas["0/1/1"].designation == "J_OG_05_01 AUF/AB (Bibliothek Fenster gross Berg)"
+    assert gas["0/1/5"].designation == "J_OG_05_02 AUF/AB (Bibliothek Fenster klein Berg)"
+    assert gas["0/1/1"].assignment_id == assignment.id
+    assert gas["0/2/3"].designation.startswith("S_OG_05_01 E/A (Bibliothek")
+    # Gruppen-GA = Funktion mit den beiden Elementen, Name aus dem Klartext
+    assert summary.functions == ["Fenster Berg"]
+    function = project.functions[0]
+    assert function.function_type == "FT-7" and function.room_id == room.id
+    assert {(m.assignment_id, m.element_number) for m in function.members} == {
+        (assignment.id, 1), (assignment.id, 2)}
+    assert gas["0/1/9"].function_id == function.id
+    assert gas["0/1/9"].designation == "J_OG_05_F1 AUF/AB (Fenster Berg)"
+    # zweites Abschliessen: Klartext bleibt, Funktion wird nicht doppelt angelegt
+    summary = rb.finish_room(project, plan, room, {}, {frozenset([M1, M2]): "Storen Berg"})
+    assert len(project.functions) == 1 and project.functions[0].name == "Storen Berg"
+    assert gas["0/1/9"].designation == "J_OG_05_F1 AUF/AB (Storen Berg)"
+    assert gas["0/1/5"].designation == "J_OG_05_02 AUF/AB (Bibliothek Fenster klein Berg)"
+
+
+def test_finish_room_temperature_without_heating_channel():
+    project = _project()
+    plan = rb.analyse(project)
+    room = rb.add_room(project, "EG", "05", "Wohnen")
+    rb.assign(project, plan, room, "1.1.40")
+    summary = rb.finish_room(project, plan, room)
+    assert summary.gewerke == {"H": 1}
+    assert summary.hints and "kein Heizkanal" in summary.hints[0]
+    assert _by_address(project)["3/2/22"].designation.startswith("H_EG_05_01 IST (Wohnen")
+
+
+def test_suggest_function_name():
+    assert rb.suggest_function_name(["Fenster gross Berg", "Fenster klein Berg"]) == \
+        "Fenster Berg"
+    assert rb.suggest_function_name(["Pult Ost", "Balkon"]) == "Pult Ost + Balkon"
+    assert rb.suggest_function_name(["", ""]) == ""
+
+
+def test_names_get_room_when_meaning_comes_after_assign():
+    # Rundgang vor der Herstellerdatei: der Raum steht, der Name ist vorläufig
+    project = _project()
+    gas = _by_address(project)
+    from knix_arranger.services.ets_corrections import set_ga_field
+    for address in ("0/2/3", "0/2/4"):
+        set_ga_field(project, gas[address], "designation", f"Ausgang B ({address})")
+    plan = rb.analyse(project)
+    room = rb.add_room(project, "EG", "05", "Wohnen")
+    rb.assign(project, plan, room, "", [("1.1.1", "Ausgang B")])
+    assert gas["0/2/3"].room_id == room.id and gas["0/2/3"].designation == "Ausgang B (0/2/3)"
+    # nun «Bedeutung ergänzen» bzw. Herstellerdatei nachgeführt
+    for address in ("0/2/3", "0/2/4"):
+        set_ga_field(project, gas[address], "designation", f"Ausgang B Schalten (1.1.1)")
+    gm.apply(project, [m for m in gm.propose(project) if m.address in ("0/2/3", "0/2/4")])
+    assert gas["0/2/3"].designation == "L_EG_05_01 E/A (Wohnen Ausgang B)"
+    assert gas["0/2/4"].designation == "L_EG_05_01 RM (Wohnen Ausgang B)"
+    assert gas["0/2/3"].room_id == room.id
+
+
+def test_finish_room_again_repairs_device_address_names():
+    project = _project()
+    gas = _by_address(project)
+    plan = rb.analyse(project)
+    room = rb.add_room(project, "EG", "05", "Wohnen")
+    for address in ("0/2/3", "0/2/4"):       # Stand im RekChalet: Raum ja, Name alt
+        gas[address].room_id = room.id
+    assert gas["0/2/3"].designation.startswith("L_1.1.1_")
+    result = rb.assign(project, plan, room, "", [("1.1.1", "Ausgang B")])
+    assert result.renamed == 2
+    assert gas["0/2/3"].designation == "L_EG_05_01 E/A (Wohnen Ausgang B)"
 
 
 def test_add_room_creates_floor_once():
@@ -467,7 +594,7 @@ def test_tour_load_search():
         parent = tour._tree.topLevelItem(i)
         for j in range(parent.childCount()):
             item = parent.child(j)
-            keys[item.data(0, Qt.UserRole)] = (item.text(1), item.checkState(0))
+            keys[item.data(0, Qt.UserRole)] = (item.text(3), item.checkState(0))
     assert keys[("1.1.1", "Ausgang B")] == ("Last gefunden", Qt.Checked)
     tour._go_next()                                         # Raum abschliessen
     gas = _by_address(project)
@@ -506,3 +633,61 @@ def test_overview_dialog_without_live():
     dialog._do_assign()
     assert _by_address(project)["0/2/1"].designation == "L_EG_05_01 E/A (Wohnen Ausgang A)"
     dialog.done(0)
+
+
+def _tree_items(tour):
+    from PySide6.QtCore import Qt
+    items = {}
+    for i in range(tour._tree.topLevelItemCount()):
+        parent = tour._tree.topLevelItem(i)
+        for j in range(parent.childCount()):
+            item = parent.child(j)
+            items[item.data(0, Qt.UserRole) or item.data(0, Qt.UserRole + 1)] = item
+    return items
+
+
+def test_tour_identify_blinds_and_function():
+    """Zwei Storen auf einer Taste: einzeln ansteuern, Klartext eintragen,
+    Gewerk korrigieren; beim Abschliessen Gewerke und Funktion."""
+    _app()
+    from knix_arranger.ui.dialogs import load_search_dialog as ls
+    from knix_arranger.ui.dialogs import room_tour_dialog as rt
+    project = _two_blinds_project()
+    room = rb.add_room(project, "OG", "05", "Bibliothek")
+    monitor = _SendingMonitor()
+    tour = rt.RoomTourDialog(project, monitor)
+    tour._room_combo.setCurrentIndex(tour._room_combo.findData(room.id))
+    tour._go_next()
+    monitor.send("1.1.31", "0/1/9")                          # Taste 2: beide Storen
+    tour._go_next()
+    items = _tree_items(tour)
+    assert M1 in items and M2 in items
+    function = items[frozenset([M1, M2])]
+    assert function.text(rt._C_LABEL) == "Bedienung Storen (M1) + Bedienung Storen (M2)"
+    assert tour._identify_btn.isEnabled()
+
+    # einzeln ansteuern: jeder Storen für sich, nie über die Gruppen-GA
+    channels = [tour._plan.channels[k] for k in (M1, M2)]
+    dialog = ls.IdentifyDialog(project, monitor, channels, "OG 05 Bibliothek", {}, tour)
+    dialog.time_scale = 0
+    assert set(dialog.selected()) == {M1, M2}
+    answers = iter([(ls.IDENTIFIED, "Fenster gross Berg"), (ls.IDENTIFIED, "Fenster klein Berg")])
+    dialog.ask = lambda step: next(answers)
+    monitor.sent.clear()
+    assert dialog.start(confirmed=True)
+    _wait_until(lambda: not dialog._running)
+    assert "0/1/9" not in {a for a, _s, _p in monitor.sent}
+    assert [a for a, _s, p in monitor.sent if p == "01"] == ["0/1/1", "0/1/2", "0/1/5", "0/1/6"]
+    tour._take_identified(dialog.answers)
+    items = _tree_items(tour)
+    assert items[M1].text(rt._C_LABEL) == "Fenster gross Berg"
+    assert items[frozenset([M1, M2])].text(rt._C_LABEL) == "Fenster Berg"
+    assert "reagiert" in items[M2].text(rt._C_ORIGIN)
+
+    tour._go_next()                                          # Raum abschliessen
+    assert tour._pages.currentIndex() == rt._DONE
+    assert "J ×2" in tour._done_text.text() and "Fenster Berg" in tour._done_text.text()
+    gas = _by_address(project)
+    assert gas["0/1/5"].designation == "J_OG_05_02 AUF/AB (Bibliothek Fenster klein Berg)"
+    assert gas["0/1/9"].designation == "J_OG_05_F1 AUF/AB (Fenster Berg)"
+    tour.done(0)

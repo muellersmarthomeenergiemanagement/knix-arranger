@@ -72,6 +72,20 @@ def test_meaning_building_and_tour():
     assert tour.state == rs.PARTIAL and "1/1 GAs mit Raum" in tour.detail
 
 
+def test_links_and_meaning_done_despite_devices_without_objects():
+    # Koppler, entladene Applikation, Dummy: keine KOs, nie verknüpfbar
+    project = _with_devices(KnxProject(), name="L_1.1.1_01 E/A (Ausgang A)")
+    line = project.topology.areas[0].lines[0]
+    line.devices.append(Device(physical_address="1.1.0", device_type="coupler"))
+    line.devices.append(Device(physical_address="1.1.21", device_type="other"))
+    mg = project.group_addresses.main_groups[0].middle_groups[0]
+    mg.group_addresses.append(GroupAddress(main_group=0, middle_group=0, sub_group=2,
+                                           designation=" "))      # Name nur Leerzeichen
+    by_key = {s.key: s for s in rs.steps(project, True)}
+    assert by_key[rs.LINKS].state == rs.DONE and "1/1 Geräte" in by_key[rs.LINKS].detail
+    assert by_key[rs.MEANING].state == rs.DONE
+
+
 def test_planned_project_with_devices_has_no_steps():
     project = _with_devices(KnxProject())
     project.topology.is_imported = False

@@ -2,14 +2,16 @@
 Rundgang «Räume zuordnen» (FA-3105c): Raum für Raum geführt.
 1) In welchem Raum sind Sie?  2) Alle Tasten drücken (KNiX nimmt auf, nur
 Tasten-KOs, ohne Grundrauschen)  3) Was gehört in diesen Raum? (Aktorkanäle
-nach Gewerk; Kanäle ohne Taster mit «Lasten suchen»: einzeln kurz schalten,
-vor Ort bestätigen)  -> Raum abschliessen, nächster Raum.
+nach Gewerk, Gewerk und Klartext vor Ort korrigierbar; «Einzeln ansteuern»
+zeigt, welcher Kanal welches Element ist; Kanäle ohne Taster mit «Lasten
+suchen» oder von Hand)  -> Raum abschliessen: Gewerke und Elemente wie ein
+geplanter Raum, Gruppen-GAs als Funktion -> nächster Raum.
 """
 from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMessageBox,
     QPushButton, QStackedWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -20,6 +22,9 @@ from ..styles import COLOR_OK, COLOR_WARNING, TEXT_MUTED
 from .room_assign_dialog import NewRoomDialog
 
 _ROOM, _KEYS, _REACT, _DONE = range(4)
+# Spalten der Kanalliste in Schritt 3
+_C_CHANNEL, _C_GEWERK, _C_LABEL, _C_ORIGIN, _C_ROOM = range(5)
+_FUNCTION_ROLE = Qt.UserRole + 1
 
 
 def _muted(text: str) -> QLabel:
@@ -48,6 +53,12 @@ class RoomTourDialog(QDialog):
         self._room = None
         self._done_rooms: list[str] = []          # Raum-IDs
         self._listening = False
+        # Eingaben in Schritt 3 je Raum: Gewerk, Klartext, Funktionsname
+        self._gewerke: dict[tuple[str, str], str] = {}
+        self._labels: dict[tuple[str, str], str] = {}
+        self._function_names: dict[frozenset, str] = {}
+        self._notes: dict[tuple[str, str], str] = {}
+        self._filling = False
 
         self.setWindowTitle("Räume zuordnen – Rundgang")
         self.resize(900, 620)
@@ -150,21 +161,48 @@ class RoomTourDialog(QDialog):
         layout.addWidget(self._react_title)
         layout.addWidget(_muted(
             "Aktorkanäle, die mit den gedrückten Tastern verknüpft sind oder nach einem "
-            "Tastendruck geschaltet bzw. Status gemeldet haben. Anhaken, was wirklich in "
-            "diesem Raum ist. Kanäle mit einem anderen Raum sind nicht angehakt. Was kein "
-            "Taster auslöst, findet «Lasten suchen»."))
+            "Tastendruck einen Befehl bekommen haben. Anhaken, was wirklich in diesem Raum "
+            "ist; Gewerk prüfen und den Klartext eintragen (Doppelklick), z.B. «Fenster "
+            "gross Berg». Welcher Kanal welcher ist, zeigt «Einzeln ansteuern». Bedient "
+            "eine GA mehrere angehakte Kanäle, wird sie eine Funktion des Raums."))
         self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["Aktorkanal", "Herkunft", "Raum bisher"])
-        self._tree.setColumnWidth(0, 360)
-        self._tree.setColumnWidth(1, 150)
+        self._tree.setHeaderLabels(["Aktorkanal", "Gewerk", "Klartext", "Herkunft",
+                                    "Raum bisher"])
+        self._tree.setColumnWidth(_C_CHANNEL, 290)
+        self._tree.setColumnWidth(_C_GEWERK, 170)
+        self._tree.setColumnWidth(_C_LABEL, 180)
+        self._tree.setColumnWidth(_C_ORIGIN, 130)
+        self._tree.setEditTriggers(QTreeWidget.NoEditTriggers)
+        self._tree.itemDoubleClicked.connect(self._edit_label)
+        self._tree.itemChanged.connect(self._item_changed)
         layout.addWidget(self._tree, 1)
+        self._hints = QLabel()
+        self._hints.setWordWrap(True)
+        self._hints.setStyleSheet(f"color: {COLOR_WARNING};")
+        layout.addWidget(self._hints)
         row = QHBoxLayout()
+        self._identify_btn = QPushButton("Einzeln ansteuern…")
+        self._identify_btn.setObjectName("secondary")
+        self._identify_btn.setToolTip("Die angehakten Kanäle nacheinander kurz schalten und "
+                                      "eintragen, was reagiert hat")
+        self._identify_btn.clicked.connect(self._identify)
+        row.addWidget(self._identify_btn)
         self._loads_btn = QPushButton("Lasten suchen…")
         self._loads_btn.setObjectName("secondary")
         self._loads_btn.clicked.connect(self._search_loads)
         row.addWidget(self._loads_btn)
         self._loads_hint = _muted("")
         row.addWidget(self._loads_hint, 1)
+        layout.addLayout(row)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Kanal von Hand dazunehmen:"))
+        self._manual_channel = QComboBox()
+        self._manual_channel.setMinimumWidth(360)
+        row.addWidget(self._manual_channel, 1)
+        add = QPushButton("Dazunehmen")
+        add.setObjectName("secondary")
+        add.clicked.connect(self._add_manual_channel)
+        row.addWidget(add)
         layout.addLayout(row)
         return page
 
@@ -214,6 +252,8 @@ class RoomTourDialog(QDialog):
             history = self._monitor.history() if self._listening and hasattr(
                 self._monitor, "history") else ()
             self._session = rb.RoomSession(self._plan, history)
+            self._gewerke, self._labels, self._notes = {}, {}, {}
+            self._function_names = {}
             label = rb.room_label(self._project, room.id)
             self._keys_title.setText(f"Schritt 2 von 3 – {label}: Drücken Sie alle Tasten")
             self._last_press.setText("Warte auf den ersten Tastendruck …" if self._listening
@@ -232,6 +272,7 @@ class RoomTourDialog(QDialog):
                 f"{rb.room_label(self._project, self._room.id)}?")
             self._tree.clear()
             self._fill_tree()
+            self._fill_manual_channels()
             self._update_loads_button()
             self._show_page(_REACT)
         elif page == _REACT:
@@ -354,35 +395,196 @@ class RoomTourDialog(QDialog):
             self._session.add(address)
             self._fill_pressed(address)
 
+    def _gewerk_name(self, code: str) -> str:
+        catalog = getattr(self._project, "gewerk_catalog", None)
+        gewerk = catalog.get(code) if hasattr(catalog, "get") else None
+        return (getattr(gewerk, "name", "") or code).split(" (")[0]
+
+    def _gewerk_codes(self) -> list[str]:
+        catalog = getattr(self._project, "gewerk_catalog", None)
+        codes = list(catalog.all_codes()) if hasattr(catalog, "all_codes") else []
+        return codes or ["L", "LD", "LDA", "S", "J", "M", "R", "H", "MM", "SF"]
+
+    def _label_of(self, key) -> str:
+        if key not in self._labels:
+            channel = self._plan.channels.get(key)
+            self._labels[key] = rb.channel_label(self._project, channel) if channel else ""
+        return self._labels[key]
+
     def _fill_tree(self) -> None:
         checked = self._checked_channels(default=None)
-        self._tree.clear()
-        catalog = getattr(self._project, "gewerk_catalog", None)
-        by_gewerk: dict[str, list] = {}
-        for key, origin in self._session.candidates():
-            channel = self._plan.channels[key]
-            by_gewerk.setdefault(channel.gewerk or "SF", []).append((channel, origin))
-        for code in sorted(by_gewerk):
-            gewerk = catalog.get(code) if hasattr(catalog, "get") else None
-            name = (getattr(gewerk, "name", "") or code).split(" (")[0]
-            parent = QTreeWidgetItem([f"{code} – {name}"])
-            parent.setFirstColumnSpanned(True)
-            self._tree.addTopLevelItem(parent)
-            for channel, origin in by_gewerk[code]:
-                room_id = rb.channel_room(self._project, channel)
-                item = QTreeWidgetItem([channel.label, origin,
-                                        rb.room_label(self._project, room_id) or "–"])
-                item.setData(0, Qt.UserRole, channel.key)
-                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                on = checked.get(channel.key) if checked is not None and \
-                    channel.key in checked else (not room_id or room_id == self._room.id)
-                item.setCheckState(0, Qt.Checked if on else Qt.Unchecked)
-                parent.addChild(item)
-            parent.setExpanded(True)
-        if not by_gewerk:
-            self._tree.addTopLevelItem(QTreeWidgetItem(
-                ["Keine Aktorkanäle – die Taster gehen nur an einen Logikserver ohne "
-                 "Reaktion, oder es wurde keine Taste gedrückt."]))
+        self._filling = True
+        try:
+            self._tree.clear()
+            by_gewerk: dict[str, list] = {}
+            for key, origin in self._session.candidates():
+                channel = self._plan.channels[key]
+                code = self._gewerke.get(key) or channel.gewerk or "SF"
+                by_gewerk.setdefault(code, []).append((channel, origin))
+            on_keys = []
+            for code in sorted(by_gewerk):
+                parent = QTreeWidgetItem([f"{code} – {self._gewerk_name(code)}"])
+                parent.setFirstColumnSpanned(True)
+                self._tree.addTopLevelItem(parent)
+                for channel, origin in by_gewerk[code]:
+                    key = channel.key
+                    room_id = rb.channel_room(self._project, channel)
+                    note = self._notes.get(key)
+                    item = QTreeWidgetItem([
+                        channel.label, "", self._label_of(key),
+                        origin + (f" · {note}" if note else ""),
+                        rb.room_label(self._project, room_id) or "–"])
+                    item.setData(0, Qt.UserRole, key)
+                    item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEditable)
+                    on = checked.get(key) if checked is not None and key in checked \
+                        else (not room_id or room_id == self._room.id)
+                    item.setCheckState(0, Qt.Checked if on else Qt.Unchecked)
+                    parent.addChild(item)
+                    self._tree.setItemWidget(item, _C_GEWERK, self._gewerk_combo(key, code))
+                    if on:
+                        on_keys.append(key)
+                parent.setExpanded(True)
+            if not by_gewerk:
+                self._tree.addTopLevelItem(QTreeWidgetItem(
+                    ["Keine Aktorkanäle – die Taster gehen nur an einen Logikserver ohne "
+                     "Reaktion, oder es wurde keine Taste gedrückt."]))
+            self._fill_functions(on_keys)
+            codes = {self._gewerke.get(k) or self._plan.channels[k].gewerk or "SF"
+                     for k in on_keys}
+            hints = self._session.missing_hints(on_keys, codes) if self._session else []
+            self._hints.setText("\n".join(hints))
+            self._hints.setVisible(bool(hints))
+        finally:
+            self._filling = False
+        self._update_identify_button()
+
+    def _fill_functions(self, on_keys) -> None:
+        """Gruppen-GAs der angehakten Kanäle: werden Funktionen des Raums."""
+        groups = rb.candidate_functions(self._plan, on_keys)
+        if not groups:
+            return
+        parent = QTreeWidgetItem(["Funktionen – Gruppenbedienung"])
+        parent.setFirstColumnSpanned(True)
+        self._tree.addTopLevelItem(parent)
+        for addresses, keys in groups:
+            frozen = frozenset(keys)
+            labels = [self._label_of(k) for k in keys]
+            names = [label or self._plan.channels[k].channel for k, label in zip(keys, labels)]
+            name = self._function_names.get(frozen) or rb.suggest_function_name(labels) \
+                or " + ".join(names)
+            item = QTreeWidgetItem([f"bedient: {' + '.join(names)}",
+                                    self._gewerk_name(self._gewerke.get(keys[0]) or
+                                                      self._plan.channels[keys[0]].gewerk
+                                                      or "SF"),
+                                    name, f"{len(addresses)} GAs ({addresses[0]} …)", ""])
+            item.setData(0, _FUNCTION_ROLE, frozen)
+            item.setFlags(item.flags() | Qt.ItemIsEditable)
+            item.setToolTip(_C_LABEL, "Name der Funktion – Doppelklick zum Ändern")
+            parent.addChild(item)
+        parent.setExpanded(True)
+
+    def _gewerk_combo(self, key, code: str) -> QComboBox:
+        combo = QComboBox()
+        codes = self._gewerk_codes()
+        if code not in codes:
+            codes.append(code)
+        for each in codes:
+            combo.addItem(f"{each} – {self._gewerk_name(each)}", each)
+        combo.setCurrentIndex(max(combo.findData(code), 0))
+        combo.currentIndexChanged.connect(
+            lambda _i, k=key, c=combo: self._set_gewerk(k, c.currentData()))
+        return combo
+
+    def _set_gewerk(self, key, code: str) -> None:
+        channel = self._plan.channels.get(key)
+        if channel is None:
+            return
+        if code == (channel.gewerk or "SF"):
+            self._gewerke.pop(key, None)
+        else:
+            self._gewerke[key] = code
+        QTimer.singleShot(0, self._fill_tree)
+
+    def _edit_label(self, item, column: int) -> None:
+        if column == _C_LABEL and (item.data(0, Qt.UserRole) is not None
+                                   or item.data(0, _FUNCTION_ROLE) is not None):
+            self._tree.editItem(item, _C_LABEL)
+
+    def _item_changed(self, item, column: int) -> None:
+        if self._filling:
+            return
+        key = item.data(0, Qt.UserRole)
+        frozen = item.data(0, _FUNCTION_ROLE)
+        if column == _C_LABEL:
+            text = " ".join(item.text(_C_LABEL).split())
+            if key is not None:
+                self._labels[key] = text
+            elif frozen is not None:
+                self._function_names[frozen] = text
+        elif column != _C_CHANNEL:
+            return
+        # Funktionen und Hinweise hängen an Häkchen und Klartext
+        QTimer.singleShot(0, self._fill_tree)
+
+    def _fill_manual_channels(self) -> None:
+        self._manual_channel.clear()
+        shown = set(self._checked_channels() or {})
+        channels = sorted((c for c in self._plan.channels.values() if c.key not in shown),
+                          key=lambda c: (bool(rb.channel_room(self._project, c)),
+                                         c.gewerk != "H", rb._pa_key(c.device_address),
+                                         c.channel))
+        for channel in channels:
+            room = rb.room_label(self._project, rb.channel_room(self._project, channel))
+            self._manual_channel.addItem(
+                f"{channel.label} ({channel.gewerk or 'SF'})" + (f" – {room}" if room else ""),
+                channel.key)
+
+    def _add_manual_channel(self) -> None:
+        key = self._manual_channel.currentData()
+        if key is None or self._session is None:
+            return
+        if key not in self._session.manual_channels:
+            self._session.manual_channels.append(key)
+        self._fill_tree()
+        self._fill_manual_channels()
+
+    # ── Einzeln ansteuern ────────────────────────────────────────────────
+
+    def _update_identify_button(self) -> None:
+        connected = getattr(self._monitor, "connected", False)
+        checked = [k for k, on in (self._checked_channels() or {}).items() if on]
+        self._identify_btn.setEnabled(connected and bool(checked))
+
+    def _identify(self) -> None:
+        from .load_search_dialog import IDENTIFIED, OTHER_ROOM, IdentifyDialog
+        keys = [k for k, on in (self._checked_channels() or {}).items() if on]
+        channels = [self._plan.channels[k] for k in keys if k in self._plan.channels]
+        dialog = IdentifyDialog(self._project, self._monitor, channels,
+                                rb.room_label(self._project, self._room.id),
+                                {k: self._label_of(k) for k in keys}, self)
+        dialog.exec()
+        self._take_identified(dialog.answers, IDENTIFIED, OTHER_ROOM)
+
+    def _take_identified(self, answers, identified="identified", other="other") -> None:
+        for key, (kind, label) in answers.items():
+            if kind == identified:
+                if label:
+                    self._labels[key] = label
+                self._notes[key] = "reagiert"
+            elif kind == other:
+                self._notes[key] = "anderer Raum"
+                self._set_checked(key, False)
+            else:
+                self._notes[key] = "nichts reagiert"
+        self._fill_tree()
+
+    def _set_checked(self, key, on: bool) -> None:
+        for i in range(self._tree.topLevelItemCount()):
+            parent = self._tree.topLevelItem(i)
+            for j in range(parent.childCount()):
+                item = parent.child(j)
+                if item.data(0, Qt.UserRole) == key:
+                    item.setCheckState(0, Qt.Checked if on else Qt.Unchecked)
 
     # ── Lasten suchen ────────────────────────────────────────────────────
 
@@ -440,6 +642,9 @@ class RoomTourDialog(QDialog):
         label = rb.room_label(self._project, room.id)
         if self._bus is not None:
             self._bus.begin_change(f"Raum zugeordnet: {label}")
+        for key in keys:
+            if self._gewerke.get(key):
+                rb.set_channel_gewerk(self._project, self._plan, key, self._gewerke[key])
         total = rb.AssignResult()
         for index, address in enumerate(operators or [""]):
             result = rb.assign(self._project, self._plan, room, address,
@@ -447,15 +652,20 @@ class RoomTourDialog(QDialog):
             total.device_moved |= result.device_moved
             total.channels += result.channels
             total.renamed += result.renamed
+        labels = {k: self._labels[k] for k in keys if self._labels.get(k)}
+        summary = rb.finish_room(self._project, self._plan, room, labels,
+                                 dict(self._function_names))
         if self._bus is not None:
             self._bus.emit_topology_changed()
             self._bus.emit_addresses_changed()
+            self._bus.emit_building_changed()       # Gewerke des Raums
         if room.id not in self._done_rooms:
             self._done_rooms.append(room.id)
         self._done_title.setText(f"{label} abgeschlossen")
+        hints = "".join(f"\n⚠ {h}" for h in summary.hints)
         self._done_text.setText(
-            f"{len(operators)} Taster/Sensoren, {total.channels} Aktorkanäle neu im Raum, "
-            f"{total.renamed} GAs umbenannt. Rückgängig über Bearbeiten.")
+            f"{len(operators)} Taster/Sensoren, {total.channels} Aktorkanäle neu im Raum. "
+            f"{summary.text()}.{hints}\nRückgängig über Bearbeiten.")
         self._fill_open()
         self._session = None
         self._show_page(_DONE)

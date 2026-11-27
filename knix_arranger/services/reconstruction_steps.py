@@ -58,7 +58,7 @@ def steps(project, connected: bool = False, findings: int = 0) -> list[Step]:
     """Die sieben Schritte mit Stand. `findings`: Anzahl gefundener Geräte
     der laufenden Suche (geht beim Schliessen verloren, darum zählen auch
     übernommene Geräte als gesucht)."""
-    from .ga_meaning import is_provisional
+    from .ga_meaning import is_provisional_named
     result = [Step(key, number, _TITLES[key])
               for number, key in enumerate(_TITLES, start=1)]
     by_key = {s.key: s for s in result}
@@ -81,14 +81,18 @@ def steps(project, connected: bool = False, findings: int = 0) -> list[Step]:
     elif findings:
         by_key[ADOPT].detail = "Gefundenes noch nicht im Projekt"
 
-    linked = sum(1 for d in devices if any(co.connected_gas
-                                           for co in d.communication_objects))
+    # nur Geräte mit KOs lassen sich verknüpfen: Koppler, entladene
+    # Applikationen und Geräte ohne Herstellerdatei zählen nicht (die
+    # letzten zeigt «Übernehmen»)
+    linkable = [d for d in devices if d.communication_objects]
+    linked = sum(1 for d in linkable if any(co.connected_gas
+                                            for co in d.communication_objects))
     if linked and gas:
-        by_key[LINKS].state = DONE if linked >= len(devices) else PARTIAL
-        by_key[LINKS].detail = f"{len(gas)} GAs, {linked}/{len(devices)} Geräte verknüpft"
+        by_key[LINKS].state = DONE if linked >= len(linkable) else PARTIAL
+        by_key[LINKS].detail = f"{len(gas)} GAs, {linked}/{len(linkable)} Geräte verknüpft"
 
     if gas:
-        provisional = sum(1 for ga in gas if ga.designation and is_provisional(ga))
+        provisional = sum(1 for ga in gas if is_provisional_named(ga))
         by_key[MEANING].state = OPEN if provisional == len(gas) else \
             PARTIAL if provisional else DONE
         by_key[MEANING].detail = f"{provisional} GAs vorläufig" if provisional \

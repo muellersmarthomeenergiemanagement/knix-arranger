@@ -560,9 +560,10 @@ def build_document() -> Document:
          "Stockwerke, Zonen und Räume in der Ansicht «Gebäude»."),
         ("7  Rundgang",
          "Vor Ort Raum für Raum: Raum wählen, alle Tasten drücken, die vorgeschlagenen "
-         "Aktorkanäle bestätigen. Die GA-Namen erhalten den Raum. Welche Taste was "
-         "schaltet, weiss KNiX aus Schritt 4 – der Rundgang ergänzt nur den Raum, den "
-         "kein Gerät speichert."),
+         "Aktorkanäle bestätigen, Gewerk und Klartext prüfen. Der Raum bekommt seine "
+         "Gewerke wie ein geplanter Raum, die GA-Namen den Raum. Welche Taste was "
+         "schaltet, weiss KNiX aus Schritt 4 – der Rundgang ergänzt, was kein Gerät "
+         "speichert."),
     ], header=("Schritt", "Was geschieht"))
     add_bullet(doc,
         "✓ heisst erledigt, «…» teilweise (z. B. Secure-Geräte ohne Schlüssel). Der "
@@ -591,7 +592,21 @@ def build_document() -> Document:
         "die Telegramme aus, die kurz nach dem Tastendruck folgen. Was übrig bleibt, "
         "findet «Lasten suchen»: KNiX schaltet einen Kanal kurz und fragt, ob im Raum "
         "etwas reagiert hat. Alarm, Wetter, Tor, Türe und Fenster schaltet KNiX nie, "
-        "Storen nur mit Stopp-GA.")
+        "Storen nur mit Stopp-GA. Kanäle ohne Taster, z. B. den Heizkanal, nehmen Sie "
+        "von Hand dazu.")
+    add_bullet(doc,
+        "Je Kanal stehen Gewerk und Klartext in der Liste: Gewerk korrigieren (Markise "
+        "statt Jalousie, Steckdose statt Licht), Klartext per Doppelklick eintragen, z. B. "
+        "«Fenster gross Berg». «Einzeln ansteuern…» schaltet die angehakten Kanäle "
+        "nacheinander und fragt, was reagiert hat – so lässt sich unterscheiden, welcher "
+        "von zwei gemeinsam bedienten Storen an welchem Aktorkanal hängt. Die Antwort "
+        "wird der Klartext.")
+    add_bullet(doc,
+        "Bedient eine GA zwei Kanäle des Raums (eine Taste für zwei Storen), wird sie "
+        "eine Funktion des Raums, z. B. «J_OG05_F1 AUF/AB (Fenster Berg)»; den Namen "
+        "schlägt KNiX aus dem Klartext vor. «Raum abschliessen» legt je Gewerk die "
+        "Elemente mit Klartext an; fehlt neben der Raumtemperatur der Heizkanal, steht "
+        "ein Hinweis. Ein Raum lässt sich erneut abschliessen.")
     add_tip(doc,
         "Bei mehreren Linien die Schnittstelle an die Haupt- oder Bereichslinie "
         "anschliessen: Der Rundgang hört nur, was die Linienkoppler durchlassen.")

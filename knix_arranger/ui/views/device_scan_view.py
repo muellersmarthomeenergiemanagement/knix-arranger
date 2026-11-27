@@ -274,12 +274,11 @@ class DeviceScanView(QWidget):
         self._export_btn.setEnabled(bool(self._rows))
         self._adopt_btn.setEnabled(self._project is not None and not self.scanning
                                    and any(f.answered and not f.own for f in self._findings))
-        from ...services.ga_meaning import is_provisional
+        from ...services.ga_meaning import is_provisional_named
         structure = getattr(self._project, "group_addresses", None)
         self._meaning_btn.setEnabled(
             structure is not None and not self.scanning
-            and any(is_provisional(ga) and ga.designation
-                    for ga in structure.all_addresses()))
+            and any(is_provisional_named(ga) for ga in structure.all_addresses()))
         self._rooms_btn.setEnabled(
             self._project is not None and not self.scanning
             and any(getattr(d, "communication_objects", None)

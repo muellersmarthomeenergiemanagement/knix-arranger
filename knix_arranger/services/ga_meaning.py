@@ -105,6 +105,12 @@ def is_provisional(ga) -> bool:
     return not (ga.designation or "").strip() or bool(_PROVISIONAL.match(ga.designation))
 
 
+def is_provisional_named(ga) -> bool:
+    """Vorläufiger Name aus «Ins Projekt übernehmen» – ohne leere Namen
+    (auch nur Leerzeichen): die stammen nicht vom Übernehmen."""
+    return bool((ga.designation or "").strip()) and is_provisional(ga)
+
+
 def _text(*parts) -> str:
     return " ".join(p for p in parts if p).lower()
 
@@ -328,6 +334,7 @@ def apply(project, proposals: list[Meaning]) -> MeaningResult:
     from .ets_corrections import set_ga_field, set_gewerk
     result = MeaningResult()
     by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+    in_room = []
     for meaning in proposals:
         ga = by_address.get(meaning.address)
         if ga is None or not meaning.designation:
@@ -344,6 +351,13 @@ def apply(project, proposals: list[Meaning]) -> MeaningResult:
         result.gewerke[code] += 1
         if not meaning.gewerk:
             result.without_gewerk.append(ga.address)
+        if ga.room_id:
+            in_room.append(ga)
+    if in_room:
+        # schon einem Raum zugeordnet (Rundgang vor der Herstellerdatei):
+        # Raum statt Geräteadresse im Namen
+        from .room_from_bus import rename_in_rooms
+        rename_in_rooms(project, in_room)
     result.groups_named = _name_groups(project)
     result.scenes = _detect_scenes(project)
     return result

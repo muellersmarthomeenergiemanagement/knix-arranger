@@ -30,6 +30,8 @@ class Channel:
     addresses: list[str] = field(default_factory=list)
     # Funktion -> GA ("E/A" -> "0/2/3", "RM" -> "0/2/4"), für «Lasten suchen»
     functions: dict[str, str] = field(default_factory=dict)
+    # Rückmeldungen und Messwerte: kommen auch ohne Bedienung (zyklisch)
+    status_addresses: set[str] = field(default_factory=set)
 
     @property
     def key(self) -> tuple[str, str]:
@@ -88,6 +90,9 @@ class RoomPlan:
     # Raumvorschläge: Gruppen aus Tastern/Sensoren und Kanälen, die über
     # gemeinsame GAs zusammenhängen
     groups: list[tuple[list[str], list[tuple[str, str]]]] = field(default_factory=list)
+    # Gruppen-GA -> Kanäle (zwei, weniger als eine Zentral-GA): wird im Raum
+    # aller Kanäle eine Funktion (FA-530/531)
+    group_gas: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
 
     def orphan_channels(self) -> list[Channel]:
         """Aktorkanäle, die kein Taster bedient (nur zentral, Visualisierung …)."""
@@ -117,9 +122,20 @@ def analyse(project) -> RoomPlan:
     gewerk_cache: dict = {}
 
     central: set[str] = set()
+    # Gruppen-GAs: zwei Kanäle (z.B. zwei Storen auf einer Taste) -- eine
+    # Funktion des Raums, nicht Teil eines Kanals. Sonst schaltete «Einzeln
+    # ansteuern» beide Storen.
+    group_keys: dict[str, list[tuple[str, str]]] = {}
     for address, entries in receivers.items():
-        if len({(d.physical_address, _channel(c)) for d, c in entries}) >= CENTRAL_CHANNELS:
+        keys = []
+        for d, c in entries:
+            key = (d.physical_address, _channel(c))
+            if key not in keys:
+                keys.append(key)
+        if len(keys) >= CENTRAL_CHANNELS:
             central.add(address)
+        elif len(keys) > 1:
+            group_keys[address] = keys
 
     # Kanäle: GAs, deren Bedeutung ein Aktor-/Gateway-KO trägt
     channel_of: dict[str, tuple[str, str]] = {}
@@ -128,7 +144,13 @@ def analyse(project) -> RoomPlan:
         if ga is None or address in central or device.device_type not in ("actor", "gateway"):
             continue
         if _is_scene(ga, co):
+            group_keys.pop(address, None)
             continue
+        function = device_functions.get(address) or ga.function_name or _function_of(
+            co, "", clean_dpt(ga.datapoint_type) or clean_dpt(co.data_type))
+        if address in group_keys and not _STATUS_FUNCTION.match(function or ""):
+            continue                       # Befehl an mehrere Kanäle: Gruppe
+        group_keys.pop(address, None)
         name = _channel(co)
         key = (device.physical_address, name)
         channel = plan.channels.get(key)
@@ -139,11 +161,22 @@ def analyse(project) -> RoomPlan:
         channel.addresses.append(address)
         channel_of[address] = key
         # Bedeutung vom Gerät vor dem Namen (FA-531a), dann KO-Text/DPT
-        function = device_functions.get(address) or ga.function_name or _function_of(
-            co, "", clean_dpt(ga.datapoint_type) or clean_dpt(co.data_type))
         if function:
             channel.functions.setdefault(function, address)
-    _merge_motors(plan, channel_of)
+            if _STATUS_FUNCTION.match(function):
+                channel.status_addresses.add(address)
+    merged = _merge_motors(plan, channel_of)
+    for address, keys in group_keys.items():
+        resolved = []
+        for key in keys:
+            key = merged.get(key, key)
+            if key in plan.channels and key not in resolved:
+                resolved.append(key)
+        if len(resolved) > 1:
+            plan.group_gas[address] = resolved
+        elif resolved:                     # derselbe Motor: doch ein Kanal
+            plan.channels[resolved[0]].addresses.append(address)
+            channel_of[address] = resolved[0]
     for channel in plan.channels.values():
         channel.addresses.sort(key=_ga_key)
 
@@ -165,9 +198,11 @@ def analyse(project) -> RoomPlan:
                 operator.key_gas.update(co.connected_gas)
             for address in co.connected_gas:
                 key = channel_of.get(address)
-                if key is not None:
-                    if key not in operator.channels:
-                        operator.channels.append(key)
+                keys = plan.group_gas.get(address) or ([key] if key is not None else [])
+                if keys:
+                    for each in keys:
+                        if each not in operator.channels:
+                            operator.channels.append(each)
                 elif address in by_address and address not in central:
                     anchor = anchors.get(address)
                     if anchor is not None and anchor[0] is device \
@@ -182,10 +217,14 @@ def analyse(project) -> RoomPlan:
 _MOTOR = re.compile(r"\((M\d+)\)", re.IGNORECASE)
 
 
-def _merge_motors(plan: RoomPlan, channel_of: dict) -> None:
+_STATUS_FUNCTION = re.compile(r"^(RM|MESSWERT|IST)\b")
+
+
+def _merge_motors(plan: RoomPlan, channel_of: dict) -> dict:
     """Ein Motor, ein Kanal: «Bedienung Storen (M1)» und «Sonnenschutz (M1)»
     (Status) desselben Geräts zusammenfassen -- unter dem Namen mit den
-    Befehls-GAs."""
+    Befehls-GAs. Gibt {zusammengefasster Kanal: Kanal} zurück."""
+    merged: dict[tuple[str, str], tuple[str, str]] = {}
     by_motor: dict[tuple[str, str], list[Channel]] = {}
     for channel in plan.channels.values():
         match = _MOTOR.search(channel.channel)
@@ -203,9 +242,12 @@ def _merge_motors(plan: RoomPlan, channel_of: dict) -> None:
                 channel_of[address] = main.key
             for function, address in other.functions.items():
                 main.functions.setdefault(function, address)
+            main.status_addresses |= other.status_addresses
             if not main.gewerk:
                 main.gewerk = other.gewerk
+            merged[other.key] = main.key
             del plan.channels[other.key]
+    return merged
 
 
 # Zeitfenster nach einem Tastendruck: Logik (Server, Szenen) und Status der
@@ -214,11 +256,15 @@ FOLLOW_SECONDS = 4.0
 
 
 def channels_in_telegrams(plan: RoomPlan, addresses) -> list[tuple[str, str]]:
-    """Aktorkanäle, deren GAs in den Telegrammen nach einem Tastendruck
-    vorkommen (Befehl über einen Logikserver, Status des Aktors)."""
+    """Aktorkanäle, die in den Telegrammen nach einem Tastendruck einen
+    Befehl bekommen (über einen Logikserver). Eine Rückmeldung oder ein
+    Messwert allein zählt nicht: zyklische Sender (Helligkeit, Anzahl
+    Personen) senden zufällig auch in diesen Sekunden."""
     seen = set(addresses)
+    via_group = {key for a in seen for key in plan.group_gas.get(a, ())}
     return [key for key, channel in plan.channels.items()
-            if any(a in seen for a in channel.addresses)]
+            if key in via_group or any(a in seen and a not in channel.status_addresses
+                                       for a in channel.addresses)]
 
 
 # Grundrauschen: was vor dem Start in dieser Zeit mehrmals gesendet wurde
@@ -261,6 +307,8 @@ class RoomSession:
         self.removed: set[str] = set()
         # mit «Lasten suchen» in diesem Raum gefunden
         self.found: list[tuple[str, str]] = []
+        # von Hand dazugenommen (Heizkanal ohne Taster u.ä.)
+        self.manual_channels: list[tuple[str, str]] = []
         self.ignored = 0
         self._last: tuple[str, float] | None = None
 
@@ -310,7 +358,27 @@ class RoomSession:
                 result.setdefault(key, "nach Tastendruck")
         for key in self.found:
             result.setdefault(key, "Last gefunden")
+        for key in self.manual_channels:
+            result.setdefault(key, "von Hand")
         return list(result.items())
+
+    def missing_hints(self, keys, codes=None) -> list[str]:
+        """Was im Raum fehlt, bevor er abgeschlossen wird: Raumtemperatur
+        eines gedrückten Tasters ohne Heizkanal unter den angehakten.
+        codes: Gewerke der Kanäle, falls vor Ort geändert."""
+        hints = []
+        if codes is None:
+            codes = {self.plan.channels[k].gewerk for k in keys if k in self.plan.channels}
+        temperature = any(
+            re.search(r"temperatur", f"{co.name} {co.object_function}", re.IGNORECASE)
+            for press in self.pressed.values()
+            for co in self.plan.operators[press.address].device.communication_objects
+            if co.connected_gas)
+        if temperature and "H" not in codes:
+            hints.append("Raumtemperatur vorhanden, aber kein Heizkanal angehakt – "
+                         "Heizkanal unten von Hand dazunehmen (Heizventile reagieren "
+                         "zu langsam für «Lasten suchen»).")
+        return hints
 
 
 # ── Lasten suchen ────────────────────────────────────────────────────────
@@ -624,7 +692,12 @@ def assign(project, plan: RoomPlan, room, operator_address: str = "",
         if channel is None:
             continue
         gas = [by_address[a] for a in channel.addresses if a in by_address]
-        if not gas or all(ga.room_id == room.id for ga in gas):
+        if not gas:
+            continue
+        if all(ga.room_id == room.id for ga in gas):
+            # schon im Raum; Namen mit Geräteadresse (Bedeutung erst danach
+            # ergänzt) bekommen jetzt den Raum
+            result.renamed += rename_in_rooms(project, gas, plan)
             continue
         result.renamed += _move_gas(project, gas, room, numbers)
         result.channels += 1
@@ -640,6 +713,47 @@ def assign(project, plan: RoomPlan, room, operator_address: str = "",
         for gas in groups.values():
             result.renamed += _move_gas(project, gas, room, numbers)
     return result
+
+
+_PA_IN_NAME = re.compile(r"^[A-Za-z0-9]+_\d+\.\d+\.\d+_\d{2,}\b")
+
+
+def has_device_address_name(ga) -> bool:
+    """Name nach «Bedeutung ergänzen» mit der Geräteadresse an Stelle des
+    Raums («J_1.1.4_17 AUF/AB (…)»)."""
+    return bool(_PA_IN_NAME.match(ga.designation or ""))
+
+
+def rename_in_rooms(project, gas, plan: RoomPlan | None = None) -> int:
+    """GAs, die schon einen Raum haben, aber noch die Geräteadresse im Namen
+    tragen (Herstellerdatei oder Bedeutung erst nach dem Zuordnen): Raum,
+    Elementnummer und Name nach dem Schema, je Aktorkanal ein Element.
+    Gibt die Anzahl umbenannter GAs zurück."""
+    stale = [ga for ga in gas if ga.room_id and has_device_address_name(ga)]
+    if not stale:
+        return 0
+    rooms = {room.id: room for _label, _floor, room in all_rooms(project)}
+    if plan is None:
+        plan = analyse(project)
+    channel_of = {a: key for key, channel in plan.channels.items() for a in channel.addresses}
+    groups: dict[tuple, list] = {}
+    for ga in stale:
+        if ga.room_id not in rooms:
+            continue
+        element = channel_of.get(ga.address) or _element_of(ga)
+        groups.setdefault((ga.room_id, ga.gewerk_code or "SF", element), []).append(ga)
+    for members in groups.values():
+        for ga in members:
+            ga.element_number = 0      # neue Nummer im Raum, kein Doppel
+    renamed = 0
+    numbers_by_room: dict[str, dict[str, set[int]]] = {}
+    for (room_id, _code, _element), members in groups.items():
+        numbers = numbers_by_room.setdefault(room_id, _used_numbers(project, room_id))
+        room = rooms[room_id]
+        for ga in members:
+            ga.room_id = ""            # _move_gas setzt ihn wieder
+        renamed += _move_gas(project, members, room, numbers)
+    return renamed
 
 
 def _element_of(ga) -> str:
@@ -720,3 +834,274 @@ def _with_room_name(rest: str, room_name: str, old_room_name: str) -> str:
     if room_name and not (text == room_name or text.startswith(room_name + " ")):
         text = f"{room_name} {text}".strip()
     return f"{match.group('head')} ({text})"
+
+
+# ── Raum abschliessen: Gewerke, Elemente, Funktionen ─────────────────────
+
+@dataclass
+class RoomSummary:
+    """Was ein abgeschlossener Raum enthält, wie ein geplanter Raum."""
+    gewerke: dict[str, int] = field(default_factory=dict)      # Gewerk -> Elemente
+    functions: list[str] = field(default_factory=list)
+    renamed: int = 0
+    hints: list[str] = field(default_factory=list)              # was noch fehlt
+
+    def text(self) -> str:
+        parts = [f"{code} ×{count}" for code, count in sorted(self.gewerke.items())]
+        text = "Gewerke: " + (", ".join(parts) if parts else "keine")
+        if self.functions:
+            text += " · Funktionen: " + ", ".join(self.functions)
+        return text
+
+
+def set_channel_gewerk(project, plan: RoomPlan, key: tuple[str, str], code: str) -> bool:
+    """Gewerk eines Kanals vor Ort korrigieren (Markise statt Jalousie):
+    alle seine GAs, in der Korrekturschicht. Den Namen führt finish_room nach."""
+    from .ets_corrections import set_gewerk
+    channel = plan.channels.get(key)
+    if channel is None or not code or code == (channel.gewerk or "SF"):
+        return False
+    set_gewerk(project, list(channel.addresses), code)
+    channel.gewerk = code
+    return True
+
+
+def channel_label(project, channel: Channel) -> str:
+    """Klartext, den der Kanal als Element seines Raums schon hat."""
+    from .ets_function_plan import _assignments_by_id
+    by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+    by_id = _assignments_by_id(project)
+    for address in channel.addresses:
+        ga = by_address.get(address)
+        if ga is not None and ga.assignment_id in by_id and ga.element_number:
+            label = by_id[ga.assignment_id][1].element_label(ga.element_number)
+            if label:
+                return label
+    return ""
+
+
+def suggest_function_name(labels: list[str]) -> str:
+    """Name einer Gruppenbedienung aus dem Klartext ihrer Elemente: die
+    gemeinsamen Wörter («Fenster gross Berg» + «Fenster klein Berg» ->
+    «Fenster Berg»), sonst alle verbunden («Pult Ost + Fenster Berg»)."""
+    words = [label.split() for label in labels if label.strip()]
+    if not words:
+        return ""
+    common = [w for w in words[0] if all(w in other for other in words[1:])]
+    if common and len(words) > 1:
+        return " ".join(common)
+    return " + ".join(" ".join(w) for w in words)
+
+
+def _function_groups(plan: RoomPlan, accept) -> list[tuple[list[str], list]]:
+    groups: dict[frozenset, tuple[list[str], list]] = {}
+    for address, keys in sorted(plan.group_gas.items(), key=lambda item: _ga_key(item[0])):
+        if accept(keys):
+            groups.setdefault(frozenset(keys), ([], list(keys)))[0].append(address)
+    return list(groups.values())
+
+
+def room_functions(project, plan: RoomPlan, room_id: str) -> list[tuple[list[str], list]]:
+    """Gruppen-GAs, deren Kanäle alle in diesem Raum liegen, nach Kanälen
+    zusammengefasst: [(GAs, Kanäle)]."""
+    rooms = {key: channel_room(project, channel) for key, channel in plan.channels.items()}
+    return _function_groups(plan, lambda keys: all(rooms.get(k) == room_id for k in keys))
+
+
+def candidate_functions(plan: RoomPlan, keys) -> list[tuple[list[str], list]]:
+    """Für die angehakten Kanäle im Rundgang (noch ohne Raum): Gruppen-GAs,
+    deren Kanäle alle angehakt sind."""
+    wanted = set(keys)
+    return _function_groups(plan, lambda group: set(group) <= wanted)
+
+
+def _location_code(project, room) -> str:
+    from .naming_engine import label_floor_code
+    floor = _floor_of(project, room.id)
+    floor_code = label_floor_code(floor.short_code or "", room.number) if floor else ""
+    return "_".join(p for p in (floor_code, room.number) if p)
+
+
+def _renamed(ga, code: str, location: str, number: int, room_name: str,
+             label: str, old_room_name: str) -> str:
+    """Name nach dem Schema mit neuem Gewerk/Nummer; Klartext = Raum +
+    Element-Klartext (falls erfasst). Eigene Namen bleiben ("")."""
+    match = _ELEMENT.match(ga.designation or "")
+    if match is None:
+        return ""
+    rest = match.group("rest")
+    if label:
+        parts = re.match(r"^(?P<head>.*?)(?: \((?P<text>.*)\))?$", rest)
+        # «· 2» unterscheidet GAs derselben Funktion (Höhe und Lamelle)
+        suffix = re.search(r" · \d+$", parts.group("text") or "")
+        rest = f"{parts.group('head')} ({room_name} {label}{suffix.group(0) if suffix else ''})"
+    else:
+        rest = _with_room_name(rest, room_name, old_room_name)
+    return "_".join(p for p in (code, location, f"{number:02d}") if p) + rest
+
+
+def finish_room(project, plan: RoomPlan, room, labels=None,
+                function_names=None) -> RoomSummary:
+    """Raum wie einen geplanten Raum abschliessen: je Gewerk eine Zuweisung
+    mit einem Element je Aktorkanal (Nummer = GA-Nummer, Klartext vom
+    Rundgang), Taster-GAs dahinter, Raumtemperatur beim Heizelement,
+    Gruppen-GAs als Funktion (wie FA-531, die GAs bleiben). labels: Kanal ->
+    Klartext; function_names: frozenset(Kanäle) -> Name."""
+    from ..models.building import GewerkAssignment
+    from .ets_corrections import set_ga_field
+    labels = labels or {}
+    function_names = function_names or {}
+    summary = RoomSummary()
+    by_address = {ga.address: ga for ga in project.group_addresses.all_addresses()}
+    location = _location_code(project, room)
+    channels = [c for c in plan.channels.values() if channel_room(project, c) == room.id]
+    channel_gas = {a for c in channels for a in c.addresses}
+    group_addresses = set(plan.group_gas)
+
+    def rename(gas, code, number, label=""):
+        for ga in gas:
+            old_room_name = room.name if ga.room_id == room.id else _room_name(project,
+                                                                               ga.room_id)
+            ga.room_id, ga.room_number, ga.element_number = room.id, room.number, number
+            new = _renamed(ga, code, location, number, room.name, label, old_room_name)
+            if new and new != ga.designation:
+                set_ga_field(project, ga, "designation", new)
+                summary.renamed += 1
+
+    assignments = {a.gewerk_code: a for a in room.gewerk_assignments}
+    by_gewerk: dict[str, list[Channel]] = {}
+    for channel in channels:
+        by_gewerk.setdefault(channel.gewerk or "SF", []).append(channel)
+    element_of: dict[tuple[str, str], tuple[object, int]] = {}
+
+    def order(channel):
+        numbers = [by_address[a].element_number for a in channel.addresses
+                   if a in by_address and by_address[a].element_number]
+        return (min(numbers) if numbers else 99, _pa_key(channel.device_address),
+                channel.channel)
+
+    for code, members in sorted(by_gewerk.items()):
+        members.sort(key=order)
+        assignment = assignments.get(code)
+        if assignment is None:
+            assignment = GewerkAssignment(gewerk_code=code, count=len(members))
+            room.gewerk_assignments.append(assignment)
+            assignments[code] = assignment
+        # bisheriger Klartext (zweites Abschliessen ohne neue Eingabe)
+        old_labels = {}
+        for channel in members:
+            numbers = {by_address[a].element_number for a in channel.addresses
+                       if a in by_address and by_address[a].assignment_id == assignment.id}
+            if len(numbers) == 1:
+                old_labels[channel.key] = assignment.element_label(numbers.pop())
+        element_labels = []
+        for number, channel in enumerate(members, start=1):
+            label = labels.get(channel.key, old_labels.get(channel.key, ""))
+            gas = [by_address[a] for a in channel.addresses if a in by_address]
+            rename(gas, code, number, label)
+            for ga in gas:
+                ga.assignment_id = assignment.id
+            element_labels.append(label)
+            element_of[channel.key] = (assignment, number)
+        assignment.count = len(members)
+        assignment.set_element_labels(element_labels)
+        summary.gewerke[code] = len(members)
+
+    # Taster-/Sensor-GAs des Raums: Raumtemperatur zum Heizelement, sonst
+    # hinter die Elemente (Nummern über der Anzahl sind keine Elemente)
+    own = [ga for ga in by_address.values() if ga.room_id == room.id
+           and ga.address not in channel_gas and ga.address not in group_addresses
+           and not ga.function_id]
+    groups: dict[tuple[str, int], list] = {}
+    for ga in own:
+        groups.setdefault((ga.gewerk_code or "SF", ga.element_number), []).append(ga)
+    next_free = dict(summary.gewerke)
+    for (code, _old), gas in sorted(groups.items()):
+        temperature = code == "H" and all((g.function_name or "") == "IST" for g in gas)
+        if temperature and summary.gewerke.get("H", 0) <= 1:
+            assignment = assignments.get("H")
+            if "H" not in summary.gewerke:
+                if assignment is None:
+                    assignment = GewerkAssignment(gewerk_code="H", count=1)
+                    room.gewerk_assignments.append(assignment)
+                    assignments["H"] = assignment
+                assignment.count = 1
+                summary.gewerke["H"] = 1
+                next_free["H"] = 1
+                summary.hints.append(
+                    "Heizung: Raumtemperatur vorhanden, aber kein Heizkanal – Heizkanal "
+                    "von Hand dazunehmen oder mit «Lasten suchen».")
+            rename(gas, "H", 1)
+            for ga in gas:
+                ga.assignment_id = assignment.id
+            continue
+        next_free[code] = next_free.get(code, 0) + 1
+        rename(gas, code, next_free[code])
+        for ga in gas:
+            if ga.assignment_id and ga.assignment_id in {a.id for a in assignments.values()}:
+                ga.assignment_id = ""
+
+    # Gewerke, die im Raum nicht mehr vorkommen
+    room.gewerk_assignments[:] = [a for a in room.gewerk_assignments
+                                  if a.gewerk_code in summary.gewerke]
+    summary.functions = _adopt_functions(project, plan, room, element_of, function_names,
+                                         location, by_address)
+    return summary
+
+
+def _adopt_functions(project, plan, room, element_of, function_names, location,
+                     by_address) -> list[str]:
+    """Gruppen-GAs des Raums als Funktion übernehmen (wie «Gruppen erkennen»,
+    FA-531): Mitglieder = Elemente, GAs = die bestehenden, Name nach dem
+    Schema «J_OG05_F1 AUF/AB (Storen Berg)»."""
+    from ..models.ets_function import FunctionMember
+    from . import group_function_detection as gfd
+    from .ets_corrections import set_ga_field
+    from .ets_function_plan import ko_functions
+    by_ko = ko_functions(project)
+    floor = _floor_of(project, room.id)
+    zone = next((apt for apt in (floor.apartments if floor else ())
+                 if any(r.id == room.id for r in apt.rooms)), None)
+    names = []
+    for addresses, keys in room_functions(project, plan, room.id):
+        if not all(k in element_of for k in keys):
+            continue
+        members = [(room, element_of[k][0], element_of[k][1]) for k in keys]
+        gas = [by_address[a] for a in addresses if a in by_address]
+        codes = {a.gewerk_code for _r, a, _n in members}
+        function_type = gfd._function_type(codes, gas, by_ko)
+        if not function_type or not gas:
+            continue
+        default = suggest_function_name(
+            [element_of[k][0].element_label(element_of[k][1]) for k in keys]) or \
+            " + ".join(plan.channels[k].channel for k in keys)
+        name = (function_names.get(frozenset(keys)) or "").strip() or default
+        function = next((f for f in project.functions
+                         if any(ga.function_id == f.id for ga in gas)), None)
+        if function is None:
+            points = {}
+            for ga in gas:
+                point = gfd._point(ga, function_type, by_ko)
+                if point and point not in points:
+                    points[point] = ga
+            if not points:
+                continue
+            suggestion = gfd.GroupSuggestion(name=name, function_type=function_type,
+                                             room=room, zone=zone, floor=floor,
+                                             members=members, gas=points,
+                                             channels=list(keys))
+            function = gfd.adopt(project, suggestion, name)
+        else:
+            # erneut abgeschlossen: Name und Elemente (Nummern neu) nachführen
+            function.name = name
+            function.room_id = room.id
+            function.members = [FunctionMember(a.id, n) for _r, a, n in members]
+        code = members[0][1].gewerk_code
+        for ga in gas:
+            ga.room_id, ga.room_number, ga.element_number = room.id, room.number, 0
+            if ga.function_id == function.id and ga.function_name:
+                new = f"{code}_{location}_F{function.number} {ga.function_name} ({name})"
+                if new != ga.designation:
+                    set_ga_field(project, ga, "designation", new)
+        names.append(name)
+    return names
